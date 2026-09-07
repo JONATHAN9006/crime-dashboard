@@ -1,0 +1,17 @@
+# Configuración de Netlify.
+#
+# IMPORTANTE: las funciones (carpeta "functions" de abajo, donde vive el
+# backend del Analista IA) SOLO se activan cuando el sitio está conectado a
+# un repositorio Git (o se despliega con "netlify deploy" desde la CLI).
+# Si sigues usando "arrastrar la carpeta dist" (Netlify Drop) como hasta
+# ahora, este archivo se ignora y el backend del Analista IA NUNCA se
+# ejecuta — necesitas cambiar la forma de desplegar para que funcione (ver
+# la explicación completa en la respuesta).
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
