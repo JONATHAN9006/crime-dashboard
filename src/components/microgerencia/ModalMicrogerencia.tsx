@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown } from 'lucide-react';
+import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react';
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia } from '../../data/pdfMicrogerencia';
@@ -11,10 +11,6 @@ function formatearPct(n: number | null): string {
   return `${n >= 0 ? '+' : ''}${formatDecimal(n, 1)}%`;
 }
 
-// Fila compacta con las columnas "generales" de un nodo — Total 2025, año a
-// la fecha ×2, DIF, %, Aporte % y Proyección — las mismas siete columnas
-// que ya trae la Hoja3 del Excel original, en cualquier nivel (distrito,
-// estación, CAI, zona o delito).
 function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado: boolean }) {
   const Icono = nodo.dif > 0 ? TrendingUp : nodo.dif < 0 ? TrendingDown : Minus;
   const color = nodo.dif > 0 ? 'text-rose-600' : nodo.dif < 0 ? 'text-emerald-600' : 'text-slate-400';
@@ -73,23 +69,35 @@ function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
   );
 }
 
-// Un nodo completo: su fila de métricas generales, un botón para
-// desplegar/ocultar sus trimestres y meses (colapsado por defecto en los
-// niveles más profundos, para que la vista siga siendo navegable), y
-// después sus hijos (si los tiene) — así se arma exactamente el orden
-// pedido: "estación general, abajo los trimestres, abajo los meses,
-// después sus zonas de la misma forma".
-function NodoCompleto({ nodo, profundidad }: { nodo: NodoMicrogerencia; profundidad: number }) {
+// Un nodo completo: casilla de selección para el PDF (izquierda), su fila
+// de métricas generales, un botón para desplegar/ocultar sus trimestres y
+// meses, y después sus hijos. "ruta" identifica al nodo de forma única
+// dentro de todo el árbol (nombre de cada ancestro unido con ">"), para que
+// la selección para el PDF funcione sin confundir nodos con el mismo
+// nombre en ramas distintas.
+function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSeleccion }: {
+  nodo: NodoMicrogerencia;
+  profundidad: number;
+  ruta: string;
+  seleccionados: Map<string, NodoMicrogerencia>;
+  onAlternarSeleccion: (ruta: string, nodo: NodoMicrogerencia) => void;
+}) {
   const [expandido, setExpandido] = useState(profundidad <= 1);
   const esNivelSuperior = profundidad === 0;
+  const estaSeleccionado = seleccionados.has(ruta);
 
   return (
     <div style={{ marginLeft: profundidad * 14 }} className="mb-2">
-      <div className={`rounded-lg border p-2.5 ${esNivelSuperior ? 'border-brand-green/40 bg-brand-green/5' : profundidad === 1 ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-white'}`}>
-        <button type="button" onClick={() => setExpandido((v) => !v)} className="mb-1.5 flex items-center gap-1 text-left">
-          {expandido ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
-          <span className={`font-bold ${esNivelSuperior ? 'text-brand-navy' : 'text-slate-700'}`}>{nodo.nombre}</span>
-        </button>
+      <div className={`rounded-lg border p-2.5 ${estaSeleccionado ? 'border-brand-green ring-1 ring-brand-green' : esNivelSuperior ? 'border-brand-green/40 bg-brand-green/5' : profundidad === 1 ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-white'}`}>
+        <div className="mb-1.5 flex items-center gap-2">
+          <button type="button" onClick={() => onAlternarSeleccion(ruta, nodo)} className="shrink-0 text-brand-green" title="Incluir en el PDF">
+            {estaSeleccionado ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-300" />}
+          </button>
+          <button type="button" onClick={() => setExpandido((v) => !v)} className="flex flex-1 items-center gap-1 text-left">
+            {expandido ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
+            <span className={`font-bold ${esNivelSuperior ? 'text-brand-navy' : 'text-slate-700'}`}>{nodo.nombre}</span>
+          </button>
+        </div>
         <MetricasNodo nodo={nodo} destacado={esNivelSuperior} />
         {expandido && (
           <div className="mt-2.5 grid grid-cols-1 gap-4 border-t border-slate-200 pt-2.5 sm:grid-cols-2">
@@ -98,7 +106,9 @@ function NodoCompleto({ nodo, profundidad }: { nodo: NodoMicrogerencia; profundi
           </div>
         )}
       </div>
-      {nodo.hijos.map((hijo) => <NodoCompleto key={hijo.nombre} nodo={hijo} profundidad={profundidad + 1} />)}
+      {nodo.hijos.map((hijo) => (
+        <NodoCompleto key={hijo.nombre} nodo={hijo} profundidad={profundidad + 1} ruta={`${ruta}>${hijo.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={onAlternarSeleccion} />
+      ))}
     </div>
   );
 }
@@ -122,9 +132,17 @@ function CheckboxVista({ etiqueta, activo, onClick }: { etiqueta: string; activo
   );
 }
 
+const TITULOS_VISTA: Record<Vista, string> = {
+  general: 'MEPOY General — Consolidado',
+  distrito1: 'Distrito Uno',
+  distrito2: 'Distrito Dos',
+  delitos: 'Comparativo por Delito',
+};
+
 export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
   const datos = useMicrogerencia();
   const [vista, setVista] = useState<Vista>('general');
+  const [seleccionados, setSeleccionados] = useState<Map<string, NodoMicrogerencia>>(new Map());
 
   if (!datos) {
     return createPortal(
@@ -138,7 +156,26 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     );
   }
 
+  function alternarSeleccion(ruta: string, nodo: NodoMicrogerencia) {
+    setSeleccionados((prev) => {
+      const nuevo = new Map(prev);
+      if (nuevo.has(ruta)) nuevo.delete(ruta); else nuevo.set(ruta, nodo);
+      return nuevo;
+    });
+  }
+
   const raizVistaActual = vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : vista === 'distrito2' ? datos.distrito2 : null;
+
+  function descargarPdf() {
+    if (!datos) return;
+    if (seleccionados.size > 0) {
+      generarPdfMicrogerencia(Array.from(seleccionados.values()), `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`);
+    } else if (vista === 'delitos') {
+      generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos);
+    } else if (raizVistaActual) {
+      generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista]);
+    }
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
@@ -162,30 +199,44 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
         <div className="flex-1 overflow-auto px-5 py-4">
           <p className="mb-3 text-xs text-slate-400">
-            Calculado en vivo a partir de la misma información cargada en el dashboard — intencionalmente independiente de los filtros de la barra lateral, porque es un reporte de estado general de toda la unidad.
+            Calculado en vivo a partir de la misma información cargada en el dashboard — independiente de los filtros de la barra lateral. Marca el <CheckSquare size={11} className="inline text-brand-green" /> de cualquier fila para elegir exactamente qué incluir en el PDF (puedes combinar filas de distintas pestañas).
           </p>
 
-          {vista !== 'delitos' && raizVistaActual && <NodoCompleto nodo={raizVistaActual} profundidad={0} />}
+          {vista !== 'delitos' && raizVistaActual && (
+            <NodoCompleto nodo={raizVistaActual} profundidad={0} ruta={raizVistaActual.nombre} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} />
+          )}
 
           {vista === 'delitos' && (
             <div>
-              {datos.delitos.map((d) => <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={0} />)}
+              {datos.delitos.map((d) => (
+                <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={0} ruta={`Delitos>${d.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} />
+              ))}
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
-          <button type="button" onClick={onCerrar} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-400">
-            Cerrar
-          </button>
-          <button
-            type="button"
-            onClick={() => generarPdfMicrogerencia(datos, vista)}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-green/90"
-          >
-            <Download size={15} />
-            Descargar PDF (vista actual)
-          </button>
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
+          <p className="text-xs text-slate-400">
+            {seleccionados.size > 0 ? `${seleccionados.size} elemento(s) seleccionado(s) para el PDF` : `Sin selección — el PDF incluirá "${TITULOS_VISTA[vista]}" completo`}
+          </p>
+          <div className="flex items-center gap-2">
+            {seleccionados.size > 0 && (
+              <button type="button" onClick={() => setSeleccionados(new Map())} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-500 hover:border-slate-400">
+                Limpiar selección
+              </button>
+            )}
+            <button type="button" onClick={onCerrar} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-400">
+              Cerrar
+            </button>
+            <button
+              type="button"
+              onClick={descargarPdf}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-green/90"
+            >
+              <Download size={15} />
+              Descargar PDF
+            </button>
+          </div>
         </div>
       </div>
     </div>,

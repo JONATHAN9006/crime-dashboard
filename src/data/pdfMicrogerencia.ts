@@ -1,23 +1,24 @@
-// Genera el PDF de "Microgerencia y Proyección Delictiva MEPOY" —
-// construido con las primitivas de jsPDF (texto/rectángulos), igual que ya
-// hace utils/generarPdf.ts en el resto del dashboard, para mantener texto
-// nítido (vectorial) en vez de una captura de pantalla del modal.
+// Genera el PDF de "Microgerencia y Proyección Delictiva MEPOY" — un PDF
+// por TARJETAS (una por cada nodo seleccionado), cada una con su fila de
+// métricas generales y sus tablas de Trimestres y Meses — el mismo formato
+// que ya se ve en el modal, para que no haya sorpresas entre lo que se ve
+// en pantalla y lo que sale impreso. Construido con las primitivas de
+// jsPDF (texto/rectángulos) para texto nítido, igual que el resto del
+// dashboard.
 import { jsPDF } from 'jspdf';
-import type { DatosMicrogerencia, NodoMicrogerencia } from './microgerencia';
+import type { NodoMicrogerencia } from './microgerencia';
 
-export type VistaMicrogerencia = 'general' | 'distrito1' | 'distrito2' | 'delitos';
-
-const MM_ANCHO = 297; // A4 horizontal — la tabla tiene muchas columnas
+const MM_ANCHO = 297; // A4 horizontal
 const MM_ALTO = 210;
 const MARGEN = 12;
-const ALTO_FILA = 6.2;
+const ANCHO_UTIL = MM_ANCHO - MARGEN * 2;
 const COLOR_NAVY: [number, number, number] = [16, 35, 63];
 const COLOR_GREEN: [number, number, number] = [17, 103, 98];
 const COLOR_GRIS_CLARO: [number, number, number] = [244, 246, 248];
-
-// Ancho de cada columna (mm) — nombre se lleva el resto del espacio disponible.
-const ANCHOS = { total2025: 22, fecha2025: 20, fecha2026: 20, dif: 18, pct: 18, aporte: 20, proyeccion: 26 };
-const ANCHO_NOMBRE = MM_ANCHO - MARGEN * 2 - Object.values(ANCHOS).reduce((a, b) => a + b, 0);
+const COLOR_TEXTO: [number, number, number] = [30, 41, 59];
+const COLOR_ROJO: [number, number, number] = [190, 30, 45];
+const COLOR_VERDE: [number, number, number] = [15, 118, 90];
+const COLOR_MUTED: [number, number, number] = [100, 116, 139];
 
 function formatearNumero(n: number): string {
   return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Math.round(n));
@@ -26,121 +27,157 @@ function formatearPct(n: number | null): string {
   if (n === null) return 'N/A';
   return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
 }
+function colorPorDif(dif: number): [number, number, number] {
+  return dif > 0 ? COLOR_ROJO : dif < 0 ? COLOR_VERDE : COLOR_MUTED;
+}
 
-const TITULOS_VISTA: Record<VistaMicrogerencia, string> = {
-  general: 'MEPOY General — Consolidado',
-  distrito1: 'Distrito Uno',
-  distrito2: 'Distrito Dos',
-  delitos: 'Comparativo por Delito',
-};
+// Alto estimado (mm) que va a ocupar la tarjeta completa de un nodo —
+// título + fila de métricas + tabla de trimestres (4 filas) + tabla de
+// meses (6 filas × 2 columnas) + espaciado. Se calcula ANTES de dibujar
+// para decidir si hace falta saltar de página (nunca se corta una tarjeta
+// a la mitad entre dos páginas).
+const ALTO_TITULO_TARJETA = 9;
+const ALTO_FILA_METRICAS = 14;
+const ALTO_FILA_TABLA = 5.2;
+const ALTO_TRIMESTRES = 6 + ALTO_FILA_TABLA * 5; // encabezado + 4 trimestres + margen
+const ALTO_MESES = 6 + ALTO_FILA_TABLA * 7; // encabezado + 6 filas (2 columnas de 6 meses)
+const ESPACIO_ENTRE_TARJETAS = 8;
+const ALTO_TARJETA_COMPLETA = ALTO_TITULO_TARJETA + ALTO_FILA_METRICAS + ALTO_TRIMESTRES + ALTO_MESES + ESPACIO_ENTRE_TARJETAS;
 
-export function generarPdfMicrogerencia(datos: DatosMicrogerencia, vista: VistaMicrogerencia = 'general'): void {
-  const raices: NodoMicrogerencia[] = vista === 'delitos' ? datos.delitos : [vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : datos.distrito2];
-
+export function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string): void {
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  let y = MARGEN;
+  let y = 0;
 
-  function nuevaPagina() {
-    pdf.addPage();
-    y = MARGEN;
-    dibujarEncabezadoColumnas();
-  }
-
-  function dibujarTituloPrincipal() {
+  function dibujarEncabezadoPagina() {
     pdf.setFillColor(...COLOR_NAVY);
-    pdf.rect(0, 0, MM_ANCHO, 22, 'F');
+    pdf.rect(0, 0, MM_ANCHO, 24, 'F');
     pdf.setTextColor(255, 255, 255);
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(15);
-    pdf.text(`Microgerencia y Proyección Delictiva MEPOY — ${TITULOS_VISTA[vista]}`, MARGEN, 10);
+    pdf.setFontSize(14);
+    pdf.text('Microgerencia y Proyección Delictiva MEPOY', MARGEN, 9);
+    pdf.setFontSize(9.5);
     pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(9);
-    pdf.text(`Periodo: ${datos.periodo}  ·  Días hasta la fecha: ${datos.diasHastaLaFecha}`, MARGEN, 17);
-    y = 28;
+    pdf.text('Centro de Información Estratégica Policial del Servicio (CIEPS)', MARGEN, 15.5);
+    pdf.setFontSize(8.5);
+    pdf.text(tituloVista, MARGEN, 21);
+    y = 30;
   }
 
-  function dibujarEncabezadoColumnas() {
-    pdf.setFillColor(...COLOR_GREEN);
-    pdf.rect(MARGEN, y, MM_ANCHO - MARGEN * 2, ALTO_FILA + 1, 'F');
-    pdf.setTextColor(255, 255, 255);
+  function nuevaPaginaSiNoCabe(altoNecesario: number) {
+    if (y + altoNecesario > MM_ALTO - MARGEN) {
+      pdf.addPage();
+      dibujarEncabezadoPagina();
+    }
+  }
+
+  function dibujarMetricas(nodo: NodoMicrogerencia) {
+    const columnas: { etiqueta: string; valor: string; color: [number, number, number] }[] = [
+      { etiqueta: 'TOTAL 2025', valor: formatearNumero(nodo.total2025), color: COLOR_TEXTO },
+      { etiqueta: '2025 (A LA FECHA)', valor: formatearNumero(nodo.fecha2025), color: COLOR_TEXTO },
+      { etiqueta: '2026 (A LA FECHA)', valor: formatearNumero(nodo.fecha2026), color: COLOR_NAVY },
+      { etiqueta: 'DIF', valor: `${nodo.dif >= 0 ? '+' : ''}${formatearNumero(nodo.dif)}`, color: colorPorDif(nodo.dif) },
+      { etiqueta: '%', valor: formatearPct(nodo.pct), color: colorPorDif(nodo.dif) },
+      { etiqueta: 'APORTE %', valor: `${nodo.aportePct.toFixed(1)}%`, color: COLOR_TEXTO },
+      { etiqueta: 'PROY. CIERRE', valor: formatearNumero(nodo.terminaAnio), color: COLOR_MUTED },
+    ];
+    const anchoColumna = ANCHO_UTIL / columnas.length;
+    columnas.forEach((c, i) => {
+      const x = MARGEN + i * anchoColumna;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(6.5);
+      pdf.setTextColor(...COLOR_MUTED);
+      pdf.text(c.etiqueta, x, y);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(...c.color);
+      pdf.text(c.valor, x, y + 6.5);
+    });
+    y += ALTO_FILA_METRICAS;
+  }
+
+  function dibujarTablaGenerica(titulo: string, filas: { etiqueta: string; anio2025: number; anio2026: number; dif: number }[], x0: number, ancho: number) {
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8);
-    let x = MARGEN + 2;
-    pdf.text('DEPENDENCIA / ZONA', x, y + 4.5);
-    x = MARGEN + ANCHO_NOMBRE;
-    const columnas: [string, number][] = [
-      ['Total 2025', ANCHOS.total2025], ['2025 (a la fecha)', ANCHOS.fecha2025], ['2026 (a la fecha)', ANCHOS.fecha2026],
-      ['DIF', ANCHOS.dif], ['%', ANCHOS.pct], ['Aporte %', ANCHOS.aporte], ['Proy. cierre 2026', ANCHOS.proyeccion],
-    ];
-    for (const [etiqueta, ancho] of columnas) {
-      pdf.text(etiqueta, x + ancho - 2, y + 4.5, { align: 'right' });
-      x += ancho;
+    pdf.setFontSize(7);
+    pdf.setTextColor(...COLOR_MUTED);
+    pdf.text(titulo, x0, y);
+    let fy = y + 4;
+    const colEtiqueta = ancho * 0.42;
+    const colValor = ancho * 0.19;
+    pdf.setFontSize(6.5);
+    pdf.text('', x0, fy);
+    pdf.text('2025', x0 + colEtiqueta + colValor - 2, fy, { align: 'right' });
+    pdf.text('2026', x0 + colEtiqueta + colValor * 2 - 2, fy, { align: 'right' });
+    pdf.text('Dif', x0 + colEtiqueta + colValor * 3 - 2, fy, { align: 'right' });
+    fy += 3.2;
+    pdf.setDrawColor(226, 232, 240);
+    pdf.line(x0, fy, x0 + ancho - 3, fy);
+    fy += 3.5;
+    for (const f of filas) {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+      pdf.setTextColor(...COLOR_TEXTO);
+      pdf.text(f.etiqueta, x0, fy);
+      pdf.setTextColor(...COLOR_MUTED);
+      pdf.text(formatearNumero(f.anio2025), x0 + colEtiqueta + colValor - 2, fy, { align: 'right' });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...COLOR_TEXTO);
+      pdf.text(formatearNumero(f.anio2026), x0 + colEtiqueta + colValor * 2 - 2, fy, { align: 'right' });
+      pdf.setTextColor(...colorPorDif(f.dif));
+      pdf.text(`${f.dif >= 0 ? '+' : ''}${formatearNumero(f.dif)}`, x0 + colEtiqueta + colValor * 3 - 2, fy, { align: 'right' });
+      fy += ALTO_FILA_TABLA;
     }
-    y += ALTO_FILA + 1;
   }
 
-  function dibujarFila(nodo: NodoMicrogerencia, profundidad: number, indiceFila: number) {
-    if (y > MM_ALTO - MARGEN - ALTO_FILA) nuevaPagina();
+  function dibujarTarjetaNodo(nodo: NodoMicrogerencia, indice: number) {
+    nuevaPaginaSiNoCabe(ALTO_TARJETA_COMPLETA);
 
-    const esNivelSuperior = profundidad <= 2; // General / Distrito / Estación resaltados
-    if (esNivelSuperior) {
-      pdf.setFillColor(210, 227, 224);
-      pdf.rect(MARGEN, y, MM_ANCHO - MARGEN * 2, ALTO_FILA, 'F');
-    } else if (indiceFila % 2 === 0) {
-      pdf.setFillColor(...COLOR_GRIS_CLARO);
-      pdf.rect(MARGEN, y, MM_ANCHO - MARGEN * 2, ALTO_FILA, 'F');
-    }
+    // Fondo de la tarjeta completa, para separarla visualmente de la siguiente.
+    const altoTarjeta = ALTO_TITULO_TARJETA + ALTO_FILA_METRICAS + ALTO_TRIMESTRES + ALTO_MESES;
+    const colorFondo: [number, number, number] = indice % 2 === 0 ? [255, 255, 255] : COLOR_GRIS_CLARO;
+    pdf.setFillColor(...colorFondo);
+    pdf.setDrawColor(226, 232, 240);
+    pdf.roundedRect(MARGEN - 2, y - 4, ANCHO_UTIL + 4, altoTarjeta + 2, 2, 2, 'FD');
 
-    pdf.setTextColor(30, 41, 59);
-    pdf.setFont('helvetica', esNivelSuperior ? 'bold' : 'normal');
-    pdf.setFontSize(esNivelSuperior ? 8.5 : 7.8);
-    const sangria = profundidad * 5;
-    pdf.text(nodo.nombre, MARGEN + 2 + sangria, y + 4.3, { maxWidth: ANCHO_NOMBRE - sangria - 3 });
+    pdf.setFillColor(...COLOR_GREEN);
+    pdf.rect(MARGEN - 2, y - 4, 3, altoTarjeta + 2, 'F');
 
-    let x = MARGEN + ANCHO_NOMBRE;
-    const valores: [string, number][] = [
-      [formatearNumero(nodo.total2025), ANCHOS.total2025],
-      [formatearNumero(nodo.fecha2025), ANCHOS.fecha2025],
-      [formatearNumero(nodo.fecha2026), ANCHOS.fecha2026],
-      [`${nodo.dif >= 0 ? '+' : ''}${formatearNumero(nodo.dif)}`, ANCHOS.dif],
-      [formatearPct(nodo.pct), ANCHOS.pct],
-      [`${nodo.aportePct.toFixed(1)}%`, ANCHOS.aporte],
-      [formatearNumero(nodo.terminaAnio), ANCHOS.proyeccion],
-    ];
-    pdf.setFont('helvetica', esNivelSuperior ? 'bold' : 'normal');
-    if (nodo.dif > 0) pdf.setTextColor(190, 30, 45); else if (nodo.dif < 0) pdf.setTextColor(15, 118, 90); else pdf.setTextColor(30, 41, 59);
-    for (const [texto, ancho] of valores) {
-      pdf.text(texto, x + ancho - 2, y + 4.3, { align: 'right' });
-      x += ancho;
-    }
-    pdf.setTextColor(30, 41, 59);
-    y += ALTO_FILA;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11.5);
+    pdf.setTextColor(...COLOR_NAVY);
+    pdf.text(nodo.nombre, MARGEN + 4, y + 2);
+    y += ALTO_TITULO_TARJETA;
+
+    dibujarMetricas(nodo);
+
+    dibujarTablaGenerica('TRIMESTRES', nodo.trimestres, MARGEN, ANCHO_UTIL / 2 - 4);
+    y += ALTO_TRIMESTRES;
+
+    const mesesIzq = nodo.meses.slice(0, 6);
+    const mesesDer = nodo.meses.slice(6, 12);
+    const yInicioMeses = y;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.setTextColor(...COLOR_MUTED);
+    pdf.text('DISTRIBUCIÓN POR MES', MARGEN, y);
+    y += 4;
+    const yTrasTitulo = y;
+    dibujarTablaGenerica('', mesesIzq, MARGEN, ANCHO_UTIL / 2 - 4);
+    y = yTrasTitulo;
+    dibujarTablaGenerica('', mesesDer, MARGEN + ANCHO_UTIL / 2 + 4, ANCHO_UTIL / 2 - 4);
+    y = yInicioMeses + ALTO_MESES - 4 + ESPACIO_ENTRE_TARJETAS;
   }
 
-  function recorrer(nodo: NodoMicrogerencia, profundidad: number, indiceFila: { n: number }) {
-    dibujarFila(nodo, profundidad, indiceFila.n++);
-    for (const hijo of nodo.hijos) recorrer(hijo, profundidad + 1, indiceFila);
-  }
+  dibujarEncabezadoPagina();
+  nodos.forEach((nodo, i) => dibujarTarjetaNodo(nodo, i));
 
-  dibujarTituloPrincipal();
-  dibujarEncabezadoColumnas();
-  const indiceFila = { n: 0 };
-  for (const raiz of raices) recorrer(raiz, 0, indiceFila);
-
-  // Nota: por ahora el PDF conserva solo las columnas generales (Total
-  // 2025, año a la fecha ×2, DIF, %, Aporte %, Proyección) — el desglose de
-  // trimestres y meses que sí se ve en el modal no se incluye aquí todavía,
-  // para mantener el PDF en un formato de una sola tabla por página.
-
-  // Pie de página con fecha de generación, en todas las páginas.
   const totalPaginas = (pdf as any).internal.getNumberOfPages();
   for (let p = 1; p <= totalPaginas; p++) {
     pdf.setPage(p);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7);
-    pdf.setTextColor(148, 163, 184);
+    pdf.setTextColor(...COLOR_MUTED);
     pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, MM_ALTO - 5);
   }
 
-  pdf.save(`microgerencia-${vista}.pdf`);
+  pdf.save('microgerencia-mepoy.pdf');
 }
