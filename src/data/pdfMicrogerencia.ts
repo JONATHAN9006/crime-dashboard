@@ -5,6 +5,8 @@
 import { jsPDF } from 'jspdf';
 import type { DatosMicrogerencia, NodoMicrogerencia } from './microgerencia';
 
+export type VistaMicrogerencia = 'general' | 'distrito1' | 'distrito2' | 'delitos';
+
 const MM_ANCHO = 297; // A4 horizontal — la tabla tiene muchas columnas
 const MM_ALTO = 210;
 const MARGEN = 12;
@@ -25,7 +27,16 @@ function formatearPct(n: number | null): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
 }
 
-export function generarPdfMicrogerencia(datos: DatosMicrogerencia): void {
+const TITULOS_VISTA: Record<VistaMicrogerencia, string> = {
+  general: 'MEPOY General — Consolidado',
+  distrito1: 'Distrito Uno',
+  distrito2: 'Distrito Dos',
+  delitos: 'Comparativo por Delito',
+};
+
+export function generarPdfMicrogerencia(datos: DatosMicrogerencia, vista: VistaMicrogerencia = 'general'): void {
+  const raices: NodoMicrogerencia[] = vista === 'delitos' ? datos.delitos : [vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : datos.distrito2];
+
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   let y = MARGEN;
 
@@ -41,7 +52,7 @@ export function generarPdfMicrogerencia(datos: DatosMicrogerencia): void {
     pdf.setTextColor(255, 255, 255);
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(15);
-    pdf.text('Microgerencia y Proyección Delictiva MEPOY', MARGEN, 10);
+    pdf.text(`Microgerencia y Proyección Delictiva MEPOY — ${TITULOS_VISTA[vista]}`, MARGEN, 10);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(9);
     pdf.text(`Periodo: ${datos.periodo}  ·  Días hasta la fecha: ${datos.diasHastaLaFecha}`, MARGEN, 17);
@@ -113,7 +124,13 @@ export function generarPdfMicrogerencia(datos: DatosMicrogerencia): void {
 
   dibujarTituloPrincipal();
   dibujarEncabezadoColumnas();
-  recorrer(datos.general, 0, { n: 0 });
+  const indiceFila = { n: 0 };
+  for (const raiz of raices) recorrer(raiz, 0, indiceFila);
+
+  // Nota: por ahora el PDF conserva solo las columnas generales (Total
+  // 2025, año a la fecha ×2, DIF, %, Aporte %, Proyección) — el desglose de
+  // trimestres y meses que sí se ve en el modal no se incluye aquí todavía,
+  // para mantener el PDF en un formato de una sola tabla por página.
 
   // Pie de página con fecha de generación, en todas las páginas.
   const totalPaginas = (pdf as any).internal.getNumberOfPages();
@@ -125,5 +142,5 @@ export function generarPdfMicrogerencia(datos: DatosMicrogerencia): void {
     pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, MM_ALTO - 5);
   }
 
-  pdf.save('microgerencia-proyeccion-delictiva-mepoy.pdf');
+  pdf.save(`microgerencia-${vista}.pdf`);
 }
