@@ -12,17 +12,23 @@
 // La API key SOLO vive aquí, como variable de entorno del servidor. Nunca
 // se envía al navegador, nunca aparece en el bundle de React.
 //
-// ⚠️ IMPORTANTE — SIN PROBAR CONTRA UN MODELO REAL: este archivo se escribió
-// siguiendo la documentación pública de la API de Anthropic (Messages API,
-// tool use), pero no se pudo ejecutar contra una API key real durante esta
-// sesión (no hay una disponible). Antes de confiar en él, pruébalo con tu
-// propia key siguiendo la sección de pruebas de la respuesta.
+// PROVEEDORES SOPORTADOS (variable de entorno AI_PROVIDER):
+//   - "gemini"    (por defecto recomendado — Google AI Studio tiene un nivel
+//                  gratuito real y permanente, sin tarjeta de crédito)
+//   - "anthropic" (Claude — sin nivel gratuito permanente, requiere pago)
+//
+// ⚠️ IMPORTANTE — SIN PROBAR CONTRA UN MODELO REAL: ambos adaptadores se
+// escribieron siguiendo la documentación pública de cada proveedor (Google
+// AI / Gemini API "function calling", y la Messages API de Anthropic), pero
+// no se pudieron ejecutar contra una API key real durante esta sesión (no
+// hay ninguna disponible aquí). Antes de confiar en esto, pruébalo con tu
+// propia key.
 import type { Handler } from '@netlify/functions';
 
 interface EsquemaHerramienta {
   name: string;
   description: string;
-  input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
+  input_schema: { type: 'object'; properties: Record<string, any>; required?: string[] };
 }
 
 interface ResultadoHerramienta { id: string; nombre: string; resultado: unknown }
@@ -34,13 +40,13 @@ interface CuerpoSolicitud {
   herramientas: EsquemaHerramienta[];
 }
 
-const AI_API_KEY = process.env.AI_API_KEY;
-const AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4-6';
-const AI_PROVIDER = (process.env.AI_PROVIDER || 'anthropic').toLowerCase();
+interface LlamadaHerramientaCruda { id: string; nombre: string; parametros: Record<string, unknown> }
+interface ResultadoProveedor { llamadas: LlamadaHerramientaCruda[]; texto: string }
 
-// System prompt: la regla anti-alucinación y el respeto estricto al delito
-// seleccionado van AQUÍ, de forma explícita — no dependen de que el modelo
-// "adivine" el comportamiento esperado.
+const AI_API_KEY = process.env.AI_API_KEY;
+const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+const AI_MODEL = process.env.AI_MODEL || (AI_PROVIDER === 'gemini' ? 'gemini-2.5-flash' : 'claude-sonnet-4-6');
+
 function construirSystemPrompt(contexto: Record<string, unknown>): string {
   const metadatos = (contexto as any)?.metadatos ?? {};
   const delitoUnico = metadatos.delitoUnicoSeleccionado as string | null;
@@ -57,28 +63,14 @@ ${delitoUnico
 6. Cuando el usuario pida un "análisis ejecutivo", estructura la respuesta en: Situación actual, Comparación con la vigencia anterior, Variación, Comportamiento temporal, Distribución territorial (si hay información), Principales hallazgos, Aspectos que requieren atención (solo si los datos lo justifican), y Conclusión.`;
 }
 
-async function llamarAnthropic(systemPrompt: string, mensajes: CuerpoSolicitud['mensajes'], herramientas: EsquemaHerramienta[], resultadosHerramientas: ResultadoHerramienta[]) {
-  // Traduce el historial simple {rol, texto} + resultados de herramientas
-  // pendientes al formato de "content blocks" que espera la Messages API.
-  const contenidoUsuarioFinal: any[] = [];
-  if (resultadosHerramientas.length > 0) {
-    for (const r of resultadosHerramientas) {
-      contenidoUsuarioFinal.push({ type: 'tool_result', tool_use_id: r.id, content: JSON.stringify(r.resultado) });
-    }
-  }
-
-  const mensajesAnthropic = mensajes.map((m) => ({ role: m.rol, content: m.texto }));
-  if (contenidoUsuarioFinal.length > 0) {
-    mensajesAnthropic.push({ role: 'user', content: contenidoUsuarioFinal } as any);
-  }
+async function llamarAnthropic(systemPrompt: string, mensajes: CuerpoSolicitud['mensajes'], herramientas: EsquemaHerramienta[], resultadosHerramientas: ResultadoHerramienta[]): Promise<ResultadoProveedor> {
+  const contenidoUsuarioFinal: any[] = resultadosHerramientas.map((r) => ({ type: 'tool_result', tool_use_id: r.id, content: JSON.stringify(r.resultado) }));
+  const mensajesAnthropic: any[] = mensajes.map((m) => ({ role: m.rol, content: m.texto }));
+  if (contenidoUsuarioFinal.length > 0) mensajesAnthropic.push({ role: 'user', content: contenidoUsuarioFinal });
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': AI_API_KEY as string,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'Content-Type': 'application/json', 'x-api-key': AI_API_KEY as string, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: AI_MODEL,
       max_tokens: 1500,
@@ -87,12 +79,56 @@ async function llamarAnthropic(systemPrompt: string, mensajes: CuerpoSolicitud['
       tools: herramientas.map((h) => ({ name: h.name, description: h.description, input_schema: h.input_schema })),
     }),
   });
+  if (!resp.ok) throw new Error(`Anthropic API respondió ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`);
+  const data: any = await resp.json();
 
-  if (!resp.ok) {
-    const textoError = await resp.text().catch(() => '');
-    throw new Error(`Anthropic API respondió ${resp.status}: ${textoError.slice(0, 300)}`);
+  const llamadas = (data.content || [])
+    .filter((b: any) => b.type === 'tool_use')
+    .map((b: any) => ({ id: b.id, nombre: b.name, parametros: b.input || {} }));
+  const texto = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
+  return { llamadas, texto };
+}
+
+function convertirEsquemaAGemini(valor: any): any {
+  if (Array.isArray(valor)) return valor.map(convertirEsquemaAGemini);
+  if (valor && typeof valor === 'object') {
+    const resultado: any = {};
+    for (const [clave, v] of Object.entries(valor)) {
+      resultado[clave] = clave === 'type' && typeof v === 'string' ? v.toUpperCase() : convertirEsquemaAGemini(v);
+    }
+    return resultado;
   }
-  return resp.json();
+  return valor;
+}
+
+async function llamarGemini(systemPrompt: string, mensajes: CuerpoSolicitud['mensajes'], herramientas: EsquemaHerramienta[], resultadosHerramientas: ResultadoHerramienta[]): Promise<ResultadoProveedor> {
+  const contents: any[] = mensajes.map((m) => ({ role: m.rol === 'assistant' ? 'model' : 'user', parts: [{ text: m.texto }] }));
+
+  if (resultadosHerramientas.length > 0) {
+    contents.push({
+      role: 'function',
+      parts: resultadosHerramientas.map((r) => ({ functionResponse: { name: r.nombre, response: { resultado: r.resultado } } })),
+    });
+  }
+
+  const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': AI_API_KEY as string },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      tools: [{ functionDeclarations: herramientas.map((h) => ({ name: h.name, description: h.description, parameters: convertirEsquemaAGemini(h.input_schema) })) }],
+    }),
+  });
+  if (!resp.ok) throw new Error(`Gemini API respondió ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`);
+  const data: any = await resp.json();
+
+  const partes: any[] = data?.candidates?.[0]?.content?.parts || [];
+  const llamadas = partes
+    .filter((p) => p.functionCall)
+    .map((p, i) => ({ id: `gemini-${Date.now()}-${i}`, nombre: p.functionCall.name, parametros: p.functionCall.args || {} }));
+  const texto = partes.filter((p) => typeof p.text === 'string').map((p) => p.text).join('\n').trim();
+  return { llamadas, texto };
 }
 
 export const handler: Handler = async (event) => {
@@ -102,7 +138,7 @@ export const handler: Handler = async (event) => {
 
   if (!AI_API_KEY) {
     return {
-      statusCode: 200, // 200 a propósito: es un estado esperado, no una falla del servidor
+      statusCode: 200,
       body: JSON.stringify({ tipo: 'error', noConfigurado: true, mensaje: 'El Analista IA aún no está configurado. Verifique la configuración del servicio de IA.' }),
     };
   }
@@ -114,31 +150,25 @@ export const handler: Handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ tipo: 'error', mensaje: 'Solicitud mal formada.' }) };
   }
 
-  if (AI_PROVIDER !== 'anthropic') {
-    // Punto de extensión: agregar aquí un adaptador equivalente para otro
-    // proveedor (ej. OpenAI) manteniendo el mismo contrato de entrada/salida
-    // con el cliente — ver services/agenteIA.ts, que no sabe ni le importa
-    // qué proveedor hay detrás.
-    return { statusCode: 200, body: JSON.stringify({ tipo: 'error', mensaje: `Proveedor de IA "${AI_PROVIDER}" no implementado todavía.` }) };
-  }
-
   try {
     const systemPrompt = construirSystemPrompt(cuerpo.contexto);
-    const data: any = await llamarAnthropic(systemPrompt, cuerpo.mensajes, cuerpo.herramientas, cuerpo.resultadosHerramientas);
-
-    if (data.stop_reason === 'tool_use') {
-      const llamadas = (data.content || [])
-        .filter((b: any) => b.type === 'tool_use')
-        .map((b: any) => ({ id: b.id, nombre: b.name, parametros: b.input || {} }));
-      return { statusCode: 200, body: JSON.stringify({ tipo: 'llamada_herramienta', llamadas }) };
+    let resultado: ResultadoProveedor;
+    if (AI_PROVIDER === 'gemini') {
+      resultado = await llamarGemini(systemPrompt, cuerpo.mensajes, cuerpo.herramientas, cuerpo.resultadosHerramientas);
+    } else if (AI_PROVIDER === 'anthropic') {
+      resultado = await llamarAnthropic(systemPrompt, cuerpo.mensajes, cuerpo.herramientas, cuerpo.resultadosHerramientas);
+    } else {
+      return { statusCode: 200, body: JSON.stringify({ tipo: 'error', mensaje: `Proveedor de IA "${AI_PROVIDER}" no implementado todavía.` }) };
     }
 
-    const textoFinal = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
+    if (resultado.llamadas.length > 0) {
+      return { statusCode: 200, body: JSON.stringify({ tipo: 'llamada_herramienta', llamadas: resultado.llamadas }) };
+    }
     return {
       statusCode: 200,
-      body: JSON.stringify({ tipo: 'respuesta', texto: textoFinal || 'No fue posible generar una respuesta con la información disponible.' }),
+      body: JSON.stringify({ tipo: 'respuesta', texto: resultado.texto || 'No fue posible generar una respuesta con la información disponible.' }),
     };
-  } catch (err) {
+  } catch {
     return {
       statusCode: 200,
       body: JSON.stringify({ tipo: 'error', mensaje: 'En este momento no fue posible procesar el análisis. Los datos del Dashboard continúan disponibles.' }),

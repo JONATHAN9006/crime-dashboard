@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Filter, X, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { Filter, X, ChevronDown, ChevronUp, SlidersHorizontal, Building2 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import type { CrimeRecord, FilterState } from '../../types/crime';
 import { aplicarFiltros, contarFiltrosActivos } from '../../utils/filters';
 import { uniqueSorted } from '../../utils/aggregations';
 import { MultiSelect } from './MultiSelect';
+import { ModalMicrogerencia } from '../microgerencia/ModalMicrogerencia';
 
 export type CampoFiltro = Exclude<keyof FilterState, 'fechaInicial' | 'fechaFinal' | 'anio' | 'mes'>;
 type CampoActualizable = Exclude<keyof FilterState, 'fechaInicial' | 'fechaFinal'>;
@@ -38,6 +39,7 @@ export const CAMPOS_ADICIONALES: { key: CampoFiltro; label: string; getter: (r: 
 export function FilterPanel() {
   const { records, filters, setFilters, clearFilters, filteredRecords, meta } = useData();
   const [expandido, setExpandido] = useState(true);
+  const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
   const [mostrarAdicionales, setMostrarAdicionales] = useState(false);
 
   const anios = useMemo(() => uniqueSorted(records, (r) => String(r.anio ?? '')).filter(Boolean), [records]);
@@ -73,20 +75,31 @@ export function FilterPanel() {
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <button
-        onClick={() => setExpandido((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3"
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex w-full items-center justify-between px-4 py-3">
+        <button onClick={() => setExpandido((v) => !v)} className="flex flex-1 items-center gap-2 text-left">
           <Filter size={16} className="text-brand-navy" />
           <span className="text-sm font-semibold text-slate-800">Filtros</span>
           {activos > 0 && (
             <span className="rounded-full bg-brand-green/10 px-2 py-0.5 text-xs font-semibold text-brand-green">{activos} activos</span>
           )}
           <span className="text-xs text-slate-400">· {filteredRecords.length.toLocaleString('es-CO')} de {records.length.toLocaleString('es-CO')} registros</span>
+        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarMicrogerencia(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-navy/20 px-2.5 py-1.5 text-xs font-semibold text-brand-navy transition-colors hover:bg-brand-navy/5"
+          >
+            <Building2 size={13} />
+            Microgerencia
+          </button>
+          <button type="button" onClick={() => setExpandido((v) => !v)}>
+            {expandido ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+          </button>
         </div>
-        {expandido ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-      </button>
+      </div>
+
+      {mostrarMicrogerencia && <ModalMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
 
       {expandido && (
         <div className="border-t border-slate-100 p-4">
