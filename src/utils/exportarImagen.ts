@@ -655,12 +655,38 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
       const rectRaiz = raiz.getBoundingClientRect();
       let maxAbajo = rectRaiz.height;
       raiz.querySelectorAll<HTMLElement>('*').forEach((el) => {
-        const abajoRelativo = el.getBoundingClientRect().bottom - rectRaiz.top;
+        const rect = el.getBoundingClientRect();
+        let abajoRelativo = rect.bottom - rectRaiz.top;
+        // getBoundingClientRect() NUNCA incluye el "box-shadow" (solo refleja
+        // la caja de borde) — pero html2canvas sí lo pinta. Una tarjeta con
+        // sombra (shadow-sm, shadow-md, etc — casi todas la tienen) se
+        // extiende unos píxeles más abajo de lo que esta medición reportaría
+        // sin este ajuste, y esos píxeles quedaban recortados en la imagen.
+        const sombra = window.getComputedStyle(el).boxShadow;
+        if (sombra && sombra !== 'none') {
+          // "boxShadow" puede traer varias sombras separadas por coma; se
+          // toma el offsetY + blur + spread más grande de todas (offset-x,
+          // offset-y, blur, spread — en ese orden — de cada una).
+          for (const capa of sombra.split(/,(?![^(]*\))/)) {
+            const valores = capa.trim().match(/(-?\d+(?:\.\d+)?)px/g);
+            if (valores && valores.length >= 3) {
+              const offsetY = parseFloat(valores[1]);
+              const blur = parseFloat(valores[2]);
+              const spread = valores[3] ? parseFloat(valores[3]) : 0;
+              abajoRelativo = Math.max(abajoRelativo, rect.bottom - rectRaiz.top + offsetY + blur + spread);
+            }
+          }
+        }
         if (abajoRelativo > maxAbajo) maxAbajo = abajoRelativo;
       });
       return Math.ceil(maxAbajo);
     }
-    const MARGEN_SEGURIDAD_PX = 10;
+    // Margen de seguridad más generoso que antes (10 → 24px): entre el
+    // redondeo de "boxShadow" de arriba y pequeñas diferencias de
+    // renderizado entre el DOM real y el clon que arma html2canvas, un
+    // colchón más amplio es la forma más confiable de nunca volver a
+    // recortar el final de ningún componente descargable.
+    const MARGEN_SEGURIDAD_PX = 24;
     const alturaReal = medirAltoRealDelContenido(elemento) + MARGEN_SEGURIDAD_PX;
     const anchoReal = Math.ceil(elemento.scrollWidth) + 4;
     canvasContenido = await html2canvas(elemento, {

@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
+import { obtenerModoAcceso } from '../../utils/modoAcceso';
+import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 
 export type PaginaId =
   | 'resumen' | 'indicadores' | 'unidad' | 'ultimasSemanas'
@@ -62,12 +64,19 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
   onCambiar: (id: PaginaId) => void;
   onCerrar: () => void;
   colapsado: boolean;
-  onHover: (texto: string, top: number) => void;
+  onHover: (texto: string, top: number, esBloqueo: boolean) => void;
   onSalir: () => void;
 }) {
   const Icon = item.icon;
   const activeItem = activo === item.id;
-  const bloqueado = !esModoConsulta() && PAGINAS_BLOQUEADAS.includes(item.id);
+  const modoAcceso = obtenerModoAcceso();
+  // Ruta raíz (modoAcceso === null): EXACTAMENTE el comportamiento de
+  // siempre, sin tocar nada. Solo en /jefe o /interno se consulta la
+  // configuración centralizada (dashboardAccess.ts) en su lugar.
+  const bloqueado = modoAcceso
+    ? !DASHBOARD_ACCESS[modoAcceso][item.id as keyof typeof DASHBOARD_ACCESS['jefe']]
+    : !esModoConsulta() && PAGINAS_BLOQUEADAS.includes(item.id);
+  const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : MENSAJE_BLOQUEADO;
   return (
     <button
       onClick={() => { if (bloqueado) return; onCambiar(item.id); onCerrar(); }}
@@ -77,7 +86,7 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
         // sidebar está colapsado (y por lo tanto el texto no se ve).
         if (!bloqueado && !colapsado) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        onHover(bloqueado ? MENSAJE_BLOQUEADO : item.label, rect.top + rect.height / 2);
+        onHover(bloqueado ? mensajeBloqueo : item.label, rect.top + rect.height / 2, bloqueado);
       }}
       onMouseLeave={onSalir}
       aria-label={item.label}
@@ -108,7 +117,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
   // El tooltip de los ítems del menú se maneja aquí (fuera del <nav>, que
   // tiene scroll vertical) para que NO quede recortado por el overflow del
   // contenedor con scroll — así siempre se sobrepone visible al sidebar.
-  const [tooltipItem, setTooltipItem] = useState<{ texto: string; top: number } | null>(null);
+  const [tooltipItem, setTooltipItem] = useState<{ texto: string; top: number; esBloqueo: boolean } | null>(null);
 
   return (
     <>
@@ -158,7 +167,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
               onCambiar={onCambiar}
               onCerrar={onCerrar}
               colapsado={colapsado}
-              onHover={(texto, top) => setTooltipItem({ texto, top })}
+              onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
               onSalir={() => setTooltipItem(null)}
             />
           ))}
@@ -175,7 +184,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                   onCambiar={onCambiar}
                   onCerrar={onCerrar}
                   colapsado={colapsado}
-                  onHover={(texto, top) => setTooltipItem({ texto, top })}
+                  onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
                   onSalir={() => setTooltipItem(null)}
                 />
               ))}
@@ -193,7 +202,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             encima, para que nunca quede recortado. Colapsado: aparece para
             cualquier ítem (reemplaza la etiqueta oculta). Expandido: solo
             para ítems bloqueados, explicando por qué no se puede entrar. */}
-        {tooltipItem && (colapsado || tooltipItem.texto === MENSAJE_BLOQUEADO) && (
+        {tooltipItem && (colapsado || tooltipItem.esBloqueo) && (
           <span
             className={clsx(
               'pointer-events-none absolute z-50 max-w-[220px] -translate-y-1/2 whitespace-normal rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
@@ -221,6 +230,11 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
               {esModoConsulta() && (
                 <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
                   <Eye size={11} /> Modo consulta — solo lectura
+                </p>
+              )}
+              {obtenerModoAcceso() && (
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
+                  {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : 'Vista interna'}
                 </p>
               )}
               <p className="text-[11px] text-emerald-100/70">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>

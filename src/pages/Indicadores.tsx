@@ -7,6 +7,9 @@ import { useTendenciaDiaSemana, useDistribucionHoraria, useTendenciaDiaria } fro
 import { useAnalisisMensual } from '../hooks/useAnalisisMensual';
 import { identificarMesMasAfectado, generarPrioridad, compararMesMasAfectadoEntreAnios } from '../utils/analisisTendencia';
 import { Card, PageHeader } from '../components/ui/Card';
+import { ComponenteBloqueado } from '../components/ui/ComponenteBloqueado';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { DASHBOARD_ACCESS } from '../config/dashboardAccess';
 import { KpiCard } from '../components/ui/KpiCard';
 import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
 import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
@@ -14,6 +17,11 @@ import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { formatDecimal, formatFecha, formatNumero, formatPct, totalCasos } from '../utils/aggregations';
 
 export function Indicadores() {
+  // Modo raíz (null): sin restricción, igual que siempre. Solo /jefe puede
+  // llegar a bloquear estos dos componentes puntuales (ver dashboardAccess.ts).
+  const modoAcceso = obtenerModoAcceso();
+  const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
+  const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
   const { records, filteredRecords, recordsBase, filters, meta } = useData();
   const kpis = useKpis(filteredRecords);
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
@@ -158,42 +166,50 @@ export function Indicadores() {
         <KpiCard titulo="Mínimo diario" valor={formatNumero(kpis.minDiario)} subtitulo="en un solo día" icono={<TrendingDown size={16} />} />
       </div>
 
-      <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+      {accesoTendenciaMensual ? (
+        <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+      ) : (
+        <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+      )}
 
-      <Card
-        title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
-        subtitle="Comportamiento día a día en el periodo filtrado. Pasa el cursor sobre la línea para ver el detalle exacto de cada día."
-        descargable="tendencia-diaria"
-        actions={
-          <button onClick={() => setVistaDiaria((v) => { if (v) setResumenDiario(null); return !v; })} className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
-            {vistaDiaria ? 'Ver resumen' : 'Ver serie completa'}
-          </button>
-        }
-      >
-        {vistaDiaria ? (
-          <>
-            {/* Análisis automático de los meses actualmente seleccionados
-                arriba de la gráfica, en formato compacto — se recalcula con
-                cada cambio de delito, meses, unidad, estación o cualquier
-                otro filtro que afecte los datos. */}
-            {textoCorrelacionMeses && (
-              <div className="mb-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700">
-                {textoCorrelacionMeses}
-              </div>
-            )}
-            {mesMasAfectado && (
-              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-semibold text-rose-600">🔴 Mes más afectado: {mesMasAfectado.mes.toUpperCase()} — {formatNumero(mesMasAfectado.casos)} casos</span>
-                {prioridadTexto && <span className="font-semibold text-brand-green">🎯 Prioridad próxima vigencia: {mesMasAfectado.mes.toUpperCase()}</span>}
-              </div>
-            )}
-            <TendenciaDiariaChart data={diaria} height={320} onResumenChange={setResumenDiario} />
-            {prioridadTexto && <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-700">Análisis: {prioridadTexto}</p>}
-          </>
-        ) : (
-          <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos). Para consultar cada caso individual, usa la sección "Tabla de Datos".</p>
-        )}
-      </Card>
+      {accesoTendenciaDiaria ? (
+        <Card
+          title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
+          subtitle="Comportamiento día a día en el periodo filtrado. Pasa el cursor sobre la línea para ver el detalle exacto de cada día."
+          descargable="tendencia-diaria"
+          actions={
+            <button onClick={() => setVistaDiaria((v) => { if (v) setResumenDiario(null); return !v; })} className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
+              {vistaDiaria ? 'Ver resumen' : 'Ver serie completa'}
+            </button>
+          }
+        >
+          {vistaDiaria ? (
+            <>
+              {/* Análisis automático de los meses actualmente seleccionados
+                  arriba de la gráfica, en formato compacto — se recalcula con
+                  cada cambio de delito, meses, unidad, estación o cualquier
+                  otro filtro que afecte los datos. */}
+              {textoCorrelacionMeses && (
+                <div className="mb-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700">
+                  {textoCorrelacionMeses}
+                </div>
+              )}
+              {mesMasAfectado && (
+                <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <span className="font-semibold text-rose-600">🔴 Mes más afectado: {mesMasAfectado.mes.toUpperCase()} — {formatNumero(mesMasAfectado.casos)} casos</span>
+                  {prioridadTexto && <span className="font-semibold text-brand-green">🎯 Prioridad próxima vigencia: {mesMasAfectado.mes.toUpperCase()}</span>}
+                </div>
+              )}
+              <TendenciaDiariaChart data={diaria} height={320} onResumenChange={setResumenDiario} />
+              {prioridadTexto && <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-700">Análisis: {prioridadTexto}</p>}
+            </>
+          ) : (
+            <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos). Para consultar cada caso individual, usa la sección "Tabla de Datos".</p>
+          )}
+        </Card>
+      ) : (
+        <ComponenteBloqueado titulo="Tendencia diaria" subtitulo="Comportamiento día a día en el periodo filtrado" />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card title="Casos por día de la semana" subtitle="Con línea de tendencia — los 3 días con más casos se resaltan automáticamente" descargable="casos-dia-semana">

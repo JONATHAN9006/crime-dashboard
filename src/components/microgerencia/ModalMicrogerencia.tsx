@@ -23,7 +23,7 @@ function IndicadorTendenciaProyectada({ nodo }: { nodo: NodoMicrogerencia }) {
   const enAumento = dif > 0;
   const color = dif === 0 ? 'text-slate-400' : enAumento ? 'text-rose-600' : 'text-emerald-600';
   return (
-    <span className={`ml-1 inline-flex items-center gap-0.5 text-[10px] font-semibold ${color}`}>
+    <span className={`ml-1 inline-flex items-center gap-0.5 text-xs font-semibold ${color}`}>
       ({dif >= 0 ? '+' : ''}{formatNumero(dif)} casos{pct !== null && `, ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`})
     </span>
   );
@@ -33,7 +33,7 @@ function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado:
   const Icono = nodo.dif > 0 ? TrendingUp : nodo.dif < 0 ? TrendingDown : Minus;
   const color = nodo.dif > 0 ? 'text-rose-600' : nodo.dif < 0 ? 'text-emerald-600' : 'text-slate-400';
   return (
-    <div className={`grid grid-cols-3 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-7 ${destacado ? '' : 'text-slate-500'}`}>
+    <div className={`grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4 ${destacado ? '' : 'text-slate-500'}`}>
       <div><span className="block text-slate-400">Total 2025</span>{formatNumero(nodo.total2025)}</div>
       <div><span className="block text-slate-400">2025 (a la fecha)</span>{formatNumero(nodo.fecha2025)}</div>
       <div><span className="block text-slate-400">2026 (a la fecha)</span><strong>{formatNumero(nodo.fecha2026)}</strong></div>
@@ -50,8 +50,8 @@ function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado:
 function TablaTrimestres({ nodo }: { nodo: NodoMicrogerencia }) {
   return (
     <div className="rounded-lg bg-sky-50 p-2">
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-600">Trimestres</p>
-      <table className="w-full text-[11px]">
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-sky-600">Trimestres</p>
+      <table className="w-full text-sm">
         <thead><tr className="text-slate-400"><th className="text-left font-medium">Trimestre</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
         <tbody>
           {nodo.trimestres.map((t) => (
@@ -73,8 +73,8 @@ function TablaTrimestres({ nodo }: { nodo: NodoMicrogerencia }) {
 function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
   return (
     <div className="rounded-lg bg-amber-50 p-2">
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-600">Distribución por mes</p>
-      <table className="w-full text-[11px]">
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-600">Distribución por mes</p>
+      <table className="w-full text-sm">
         <thead><tr className="text-slate-400"><th className="text-left font-medium">Mes</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
         <tbody>
           {nodo.meses.map((m) => (

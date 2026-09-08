@@ -6,6 +6,8 @@ import { aplicarFiltros, contarFiltrosActivos } from '../../utils/filters';
 import { uniqueSorted } from '../../utils/aggregations';
 import { MultiSelect } from './MultiSelect';
 import { ModalMicrogerencia } from '../microgerencia/ModalMicrogerencia';
+import { obtenerModoAcceso } from '../../utils/modoAcceso';
+import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 
 export type CampoFiltro = Exclude<keyof FilterState, 'fechaInicial' | 'fechaFinal' | 'anio' | 'mes'>;
 type CampoActualizable = Exclude<keyof FilterState, 'fechaInicial' | 'fechaFinal'>;
@@ -40,6 +42,8 @@ export function FilterPanel() {
   const { records, filters, setFilters, clearFilters, filteredRecords, meta } = useData();
   const [expandido, setExpandido] = useState(true);
   const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
+  const modoAcceso = obtenerModoAcceso();
+  const accesoMicrogerencia = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].microgerencia;
   const [mostrarAdicionales, setMostrarAdicionales] = useState(false);
 
   const anios = useMemo(() => uniqueSorted(records, (r) => String(r.anio ?? '')).filter(Boolean), [records]);
@@ -87,11 +91,14 @@ export function FilterPanel() {
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={() => setMostrarMicrogerencia(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-navy/20 px-2.5 py-1.5 text-xs font-semibold text-brand-navy transition-colors hover:bg-brand-navy/5"
+            onClick={() => { if (accesoMicrogerencia) setMostrarMicrogerencia(true); }}
+            disabled={!accesoMicrogerencia}
+            title={accesoMicrogerencia ? undefined : 'Próximamente — en desarrollo.'}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${accesoMicrogerencia ? 'border-brand-navy/20 text-brand-navy hover:bg-brand-navy/5' : 'cursor-not-allowed border-slate-200 text-slate-300'}`}
           >
             <Building2 size={13} />
             Microgerencia
+            {!accesoMicrogerencia && <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-400">Próx.</span>}
           </button>
           <button type="button" onClick={() => setExpandido((v) => !v)}>
             {expandido ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}

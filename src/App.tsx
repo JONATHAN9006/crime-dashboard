@@ -15,6 +15,8 @@ import { TablaDatos } from './pages/TablaDatos';
 import { CalidadDatos } from './pages/CalidadDatos';
 import { ProductosEsperados } from './pages/ProductosEsperados';
 import { AgenteIAFlotante } from './components/analitica/AgenteIAFlotante';
+import { obtenerModoAcceso } from './utils/modoAcceso';
+import { DASHBOARD_ACCESS } from './config/dashboardAccess';
 
 const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
@@ -70,13 +72,17 @@ function Shell() {
 }
 
 export default function App() {
+  const modoAcceso = obtenerModoAcceso();
+  const accesoAnalistaIA = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].analistaIA;
   return (
     <DataProvider>
       <Shell />
       {/* Flotante, fuera del intercambio de páginas: disponible en
           Indicadores, Análisis por Unidad, Resumen o cualquier otra
-          pantalla, sin necesidad de una página dedicada. */}
-      <AgenteIAFlotante />
+          pantalla, sin necesidad de una página dedicada. Se oculta por
+          completo (bloqueo funcional real, no solo visual) si está
+          deshabilitado para el modo de acceso actual (/jefe). */}
+      {accesoAnalistaIA && <AgenteIAFlotante />}
     </DataProvider>
   );
 }

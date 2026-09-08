@@ -23,7 +23,7 @@ export function AgenteIAFlotante() {
       <button
         type="button"
         onClick={() => setAbierto(true)}
-        className="fixed bottom-5 right-5 z-[9000] flex h-14 w-14 items-center justify-center rounded-full bg-brand-green text-white shadow-lg transition-transform hover:scale-105"
+        className="fixed bottom-16 right-5 z-[9000] flex h-14 w-14 items-center justify-center rounded-full bg-brand-green text-white shadow-lg transition-transform hover:scale-105"
         title="Analista IA"
       >
         <Bot size={24} />
@@ -32,7 +32,7 @@ export function AgenteIAFlotante() {
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-[9000] flex h-[min(640px,85vh)] w-[min(420px,92vw)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+    <div className="fixed bottom-16 right-5 z-[9000] flex h-[min(640px,80vh)] w-[min(420px,92vw)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
       <div className="flex items-center justify-between bg-brand-navy px-4 py-3">
         <div className="flex items-center gap-2">
           <Bot size={18} className="text-white" />

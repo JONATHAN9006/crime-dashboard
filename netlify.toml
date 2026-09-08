@@ -15,3 +15,12 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Redirección "catch-all" de SPA: como /jefe y /interno no son archivos
+# reales (los interpreta la app en el navegador, ver utils/modoAcceso.ts),
+# sin esta regla Netlify devolvería un 404 al entrar directamente a esas
+# rutas (o al refrescar la página estando en ellas).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
