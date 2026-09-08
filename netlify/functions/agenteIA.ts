@@ -169,7 +169,11 @@ export const handler: Handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({ tipo: 'respuesta', texto: resultado.texto || 'No fue posible generar una respuesta con la información disponible.' }),
     };
-  } catch {
+  } catch (err) {
+    // Se registra el error real en los logs de la función (Netlify →
+    // Functions → agenteIA → logs) para poder diagnosticarlo — el usuario
+    // solo ve el mensaje genérico de abajo, nunca el detalle técnico.
+    console.error('[agenteIA] Error al procesar la solicitud:', err);
     return {
       statusCode: 200,
       body: JSON.stringify({ tipo: 'error', mensaje: 'En este momento no fue posible procesar el análisis. Los datos del Dashboard continúan disponibles.' }),
