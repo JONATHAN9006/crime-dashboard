@@ -123,10 +123,11 @@ export function useAgenteIA() {
       // herramientas antes de dar la respuesta final. Límite de seguridad
       // (6 rondas) para nunca quedar en un ciclo infinito si algo falla.
       const resultadosAcumulados: ResultadoHerramienta[] = [];
+      let historialCrudo: unknown = undefined;
       let rondas = 0;
       while (rondas < 6) {
         rondas += 1;
-        const respuesta = await enviarMensajeAgente({ mensajes: historialParaEnvio, contexto, resultadosHerramientas: resultadosAcumulados });
+        const respuesta = await enviarMensajeAgente({ mensajes: historialParaEnvio, contexto, resultadosHerramientas: resultadosAcumulados, historialCrudo });
 
         if (respuesta.tipo === 'error') {
           setError(respuesta.mensaje);
@@ -139,8 +140,13 @@ export function useAgenteIA() {
           return;
         }
         // tipo === 'llamada_herramienta': se ejecutan LOCALMENTE (nunca en
-        // el backend, que no tiene acceso a los datos) y se acumulan para
-        // la siguiente ronda.
+        // el backend, que no tiene acceso a los datos), se acumulan para
+        // la siguiente ronda, y se guarda el historial nativo devuelto
+        // (incluye el turno donde el modelo pidió la herramienta) para
+        // reenviarlo tal cual — sin esto, el proveedor rechaza la ronda
+        // siguiente por no poder emparejar el resultado con su solicitud.
+        historialCrudo = respuesta.historialCrudo;
+        resultadosAcumulados.length = 0;
         for (const llamada of respuesta.llamadas) {
           const resultado = ejecutarHerramientaSobreContexto(llamada.nombre, llamada.parametros, contexto);
           resultadosAcumulados.push({ id: llamada.id, nombre: llamada.nombre, resultado });

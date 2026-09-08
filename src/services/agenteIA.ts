@@ -30,6 +30,7 @@ export async function enviarMensajeAgente(solicitud: SolicitudAgenteIA): Promise
         mensajes: solicitud.mensajes,
         contexto: solicitud.contexto,
         resultadosHerramientas: solicitud.resultadosHerramientas,
+        historialCrudo: solicitud.historialCrudo,
         herramientas: ESQUEMAS_HERRAMIENTAS,
       }),
     });
@@ -47,3 +48,4 @@ export async function enviarMensajeAgente(solicitud: SolicitudAgenteIA): Promise
     return { tipo: 'error', mensaje: 'En este momento no fue posible procesar el análisis. Los datos del Dashboard continúan disponibles.' };
   }
 }
+

@@ -104,9 +104,18 @@ export interface SolicitudAgenteIA {
   // Resultados de herramientas ya ejecutadas en esta misma ronda de
   // razonamiento (se van acumulando mientras el backend siga pidiendo más).
   resultadosHerramientas: ResultadoHerramienta[];
+  // Estado de conversación EN FORMATO NATIVO del proveedor (Anthropic,
+  // Gemini, etc.) — el cliente nunca lo interpreta, solo lo guarda y lo
+  // reenvía tal cual en la siguiente ronda de la MISMA pregunta. Es
+  // indispensable para que el turno donde el modelo pidió una herramienta
+  // (con su "tool_use"/"functionCall") quede correctamente emparejado con
+  // el resultado que se le devuelve después — sin esto, Anthropic rechaza
+  // la solicitud completa con un error 400.
+  historialCrudo?: unknown;
 }
 
 export type RespuestaAgenteIA =
-  | { tipo: 'llamada_herramienta'; llamadas: LlamadaHerramienta[] }
+  | { tipo: 'llamada_herramienta'; llamadas: LlamadaHerramienta[]; historialCrudo: unknown }
   | { tipo: 'respuesta'; texto: string }
   | { tipo: 'error'; mensaje: string; noConfigurado?: boolean };
+
