@@ -11,6 +11,24 @@ function formatearPct(n: number | null): string {
   return `${n >= 0 ? '+' : ''}${formatDecimal(n, 1)}%`;
 }
 
+// Indicador junto a "Aporte %": cuánto y en qué porcentaje cambiaría el
+// cierre proyectado de este nodo frente al total real del año anterior —
+// en rojo si va en AUMENTO (dif positivo), en verde si va en REDUCCIÓN
+// (dif negativo). Se calcula a partir de "difConAnioAnterior", ya obtenido
+// en useMicrogerencia.ts — no es un valor nuevo, solo se muestra aquí
+// también, justo al lado del aporte.
+function IndicadorTendenciaProyectada({ nodo }: { nodo: NodoMicrogerencia }) {
+  const dif = Math.round(nodo.difConAnioAnterior);
+  const pct = nodo.total2025 > 0 ? (dif / nodo.total2025) * 100 : null;
+  const enAumento = dif > 0;
+  const color = dif === 0 ? 'text-slate-400' : enAumento ? 'text-rose-600' : 'text-emerald-600';
+  return (
+    <span className={`ml-1 inline-flex items-center gap-0.5 text-[10px] font-semibold ${color}`}>
+      ({dif >= 0 ? '+' : ''}{formatNumero(dif)} casos{pct !== null && `, ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`})
+    </span>
+  );
+}
+
 function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado: boolean }) {
   const Icono = nodo.dif > 0 ? TrendingUp : nodo.dif < 0 ? TrendingDown : Minus;
   const color = nodo.dif > 0 ? 'text-rose-600' : nodo.dif < 0 ? 'text-emerald-600' : 'text-slate-400';
@@ -21,21 +39,23 @@ function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado:
       <div><span className="block text-slate-400">2026 (a la fecha)</span><strong>{formatNumero(nodo.fecha2026)}</strong></div>
       <div className={color}><span className="block text-slate-400">DIF</span><span className="inline-flex items-center gap-0.5"><Icono size={10} />{nodo.dif >= 0 ? '+' : ''}{formatNumero(nodo.dif)}</span></div>
       <div className={color}><span className="block text-slate-400">%</span>{formatearPct(nodo.pct)}</div>
-      <div><span className="block text-slate-400">Aporte %</span>{formatDecimal(nodo.aportePct, 1)}%</div>
-      <div><span className="block text-slate-400">Proy. cierre {new Date().getFullYear()}</span>{formatNumero(nodo.terminaAnio)}</div>
+      <div className="sm:col-span-2">
+        <span className="block text-slate-400">Aporte % <span className="text-slate-300">(proyección vs. 2025)</span></span>
+        <span className="inline-flex flex-wrap items-baseline">{formatDecimal(nodo.aportePct, 1)}%<IndicadorTendenciaProyectada nodo={nodo} /></span>
+      </div>
     </div>
   );
 }
 
 function TablaTrimestres({ nodo }: { nodo: NodoMicrogerencia }) {
   return (
-    <div>
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">Trimestres</p>
+    <div className="rounded-lg bg-sky-50 p-2">
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-600">Trimestres</p>
       <table className="w-full text-[11px]">
         <thead><tr className="text-slate-400"><th className="text-left font-medium">Trimestre</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
         <tbody>
           {nodo.trimestres.map((t) => (
-            <tr key={t.etiqueta} className="border-t border-slate-100">
+            <tr key={t.etiqueta} className="border-t border-sky-100">
               <td className="py-0.5 text-slate-600">{t.etiqueta}</td>
               <td className="py-0.5 text-right text-slate-500">{formatNumero(t.anio2025)}</td>
               <td className="py-0.5 text-right font-semibold text-slate-700">{formatNumero(t.anio2026)}</td>
@@ -48,15 +68,17 @@ function TablaTrimestres({ nodo }: { nodo: NodoMicrogerencia }) {
   );
 }
 
+// Distribución por mes — en UNA sola lista de los 12 meses (no partida en
+// columnas), tal como se pidió.
 function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
   return (
-    <div>
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">Distribución por mes</p>
+    <div className="rounded-lg bg-amber-50 p-2">
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-600">Distribución por mes</p>
       <table className="w-full text-[11px]">
         <thead><tr className="text-slate-400"><th className="text-left font-medium">Mes</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
         <tbody>
           {nodo.meses.map((m) => (
-            <tr key={m.etiqueta} className="border-t border-slate-100">
+            <tr key={m.etiqueta} className="border-t border-amber-100">
               <td className="py-0.5 text-slate-600">{m.etiqueta}</td>
               <td className="py-0.5 text-right text-slate-500">{formatNumero(m.anio2025)}</td>
               <td className="py-0.5 text-right font-semibold text-slate-700">{formatNumero(m.anio2026)}</td>
@@ -69,12 +91,6 @@ function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
   );
 }
 
-// Un nodo completo: casilla de selección para el PDF (izquierda), su fila
-// de métricas generales, un botón para desplegar/ocultar sus trimestres y
-// meses, y después sus hijos. "ruta" identifica al nodo de forma única
-// dentro de todo el árbol (nombre de cada ancestro unido con ">"), para que
-// la selección para el PDF funcione sin confundir nodos con el mismo
-// nombre en ramas distintas.
 function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSeleccion }: {
   nodo: NodoMicrogerencia;
   profundidad: number;
@@ -88,7 +104,7 @@ function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSelecc
 
   return (
     <div style={{ marginLeft: profundidad * 14 }} className="mb-2">
-      <div className={`rounded-lg border p-2.5 ${estaSeleccionado ? 'border-brand-green ring-1 ring-brand-green' : esNivelSuperior ? 'border-brand-green/40 bg-brand-green/5' : profundidad === 1 ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-white'}`}>
+      <div className={`rounded-lg border p-2.5 ${estaSeleccionado ? 'border-brand-green ring-1 ring-brand-green' : esNivelSuperior ? 'border-emerald-200 bg-emerald-50' : profundidad === 1 ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-white'}`}>
         <div className="mb-1.5 flex items-center gap-2">
           <button type="button" onClick={() => onAlternarSeleccion(ruta, nodo)} className="shrink-0 text-brand-green" title="Incluir en el PDF">
             {estaSeleccionado ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-300" />}
@@ -100,7 +116,7 @@ function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSelecc
         </div>
         <MetricasNodo nodo={nodo} destacado={esNivelSuperior} />
         {expandido && (
-          <div className="mt-2.5 grid grid-cols-1 gap-4 border-t border-slate-200 pt-2.5 sm:grid-cols-2">
+          <div className="mt-2.5 grid grid-cols-1 gap-3 border-t border-slate-200 pt-2.5 sm:grid-cols-2">
             <TablaTrimestres nodo={nodo} />
             <TablaMeses nodo={nodo} />
           </div>
@@ -143,6 +159,7 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
   const datos = useMicrogerencia();
   const [vista, setVista] = useState<Vista>('general');
   const [seleccionados, setSeleccionados] = useState<Map<string, NodoMicrogerencia>>(new Map());
+  const [generandoPdf, setGenerandoPdf] = useState(false);
 
   if (!datos) {
     return createPortal(
@@ -166,26 +183,36 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
   const raizVistaActual = vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : vista === 'distrito2' ? datos.distrito2 : null;
 
-  function descargarPdf() {
+  async function descargarPdf() {
     if (!datos) return;
-    if (seleccionados.size > 0) {
-      generarPdfMicrogerencia(Array.from(seleccionados.values()), `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`);
-    } else if (vista === 'delitos') {
-      generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos);
-    } else if (raizVistaActual) {
-      generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista]);
+    setGenerandoPdf(true);
+    try {
+      if (seleccionados.size > 0) {
+        await generarPdfMicrogerencia(Array.from(seleccionados.values()), `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`);
+      } else if (vista === 'delitos') {
+        await generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos);
+      } else if (raizVistaActual) {
+        await generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista]);
+      }
+    } finally {
+      setGenerandoPdf(false);
     }
   }
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-brand-navy px-5 py-4">
-          <div>
-            <h2 className="text-base font-bold text-white">Microgerencia y Proyección Delictiva MEPOY</h2>
-            <p className="text-xs text-slate-300">{datos.periodo} · Días hasta la fecha: {datos.diasHastaLaFecha}</p>
+        <div className="flex items-center justify-between border-b border-slate-200 bg-brand-green px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/95 p-1">
+              <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">Microgerencia y Proyección Delictiva MEPOY</h2>
+              <p className="text-xs text-emerald-50">{datos.periodo} · Días hasta la fecha: {datos.diasHastaLaFecha}</p>
+            </div>
           </div>
-          <button type="button" onClick={onCerrar} className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white">
+          <button type="button" onClick={onCerrar} className="rounded-lg p-1.5 text-emerald-50 hover:bg-white/10 hover:text-white">
             <X size={20} />
           </button>
         </div>
@@ -231,10 +258,11 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
             <button
               type="button"
               onClick={descargarPdf}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-green/90"
+              disabled={generandoPdf}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-green/90 disabled:opacity-60"
             >
               <Download size={15} />
-              Descargar PDF
+              {generandoPdf ? 'Generando...' : 'Descargar PDF'}
             </button>
           </div>
         </div>

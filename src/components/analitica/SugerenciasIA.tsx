@@ -1,4 +1,4 @@
-import { BarChart3, TrendingUp, CalendarDays, MapPin, FileText } from 'lucide-react';
+import { BarChart3, TrendingUp, CalendarDays, MapPin, FileText, ShieldAlert } from 'lucide-react';
 
 export interface SugerenciaIA {
   icono: React.ElementType;
@@ -11,6 +11,7 @@ export const SUGERENCIAS_IA: SugerenciaIA[] = [
   { icono: TrendingUp, etiqueta: 'Comparar vigencias', pregunta: 'Compare la vigencia actual con la anterior.' },
   { icono: CalendarDays, etiqueta: 'Identificar días críticos', pregunta: '¿Cuál fue el día y la hora con mayor incidencia?' },
   { icono: MapPin, etiqueta: 'Analizar territorio', pregunta: '¿Dónde se concentra este delito?' },
+  { icono: ShieldAlert, etiqueta: 'Sugerir acciones preventivas', pregunta: '¿Qué planes o acciones preventivas recomienda para este delito?' },
   { icono: FileText, etiqueta: 'Generar análisis ejecutivo', pregunta: 'Genere un análisis ejecutivo para presentar al comandante.' },
 ];
 

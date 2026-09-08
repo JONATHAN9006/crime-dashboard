@@ -14,7 +14,7 @@ import { Comparativo } from './pages/Comparativo';
 import { TablaDatos } from './pages/TablaDatos';
 import { CalidadDatos } from './pages/CalidadDatos';
 import { ProductosEsperados } from './pages/ProductosEsperados';
-import { AgenteIA } from './pages/AgenteIA';
+import { AgenteIAFlotante } from './components/analitica/AgenteIAFlotante';
 
 const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
@@ -28,7 +28,6 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
   tabla: TablaDatos,
   calidad: CalidadDatos,
   productos: ProductosEsperados,
-  agenteIA: AgenteIA,
 };
 
 // El mapa, "Indicadores Tasa Cosec" y "Productos Esperados" pueden abrirse
@@ -74,6 +73,10 @@ export default function App() {
   return (
     <DataProvider>
       <Shell />
+      {/* Flotante, fuera del intercambio de páginas: disponible en
+          Indicadores, Análisis por Unidad, Resumen o cualquier otra
+          pantalla, sin necesidad de una página dedicada. */}
+      <AgenteIAFlotante />
     </DataProvider>
   );
 }

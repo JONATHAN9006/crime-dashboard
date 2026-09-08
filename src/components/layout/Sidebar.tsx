@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LayoutDashboard, Gauge, Building2, CalendarRange, Flame,
-  Map, X, GitCompare, Table2, ShieldCheck, ChevronLeft, UserRound, Activity, Package, Eye, Bot,
+  Map, X, GitCompare, Table2, ShieldCheck, ChevronLeft, UserRound, Activity, Package, Eye,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
@@ -9,7 +9,7 @@ import { esModoConsulta } from '../../utils/modoConsulta';
 export type PaginaId =
   | 'resumen' | 'indicadores' | 'unidad' | 'ultimasSemanas'
   | 'matrizCalor' | 'mapa' | 'tasaCosec'
-  | 'comparativo' | 'tabla' | 'calidad' | 'productos' | 'agenteIA';
+  | 'comparativo' | 'tabla' | 'calidad' | 'productos';
 
 // Ítems bloqueados temporalmente para presentarle al jefe por partes — se ven
 // atenuados, no se puede entrar, y al pasar el mouse se explica por qué. Para
@@ -32,7 +32,6 @@ const ITEMS_ADICIONALES: { id: PaginaId; label: string; icon: React.ElementType 
   { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
   { id: 'calidad', label: 'Calidad de Datos', icon: ShieldCheck },
   { id: 'productos', label: 'Productos Esperados', icon: Package },
-  { id: 'agenteIA', label: '🤖 Analista IA', icon: Bot },
 ];
 
 // Tooltip propio (CSS puro con group-hover): aparece de inmediato al pasar el

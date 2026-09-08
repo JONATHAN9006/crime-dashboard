@@ -12,7 +12,6 @@ import { AporteBarList } from '../components/charts/AporteBarList';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoBarrasConAporte } from '../components/charts/ComparativoBarrasConAporte';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
-import { AnalistaVirtual } from '../components/analitica/AnalistaVirtual';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
@@ -156,13 +155,6 @@ export function AnalisisUnidad() {
 
       {ventana.disponible && (
         <>
-          {/* "Analista Virtual Inteligente" — inmediatamente debajo de los
-              filtros, antes de cualquier otra tarjeta de la página. Es
-              autosuficiente (lee useData() por su cuenta) para poder
-              analizar un delito escrito en su propio cuadro de mensaje,
-              distinto al del filtro lateral — ver AnalistaVirtual.tsx. */}
-          <AnalistaVirtual anioActual={ventana.anioActual} />
-
           {/* items-start: cada tarjeta usa solo el alto que necesita su propio
               contenido, en vez de estirarse para igualar a la más alta del grupo
               (eso era lo que dejaba espacio en blanco de sobra en la más corta).
