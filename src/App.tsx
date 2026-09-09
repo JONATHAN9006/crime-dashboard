@@ -4,7 +4,6 @@ import { Sidebar, type PaginaId } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { FilterPanel } from './components/filters/FilterPanel';
 import { ResumenEjecutivo } from './pages/ResumenEjecutivo';
-import { Indicadores } from './pages/Indicadores';
 import { AnalisisUnidad } from './pages/AnalisisUnidad';
 import { UltimasSemanas } from './pages/UltimasSemanas';
 import { MatrizCalor } from './pages/MatrizCalor';
@@ -20,7 +19,6 @@ import { DASHBOARD_ACCESS } from './config/dashboardAccess';
 
 const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
-  indicadores: Indicadores,
   unidad: AnalisisUnidad,
   ultimasSemanas: UltimasSemanas,
   matrizCalor: MatrizCalor,

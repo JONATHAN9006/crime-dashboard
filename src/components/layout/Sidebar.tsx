@@ -9,7 +9,7 @@ import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 
 export type PaginaId =
-  | 'resumen' | 'indicadores' | 'unidad' | 'ultimasSemanas'
+  | 'resumen' | 'unidad' | 'ultimasSemanas'
   | 'matrizCalor' | 'mapa' | 'tasaCosec'
   | 'comparativo' | 'tabla' | 'calidad' | 'productos';
 
@@ -21,7 +21,6 @@ const MENSAJE_BLOQUEADO = 'Este componente se encuentra en análisis y construcc
 
 const ITEMS_PRINCIPALES: { id: PaginaId; label: string; icon: React.ElementType }[] = [
   { id: 'resumen', label: 'Inicio / Resumen', icon: LayoutDashboard },
-  { id: 'indicadores', label: 'Indicadores', icon: Gauge },
   { id: 'unidad', label: 'Análisis por Unidad', icon: Building2 },
   { id: 'ultimasSemanas', label: 'Últimas 4 Semanas', icon: CalendarRange },
   { id: 'matrizCalor', label: 'Matriz de Calor', icon: Flame },

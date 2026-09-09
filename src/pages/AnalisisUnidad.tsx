@@ -1,10 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
-import { useDistribucionHoraria } from '../hooks/useTemporalAnalysis';
-import { useVentanaComparativa, useComparativoCategoria, useProyeccion } from '../hooks/useComparativoHomologo';
-import { agruparPor, totalCasos } from '../utils/aggregations';
+import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria } from '../hooks/useTemporalAnalysis';
+import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral, useProyeccion } from '../hooks/useComparativoHomologo';
+import { useKpis } from '../hooks/useKpis';
+import { identificarMesMasAfectado, generarPrioridad, compararMesMasAfectadoEntreAnios } from '../utils/analisisTendencia';
+import { agruparPor, totalCasos, formatPct } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
+import { ComponenteBloqueado } from '../components/ui/ComponenteBloqueado';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { DASHBOARD_ACCESS } from '../config/dashboardAccess';
 import { BotonGenerarPdf } from '../components/ui/BotonGenerarPdf';
 import { ProveedorRegistroPdf } from '../context/RegistroPdfContext';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
@@ -12,8 +17,10 @@ import { AporteBarList } from '../components/charts/AporteBarList';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoBarrasConAporte } from '../components/charts/ComparativoBarrasConAporte';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
+import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
+import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, Info } from 'lucide-react';
 
 const OPCIONES_TOP = [
   { label: 'Top 5', valor: 5 },
@@ -44,6 +51,9 @@ function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor:
 
 export function AnalisisUnidad() {
   const { records, filteredRecords, recordsBase, filters, meta, drillDown } = useData();
+  const modoAcceso = obtenerModoAcceso();
+  const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
+  const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
   const [topDelitos, setTopDelitos] = useState<number | undefined>(10);
   const [topCuadrante, setTopCuadrante] = useState(10);
   const [topBarrio, setTopBarrio] = useState(10);
@@ -52,11 +62,51 @@ export function AnalisisUnidad() {
   const [topClaseSitio, setTopClaseSitio] = useState(10);
   const [topCausaLesion, setTopCausaLesion] = useState(10);
 
+  // ── Migrado de la antigua página "Indicadores" (fusionada aquí) ──────
+  const kpis = useKpis(filteredRecords);
+  const diaSemana = useTendenciaDiaSemana(filteredRecords);
+
   // Comparativo homólogo (año anterior "a la fecha" vs. año actual) para TODOS
   // los componentes de esta página, incluida la estación — así se evita que
   // una misma unidad muestre cifras distintas en secciones distintas del
   // dashboard (un solo cálculo, una sola fuente de verdad).
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
+  const cmpGeneral = useComparativoGeneral(ventana);
+
+  // Incluye TAMBIÉN el año anterior (no solo el actual) — necesario para
+  // poder comparar, día a día, el mismo periodo contra el año pasado dentro
+  // del propio gráfico de Tendencia Diaria.
+  const registrosParaDiaria = useMemo(
+    () => filteredRecords.filter((r) => r.anio === ventana.anioActual || r.anio === ventana.anioAnterior),
+    [filteredRecords, ventana.anioActual, ventana.anioAnterior],
+  );
+  const diaria = useTendenciaDiaria(registrosParaDiaria);
+  const [vistaDiaria, setVistaDiaria] = useState(false);
+
+  // Total General = año COMPLETO (01/01–31/12) de la vigencia anterior.
+  const totalGeneralIndicadores = useMemo(
+    () => totalCasos(recordsBase.filter((r) => r.anio === ventana.anioAnterior)),
+    [recordsBase, ventana.anioAnterior],
+  );
+
+  const [resumenDiario, setResumenDiario] = useState<{ mesesTexto: string; porMes: { mesNombre: string; anio: number; casos: number }[]; porMesAnioAnterior: { mesNombre: string; anio: number; casos: number }[]; mostrarAnioAnterior: boolean } | null>(null);
+  const mesMasAfectado = useMemo(
+    () => (resumenDiario ? identificarMesMasAfectado(resumenDiario.porMes) : null),
+    [resumenDiario],
+  );
+  const casosMesMasAfectadoAnioAnterior = useMemo(() => {
+    if (!mesMasAfectado || !resumenDiario || resumenDiario.porMes.length === 0) return null;
+    const mesEntry = resumenDiario.porMes.find((m) => m.mesNombre === mesMasAfectado.mes);
+    if (!mesEntry) return null;
+    const mesIndexBuscado = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].indexOf(mesMasAfectado.mes) + 1;
+    return filteredRecords.filter((r) => r.anio === ventana.anioAnterior && r.mes === mesIndexBuscado).length;
+  }, [mesMasAfectado, resumenDiario, filteredRecords, ventana.anioAnterior]);
+  const prioridadTexto = mesMasAfectado ? generarPrioridad(mesMasAfectado, casosMesMasAfectadoAnioAnterior) : null;
+  const textoCorrelacionMeses = useMemo(() => {
+    if (!mesMasAfectado || !resumenDiario?.mostrarAnioAnterior) return null;
+    return compararMesMasAfectadoEntreAnios(mesMasAfectado, resumenDiario.porMesAnioAnterior);
+  }, [mesMasAfectado, resumenDiario]);
+  const desfavorableGeneral = cmpGeneral.variacionPct !== null && cmpGeneral.variacionPct > 0;
 
   const urbanoRural = useUrbanoRural(ventana.recsActual);
   const porGenero = useRanking(ventana.recsActual, (r) => r.genero, 10);
@@ -152,6 +202,85 @@ export function AnalisisUnidad() {
           subtitle="Lectura integral: estaciones, cuadrantes, barrios, zonas, población, arma, modalidad, sitio, causa de lesión y horario."
           acciones={<BotonGenerarPdf nombreArchivo="MEPOY_Analisis_Unidad" />}
         />
+
+      {ventana.disponible && (
+        <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
+          <p>
+            {ventana.esRangoPersonalizado
+              ? <>Comparando el rango <strong>{formatFecha(ventana.actualInicio)} – {formatFecha(ventana.actualFin)}</strong> ({ventana.anioActual}) contra el mismo rango un año atrás: <strong>{formatFecha(ventana.anteriorInicio)} – {formatFecha(ventana.anteriorFin)}</strong> ({ventana.anioAnterior}).</>
+              : <>Por defecto se compara el año {ventana.anioActual} del 1 de enero al {formatFecha(ventana.actualFin)} ("a la fecha") contra el mismo tramo de {ventana.anioAnterior}. "Total General" corresponde al año {ventana.anioAnterior} completo (cierre 31 de diciembre), respetando el delito/estación seleccionados.</>}
+          </p>
+        </div>
+      )}
+
+      {/* Resumen general — en TABLA (no tarjetas individuales) para que sea
+          más rápido de leer de un vistazo, tal como se pidió. */}
+      <Card title="Resumen general" subtitle="Comparativo homólogo a la fecha, mismos filtros del resto de la página" descargable="resumen-general-unidad">
+        <table className="w-full text-sm">
+          <tbody>
+            {[
+              { etiqueta: 'Total general', valor: formatNumero(totalGeneralIndicadores), nota: `Vigencia ${ventana.anioAnterior} completa (01/01–31/12)` },
+              { etiqueta: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: `${formatNumero(cmpGeneral.registrosAnterior)} registros · a la fecha` },
+              { etiqueta: `Casos año actual (${ventana.anioActual})`, valor: formatNumero(cmpGeneral.casosActual), nota: `${formatNumero(cmpGeneral.registrosActual)} registros · a la fecha` },
+              { etiqueta: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
+              { etiqueta: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
+              { etiqueta: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable (aumento)' : 'Favorable (disminución)', color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
+              { etiqueta: 'Participación del delito principal', valor: `${formatDecimal(kpis.participacionDelitoTop)}%`, nota: kpis.delitoTop?.key ?? '—' },
+              { etiqueta: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos / día' },
+              { etiqueta: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: 'en un solo día' },
+              { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: 'en un solo día' },
+            ].map((fila, i) => (
+              <tr key={fila.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/60' : ''}>
+                <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">{fila.etiqueta}</td>
+                <td className={`py-2 text-right text-base font-bold ${fila.color ?? 'text-slate-800'}`}>{fila.valor}</td>
+                <td className="rounded-r-lg py-2 pl-3 pr-3 text-right text-xs text-slate-400">{fila.nota ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {accesoTendenciaMensual ? (
+        <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+      ) : (
+        <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+      )}
+
+      {accesoTendenciaDiaria ? (
+        <Card
+          title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
+          subtitle="Comportamiento día a día en el periodo filtrado. Pasa el cursor sobre la línea para ver el detalle exacto de cada día."
+          descargable="tendencia-diaria"
+          actions={
+            <button onClick={() => setVistaDiaria((v) => { if (v) setResumenDiario(null); return !v; })} className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
+              {vistaDiaria ? 'Ver resumen' : 'Ver serie completa'}
+            </button>
+          }
+        >
+          {vistaDiaria ? (
+            <>
+              {textoCorrelacionMeses && (
+                <div className="mb-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700">
+                  {textoCorrelacionMeses}
+                </div>
+              )}
+              {mesMasAfectado && (
+                <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <span className="font-semibold text-rose-600">🔴 Mes más afectado: {mesMasAfectado.mes.toUpperCase()} — {formatNumero(mesMasAfectado.casos)} casos</span>
+                  {prioridadTexto && <span className="font-semibold text-brand-green">🎯 Prioridad próxima vigencia: {mesMasAfectado.mes.toUpperCase()}</span>}
+                </div>
+              )}
+              <TendenciaDiariaChart data={diaria} height={320} onResumenChange={setResumenDiario} />
+              {prioridadTexto && <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-700">Análisis: {prioridadTexto}</p>}
+            </>
+          ) : (
+            <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos). Para consultar cada caso individual, usa la sección "Tabla de Datos".</p>
+          )}
+        </Card>
+      ) : (
+        <ComponenteBloqueado titulo="Tendencia diaria" subtitulo="Comportamiento día a día en el periodo filtrado" />
+      )}
 
       {ventana.disponible && (
         <>
@@ -284,6 +413,9 @@ export function AnalisisUnidad() {
               en vez de un tercio, así el gráfico de 24 horas no se ve
               apretado. */}
           <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            <Card title="Casos por día de la semana" subtitle="Con línea de tendencia — los 3 días con más casos se resaltan automáticamente" descargable="casos-dia-semana">
+              <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={260} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={55} tamanoEtiqueta={14} espaciadoCategoria={0.15} />
+            </Card>
             <Card
               title="Concentración horaria"
               subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Cantidad de casos por hora del día, con línea de tendencia — las 3 horas con más casos se resaltan automáticamente'}

@@ -27,7 +27,7 @@ export function ContextoAnalisisIA({ contexto }: { contexto: ContextoAgenteIA })
           <p className="font-semibold text-slate-700">{periodoComparativo.vigencia} <span className="font-normal text-slate-400">({periodoComparativo.inicio}–{periodoComparativo.fin})</span></p>
         </div>
         <div>
-          <p className="text-slate-400">Total registros</p>
+          <p className="text-slate-400">Casos {periodoActual.vigencia} (a la fecha)</p>
           <p className="font-semibold text-slate-700">{formatNumero(indicadores.totalCasosActual)}</p>
         </div>
       </div>

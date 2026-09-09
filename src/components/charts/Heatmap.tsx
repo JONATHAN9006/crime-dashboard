@@ -53,7 +53,7 @@ export function Heatmap({ data, onCellClick }: { data: HeatmapResumen; onCellCli
                         onMouseEnter={() => setCeldaHover(celda)}
                         onMouseLeave={() => setCeldaHover((prev) => (prev === celda ? null : prev))}
                         onClick={() => onCellClick?.(celda)}
-                        className={`mx-auto flex items-center justify-center rounded-sm text-[11px] font-bold text-slate-800/80 transition-transform hover:z-10 hover:scale-125 hover:relative hover:shadow-md ${data.vista === 'hora' ? 'h-7 w-7' : 'h-9 w-full min-w-16'} ${onCellClick ? 'cursor-pointer' : 'cursor-default'}`}
+                        className={`mx-auto flex items-center justify-center rounded-sm font-bold text-slate-800/80 transition-transform hover:z-10 hover:scale-125 hover:relative hover:shadow-md ${data.vista === 'hora' ? 'h-7 w-7 text-sm' : 'h-10 w-full min-w-16 text-base'} ${onCellClick ? 'cursor-pointer' : 'cursor-default'}`}
                         style={{ backgroundColor: COLOR_NIVEL[celda.nivel] }}
                       >
                         {celda.valor > 0 ? formatNumero(celda.valor) : ''}

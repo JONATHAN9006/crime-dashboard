@@ -148,7 +148,7 @@ function CapaEtiquetasSinColision({ data, xKey, seriesKeys, seriesColors }: {
           x={e.x}
           y={e.y}
           textAnchor="middle"
-          fontSize={12}
+          fontSize={14}
           fontWeight={700}
           fill={e.color}
           stroke="#ffffff"
@@ -197,7 +197,7 @@ function EtiquetasValorMensualAlPie({ data, xKey, seriesKeys, obtenerColor }: {
               x={x}
               y={yInferior + 14 + i * 13}
               textAnchor="middle"
-              fontSize={10}
+              fontSize={12}
               fontWeight={700}
               fill={obtenerColor(i)}
             >
@@ -255,7 +255,7 @@ export function TrendChart({ data, xKey, seriesKeys, height = 300, mostrarValore
         {mostrarLineaTendencia && <span data-export-leyenda-item data-color="#fdba74">Proyección</span>}
       </div>
       <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 20, right: 20, left: 4, bottom: mostrarValorMensualAlPie ? 10 + seriesKeys.length * 13 : 4 }}>
+      <LineChart data={data} margin={{ top: 34, right: 20, left: 4, bottom: mostrarValorMensualAlPie ? 10 + seriesKeys.length * 13 : 4 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis
           dataKey={xKey}
@@ -263,7 +263,7 @@ export function TrendChart({ data, xKey, seriesKeys, height = 300, mostrarValore
           axisLine={{ stroke: '#e2e8f0' }}
           minTickGap={data.length > 40 ? 24 : 8}
         />
-        <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} width={40} />
+        <YAxis domain={[0, (max: number) => Math.ceil(max * 1.18)]} tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} width={40} />
         <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13, border: '1px solid #e2e8f0' }} />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
         {mostrarLineaTendencia && (

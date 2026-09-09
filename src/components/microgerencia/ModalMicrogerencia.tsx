@@ -41,7 +41,11 @@ function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado:
       <div className={color}><span className="block text-slate-400">%</span>{formatearPct(nodo.pct)}</div>
       <div className="sm:col-span-2">
         <span className="block text-slate-400">Aporte % <span className="text-slate-300">(proyección vs. 2025)</span></span>
-        <span className="inline-flex flex-wrap items-baseline">{formatDecimal(nodo.aportePct, 1)}%<IndicadorTendenciaProyectada nodo={nodo} /></span>
+        <span className="inline-flex flex-wrap items-baseline gap-1">
+          {formatDecimal(nodo.aportePct, 1)}%
+          <span className="text-xs font-normal text-slate-400">({formatNumero(nodo.fecha2026)} casos)</span>
+          <IndicadorTendenciaProyectada nodo={nodo} />
+        </span>
       </div>
     </div>
   );
@@ -91,12 +95,13 @@ function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
   );
 }
 
-function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSeleccion }: {
+function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSeleccion, sufijoDelito }: {
   nodo: NodoMicrogerencia;
   profundidad: number;
   ruta: string;
   seleccionados: Map<string, NodoMicrogerencia>;
   onAlternarSeleccion: (ruta: string, nodo: NodoMicrogerencia) => void;
+  sufijoDelito: string | null;
 }) {
   const [expandido, setExpandido] = useState(profundidad <= 1);
   const esNivelSuperior = profundidad === 0;
@@ -111,7 +116,9 @@ function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSelecc
           </button>
           <button type="button" onClick={() => setExpandido((v) => !v)} className="flex flex-1 items-center gap-1 text-left">
             {expandido ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
-            <span className={`font-bold ${esNivelSuperior ? 'text-brand-navy' : 'text-slate-700'}`}>{nodo.nombre}</span>
+            <span className={`font-bold ${esNivelSuperior ? 'text-brand-navy' : 'text-slate-700'}`}>
+              {nodo.nombre}{sufijoDelito && <span className="font-semibold text-brand-green"> — {sufijoDelito}</span>}
+            </span>
           </button>
         </div>
         <MetricasNodo nodo={nodo} destacado={esNivelSuperior} />
@@ -123,7 +130,7 @@ function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSelecc
         )}
       </div>
       {nodo.hijos.map((hijo) => (
-        <NodoCompleto key={hijo.nombre} nodo={hijo} profundidad={profundidad + 1} ruta={`${ruta}>${hijo.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={onAlternarSeleccion} />
+        <NodoCompleto key={hijo.nombre} nodo={hijo} profundidad={profundidad + 1} ruta={`${ruta}>${hijo.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={onAlternarSeleccion} sufijoDelito={sufijoDelito} />
       ))}
     </div>
   );
@@ -146,6 +153,11 @@ function CheckboxVista({ etiqueta, activo, onClick }: { etiqueta: string; activo
       {etiqueta}
     </button>
   );
+}
+
+function aplanarArbol(nodo: NodoMicrogerencia, ruta: string): [string, NodoMicrogerencia][] {
+  const propio: [string, NodoMicrogerencia][] = [[ruta, nodo]];
+  return nodo.hijos.reduce((acc, hijo) => [...acc, ...aplanarArbol(hijo, `${ruta}>${hijo.nombre}`)], propio);
 }
 
 const TITULOS_VISTA: Record<Vista, string> = {
@@ -226,17 +238,33 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
         <div className="flex-1 overflow-auto px-5 py-4">
           <p className="mb-3 text-xs text-slate-400">
-            Calculado en vivo a partir de la misma información cargada en el dashboard — independiente de los filtros de la barra lateral. Marca el <CheckSquare size={11} className="inline text-brand-green" /> de cualquier fila para elegir exactamente qué incluir en el PDF (puedes combinar filas de distintas pestañas).
+            Calculado en vivo a partir de la misma información cargada en el dashboard, respetando el filtro de Delito activo — independiente del resto de los filtros de la barra lateral. Marca el <CheckSquare size={11} className="inline text-brand-green" /> de cualquier fila para elegir exactamente qué incluir en el PDF (puedes combinar filas de distintas pestañas).
           </p>
 
+          <button
+            type="button"
+            onClick={() => {
+              const raiz = vista === 'delitos' ? null : raizVistaActual;
+              if (vista === 'delitos') {
+                setSeleccionados(new Map(datos.delitos.map((d) => [`Delitos>${d.nombre}`, d])));
+              } else if (raiz) {
+                setSeleccionados(new Map(aplanarArbol(raiz, raiz.nombre)));
+              }
+            }}
+            className="mb-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-green hover:text-brand-green"
+          >
+            <CheckSquare size={13} />
+            Seleccionar todo en esta pestaña
+          </button>
+
           {vista !== 'delitos' && raizVistaActual && (
-            <NodoCompleto nodo={raizVistaActual} profundidad={0} ruta={raizVistaActual.nombre} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} />
+            <NodoCompleto nodo={raizVistaActual} profundidad={0} ruta={raizVistaActual.nombre} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={datos.delitoFiltrado} />
           )}
 
           {vista === 'delitos' && (
             <div>
               {datos.delitos.map((d) => (
-                <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={0} ruta={`Delitos>${d.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} />
+                <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={0} ruta={`Delitos>${d.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={null} />
               ))}
             </div>
           )}

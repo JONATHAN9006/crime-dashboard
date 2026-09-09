@@ -118,4 +118,3 @@ export type RespuestaAgenteIA =
   | { tipo: 'llamada_herramienta'; llamadas: LlamadaHerramienta[]; historialCrudo: unknown }
   | { tipo: 'respuesta'; texto: string }
   | { tipo: 'error'; mensaje: string; noConfigurado?: boolean };
-

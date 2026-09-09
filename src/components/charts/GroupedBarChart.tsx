@@ -47,40 +47,25 @@ function crearFormaBarra(colorBase: string, valoresDestacados: Set<number>, resa
   };
 }
 
-export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1 }: {
+export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria }: {
   data: Record<string, any>[];
   xKey: string;
   seriesKeys: string[];
   height?: number;
   horizontal?: boolean;
-  // Permite forzar el color de series específicas (ej. resaltar en rojo el
-  // delito con mayor incidencia, calculado dinámicamente por quien llama).
   seriesColors?: Record<string, string>;
-  // Resalta automáticamente la barra con mayor valor de TODA la gráfica
-  // (considerando todas las series) con un recuadro rojo punteado.
   resaltarMaximo?: boolean;
-  // Solo aplica cuando hay una única serie: cada barra usa un color distinto
-  // de la paleta, en vez de un único color para toda la serie.
   colorPorBarra?: boolean;
-  // Ancho máximo de cada barra en píxeles — sin esto, Recharts reparte todo
-  // el ancho disponible entre las barras (con pocas categorías, ej. 7 días
-  // de la semana, quedan demasiado anchas). Se deja opcional para no
-  // afectar las gráficas que ya se ven bien con el ancho automático.
   anchoMaximoBarra?: number;
-  // Tamaño de fuente del número sobre cada barra — 12 por defecto (el mismo
-  // de siempre); se puede subir puntualmente donde haga falta más
-  // legibilidad sin afectar las demás gráficas.
   tamanoEtiqueta?: number;
-  // Cuántas de las barras más altas se resaltan con el recuadro punteado
-  // rojo (por defecto 1, el comportamiento de siempre). Por ejemplo,
-  // resaltarTopN={3} en "Concentración horaria" resalta automáticamente las
-  // 3 horas con más casos, para identificar de un vistazo dónde reforzar
-  // turnos o recursos — se recalcula solo con cada cambio de filtro.
   resaltarTopN?: number;
-  // Superpone una línea de tendencia sobre las barras (solo con una serie),
-  // para leer la evolución de un vistazo sin perder el detalle por barra.
   mostrarTendencia?: boolean;
   onBarClick?: (categoria: string) => void;
+  // Espacio entre grupos de barras, como fracción (0 a 1) del ancho de cada
+  // categoría — por defecto usa el 30% de Recharts (sin especificar); un
+  // valor más bajo (ej. 0.1) junta las barras para que ocupen menos espacio
+  // horizontal, útil cuando la gráfica se descarga como imagen.
+  espaciadoCategoria?: number;
 }) {
   const esUnaSolaSerie = seriesKeys.length === 1;
   // Los N valores más altos de toda la gráfica (todas las series juntas) —
@@ -97,7 +82,7 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ top: 34, right: 24, left: horizontal ? 8 : 0, bottom: 0 }}>
+      <ComposedChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ top: 34, right: 24, left: horizontal ? 8 : 0, bottom: 0 }} barCategoryGap={espaciadoCategoria !== undefined ? `${espaciadoCategoria * 100}%` : undefined}>
         {horizontal ? (
           <>
             {/* domain con margen del 12% para no dejar espacio excesivo, pero

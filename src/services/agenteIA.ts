@@ -48,4 +48,3 @@ export async function enviarMensajeAgente(solicitud: SolicitudAgenteIA): Promise
     return { tipo: 'error', mensaje: 'En este momento no fue posible procesar el análisis. Los datos del Dashboard continúan disponibles.' };
   }
 }
-

@@ -38,6 +38,7 @@ export interface DatosMicrogerencia {
   periodo: string;
   anioActual: number;
   anioAnterior: number;
+  delitoFiltrado: string | null;
   general: NodoMicrogerencia;
   distrito1: NodoMicrogerencia;
   distrito2: NodoMicrogerencia;

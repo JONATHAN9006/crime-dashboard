@@ -12,5 +12,5 @@
 window.APP_CONFIG = {
   backendUrl: "https://script.google.com/macros/s/AKfycbxxSpQQWb4W_7PCFGSWQPwjG3Vi3oPWXan80VI3_V4PCox-bZRhX-jjgFsqrKpazfUe8g/exec",
   updatePassword: "Mepoy-2026",
-  agenteIAUrl: "https://dashboard-cieps.netlify.app/.netlify/functions/agenteIA",
+  agenteIAUrl: "",
 };

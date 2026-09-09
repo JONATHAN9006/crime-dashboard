@@ -11,7 +11,6 @@
 // DENTRO de una página o flotantes — cada uno se revisa en su propio lugar.
 export interface AccesoHerramientas {
   resumen: boolean;
-  indicadores: boolean;
   unidad: boolean;
   ultimasSemanas: boolean;
   matrizCalor: boolean;
@@ -33,7 +32,6 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
   // tocar ningún componente.
   jefe: {
     resumen: true,
-    indicadores: true,
     unidad: true,
     ultimasSemanas: false,
     matrizCalor: false,
@@ -51,7 +49,6 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
   // Vista de trabajo interno — todo disponible, siempre.
   interno: {
     resumen: true,
-    indicadores: true,
     unidad: true,
     ultimasSemanas: true,
     matrizCalor: true,

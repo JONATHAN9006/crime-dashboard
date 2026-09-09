@@ -124,6 +124,11 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
     : subtitulo;
 
   const seriesKeys = todos.map(String);
+  // Checkboxes de año (2025/2026, etc.) — ambos activos por defecto; al
+  // desmarcar uno, su línea desaparece de la gráfica sin recalcular nada
+  // (solo se filtra qué series se le pasan a TrendChart).
+  const [aniosOcultos, setAniosOcultos] = useState<Set<string>>(new Set());
+  const seriesKeysVisibles = seriesKeys.filter((k) => !aniosOcultos.has(k));
   const esAcumulado = !esDiaria && modo === 'acumulado';
   const datosGrafica = esAcumulado
     ? construirSerieAcumulada(mensualConTendencia, seriesKeys, ['_tendencia', '_proyeccion'])
@@ -139,7 +144,21 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
       subtitle={subtituloMostrado}
       descargable={descargable}
       actions={!esDiaria ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {seriesKeys.map((anio) => (
+            <CheckboxModo
+              key={anio}
+              etiqueta={anio}
+              activo={!aniosOcultos.has(anio)}
+              onClick={() => setAniosOcultos((prev) => {
+                const nuevo = new Set(prev);
+                if (nuevo.has(anio)) nuevo.delete(anio);
+                else if (nuevo.size < seriesKeys.length - 1) nuevo.add(anio); // nunca ocultar el último año visible
+                return nuevo;
+              })}
+            />
+          ))}
+          <span className="mx-1 h-4 w-px bg-slate-200" />
           <CheckboxModo etiqueta="Mensual" activo={modo === 'mensual'} onClick={() => setModo('mensual')} />
           <CheckboxModo etiqueta="Acumulado" activo={modo === 'acumulado'} onClick={() => setModo('acumulado')} />
         </div>
@@ -162,9 +181,9 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
           <TrendChart
             data={datosGrafica}
             xKey="mes"
-            seriesKeys={seriesKeys}
+            seriesKeys={seriesKeysVisibles}
             seriesColors={{ [String(Math.min(...todos))]: '#7c3aed' }}
-            mostrarLineaTendencia={mostrarTendencia}
+            mostrarLineaTendencia={mostrarTendencia && seriesKeysVisibles.length === seriesKeys.length}
             mostrarValorMensualAlPie={esAcumulado}
             height={height}
           />

@@ -59,6 +59,48 @@ function MarcaAguaPorMes({ tramosPorMes, dataFiltrada }: { tramosPorMes: TramoMe
   );
 }
 
+// Etiqueta comparativa POR MES: en la esquina superior izquierda de cada
+// tramo de color, muestra el total de casos de AMBOS años para ese mismo
+// mes calendario ("2025: 25 casos, 2026: 30 casos") — se recalcula solo a
+// partir de "dataFiltrada" (que ya viene filtrada por delito u otros
+// filtros activos), así que responde sola sin ningún cálculo aparte.
+function EtiquetaComparativaPorMes({ tramosPorMes, dataFiltrada }: { tramosPorMes: TramoMes[]; dataFiltrada: { idx: number; casos: number }[] }) {
+  const xScale = useXAxisScale();
+  const yScale = useYAxisScale();
+  if (!xScale || !yScale) return null;
+
+  const rangoY = (yScale as any).range?.() as [number, number] | undefined;
+  const ySuperior = rangoY ? Math.min(rangoY[0], rangoY[1]) + 14 : 14;
+
+  function totalDeTramo(t: TramoMes): number {
+    return dataFiltrada.filter((p) => p.idx >= t.idxInicio && p.idx <= t.idxFin).reduce((acc, p) => acc + p.casos, 0);
+  }
+
+  return (
+    <g>
+      {tramosPorMes.map((t, i) => {
+        const xIzq = xScale(t.idxInicio);
+        if (xIzq === undefined) return null;
+        const total = totalDeTramo(t);
+        const otroTramo = tramosPorMes.find((t2) => t2.mesNombre === t.mesNombre && t2.anio !== t.anio);
+        const partes: string[] = [];
+        if (otroTramo) {
+          const totalOtro = totalDeTramo(otroTramo);
+          const par = t.anio < otroTramo.anio ? [[t.anio, total], [otroTramo.anio, totalOtro]] : [[otroTramo.anio, totalOtro], [t.anio, total]];
+          for (const [anio, tot] of par) partes.push(`${anio}: ${formatNumero(tot)} casos`);
+        } else {
+          partes.push(`${t.anio}: ${formatNumero(total)} casos`);
+        }
+        return (
+          <text key={`cmp-${t.mesNombre}-${t.anio}-${i}`} x={xIzq + 4} y={ySuperior} textAnchor="start" fontSize={11} fontWeight={700} fill={t.color} stroke="#ffffff" strokeWidth={3} paintOrder="stroke">
+            {partes.join('   ·   ')}
+          </text>
+        );
+      })}
+    </g>
+  );
+}
+
 // Paleta de tonos suaves y distintos entre sí (nada estridente), uno por mes,
 // que se repite cíclicamente si se muestran más meses de los que tiene la paleta.
 const PALETA_MESES = [
@@ -258,6 +300,7 @@ export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
             <ComposedChart data={dataFiltrada} margin={{ top: 20, right: 20, left: 4, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <MarcaAguaPorMes tramosPorMes={tramosPorMes} dataFiltrada={dataFiltrada} />
+              <EtiquetaComparativaPorMes tramosPorMes={tramosPorMes} dataFiltrada={dataFiltrada} />
               {/* Fondo de color sólido y distinto por cada mes (verde
                   institucional más clarito para enero, y así sucesivamente),
                   ubicado con la posición secuencial "idx" — nunca se desalinea

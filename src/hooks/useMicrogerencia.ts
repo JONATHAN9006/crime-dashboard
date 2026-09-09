@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { useVentanaComparativa } from './useComparativoHomologo';
-import { emptyFilterState } from '../types/crime';
 import type { CrimeRecord } from '../types/crime';
 import { formatFecha } from '../utils/aggregations';
 import type { DatosMicrogerencia, NodoMicrogerencia, PuntoMes, PuntoTrimestre } from '../data/microgerencia';
@@ -29,11 +28,12 @@ function ordenarCai(a: string, b: string): number {
 
 /**
  * "Microgerencia y Proyección Delictiva" — CALCULADO EN VIVO a partir de
- * "records" (todo lo ya cargado en el dashboard, el mismo Excel/CSV que se
- * sube por "Actualizar información") — nunca de un archivo separado.
- * Reutiliza useVentanaComparativa (la MISMA lógica de ventana homóloga que
- * ya usa el resto del dashboard), ignorando a propósito los filtros de la
- * barra lateral: es un reporte de estado general de TODA la unidad.
+ * "recordsBase" (todo lo cargado, respetando el filtro de Delito y demás
+ * filtros de la barra lateral — EXCEPTO año/mes/fecha, que maneja la propia
+ * ventana homóloga) — nunca de un archivo separado. Reutiliza
+ * useVentanaComparativa (la MISMA lógica de ventana homóloga que ya usa el
+ * resto del dashboard). Si hay un delito filtrado, cada nodo queda acotado
+ * a ese delito — ver "delitoFiltrado" en el resultado.
  *
  * Mantiene EXACTAMENTE las mismas columnas que trae la Hoja3 del Excel
  * original (Total 2025, año a la fecha ×2, DIF, %, Aporte %, Proyección,
@@ -41,8 +41,8 @@ function ordenarCai(a: string, b: string): number {
  * delito — para no perder esa estructura.
  */
 export function useMicrogerencia(): DatosMicrogerencia | null {
-  const { records, meta } = useData();
-  const ventana = useVentanaComparativa(records, emptyFilterState, records, meta?.fechaMaxParametro);
+  const { records, recordsBase, filters, meta } = useData();
+  const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
 
   return useMemo(() => {
     if (!ventana.disponible) return null;
@@ -107,7 +107,9 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       diasHastaLaFecha: diasTranscurridos,
       periodo: `Del ${formatFecha(ventana.actualInicio)} al ${formatFecha(ventana.actualFin)} (vigencia ${anioActual} vs. ${anioAnterior})`,
       anioActual, anioAnterior,
+      delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
       general, distrito1, distrito2, delitos,
     };
-  }, [ventana]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ventana, filters.delito]);
 }

@@ -56,53 +56,36 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true }: {
         <div data-export-texto="aporte-header" className="text-center text-[11px] font-bold uppercase tracking-wide text-slate-500">Aporte</div>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-0.5">
         {data.map((d, i) => {
-          // El dashboard conserva su diseño ORIGINAL (barra hasta el 100%
-          // del ancho disponible) — la reducción de ancho pedida se aplica
-          // ÚNICAMENTE en la imagen exportada, marcando el contenedor con
-          // data-export-track (ver exportarImagen.ts), nunca aquí, para no
-          // volver a modificar lo que se ve en pantalla.
           const anchoPct = Math.max(2, (d.casos / maxCasos) * 100);
           const esMaximo = resaltarMaximo && d.casos === maxCasos && maxCasos > 0;
           const color = esMaximo ? VERDE_MAXIMO : PALETA_BARRAS[i % PALETA_BARRAS.length];
           return (
             <div
               key={d.key}
-              // data-export-fila: marca la fila completa para que, SOLO en
-              // la exportación, reciba más alto (para que ninguna letra se
-              // recorte) y menos separación horizontal entre columnas
-              // (para que casos/aporte queden más pegados a la barra) —
-              // nunca se toca en el dashboard, que sigue con su
-              // "gap-3" y alto normales.
               data-export-fila="true"
               className={`grid items-center gap-3 ${onBarClick ? 'cursor-pointer' : ''}`}
               style={{ gridTemplateColumns: COLUMNAS_GRID }}
               onClick={() => onBarClick?.(d.key)}
             >
-              <div data-export-texto="etiqueta" className="truncate text-xs font-medium text-slate-700 sm:text-sm" title={d.key}>{d.key}</div>
+              <div data-export-texto="etiqueta" className="truncate text-sm font-medium text-slate-700" title={d.key}>{d.key}</div>
               <div className="min-w-0 py-0.5">
-                {/* data-export-track: marca el contenedor completo de la
-                    barra (borde + fondo gris + relleno de color) para que
-                    SOLO la exportación (nunca esta vista) le reduzca el
-                    ancho total — así el fondo gris y el color se achican
-                    juntos, en vez de solo el color por dentro de un fondo
-                    que se queda igual de ancho. */}
                 <div
                   data-export-track="true"
                   className="rounded"
-                  style={esMaximo ? { border: '2px dashed #dc2626', padding: '2px' } : undefined}
+                  style={esMaximo ? { border: '2px dashed #dc2626', padding: '1px' } : undefined}
                 >
-                  <div className="h-4 overflow-hidden rounded bg-slate-100">
+                  <div className="h-2 overflow-hidden rounded bg-slate-100">
                     <div
-                      className="h-4 rounded transition-all"
+                      className="h-2 rounded transition-all"
                       style={{ width: `${anchoPct}%`, backgroundColor: color }}
                     />
                   </div>
                 </div>
               </div>
-              <div data-export-texto="valor" className="text-right text-xs font-semibold text-slate-800 sm:text-sm">{formatNumero(d.casos)}</div>
-              <div data-export-texto="aporte" className="text-center text-xs font-bold text-slate-600 sm:text-sm">{formatDecimal(d.aportePct, 1)}%</div>
+              <div data-export-texto="valor" className="text-right text-base font-bold text-slate-800">{formatNumero(d.casos)}</div>
+              <div data-export-texto="aporte" className="text-center text-base font-bold text-slate-600">{formatDecimal(d.aportePct, 1)}%</div>
             </div>
           );
         })}
