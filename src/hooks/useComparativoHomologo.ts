@@ -218,7 +218,7 @@ export function useComparativoCategoria(
         const actual = actualMap.get(key) || 0;
         const anterior = anteriorMap.get(key) || 0;
         const diferencia = actual - anterior;
-        const variacionPct = anterior > 0 ? (diferencia / anterior) * 100 : (actual > 0 ? null : 0);
+        const variacionPct = anterior > 0 ? (diferencia / anterior) * 100 : (actual > 0 ? 100 : 0);
         return {
           key, actual, anterior, diferencia, variacionPct,
           aportePct: participacionPct(actual, totalActual),

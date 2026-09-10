@@ -5,14 +5,14 @@
 // modal y el generador de PDF.
 export interface PuntoTrimestre {
   etiqueta: string; // "1er Trimestre", etc.
-  anio2025: number;
+  anio2025: number; // 2025 CERRADO (hasta el 31 de diciembre) — no el corte "a la fecha"
   anio2026: number;
   dif: number;
 }
 
 export interface PuntoMes {
   etiqueta: string; // "Enero", etc.
-  anio2025: number;
+  anio2025: number; // 2025 CERRADO (mes completo)
   anio2026: number;
   dif: number;
 }
