@@ -261,6 +261,18 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
             <NodoCompleto nodo={raizVistaActual} profundidad={0} ruta={raizVistaActual.nombre} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={datos.delitoFiltrado} />
           )}
 
+          {/* En la vista "MEPOY General" se agrega también el desglose por
+              delito (igual que en la Hoja3 original del Excel, que traía
+              tanto la tabla de Estaciones como la de Delitos juntas). */}
+          {vista === 'general' && datos.delitos.length > 0 && (
+            <div className="mt-4 border-t border-slate-200 pt-3">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Desglose por delito</p>
+              {datos.delitos.map((d) => (
+                <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={1} ruta={`General>Delitos>${d.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={null} />
+              ))}
+            </div>
+          )}
+
           {vista === 'delitos' && (
             <div>
               {datos.delitos.map((d) => (

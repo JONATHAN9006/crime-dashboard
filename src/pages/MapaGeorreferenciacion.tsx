@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, 
 import shp from 'shpjs';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Calendar, Maximize2 } from 'lucide-react';
+import { AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Calendar, Maximize2, Download } from 'lucide-react';
 import clsx from 'clsx';
 import { Card, PageHeader } from '../components/ui/Card';
 import { guardarCapas, cargarCapas, limpiarCapas, type CapaGeografica } from '../data/geoStorage';
@@ -11,10 +11,12 @@ import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
+import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
+import { exportarHtmlComoImagen } from '../utils/exportarImagen';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
-import { agruparPor } from '../utils/aggregations';
+import { agruparPor, formatNumero } from '../utils/aggregations';
 import type { CrimeRecord } from '../types/crime';
 import { esModoConsulta } from '../utils/modoConsulta';
 
@@ -125,6 +127,19 @@ function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[
   return null;
 }
 
+function AjustarVistaAPoligono({ feature }: { feature: any }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!feature) return;
+    try {
+      const capa = L.geoJSON(feature);
+      map.fitBounds(capa.getBounds(), { padding: [30, 30], maxZoom: 17 });
+    } catch { /* geometría inválida — se ignora, el mapa se queda como estaba */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feature]);
+  return null;
+}
+
 function LeyendaGradiente({ titulo, colores }: { titulo: string; colores: string[] }) {
   return (
     <div>
@@ -204,6 +219,11 @@ export function MapaGeorreferenciacion() {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [capasPuntos, setCapasPuntos] = useState<CapaPuntos[]>([]);
+  // Zona seleccionada (clic sobre un polígono de una capa cargada) — para
+  // recortar el mapa de calor a solo esa zona y poder descargarla aparte.
+  const [zonaSeleccionada, setZonaSeleccionada] = useState<{ capaId: string; feature: any; nombre: string } | null>(null);
+  const [delitoZonaSeleccionada, setDelitoZonaSeleccionada] = useState<string | null>(null);
+  const [descargandoZona, setDescargandoZona] = useState(false);
   const [modalCapaPuntos, setModalCapaPuntos] = useState<string | null>(null);
   const [modoComparacion, setModoComparacion] = useState(false);
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
@@ -453,6 +473,46 @@ export function MapaGeorreferenciacion() {
     return puntosIrisp1Visibles;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pantallaCompleta, seleccionIrisp1, puntosIrisp1Visibles, capasPuntosProcesadas]);
+
+  // Puntos (de la fuente que esté visible en ese momento — Delitos o
+  // IRISP1, lo que sea que ya se esté mostrando) que caen DENTRO del
+  // polígono seleccionado — recalculado solo cuando cambia la zona, la
+  // fuente de puntos, o el delito elegido específicamente para esa zona.
+  // Universo de puntos con su delito conservado (capasPuntosProcesadas trae
+  // el objeto completo; las listas "...ParaMostrar" de arriba ya lo
+  // recortan a solo {lat, lon} para el mapa de calor general) — de aquí
+  // salen los puntos reales para recortar por polígono.
+  const todosLosPuntosVisiblesConDelito = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+
+  const delitosDisponiblesEnZona = useMemo(() => {
+    if (!zonaSeleccionada) return [];
+    const universo = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, zonaSeleccionada.feature));
+    return Array.from(new Set(universo.map((p) => p.delitoCorto ?? 'NO REPORTADO'))).sort();
+  }, [zonaSeleccionada, todosLosPuntosVisiblesConDelito]);
+
+  const puntosEnZonaParaCalor = useMemo(() => {
+    if (!zonaSeleccionada) return [];
+    return todosLosPuntosVisiblesConDelito.filter((p) => {
+      if (delitoZonaSeleccionada && (p.delitoCorto ?? 'NO REPORTADO') !== delitoZonaSeleccionada) return false;
+      return puntoEnFeatureGeoJSON(p.lon, p.lat, zonaSeleccionada.feature);
+    });
+  }, [zonaSeleccionada, delitoZonaSeleccionada, todosLosPuntosVisiblesConDelito]);
+
+  async function descargarZonaSeleccionada() {
+    if (!zonaSeleccionada) return;
+    setDescargandoZona(true);
+    try {
+      const contenedor = document.querySelector('[data-mapa-contenedor]') as HTMLElement | null;
+      if (contenedor) {
+        await exportarHtmlComoImagen(contenedor, `Mapa de calor — ${zonaSeleccionada.nombre}`, `mapa-calor-${zonaSeleccionada.nombre}`.replace(/\s+/g, '-'));
+      }
+    } finally {
+      setDescargandoZona(false);
+    }
+  }
 
   function elegirFuenteFullscreen(fuente: 'irisp1' | 'delitos') {
     // Esto SOLO abre/cierra la tabla para explorar esa fuente — ya no toca
@@ -851,7 +911,7 @@ export function MapaGeorreferenciacion() {
       </Card>
 
       <Card className={clsx('overflow-hidden p-0', pantallaCompleta && 'fixed inset-0 z-[9999] rounded-none')}>
-        <div className="relative" style={{ height: pantallaCompleta ? '100vh' : '65vh', width: '100%' }}>
+        <div data-mapa-contenedor className="relative" style={{ height: pantallaCompleta ? '100vh' : '65vh', width: '100%' }}>
           {/* Botón de pantalla completa — siempre visible, arriba a la
               derecha del mapa. En pantalla completa se convierte en el
               botón de salir. */}
@@ -954,6 +1014,10 @@ export function MapaGeorreferenciacion() {
               const maxCasos = conteos ? Math.max(...Array.from(conteos.values()), 0) : 0;
 
               function estiloFeature(feature: any) {
+                const esSeleccionada = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
+                if (esSeleccionada) {
+                  return { color: '#000000', weight: 3, fillColor: '#116762', fillOpacity: 0.05 };
+                }
                 if (capa.colorearPorCasos && conteos && capa.campoUnion) {
                   const valorCrudo = feature?.properties?.[capa.campoUnion!];
                   const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
@@ -970,6 +1034,14 @@ export function MapaGeorreferenciacion() {
                   filas = `<tr><td style="padding-right:8px;color:#116762;font-weight:700">Casos (filtro actual)</td><td style="font-weight:700">${casos}</td></tr>` + filas;
                 }
                 layer.bindPopup(`<div style="font-size:12px;max-width:220px"><table>${filas || '<tr><td>Sin atributos</td></tr>'}</table></div>`);
+                // Clic sobre el polígono: lo selecciona como "zona" para
+                // recortar el mapa de calor a solo lo que caiga dentro (ver
+                // panel flotante de descarga) — un segundo clic la deselecciona.
+                layer.on('click', () => {
+                  const nombre = capa.campoUnion && props[capa.campoUnion] ? String(props[capa.campoUnion]) : (props.nombre || props.NOMBRE || props.CAI || 'Zona seleccionada');
+                  setZonaSeleccionada((actual) => (actual?.feature === feature ? null : { capaId: capa.id, feature, nombre }));
+                  setDelitoZonaSeleccionada(null);
+                });
               }
 
               return (
@@ -1025,6 +1097,20 @@ export function MapaGeorreferenciacion() {
                 puntos={puntosIrisp1ParaMostrar}
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
               />
+            )}
+
+            {/* Zona seleccionada con un clic sobre un polígono cargado: el
+                mapa se encuadra en ella y, si hay puntos dentro, se pinta un
+                mapa de calor recortado a EXACTAMENTE esos puntos (nunca
+                mezclado con el resto del mapa) — ver panel flotante para
+                elegir el delito y descargar. */}
+            {zonaSeleccionada && (
+              <>
+                <AjustarVistaAPoligono feature={zonaSeleccionada.feature} />
+                {puntosEnZonaParaCalor.length > 0 && (
+                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />
+                )}
+              </>
             )}
 
             {/* Modo comparación: grilla de celdas con la coincidencia entre
@@ -1122,6 +1208,45 @@ export function MapaGeorreferenciacion() {
               })
             ))}
           </MapContainer>
+
+          {/* Panel flotante de la zona seleccionada — aparece con un clic
+              sobre cualquier polígono de una capa cargada (ej. el CAI 5).
+              El botón de descarga usa exactamente el mismo motor de
+              exportación de imágenes que el resto del dashboard. */}
+          {zonaSeleccionada && (
+            <div className="absolute right-3 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>
+                  <p className="text-sm font-bold text-slate-800">{zonaSeleccionada.nombre}</p>
+                </div>
+                <button onClick={() => setZonaSeleccionada(null)} className="text-slate-400 hover:text-slate-600" title="Quitar selección">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <label className="mb-1 block text-[11px] font-semibold text-slate-500">Delito dentro de esta zona</label>
+              <select
+                value={delitoZonaSeleccionada ?? ''}
+                onChange={(e) => setDelitoZonaSeleccionada(e.target.value || null)}
+                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+              >
+                <option value="">Todos los delitos</option>
+                {delitosDisponiblesEnZona.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+
+              <p className="mb-2 text-xs text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono</p>
+
+              <button
+                onClick={descargarZonaSeleccionada}
+                disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-green px-3 py-2 text-xs font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download size={13} />
+                {descargandoZona ? 'Generando...' : 'Descargar mapa de calor de esta zona'}
+              </button>
+            </div>
+          )}
         </div>
       </Card>
 

@@ -166,7 +166,12 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
 
   function dibujarTarjetaNodo(nodo: NodoMicrogerencia, indice: number) {
     const altoTarjeta = ALTO_TITULO_TARJETA + ALTO_FILA_METRICAS + ALTO_TRIMESTRES + ALTO_MESES + PADDING_TARJETA * 2;
-    nuevaPaginaSiNoCabe(altoTarjeta + ESPACIO_ENTRE_TARJETAS);
+    // OJO: el chequeo usa SOLO el alto de la tarjeta (sin el espacio que va
+    // DESPUÉS de ella) — incluir ese espacio aquí hacía que la primera
+    // tarjeta pareciera "no caber" por unos pocos milímetros de más,
+    // saltando a una página 2 y dejando la página 1 en blanco (con solo el
+    // encabezado) — el bug exacto reportado.
+    nuevaPaginaSiNoCabe(altoTarjeta + 4);
 
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
     pdf.setDrawColor(226, 232, 240);

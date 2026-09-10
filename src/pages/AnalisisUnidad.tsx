@@ -214,27 +214,28 @@ export function AnalisisUnidad() {
         </div>
       )}
 
-      {/* Resumen general — en TABLA (no tarjetas individuales) para que sea
-          más rápido de leer de un vistazo, tal como se pidió. */}
-      <Card title="Resumen general" subtitle="Comparativo homólogo a la fecha, mismos filtros del resto de la página" descargable="resumen-general-unidad">
+      {/* Resumen general — en TABLA (no tarjetas individuales), y COMPACTA
+          (max-w + mx-auto, no todo el ancho de la página) para que se lea
+          de un vistazo sin verse estirada. */}
+      <Card title="Resumen general" subtitle="Comparativo homólogo a la fecha, mismos filtros del resto de la página" descargable="resumen-general-unidad" className="mx-auto max-w-xl">
         <table className="w-full text-sm">
           <tbody>
             {[
-              { etiqueta: 'Total general', valor: formatNumero(totalGeneralIndicadores), nota: `Vigencia ${ventana.anioAnterior} completa (01/01–31/12)` },
-              { etiqueta: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: `${formatNumero(cmpGeneral.registrosAnterior)} registros · a la fecha` },
-              { etiqueta: `Casos año actual (${ventana.anioActual})`, valor: formatNumero(cmpGeneral.casosActual), nota: `${formatNumero(cmpGeneral.registrosActual)} registros · a la fecha` },
+              { etiqueta: 'Total general', valor: formatNumero(totalGeneralIndicadores), nota: `Vigencia ${ventana.anioAnterior} completa` },
+              { etiqueta: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: `${formatNumero(cmpGeneral.registrosAnterior)} reg.` },
+              { etiqueta: `Casos año actual (${ventana.anioActual})`, valor: formatNumero(cmpGeneral.casosActual), nota: `${formatNumero(cmpGeneral.registrosActual)} reg.` },
               { etiqueta: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
               { etiqueta: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
-              { etiqueta: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable (aumento)' : 'Favorable (disminución)', color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
+              { etiqueta: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable' : 'Favorable', color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
               { etiqueta: 'Participación del delito principal', valor: `${formatDecimal(kpis.participacionDelitoTop)}%`, nota: kpis.delitoTop?.key ?? '—' },
-              { etiqueta: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos / día' },
-              { etiqueta: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: 'en un solo día' },
-              { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: 'en un solo día' },
+              { etiqueta: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos/día' },
+              { etiqueta: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: '1 día' },
+              { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: '1 día' },
             ].map((fila, i) => (
               <tr key={fila.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/60' : ''}>
-                <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">{fila.etiqueta}</td>
-                <td className={`py-2 text-right text-base font-bold ${fila.color ?? 'text-slate-800'}`}>{fila.valor}</td>
-                <td className="rounded-r-lg py-2 pl-3 pr-3 text-right text-xs text-slate-400">{fila.nota ?? ''}</td>
+                <td className="rounded-l-lg py-1.5 pl-3 text-xs font-medium text-slate-600">{fila.etiqueta}</td>
+                <td className={`py-1.5 text-right text-sm font-bold ${fila.color ?? 'text-slate-800'}`}>{fila.valor}</td>
+                <td className="rounded-r-lg py-1.5 pl-2 pr-3 text-right text-[11px] text-slate-400">{fila.nota ?? ''}</td>
               </tr>
             ))}
           </tbody>
