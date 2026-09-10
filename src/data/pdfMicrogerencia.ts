@@ -54,17 +54,18 @@ const ALTO_FILA_METRICAS = 22;
 const ALTO_FILA_TRIM_MES = 6.2; // Trimestres/Meses: filas fijas (4 y 12), letra más grande
 const ALTO_FILA_DELITOS = 5.6; // Delitos: cantidad variable, en 1 o 2 columnas según cuántos haya
 const ALTO_ENCABEZADO_BLOQUE = 10;
+const ALTO_MARGEN_INFERIOR_BLOQUE = 6; // espacio de sobra bajo la última fila, para que el texto nunca sobresalga del color de fondo
 const PADDING_TARJETA = 4;
 const ESPACIO_ENTRE_TARJETAS = 8;
 
 function altoTablaDelitos(cantidad: number): number {
   if (cantidad === 0) return 0;
-  return ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_DELITOS * cantidad;
+  return ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_DELITOS * cantidad + ALTO_MARGEN_INFERIOR_BLOQUE;
 }
 
 function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
-  const altoMeses = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12;
-  const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4;
+  const altoMeses = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12 + ALTO_MARGEN_INFERIOR_BLOQUE;
+  const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4 + ALTO_MARGEN_INFERIOR_BLOQUE;
   const altoDelitos = altoTablaDelitos(nodo.delitos.length);
   // La banda usa la altura del MÁS ALTO de los tres — si hay muchos
   // delitos, la tarjeta completa crece para darles espacio en una sola
