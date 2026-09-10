@@ -24,7 +24,7 @@ function IndicadorTendenciaProyectada({ nodo }: { nodo: NodoMicrogerencia }) {
   const color = dif === 0 ? 'text-slate-400' : enAumento ? 'text-rose-600' : 'text-emerald-600';
   return (
     <span className={`ml-1 inline-flex items-center gap-0.5 text-xs font-semibold ${color}`}>
-      ({dif >= 0 ? '+' : ''}{formatNumero(dif)} casos{pct !== null && `, ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`})
+      (Total proyectado: {formatNumero(Math.round(nodo.terminaAnio))} · {dif >= 0 ? '+' : ''}{formatNumero(dif)} casos{pct !== null && `, ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`})
     </span>
   );
 }
@@ -95,6 +95,29 @@ function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
   );
 }
 
+function TablaDelitos({ nodo }: { nodo: NodoMicrogerencia }) {
+  if (nodo.delitos.length === 0) return null;
+  return (
+    <div className="rounded-lg bg-violet-50 p-2 sm:col-span-2">
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-violet-600">Delitos ({nodo.delitos.length})</p>
+      <table className="w-full text-sm">
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Delito</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th><th className="text-right font-medium">%</th></tr></thead>
+        <tbody>
+          {nodo.delitos.map((d) => (
+            <tr key={d.nombre} className="border-t border-violet-100">
+              <td className="py-0.5 text-slate-600">{d.nombre}</td>
+              <td className="py-0.5 text-right text-slate-500">{formatNumero(d.fecha2025)}</td>
+              <td className="py-0.5 text-right font-semibold text-slate-700">{formatNumero(d.fecha2026)}</td>
+              <td className={`py-0.5 text-right ${d.dif > 0 ? 'text-rose-600' : d.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{d.dif >= 0 ? '+' : ''}{formatNumero(d.dif)}</td>
+              <td className={`py-0.5 text-right ${d.dif > 0 ? 'text-rose-600' : d.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{formatearPct(d.pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSeleccion, sufijoDelito }: {
   nodo: NodoMicrogerencia;
   profundidad: number;
@@ -126,6 +149,7 @@ function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSelecc
           <div className="mt-2.5 grid grid-cols-1 gap-3 border-t border-slate-200 pt-2.5 sm:grid-cols-2">
             <TablaTrimestres nodo={nodo} />
             <TablaMeses nodo={nodo} />
+            <TablaDelitos nodo={nodo} />
           </div>
         )}
       </div>
@@ -259,18 +283,6 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
           {vista !== 'delitos' && raizVistaActual && (
             <NodoCompleto nodo={raizVistaActual} profundidad={0} ruta={raizVistaActual.nombre} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={datos.delitoFiltrado} />
-          )}
-
-          {/* En la vista "MEPOY General" se agrega también el desglose por
-              delito (igual que en la Hoja3 original del Excel, que traía
-              tanto la tabla de Estaciones como la de Delitos juntas). */}
-          {vista === 'general' && datos.delitos.length > 0 && (
-            <div className="mt-4 border-t border-slate-200 pt-3">
-              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Desglose por delito</p>
-              {datos.delitos.map((d) => (
-                <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={1} ruta={`General>Delitos>${d.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={null} />
-              ))}
-            </div>
           )}
 
           {vista === 'delitos' && (

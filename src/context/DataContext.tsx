@@ -53,6 +53,8 @@ interface DataContextValue {
   descartarAvisoActualizacion: () => void;
 }
 
+import { excluirDelitosOmitidos } from '../utils/delitosExcluidos';
+
 const DataContext = createContext<DataContextValue | null>(null);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
@@ -71,7 +73,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const { backendUrl } = obtenerConfig();
 
   const persistirYActualizar = useCallback(
-    async (nuevosRegistros: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
+    async (nuevosRegistrosCrudos: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
+      const nuevosRegistros = excluirDelitosOmitidos(nuevosRegistrosCrudos);
       setRecords(nuevosRegistros);
       const ahora = fechaRef ?? new Date();
       setMeta(construirMeta(nuevosRegistros, archivo, ahora, columnas, fechaMaxParametro ?? null));
@@ -135,11 +138,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const guardado = await cargarDatosGuardados();
         if (guardado && guardado.records.length > 0) {
           if (cancelado) return;
-          setRecords(guardado.records);
-          const cols = guardado.records.length ? Object.keys(guardado.records[0].raw) : [];
+          const registrosFiltrados = excluirDelitosOmitidos(guardado.records);
+          setRecords(registrosFiltrados);
+          const cols = registrosFiltrados.length ? Object.keys(registrosFiltrados[0].raw) : [];
           setLastColumns(cols);
           setMeta(construirMeta(
-            guardado.records, guardado.meta.nombreArchivo, new Date(guardado.meta.ultimaActualizacion), cols,
+            registrosFiltrados, guardado.meta.nombreArchivo, new Date(guardado.meta.ultimaActualizacion), cols,
             guardado.meta.fechaMaxParametro ? new Date(guardado.meta.fechaMaxParametro) : null,
           ));
           setLoading(false);

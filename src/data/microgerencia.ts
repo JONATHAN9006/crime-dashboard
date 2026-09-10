@@ -30,6 +30,10 @@ export interface NodoMicrogerencia {
   difConAnioAnterior: number;
   trimestres: PuntoTrimestre[];
   meses: PuntoMes[];
+  // Desglose por delito DENTRO de este nodo específico (ej. los delitos que
+  // se presentaron en "Distrito Uno", con las mismas columnas) — vacío para
+  // los propios nodos de delito (evita anidar delito-dentro-de-delito).
+  delitos: NodoMicrogerencia[];
   hijos: NodoMicrogerencia[];
 }
 

@@ -64,7 +64,7 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       return { trimestres, meses };
     }
 
-    function calcularNodo(nombre: string, pred: (r: CrimeRecord) => boolean, hijos: NodoMicrogerencia[] = []): NodoMicrogerencia {
+    function calcularNodo(nombre: string, pred: (r: CrimeRecord) => boolean, hijos: NodoMicrogerencia[] = [], incluirDelitos = true): NodoMicrogerencia {
       const total2025 = recsAnioAnteriorCompleto.filter(pred).length;
       const fecha2025 = recsAnterior.filter(pred).length;
       const fecha2026 = recsActual.filter(pred).length;
@@ -75,7 +75,15 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       const terminaAnio = casosDia * 365;
       const difConAnioAnterior = terminaAnio - total2025;
       const { trimestres, meses } = calcularTrimestresYMeses(pred);
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, hijos };
+      let delitosDelNodo: NodoMicrogerencia[] = [];
+      if (incluirDelitos) {
+        const universo = [...recsActual, ...recsAnterior].filter(pred);
+        const nombresDelitosNodo = Array.from(new Set(universo.map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')));
+        delitosDelNodo = nombresDelitosNodo
+          .map((delito) => calcularNodo(delito, (r) => pred(r) && r.delito === delito, [], false))
+          .sort((a, b) => b.fecha2026 - a.fecha2026);
+      }
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: delitosDelNodo, hijos };
     }
 
     function cuadrantesDe(estacion: string, caiFiltro: string | null): NodoMicrogerencia[] {
@@ -97,11 +105,7 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
     const distrito2 = calcularNodo('Distrito Dos', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2);
 
     const general = calcularNodo('MEPOY General — Consolidado', () => true, [distrito1, distrito2]);
-
-    const nombresDelitos = Array.from(new Set([...recsActual, ...recsAnterior].map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')));
-    const delitos = nombresDelitos
-      .map((delito) => calcularNodo(delito, (r) => r.delito === delito))
-      .sort((a, b) => b.fecha2026 - a.fecha2026);
+    const delitos = general.delitos;
 
     return {
       diasHastaLaFecha: diasTranscurridos,
