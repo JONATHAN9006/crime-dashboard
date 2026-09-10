@@ -24,8 +24,15 @@ function puntoEnPoligonoSimple(lon: number, lat: number, anillos: Anillo[]): boo
   return true;
 }
 
-/** feature: un GeoJSON Feature con geometry.type "Polygon" o "MultiPolygon". */
+/**
+ * feature: un GeoJSON Feature (Polygon/MultiPolygon) — o, para verificar
+ * pertenencia a VARIAS zonas a la vez (ej. todos los cuadrantes de un CAI
+ * filtrado), una FeatureCollection con varios de esos features.
+ */
 export function puntoEnFeatureGeoJSON(lon: number, lat: number, feature: any): boolean {
+  if (feature?.type === 'FeatureCollection') {
+    return (feature.features || []).some((f: any) => puntoEnFeatureGeoJSON(lon, lat, f));
+  }
   const geom = feature?.geometry;
   if (!geom) return false;
   if (geom.type === 'Polygon') return puntoEnPoligonoSimple(lon, lat, geom.coordinates);

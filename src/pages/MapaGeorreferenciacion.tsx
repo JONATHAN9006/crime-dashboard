@@ -10,7 +10,7 @@ import { guardarCapas, cargarCapas, limpiarCapas, type CapaGeografica } from '..
 import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
-import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
+import { GridHeatmapLayer } from '../components/mapa/GridHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarHtmlComoImagen } from '../utils/exportarImagen';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
@@ -40,6 +40,10 @@ function contarFeatures(geojson: any): number {
   if (!geojson) return 0;
   if (Array.isArray(geojson)) return geojson.reduce((acc, g) => acc + (g.features?.length || 0), 0);
   return geojson.features?.length || 0;
+}
+
+function extraerFeatures(geojson: any): any[] {
+  return Array.isArray(geojson) ? geojson.flatMap((g) => g.features || []) : geojson?.features || [];
 }
 
 // Detecta automáticamente las propiedades disponibles en los features de una
@@ -213,7 +217,40 @@ function colorPorIntensidad(valor: number, max: number): string {
 }
 
 export function MapaGeorreferenciacion() {
-  const { filteredRecords, filters } = useData();
+  const { records, filteredRecords, filters } = useData();
+
+  // Jerarquía real cuadrante → CAI → estación, tomada de los datos ya
+  // cargados — así, si un shapefile trae solo el nombre del CUADRANTE (el
+  // caso más común), igual se puede saber si ese cuadrante pertenece al CAI
+  // o a la estación que el usuario tenga filtrados arriba.
+  const jerarquiaCuadrantes = useMemo(() => {
+    const mapa = new Map<string, { cai: string | null; estacion: string | null }>();
+    for (const r of records) {
+      if (r.cuadrante && !mapa.has(normalizar(r.cuadrante))) {
+        mapa.set(normalizar(r.cuadrante), { cai: r.cai, estacion: r.estacion });
+      }
+    }
+    return mapa;
+  }, [records]);
+
+  // ¿Este valor (el que traiga el shapefile en su campo de unión) coincide
+  // con el CAI, la Estación o el Cuadrante que el usuario tenga
+  // seleccionados arriba en Filtros? Si el shapefile es a nivel de
+  // cuadrante, resuelve primero a qué CAI/estación pertenece ese cuadrante
+  // antes de comparar.
+  function coincideConFiltrosActivos(valorCrudo: unknown): boolean {
+    if (!valorCrudo) return false;
+    const norm = normalizar(valorCrudo);
+    if (filters.cai.some((c) => normalizar(c) === norm)) return true;
+    if (filters.estacion.some((e) => normalizar(e) === norm)) return true;
+    if (filters.cuadrante.some((c) => normalizar(c) === norm)) return true;
+    const info = jerarquiaCuadrantes.get(norm);
+    if (info) {
+      if (info.cai && filters.cai.some((c) => normalizar(c) === normalizar(info.cai))) return true;
+      if (info.estacion && filters.estacion.some((e) => normalizar(e) === normalizar(info.estacion))) return true;
+    }
+    return false;
+  }
   const soloLectura = esModoConsulta();
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -223,6 +260,35 @@ export function MapaGeorreferenciacion() {
   // recortar el mapa de calor a solo esa zona y poder descargarla aparte.
   const [zonaSeleccionada, setZonaSeleccionada] = useState<{ capaId: string; feature: any; nombre: string } | null>(null);
   const [delitoZonaSeleccionada, setDelitoZonaSeleccionada] = useState<string | null>(null);
+
+  // Todos los polígonos, de CUALQUIER capa visible, que coincidan con el
+  // CAI/Estación/Cuadrante filtrados arriba — se recalcula solo cuando
+  // cambian los filtros o las capas cargadas.
+  const featuresPorFiltroActivo = useMemo(() => {
+    const resultado: any[] = [];
+    for (const capa of capas) {
+      if (!capa.visible || !capa.campoUnion) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        if (coincideConFiltrosActivos(f?.properties?.[capa.campoUnion])) resultado.push(f);
+      }
+    }
+    return resultado;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capas, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes]);
+
+  // "Zona activa" = lo que se haya seleccionado con un clic puntual, o —
+  // si no hay ningún clic— TODOS los polígonos que ya coincidan con el
+  // filtro de arriba, tratados como una sola unidad (mismo mapa de calor
+  // recortado, mismo botón de descarga, mismo encuadre automático).
+  const zonaActiva = zonaSeleccionada
+    ? zonaSeleccionada
+    : featuresPorFiltroActivo.length > 0
+      ? {
+          capaId: '__filtro__',
+          feature: { type: 'FeatureCollection', features: featuresPorFiltroActivo },
+          nombre: `Filtro activo (${featuresPorFiltroActivo.length} zona${featuresPorFiltroActivo.length === 1 ? '' : 's'})`,
+        }
+      : null;
   const [descargandoZona, setDescargandoZona] = useState(false);
   const [modalCapaPuntos, setModalCapaPuntos] = useState<string | null>(null);
   const [modoComparacion, setModoComparacion] = useState(false);
@@ -488,26 +554,26 @@ export function MapaGeorreferenciacion() {
   );
 
   const delitosDisponiblesEnZona = useMemo(() => {
-    if (!zonaSeleccionada) return [];
-    const universo = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, zonaSeleccionada.feature));
+    if (!zonaActiva) return [];
+    const universo = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, zonaActiva.feature));
     return Array.from(new Set(universo.map((p) => p.delitoCorto ?? 'NO REPORTADO'))).sort();
-  }, [zonaSeleccionada, todosLosPuntosVisiblesConDelito]);
+  }, [zonaActiva, todosLosPuntosVisiblesConDelito]);
 
   const puntosEnZonaParaCalor = useMemo(() => {
-    if (!zonaSeleccionada) return [];
+    if (!zonaActiva) return [];
     return todosLosPuntosVisiblesConDelito.filter((p) => {
       if (delitoZonaSeleccionada && (p.delitoCorto ?? 'NO REPORTADO') !== delitoZonaSeleccionada) return false;
-      return puntoEnFeatureGeoJSON(p.lon, p.lat, zonaSeleccionada.feature);
+      return puntoEnFeatureGeoJSON(p.lon, p.lat, zonaActiva.feature);
     });
-  }, [zonaSeleccionada, delitoZonaSeleccionada, todosLosPuntosVisiblesConDelito]);
+  }, [zonaActiva, delitoZonaSeleccionada, todosLosPuntosVisiblesConDelito]);
 
   async function descargarZonaSeleccionada() {
-    if (!zonaSeleccionada) return;
+    if (!zonaActiva) return;
     setDescargandoZona(true);
     try {
       const contenedor = document.querySelector('[data-mapa-contenedor]') as HTMLElement | null;
       if (contenedor) {
-        await exportarHtmlComoImagen(contenedor, `Mapa de calor — ${zonaSeleccionada.nombre}`, `mapa-calor-${zonaSeleccionada.nombre}`.replace(/\s+/g, '-'));
+        await exportarHtmlComoImagen(contenedor, `Mapa de calor — ${zonaActiva.nombre}`, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'));
       }
     } finally {
       setDescargandoZona(false);
@@ -1008,15 +1074,20 @@ export function MapaGeorreferenciacion() {
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              crossOrigin="anonymous"
             />
             {capas.filter((c) => c.visible).map((capa) => {
               const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
               const maxCasos = conteos ? Math.max(...Array.from(conteos.values()), 0) : 0;
 
               function estiloFeature(feature: any) {
-                const esSeleccionada = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
-                if (esSeleccionada) {
-                  return { color: '#000000', weight: 3, fillColor: '#116762', fillOpacity: 0.05 };
+                const esSeleccionadaPorClic = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
+                // Resalta TODOS los polígonos que correspondan al CAI, la
+                // Estación o el Cuadrante filtrados arriba — no solo el que
+                // se haya seleccionado con un clic puntual.
+                const esSeleccionadaPorFiltro = capa.campoUnion ? coincideConFiltrosActivos(feature?.properties?.[capa.campoUnion]) : false;
+                if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
+                  return { color: '#000000', weight: 3, fillColor: '#116762', fillOpacity: esSeleccionadaPorClic ? 0.05 : 0.25 };
                 }
                 if (capa.colorearPorCasos && conteos && capa.campoUnion) {
                   const valorCrudo = feature?.properties?.[capa.campoUnion!];
@@ -1080,20 +1151,19 @@ export function MapaGeorreferenciacion() {
                 requiere que "Comparar" esté activo: se enciende y apaga con
                 su propio checkbox, en sincronía directa con la capa. */}
             {mostrarCalorDelitos && (
-              <KernelHeatmapLayer
+              <GridHeatmapLayer
                 puntos={puntosDelitosParaMostrar}
                 colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']}
               />
             )}
 
-            {/* Mapa de calor de IRISP1: mismo Kernel Density geográficamente
-                fijo, con su propia escala de 5 clases (azul → morado),
-                completamente distinta a la de Delitos. Se calcula
-                EXCLUSIVAMENTE con los puntos de capas tipo "irisp1", y
-                depende únicamente del checkbox "IRISP1" de arriba, igual
-                que Delitos. */}
+            {/* Mapa de calor de IRISP1: misma cuadrícula compacta, con su
+                propia escala de 5 clases (azul → morado), completamente
+                distinta a la de Delitos. Se calcula EXCLUSIVAMENTE con los
+                puntos de capas tipo "irisp1", y depende únicamente del
+                checkbox "IRISP1" de arriba, igual que Delitos. */}
             {mostrarCalorIrisp1 && (
-              <KernelHeatmapLayer
+              <GridHeatmapLayer
                 puntos={puntosIrisp1ParaMostrar}
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
               />
@@ -1104,11 +1174,11 @@ export function MapaGeorreferenciacion() {
                 mapa de calor recortado a EXACTAMENTE esos puntos (nunca
                 mezclado con el resto del mapa) — ver panel flotante para
                 elegir el delito y descargar. */}
-            {zonaSeleccionada && (
+            {zonaActiva && (
               <>
-                <AjustarVistaAPoligono feature={zonaSeleccionada.feature} />
+                <AjustarVistaAPoligono feature={zonaActiva.feature} />
                 {puntosEnZonaParaCalor.length > 0 && (
-                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />
+                  <GridHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />
                 )}
               </>
             )}
@@ -1213,12 +1283,12 @@ export function MapaGeorreferenciacion() {
               sobre cualquier polígono de una capa cargada (ej. el CAI 5).
               El botón de descarga usa exactamente el mismo motor de
               exportación de imágenes que el resto del dashboard. */}
-          {zonaSeleccionada && (
+          {zonaActiva && (
             <div className="absolute right-3 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>
-                  <p className="text-sm font-bold text-slate-800">{zonaSeleccionada.nombre}</p>
+                  <p className="text-sm font-bold text-slate-800">{zonaActiva.nombre}</p>
                 </div>
                 <button onClick={() => setZonaSeleccionada(null)} className="text-slate-400 hover:text-slate-600" title="Quitar selección">
                   <X size={16} />
