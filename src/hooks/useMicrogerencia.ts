@@ -53,13 +53,15 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       const meses: PuntoMes[] = NOMBRES_MES.map((etiqueta, i) => {
         const mesNum = i + 1;
         const anio2025 = recsAnterior.filter((r) => pred(r) && r.mes === mesNum).length;
+        const total2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes === mesNum).length;
         const anio2026 = recsActual.filter((r) => pred(r) && r.mes === mesNum).length;
-        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
+        return { etiqueta, anio2025, total2025, anio2026, dif: anio2026 - anio2025 };
       });
       const trimestres: PuntoTrimestre[] = TRIMESTRES.map(({ etiqueta, meses: mesesTrimestre }) => {
         const anio2025 = recsAnterior.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
+        const total2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
         const anio2026 = recsActual.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
+        return { etiqueta, anio2025, total2025, anio2026, dif: anio2026 - anio2025 };
       });
       return { trimestres, meses };
     }
@@ -69,7 +71,7 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       const fecha2025 = recsAnterior.filter(pred).length;
       const fecha2026 = recsActual.filter(pred).length;
       const dif = fecha2026 - fecha2025;
-      const pct = fecha2025 > 0 ? (dif / fecha2025) * 100 : null;
+      const pct = fecha2025 > 0 ? (dif / fecha2025) * 100 : (fecha2026 > 0 ? 100 : null);
       const aportePct = totalGeneralFecha2026 > 0 ? (fecha2026 / totalGeneralFecha2026) * 100 : 0;
       const casosDia = diasTranscurridos > 0 ? fecha2026 / diasTranscurridos : 0;
       const terminaAnio = casosDia * 365;

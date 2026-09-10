@@ -14,8 +14,11 @@ const ANCHO_UTIL = MM_ANCHO - MARGEN * 2;
 const COLOR_GREEN: [number, number, number] = [17, 103, 98];
 const COLOR_GREEN_CLARO: [number, number, number] = [209, 240, 231];
 const COLOR_AZUL_CLARO: [number, number, number] = [219, 234, 254];
+const COLOR_AZUL_ALTERNO: [number, number, number] = [191, 214, 254];
 const COLOR_AMBAR_CLARO: [number, number, number] = [254, 243, 199];
+const COLOR_AMBAR_ALTERNO: [number, number, number] = [253, 230, 138];
 const COLOR_VIOLETA_CLARO: [number, number, number] = [237, 233, 254];
+const COLOR_VIOLETA_ALTERNO: [number, number, number] = [221, 214, 254];
 const COLOR_TARJETA_FONDO: [number, number, number] = [252, 253, 253];
 const COLOR_TEXTO: [number, number, number] = [30, 41, 59];
 const COLOR_ROJO: [number, number, number] = [190, 30, 45];
@@ -139,7 +142,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   }
 
   // Trimestres / Meses: una sola columna cada uno, en el ancho que se les dé.
-  function dibujarBloqueTrimMes(titulo: string, filas: { etiqueta: string; anio2025: number; anio2026: number; dif: number }[], x0: number, ancho: number, alto: number, colorFondo: [number, number, number], colorTitulo: [number, number, number]) {
+  function dibujarBloqueTrimMes(titulo: string, filas: { etiqueta: string; anio2025: number; total2025: number; anio2026: number; dif: number }[], x0: number, ancho: number, alto: number, colorFondo: [number, number, number], colorFondoAlterno: [number, number, number], colorTitulo: [number, number, number]) {
     pdf.setFillColor(...colorFondo);
     pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'F');
 
@@ -149,33 +152,42 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.text(titulo, x0 + PADDING_TARJETA, y + 6);
 
     const colEtiqueta = x0 + PADDING_TARJETA;
-    const colValor2025 = x0 + ancho * 0.5;
-    const colValor2026 = x0 + ancho * 0.71;
-    const colDif = x0 + ancho * 0.95;
+    const colValor2025 = x0 + ancho * 0.38;
+    const colTotal2025 = x0 + ancho * 0.58;
+    const colValor2026 = x0 + ancho * 0.78;
+    const colDif = x0 + ancho * 0.97;
     let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
 
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7.5);
+    pdf.setFontSize(6.8);
     pdf.setTextColor(...COLOR_MUTED);
-    pdf.text('2025', colValor2025, fy, { align: 'right' });
+    pdf.text('A LA FECHA', colValor2025, fy, { align: 'right' });
+    pdf.text('TOTAL 2025', colTotal2025, fy, { align: 'right' });
     pdf.text('2026', colValor2026, fy, { align: 'right' });
     pdf.text('Dif', colDif, fy, { align: 'right' });
     fy += 5;
 
-    for (const f of filas) {
+    filas.forEach((f, i) => {
+      // Fila sombreada — un tono más oscuro y otro más claro, alternados,
+      // para diferenciar cada fila igual que en el modal.
+      pdf.setFillColor(...(i % 2 === 0 ? colorFondoAlterno : colorFondo));
+      pdf.rect(x0 + 1, fy - 3.6, ancho - 2, ALTO_FILA_TRIM_MES, 'F');
+
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8.5);
+      pdf.setFontSize(8);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.42 });
+      pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.32 });
       pdf.setTextColor(...COLOR_MUTED);
       pdf.text(formatearNumero(f.anio2025), colValor2025, fy, { align: 'right' });
       pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...colorTitulo);
+      pdf.text(formatearNumero(f.total2025), colTotal2025, fy, { align: 'right' });
       pdf.setTextColor(...COLOR_TEXTO);
       pdf.text(formatearNumero(f.anio2026), colValor2026, fy, { align: 'right' });
       pdf.setTextColor(...colorPorDif(f.dif));
       pdf.text(`${f.dif >= 0 ? '+' : ''}${formatearNumero(f.dif)}`, colDif, fy, { align: 'right' });
       fy += ALTO_FILA_TRIM_MES;
-    }
+    });
   }
 
   // Delitos: SIEMPRE en una sola columna — la tarjeta ya creció lo
@@ -194,36 +206,43 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     if (nodo.delitos.length === 0) return;
 
     const colDelito = x0 + PADDING_TARJETA;
-    const col2025 = x0 + ancho * 0.62;
-    const col2026 = x0 + ancho * 0.76;
-    const colDif = x0 + ancho * 0.89;
+    const col2025 = x0 + ancho * 0.5;
+    const colTotal2025 = x0 + ancho * 0.65;
+    const col2026 = x0 + ancho * 0.78;
+    const colDif = x0 + ancho * 0.9;
     const colPct = x0 + ancho * 1.0;
     let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
 
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7.5);
+    pdf.setFontSize(6.5);
     pdf.setTextColor(...COLOR_MUTED);
-    pdf.text('2025', col2025, fy, { align: 'right' });
+    pdf.text('A LA FECHA', col2025, fy, { align: 'right' });
+    pdf.text('TOTAL 2025', colTotal2025, fy, { align: 'right' });
     pdf.text('2026', col2026, fy, { align: 'right' });
     pdf.text('Dif', colDif, fy, { align: 'right' });
     pdf.text('%', colPct, fy, { align: 'right' });
     fy += 5;
 
-    for (const d of nodo.delitos) {
+    nodo.delitos.forEach((d, i) => {
+      pdf.setFillColor(...(i % 2 === 0 ? COLOR_VIOLETA_ALTERNO : COLOR_VIOLETA_CLARO));
+      pdf.rect(x0 + 1, fy - 3.6, ancho - 2, ALTO_FILA_DELITOS, 'F');
+
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8.3);
+      pdf.setFontSize(7.8);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.58 });
+      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.46 });
       pdf.setTextColor(...COLOR_MUTED);
       pdf.text(formatearNumero(d.fecha2025), col2025, fy, { align: 'right' });
       pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(91, 33, 182);
+      pdf.text(formatearNumero(d.total2025), colTotal2025, fy, { align: 'right' });
       pdf.setTextColor(...COLOR_TEXTO);
       pdf.text(formatearNumero(d.fecha2026), col2026, fy, { align: 'right' });
       pdf.setTextColor(...colorPorDif(d.dif));
       pdf.text(`${d.dif >= 0 ? '+' : ''}${formatearNumero(d.dif)}`, colDif, fy, { align: 'right' });
       pdf.text(formatearPct(d.pct), colPct, fy, { align: 'right' });
       fy += ALTO_FILA_DELITOS;
-    }
+    });
   }
 
   function dibujarTarjetaNodo(nodo: NodoMicrogerencia) {
@@ -258,8 +277,8 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     const xMeses = MARGEN + anchoTrimestres + PADDING_TARJETA;
     const xDelitos = xMeses + anchoMeses + PADDING_TARJETA;
 
-    dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoBanda, COLOR_AZUL_CLARO, [30, 64, 175]);
-    dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoBanda, COLOR_AMBAR_CLARO, [146, 64, 14]);
+    dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoBanda, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175]);
+    dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoBanda, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14]);
     dibujarBloqueDelitos(nodo, xDelitos, anchoDelitos, altoBanda);
 
     y += altoBanda + ESPACIO_ENTRE_TARJETAS;
