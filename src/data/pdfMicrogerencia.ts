@@ -56,18 +56,20 @@ const ALTO_FILA_DELITOS = 5.6; // Delitos: cantidad variable, en 1 o 2 columnas 
 const ALTO_ENCABEZADO_BLOQUE = 10;
 const PADDING_TARJETA = 4;
 const ESPACIO_ENTRE_TARJETAS = 8;
-const UMBRAL_DOS_COLUMNAS_DELITOS = 9;
 
 function altoTablaDelitos(cantidad: number): number {
   if (cantidad === 0) return 0;
-  const filas = cantidad > UMBRAL_DOS_COLUMNAS_DELITOS ? Math.ceil(cantidad / 2) : cantidad;
-  return ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_DELITOS * filas;
+  return ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_DELITOS * cantidad;
 }
 
 function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
   const altoMeses = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12;
   const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4;
   const altoDelitos = altoTablaDelitos(nodo.delitos.length);
+  // La banda usa la altura del MÁS ALTO de los tres — si hay muchos
+  // delitos, la tarjeta completa crece para darles espacio en una sola
+  // columna (ver dibujarBloqueDelitos), en vez de comprimirlos en dos
+  // columnas y dejar espacio en blanco sin usar debajo de los otros dos.
   return Math.max(altoMeses, altoTrimestres, altoDelitos);
 }
 
@@ -163,7 +165,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(8.5);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(f.etiqueta, colEtiqueta, fy, { maxWidth: ancho * 0.46 });
+      pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.42 });
       pdf.setTextColor(...COLOR_MUTED);
       pdf.text(formatearNumero(f.anio2025), colValor2025, fy, { align: 'right' });
       pdf.setFont('helvetica', 'bold');
@@ -175,7 +177,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     }
   }
 
-  // Delitos: en el ancho que se le dé, en 1 o 2 sub-columnas internas según cantidad.
+  // Delitos: SIEMPRE en una sola columna — la tarjeta ya creció lo
+  // necesario (ver altoBandaTresColumnas) para que quepan todos sin
+  // comprimir, aprovechando el mismo espacio vertical que ya usan
+  // Trimestres/Meses en vez de dejarlo en blanco.
   function dibujarBloqueDelitos(nodo: NodoMicrogerencia, x0: number, ancho: number, alto: number) {
     pdf.setFillColor(...COLOR_VIOLETA_CLARO);
     pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'F');
@@ -187,44 +192,36 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
 
     if (nodo.delitos.length === 0) return;
 
-    const dosColumnas = nodo.delitos.length > UMBRAL_DOS_COLUMNAS_DELITOS;
-    const mitad = Math.ceil(nodo.delitos.length / 2);
-    const subcolumnas = dosColumnas
-      ? [{ x0: x0, ancho: ancho / 2 - PADDING_TARJETA / 2, filas: nodo.delitos.slice(0, mitad) }, { x0: x0 + ancho / 2 + PADDING_TARJETA / 2, ancho: ancho / 2 - PADDING_TARJETA / 2, filas: nodo.delitos.slice(mitad) }]
-      : [{ x0, ancho, filas: nodo.delitos }];
+    const colDelito = x0 + PADDING_TARJETA;
+    const col2025 = x0 + ancho * 0.62;
+    const col2026 = x0 + ancho * 0.76;
+    const colDif = x0 + ancho * 0.89;
+    const colPct = x0 + ancho * 1.0;
+    let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
 
-    for (const col of subcolumnas) {
-      const colDelito = col.x0 + PADDING_TARJETA;
-      const col2025 = col.x0 + col.ancho * 0.56;
-      const col2026 = col.x0 + col.ancho * 0.72;
-      const colDif = col.x0 + col.ancho * 0.87;
-      const colPct = col.x0 + col.ancho * 1.0;
-      let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(...COLOR_MUTED);
+    pdf.text('2025', col2025, fy, { align: 'right' });
+    pdf.text('2026', col2026, fy, { align: 'right' });
+    pdf.text('Dif', colDif, fy, { align: 'right' });
+    pdf.text('%', colPct, fy, { align: 'right' });
+    fy += 5;
 
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(6.8);
+    for (const d of nodo.delitos) {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.3);
+      pdf.setTextColor(...COLOR_TEXTO);
+      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.58 });
       pdf.setTextColor(...COLOR_MUTED);
-      pdf.text('2025', col2025, fy, { align: 'right' });
-      pdf.text('2026', col2026, fy, { align: 'right' });
-      pdf.text('Dif', colDif, fy, { align: 'right' });
-      pdf.text('%', colPct, fy, { align: 'right' });
-      fy += 4.6;
-
-      for (const d of col.filas) {
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(7.6);
-        pdf.setTextColor(...COLOR_TEXTO);
-        pdf.text(d.nombre, colDelito, fy, { maxWidth: col.ancho * 0.52 });
-        pdf.setTextColor(...COLOR_MUTED);
-        pdf.text(formatearNumero(d.fecha2025), col2025, fy, { align: 'right' });
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(...COLOR_TEXTO);
-        pdf.text(formatearNumero(d.fecha2026), col2026, fy, { align: 'right' });
-        pdf.setTextColor(...colorPorDif(d.dif));
-        pdf.text(`${d.dif >= 0 ? '+' : ''}${formatearNumero(d.dif)}`, colDif, fy, { align: 'right' });
-        pdf.text(formatearPct(d.pct), colPct, fy, { align: 'right' });
-        fy += ALTO_FILA_DELITOS;
-      }
+      pdf.text(formatearNumero(d.fecha2025), col2025, fy, { align: 'right' });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...COLOR_TEXTO);
+      pdf.text(formatearNumero(d.fecha2026), col2026, fy, { align: 'right' });
+      pdf.setTextColor(...colorPorDif(d.dif));
+      pdf.text(`${d.dif >= 0 ? '+' : ''}${formatearNumero(d.dif)}`, colDif, fy, { align: 'right' });
+      pdf.text(formatearPct(d.pct), colPct, fy, { align: 'right' });
+      fy += ALTO_FILA_DELITOS;
     }
   }
 
@@ -250,19 +247,19 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     dibujarMetricas(nodo);
     y += PADDING_TARJETA / 2;
 
-    // Tres columnas lado a lado: Trimestres (más angosta) | Delitos (la más
-    // ancha, trae más columnas de datos) | Distribución por mes.
+    // Tres columnas lado a lado, en el orden pedido: Trimestres →
+    // Distribución por mes → Delitos.
     const anchoTrimestres = ANCHO_UTIL * 0.22;
     const anchoDelitos = ANCHO_UTIL * 0.46;
     const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoDelitos - PADDING_TARJETA * 2;
     const altoBanda = altoBandaTresColumnas(nodo);
 
-    const xDelitos = MARGEN + anchoTrimestres + PADDING_TARJETA;
-    const xMeses = xDelitos + anchoDelitos + PADDING_TARJETA;
+    const xMeses = MARGEN + anchoTrimestres + PADDING_TARJETA;
+    const xDelitos = xMeses + anchoMeses + PADDING_TARJETA;
 
     dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoBanda, COLOR_AZUL_CLARO, [30, 64, 175]);
-    dibujarBloqueDelitos(nodo, xDelitos, anchoDelitos, altoBanda);
     dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoBanda, COLOR_AMBAR_CLARO, [146, 64, 14]);
+    dibujarBloqueDelitos(nodo, xDelitos, anchoDelitos, altoBanda);
 
     y += altoBanda + ESPACIO_ENTRE_TARJETAS;
   }
