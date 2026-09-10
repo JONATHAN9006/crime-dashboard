@@ -244,8 +244,8 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 bg-brand-green px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/95 p-1">
-              <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/95 p-1">
+              <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-cover" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Microgerencia y Proyección Delictiva MEPOY</h2>
