@@ -142,11 +142,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   }
 
   // Trimestres / Meses: una sola columna cada uno, en el ancho que se les dé.
-<<<<<<< HEAD
   function dibujarBloqueTrimMes(titulo: string, filas: { etiqueta: string; anio2025: number; anio2026: number; dif: number }[], x0: number, ancho: number, alto: number, colorFondo: [number, number, number], colorFondoAlterno: [number, number, number], colorTitulo: [number, number, number]) {
-=======
-  function dibujarBloqueTrimMes(titulo: string, filas: { etiqueta: string; anio2025: number; total2025: number; anio2026: number; dif: number }[], x0: number, ancho: number, alto: number, colorFondo: [number, number, number], colorFondoAlterno: [number, number, number], colorTitulo: [number, number, number]) {
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
     pdf.setFillColor(...colorFondo);
     pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'F');
 
@@ -156,22 +152,14 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.text(titulo, x0 + PADDING_TARJETA, y + 6);
 
     const colEtiqueta = x0 + PADDING_TARJETA;
-<<<<<<< HEAD
     const colValor2025 = x0 + ancho * 0.55;
     const colValor2026 = x0 + ancho * 0.78;
     const colDif = x0 + ancho * 0.98;
-=======
-    const colTotal2025 = x0 + ancho * 0.46;
-    const colValor2025 = x0 + ancho * 0.65;
-    const colValor2026 = x0 + ancho * 0.83;
-    const colDif = x0 + ancho * 0.99;
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
     let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
 
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(6.8);
+    pdf.setFontSize(7.5);
     pdf.setTextColor(...COLOR_MUTED);
-    pdf.text('TOTAL 2025', colTotal2025, fy, { align: 'right' });
     pdf.text('2025', colValor2025, fy, { align: 'right' });
     pdf.text('2026', colValor2026, fy, { align: 'right' });
     pdf.text('Dif', colDif, fy, { align: 'right' });
@@ -184,17 +172,9 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.rect(x0 + 1, fy - 3.6, ancho - 2, ALTO_FILA_TRIM_MES, 'F');
 
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8);
+      pdf.setFontSize(8.5);
       pdf.setTextColor(...COLOR_TEXTO);
-<<<<<<< HEAD
       pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.46 });
-=======
-      pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.35 });
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(...colorTitulo);
-      pdf.text(formatearNumero(f.total2025), colTotal2025, fy, { align: 'right' });
-      pdf.setFont('helvetica', 'normal');
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
       pdf.setTextColor(...COLOR_MUTED);
       pdf.text(formatearNumero(f.anio2025), colValor2025, fy, { align: 'right' });
       pdf.setFont('helvetica', 'bold');
@@ -222,19 +202,11 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     if (nodo.delitos.length === 0) return;
 
     const colDelito = x0 + PADDING_TARJETA;
-<<<<<<< HEAD
     const colTotal2025 = x0 + ancho * 0.52;
     const col2025 = x0 + ancho * 0.64;
     const col2026 = x0 + ancho * 0.75;
     const colDif = x0 + ancho * 0.86;
     const colPct = x0 + ancho * 0.96;
-=======
-    const colTotal2025 = x0 + ancho * 0.56;
-    const col2025 = x0 + ancho * 0.68;
-    const col2026 = x0 + ancho * 0.79;
-    const colDif = x0 + ancho * 0.9;
-    const colPct = x0 + ancho * 1.0;
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
     let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
 
     pdf.setFont('helvetica', 'bold');
@@ -254,11 +226,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(7.8);
       pdf.setTextColor(...COLOR_TEXTO);
-<<<<<<< HEAD
       pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.48 });
-=======
-      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.53 });
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(91, 33, 182);
       pdf.text(formatearNumero(d.total2025), colTotal2025, fy, { align: 'right' });

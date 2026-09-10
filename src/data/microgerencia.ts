@@ -5,24 +5,14 @@
 // modal y el generador de PDF.
 export interface PuntoTrimestre {
   etiqueta: string; // "1er Trimestre", etc.
-<<<<<<< HEAD
   anio2025: number; // 2025 CERRADO (hasta el 31 de diciembre) — no el corte "a la fecha"
-=======
-  anio2025: number; // 2025 "a la fecha" (mismo corte homólogo que usa el resto del dashboard)
-  total2025: number; // 2025 CERRADO — el trimestre completo, sin el recorte "a la fecha"
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
   anio2026: number;
   dif: number;
 }
 
 export interface PuntoMes {
   etiqueta: string; // "Enero", etc.
-<<<<<<< HEAD
   anio2025: number; // 2025 CERRADO (mes completo)
-=======
-  anio2025: number; // 2025 "a la fecha"
-  total2025: number; // 2025 CERRADO — el mes completo
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
   anio2026: number;
   dif: number;
 }

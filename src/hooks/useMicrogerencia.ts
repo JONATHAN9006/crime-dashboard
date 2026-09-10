@@ -52,24 +52,14 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
     function calcularTrimestresYMeses(pred: (r: CrimeRecord) => boolean): { trimestres: PuntoTrimestre[]; meses: PuntoMes[] } {
       const meses: PuntoMes[] = NOMBRES_MES.map((etiqueta, i) => {
         const mesNum = i + 1;
-<<<<<<< HEAD
         const anio2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes === mesNum).length;
-=======
-        const anio2025 = recsAnterior.filter((r) => pred(r) && r.mes === mesNum).length;
-        const total2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes === mesNum).length;
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
         const anio2026 = recsActual.filter((r) => pred(r) && r.mes === mesNum).length;
-        return { etiqueta, anio2025, total2025, anio2026, dif: anio2026 - anio2025 };
+        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
       });
       const trimestres: PuntoTrimestre[] = TRIMESTRES.map(({ etiqueta, meses: mesesTrimestre }) => {
-<<<<<<< HEAD
         const anio2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-=======
-        const anio2025 = recsAnterior.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        const total2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
->>>>>>> e724705780d93774cd06590b1245d3325a08982c
         const anio2026 = recsActual.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        return { etiqueta, anio2025, total2025, anio2026, dif: anio2026 - anio2025 };
+        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
       });
       return { trimestres, meses };
     }
