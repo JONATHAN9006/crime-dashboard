@@ -152,17 +152,17 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.text(titulo, x0 + PADDING_TARJETA, y + 6);
 
     const colEtiqueta = x0 + PADDING_TARJETA;
-    const colValor2025 = x0 + ancho * 0.38;
-    const colTotal2025 = x0 + ancho * 0.58;
-    const colValor2026 = x0 + ancho * 0.78;
-    const colDif = x0 + ancho * 0.97;
+    const colTotal2025 = x0 + ancho * 0.46;
+    const colValor2025 = x0 + ancho * 0.65;
+    const colValor2026 = x0 + ancho * 0.83;
+    const colDif = x0 + ancho * 0.99;
     let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
 
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(6.8);
     pdf.setTextColor(...COLOR_MUTED);
-    pdf.text('A LA FECHA', colValor2025, fy, { align: 'right' });
     pdf.text('TOTAL 2025', colTotal2025, fy, { align: 'right' });
+    pdf.text('2025', colValor2025, fy, { align: 'right' });
     pdf.text('2026', colValor2026, fy, { align: 'right' });
     pdf.text('Dif', colDif, fy, { align: 'right' });
     fy += 5;
@@ -176,12 +176,14 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(8);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.32 });
-      pdf.setTextColor(...COLOR_MUTED);
-      pdf.text(formatearNumero(f.anio2025), colValor2025, fy, { align: 'right' });
+      pdf.text(f.etiqueta.replace('Trimestre', 'Trim.'), colEtiqueta, fy, { maxWidth: ancho * 0.35 });
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(...colorTitulo);
       pdf.text(formatearNumero(f.total2025), colTotal2025, fy, { align: 'right' });
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(...COLOR_MUTED);
+      pdf.text(formatearNumero(f.anio2025), colValor2025, fy, { align: 'right' });
+      pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(...COLOR_TEXTO);
       pdf.text(formatearNumero(f.anio2026), colValor2026, fy, { align: 'right' });
       pdf.setTextColor(...colorPorDif(f.dif));
@@ -206,9 +208,9 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     if (nodo.delitos.length === 0) return;
 
     const colDelito = x0 + PADDING_TARJETA;
-    const col2025 = x0 + ancho * 0.5;
-    const colTotal2025 = x0 + ancho * 0.65;
-    const col2026 = x0 + ancho * 0.78;
+    const colTotal2025 = x0 + ancho * 0.56;
+    const col2025 = x0 + ancho * 0.68;
+    const col2026 = x0 + ancho * 0.79;
     const colDif = x0 + ancho * 0.9;
     const colPct = x0 + ancho * 1.0;
     let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
@@ -216,8 +218,8 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(6.5);
     pdf.setTextColor(...COLOR_MUTED);
-    pdf.text('A LA FECHA', col2025, fy, { align: 'right' });
     pdf.text('TOTAL 2025', colTotal2025, fy, { align: 'right' });
+    pdf.text('2025', col2025, fy, { align: 'right' });
     pdf.text('2026', col2026, fy, { align: 'right' });
     pdf.text('Dif', colDif, fy, { align: 'right' });
     pdf.text('%', colPct, fy, { align: 'right' });
@@ -230,12 +232,14 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(7.8);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.46 });
-      pdf.setTextColor(...COLOR_MUTED);
-      pdf.text(formatearNumero(d.fecha2025), col2025, fy, { align: 'right' });
+      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.53 });
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(91, 33, 182);
       pdf.text(formatearNumero(d.total2025), colTotal2025, fy, { align: 'right' });
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(...COLOR_MUTED);
+      pdf.text(formatearNumero(d.fecha2025), col2025, fy, { align: 'right' });
+      pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(...COLOR_TEXTO);
       pdf.text(formatearNumero(d.fecha2026), col2026, fy, { align: 'right' });
       pdf.setTextColor(...colorPorDif(d.dif));
@@ -269,8 +273,8 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
 
     // Tres columnas lado a lado, en el orden pedido: Trimestres →
     // Distribución por mes → Delitos.
-    const anchoTrimestres = ANCHO_UTIL * 0.22;
-    const anchoDelitos = ANCHO_UTIL * 0.46;
+    const anchoTrimestres = ANCHO_UTIL * 0.25;
+    const anchoDelitos = ANCHO_UTIL * 0.42;
     const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoDelitos - PADDING_TARJETA * 2;
     const altoBanda = altoBandaTresColumnas(nodo);
 

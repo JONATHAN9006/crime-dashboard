@@ -56,13 +56,13 @@ function TablaTrimestres({ nodo }: { nodo: NodoMicrogerencia }) {
     <div className="rounded-lg bg-sky-50 p-2">
       <p className="mb-1 text-xs font-bold uppercase tracking-wide text-sky-600">Trimestres</p>
       <table className="w-full text-sm">
-        <thead><tr className="text-slate-400"><th className="text-left font-medium">Trimestre</th><th className="text-right font-medium">2025 (a la fecha)</th><th className="text-right font-medium">Total 2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Trimestre</th><th className="text-right font-medium">Total 2025</th><th className="text-right font-medium">2025 (a la fecha)</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
         <tbody>
           {nodo.trimestres.map((t, i) => (
             <tr key={t.etiqueta} className={i % 2 === 0 ? 'bg-sky-100/60' : 'bg-sky-50'}>
               <td className="py-1 pl-1 text-slate-600">{t.etiqueta}</td>
-              <td className="py-1 text-right text-slate-500">{formatNumero(t.anio2025)}</td>
               <td className="py-1 text-right font-semibold text-sky-700">{formatNumero(t.total2025)}</td>
+              <td className="py-1 text-right text-slate-500">{formatNumero(t.anio2025)}</td>
               <td className="py-1 text-right font-semibold text-slate-700">{formatNumero(t.anio2026)}</td>
               <td className={`py-1 pr-1 text-right ${t.dif > 0 ? 'text-rose-600' : t.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{t.dif >= 0 ? '+' : ''}{formatNumero(t.dif)}</td>
             </tr>
@@ -83,13 +83,13 @@ function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
     <div className="rounded-lg bg-amber-50 p-2">
       <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-600">Distribución por mes</p>
       <table className="w-full text-sm">
-        <thead><tr className="text-slate-400"><th className="text-left font-medium">Mes</th><th className="text-right font-medium">2025 (a la fecha)</th><th className="text-right font-medium">Total 2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Mes</th><th className="text-right font-medium">Total 2025</th><th className="text-right font-medium">2025 (a la fecha)</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
         <tbody>
           {nodo.meses.map((m, i) => (
             <tr key={m.etiqueta} className={i % 2 === 0 ? 'bg-amber-100/60' : 'bg-amber-50'}>
               <td className="py-1 pl-1 text-slate-600">{m.etiqueta}</td>
-              <td className="py-1 text-right text-slate-500">{formatNumero(m.anio2025)}</td>
               <td className="py-1 text-right font-semibold text-amber-700">{formatNumero(m.total2025)}</td>
+              <td className="py-1 text-right text-slate-500">{formatNumero(m.anio2025)}</td>
               <td className="py-1 text-right font-semibold text-slate-700">{formatNumero(m.anio2026)}</td>
               <td className={`py-1 pr-1 text-right ${m.dif > 0 ? 'text-rose-600' : m.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{m.dif >= 0 ? '+' : ''}{formatNumero(m.dif)}</td>
             </tr>
@@ -106,13 +106,13 @@ function TablaDelitos({ nodo }: { nodo: NodoMicrogerencia }) {
     <div className="rounded-lg bg-violet-50 p-2 sm:col-span-2">
       <p className="mb-1 text-xs font-bold uppercase tracking-wide text-violet-600">Delitos ({nodo.delitos.length})</p>
       <table className="w-full text-sm">
-        <thead><tr className="text-slate-400"><th className="text-left font-medium">Delito</th><th className="text-right font-medium">2025 (a la fecha)</th><th className="text-right font-medium">Total 2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th><th className="text-right font-medium">%</th></tr></thead>
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Delito</th><th className="text-right font-medium">Total 2025</th><th className="text-right font-medium">2025 (a la fecha)</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th><th className="text-right font-medium">%</th></tr></thead>
         <tbody>
           {nodo.delitos.map((d, i) => (
             <tr key={d.nombre} className={i % 2 === 0 ? 'bg-violet-100/60' : 'bg-violet-50'}>
               <td className="py-1 pl-1 text-slate-600">{d.nombre}</td>
-              <td className="py-1 text-right text-slate-500">{formatNumero(d.fecha2025)}</td>
               <td className="py-1 text-right font-semibold text-violet-700">{formatNumero(d.total2025)}</td>
+              <td className="py-1 text-right text-slate-500">{formatNumero(d.fecha2025)}</td>
               <td className="py-1 text-right font-semibold text-slate-700">{formatNumero(d.fecha2026)}</td>
               <td className={`py-1 text-right ${d.dif > 0 ? 'text-rose-600' : d.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{d.dif >= 0 ? '+' : ''}{formatNumero(d.dif)}</td>
               <td className={`py-1 pr-1 text-right ${d.dif > 0 ? 'text-rose-600' : d.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{formatearPct(d.pct)}</td>
