@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import shp from 'shpjs';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -128,6 +128,38 @@ function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma]);
+  return null;
+}
+
+// Selección por clic — a nivel de MAPA (no por capa individual). Si dos
+// polígonos se superponen en el punto donde se hizo clic (ej. el contorno
+// grande de una Estación y, adentro, un Cuadrante más pequeño), Leaflet por
+// sí solo le entrega el clic al que esté dibujado ENCIMA — que puede no ser
+// el que el usuario quiso tocar. Aquí se prueba el punto contra TODAS las
+// capas visibles con el mismo punto-en-polígono ya usado para el mapa de
+// calor, y de todas las que sí contienen ese punto, se elige la de MENOR
+// área — es decir, la más específica/anidada (el Cuadrante antes que su
+// Estación, si ambos contienen el punto).
+function SeleccionPorClicEnMapa({ capas, onSeleccionar }: { capas: CapaGeografica[]; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
+  useMapEvents({
+    click(e) {
+      const { lat, lng } = e.latlng;
+      let mejor: { capaId: string; feature: any; nombre: string; area: number } | null = null;
+      for (const capa of capas) {
+        if (!capa.visible) continue;
+        for (const f of extraerFeatures(capa.geojson)) {
+          if (!puntoEnFeatureGeoJSON(lng, lat, f)) continue;
+          const bounds = L.geoJSON(f).getBounds();
+          const area = (bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest());
+          if (!mejor || area < mejor.area) {
+            const nombre = capa.campoUnion && f.properties?.[capa.campoUnion] ? String(f.properties[capa.campoUnion]) : (f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
+            mejor = { capaId: capa.id, feature: f, nombre, area };
+          }
+        }
+      }
+      onSeleccionar(mejor ? { capaId: mejor.capaId, feature: mejor.feature, nombre: mejor.nombre } : null);
+    },
+  });
   return null;
 }
 
@@ -587,15 +619,28 @@ export function MapaGeorreferenciacion() {
     try {
       const contenedor = document.querySelector('[data-mapa-contenedor]') as HTMLElement | null;
       if (contenedor) {
-        const etiquetaDelito = delitoZonaSeleccionada ?? 'Todos los delitos';
-        await exportarMapaComoImagen(
-          contenedor,
-          `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
-          `${zonaActiva.nombre} — ${etiquetaDelito} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
-        );
+        // Desglose REAL por delito — cada línea sale de contar
+        // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
+        // en el mapa de calor), agrupados por delito. Nunca es un número
+        // inventado: si dice "Homicidio: 3", es porque hay exactamente 3
+        // puntos de Homicidio dentro de ese polígono.
+        const conteoPorDelito = new Map<string, number>();
+        for (const p of puntosEnZonaParaCalor) {
+          const nombre = p.delitoCorto ?? 'No reportado';
+          conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+        }
+        const lineasDelito = Array.from(conteoPorDelito.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+        const etiquetas = [
+          `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
+          ...lineasDelito,
+        ];
+        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'), etiquetas);
       }
-    } catch {
-      setError('No fue posible generar la imagen del mapa. Intenta de nuevo — si persiste, prueba alejando un poco el zoom antes de descargar.');
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
+      setError('No fue posible generar la imagen del mapa. Revisa la consola del navegador (F12) para más detalle, o intenta con un acercamiento (zoom) distinto.');
     } finally {
       setDescargandoZona(false);
     }
@@ -1082,6 +1127,13 @@ export function MapaGeorreferenciacion() {
 
           <MapContainer center={CENTRO_DEFECTO} zoom={12} style={{ height: '100%', width: '100%' }}>
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
+            <SeleccionPorClicEnMapa
+              capas={capas}
+              onSeleccionar={(sel) => {
+                setZonaSeleccionada((actual) => (actual?.feature === sel?.feature ? null : sel));
+                setDelitoZonaSeleccionada(null);
+              }}
+            />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -1115,14 +1167,11 @@ export function MapaGeorreferenciacion() {
                   filas = `<tr><td style="padding-right:8px;color:#116762;font-weight:700">Casos (filtro actual)</td><td style="font-weight:700">${casos}</td></tr>` + filas;
                 }
                 layer.bindPopup(`<div style="font-size:12px;max-width:220px"><table>${filas || '<tr><td>Sin atributos</td></tr>'}</table></div>`);
-                // Clic sobre el polígono: lo selecciona como "zona" para
-                // recortar el mapa de calor a solo lo que caiga dentro (ver
-                // panel flotante de descarga) — un segundo clic la deselecciona.
-                layer.on('click', () => {
-                  const nombre = capa.campoUnion && props[capa.campoUnion] ? String(props[capa.campoUnion]) : (props.nombre || props.NOMBRE || props.CAI || 'Zona seleccionada');
-                  setZonaSeleccionada((actual) => (actual?.feature === feature ? null : { capaId: capa.id, feature, nombre }));
-                  setDelitoZonaSeleccionada(null);
-                });
+                // La SELECCIÓN por clic ya no se maneja aquí (por-capa) sino
+                // una sola vez a nivel de todo el mapa — ver
+                // SeleccionPorClicEnMapa — para elegir siempre el polígono
+                // más específico cuando hay varios superpuestos en el mismo
+                // punto. Aquí solo queda el popup con los atributos.
               }
 
               return (

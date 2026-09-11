@@ -848,42 +848,45 @@ export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: stri
 // calor y las etiquetas (que son SVG/HTML propios del dashboard, sin ese
 // problema). El resultado sale con fondo gris liso en vez del mapa de
 // calles — un cambio consciente para que la descarga SIEMPRE funcione.
-export async function exportarMapaComoImagen(elemento: HTMLElement, nombreArchivo: string, etiqueta?: string): Promise<void> {
+export async function exportarMapaComoImagen(elemento: HTMLElement, nombreArchivo: string, etiquetas?: string[]): Promise<void> {
   const html2canvasMod = (await import('html2canvas')).default;
   const canvas = await html2canvasMod(elemento, {
     backgroundColor: '#e5e7eb',
-    scale: 2,
+    scale: 1,
     useCORS: true,
     ignoreElements: (el) => el.classList?.contains('leaflet-tile') || el.classList?.contains('leaflet-tile-container'),
   });
 
-  // La etiqueta (delito + total) se dibuja DIRECTO sobre el lienzo ya
-  // capturado — así queda grabada en el PNG final, no es un elemento HTML
-  // aparte que se pueda perder.
-  if (etiqueta) {
+  // Las etiquetas (una por delito, con su cantidad) se dibujan DIRECTO sobre
+  // el lienzo ya capturado — quedan grabadas en el PNG final, no son un
+  // elemento HTML aparte que se pueda perder.
+  if (etiquetas && etiquetas.length > 0) {
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      const escala = 2;
-      const paddingX = 14 * escala;
-      const paddingY = 10 * escala;
-      ctx.font = `${13 * escala}px Arial`;
-      const anchoTexto = ctx.measureText(etiqueta).width;
-      const anchoCaja = anchoTexto + paddingX * 2;
-      const altoCaja = 34 * escala;
-      const margen = 10 * escala;
+      const tamanoFuente = 13;
+      const alturaLinea = 19;
+      const paddingX = 14;
+      const paddingY = 10;
+      ctx.font = `bold ${tamanoFuente}px Arial`;
+      const anchoMaximoTexto = Math.max(...etiquetas.map((t) => ctx.measureText(t).width));
+      const anchoCaja = anchoMaximoTexto + paddingX * 2;
+      const altoCaja = paddingY * 2 + alturaLinea * etiquetas.length;
+      const margen = 10;
       ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
       ctx.fillRect(margen, margen, anchoCaja, altoCaja);
       ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${13 * escala}px Arial`;
       ctx.textBaseline = 'middle';
-      ctx.fillText(etiqueta, margen + paddingX, margen + altoCaja / 2);
+      etiquetas.forEach((texto, i) => {
+        ctx.fillText(texto, margen + paddingX, margen + paddingY + alturaLinea * i + alturaLinea / 2);
+      });
     }
   }
 
   let dataUrl: string;
   try {
     dataUrl = canvas.toDataURL('image/png');
-  } catch {
+  } catch (err) {
+    console.error('[exportarMapaComoImagen] El lienzo del mapa quedó bloqueado (canvas "tainted"):', err);
     throw new Error('No fue posible generar la imagen del mapa (el lienzo quedó bloqueado por el navegador).');
   }
   const enlace = document.createElement('a');
