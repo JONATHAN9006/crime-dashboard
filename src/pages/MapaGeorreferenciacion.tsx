@@ -587,7 +587,12 @@ export function MapaGeorreferenciacion() {
     try {
       const contenedor = document.querySelector('[data-mapa-contenedor]') as HTMLElement | null;
       if (contenedor) {
-        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'));
+        const etiquetaDelito = delitoZonaSeleccionada ?? 'Todos los delitos';
+        await exportarMapaComoImagen(
+          contenedor,
+          `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+          `${zonaActiva.nombre} — ${etiquetaDelito} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
+        );
       }
     } catch {
       setError('No fue posible generar la imagen del mapa. Intenta de nuevo — si persiste, prueba alejando un poco el zoom antes de descargar.');
@@ -1122,7 +1127,7 @@ export function MapaGeorreferenciacion() {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${capa.dimension}-${filteredRecords.length}`}
+                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}`}
                   data={capa.geojson as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
