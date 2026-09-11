@@ -1210,7 +1210,7 @@ export function MapaGeorreferenciacion() {
                 // se haya seleccionado con un clic puntual.
                 const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
                 if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
-                  return { color: '#000000', weight: 3, fillColor: '#116762', fillOpacity: esSeleccionadaPorClic ? 0.05 : 0.25 };
+                  return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 };
                 }
                 if (capa.colorearPorCasos && conteos && capa.campoUnion) {
                   const valorCrudo = feature?.properties?.[capa.campoUnion!];
