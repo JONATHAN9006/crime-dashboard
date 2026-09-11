@@ -855,6 +855,19 @@ export async function exportarMapaComoImagen(elemento: HTMLElement, nombreArchiv
     scale: 1,
     useCORS: true,
     ignoreElements: (el) => el.classList?.contains('leaflet-tile') || el.classList?.contains('leaflet-tile-container'),
+    onclone: (doc, clonado) => {
+      // MISMA corrección que ya usa el resto del dashboard (ver
+      // capturarComponenteComoCanvas más abajo): html2canvas no entiende
+      // los colores modernos que usa Tailwind (oklab/oklch/color-mix, ej.
+      // en clases como "bg-white/95") y truena con el error real que se
+      // encontró: "Attempting to parse an unsupported color function
+      // oklab". Se reemplaza el estilo de cada elemento por su color YA
+      // CALCULADO por el navegador (nunca en oklab) y se quitan las hojas
+      // de estilo del clon para que html2canvas no vuelva a toparse con
+      // esas clases directamente.
+      congelarEstilosParaCaptura(elemento, clonado);
+      doc.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => n.remove());
+    },
   });
 
   // Las etiquetas (una por delito, con su cantidad) se dibujan DIRECTO sobre
