@@ -62,6 +62,35 @@ function normalizar(v: unknown): string {
   return String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+// Detecta SOLO, sin que el usuario tenga que configurar nada, cuál columna
+// del shapefile es la que trae el nombre del CAI/Estación/Cuadrante — mira
+// cada columna de una muestra de polígonos y cuenta cuántos de sus valores
+// ya existen en los datos cargados (ej. "E-Norte", "CAI 5"). La columna con
+// más coincidencias gana. Si el shapefile no trae ninguna columna
+// reconocible, devuelve null.
+function detectarCampoUnion(geojson: any, valoresConocidos: Set<string>): string | null {
+  const features = extraerFeatures(geojson).slice(0, 300);
+  if (features.length === 0 || valoresConocidos.size === 0) return null;
+  const aciertosPorCampo = new Map<string, number>();
+  for (const f of features) {
+    for (const [clave, valor] of Object.entries(f?.properties ?? {})) {
+      if (typeof valor !== 'string' && typeof valor !== 'number') continue;
+      if (valoresConocidos.has(normalizar(valor))) {
+        aciertosPorCampo.set(clave, (aciertosPorCampo.get(clave) ?? 0) + 1);
+      }
+    }
+  }
+  let mejorCampo: string | null = null;
+  let mejorConteo = 0;
+  for (const [campo, conteo] of aciertosPorCampo) {
+    if (conteo > mejorConteo) {
+      mejorCampo = campo;
+      mejorConteo = conteo;
+    }
+  }
+  return mejorCampo;
+}
+
 // Paleta multicolor por delito — para la vista normal/exploratoria de cada
 // capa (sin comparar), donde cada tipo de delito debe distinguirse con su
 // propio color, tal como semaforiza el resto del dashboard.
@@ -140,19 +169,20 @@ function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[
 // calor, y de todas las que sí contienen ese punto, se elige la de MENOR
 // área — es decir, la más específica/anidada (el Cuadrante antes que su
 // Estación, si ambos contienen el punto).
-function SeleccionPorClicEnMapa({ capas, onSeleccionar }: { capas: CapaGeografica[]; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
+function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
   useMapEvents({
     click(e) {
       const { lat, lng } = e.latlng;
       let mejor: { capaId: string; feature: any; nombre: string; area: number } | null = null;
       for (const capa of capas) {
         if (!capa.visible) continue;
+        const campo = camposUnion.get(capa.id);
         for (const f of extraerFeatures(capa.geojson)) {
           if (!puntoEnFeatureGeoJSON(lng, lat, f)) continue;
           const bounds = L.geoJSON(f).getBounds();
           const area = (bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest());
           if (!mejor || area < mejor.area) {
-            const nombre = capa.campoUnion && f.properties?.[capa.campoUnion] ? String(f.properties[capa.campoUnion]) : (f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
+            const nombre = campo && f.properties?.[campo] ? String(f.properties[campo]) : (f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
             mejor = { capaId: capa.id, feature: f, nombre, area };
           }
         }
@@ -277,6 +307,20 @@ export function MapaGeorreferenciacion() {
     return mapa;
   }, [records]);
 
+  // Todo lo que el dashboard ya conoce como "nombre real" de una zona
+  // (estación, CAI o cuadrante) — se usa para adivinar solo qué columna de
+  // cada shapefile corresponde a cuál cosa, sin que el usuario tenga que
+  // configurarlo a mano.
+  const valoresConocidos = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of records) {
+      if (r.estacion) set.add(normalizar(r.estacion));
+      if (r.cai) set.add(normalizar(r.cai));
+      if (r.cuadrante) set.add(normalizar(r.cuadrante));
+    }
+    return set;
+  }, [records]);
+
   // ¿Este valor (el que traiga el shapefile en su campo de unión) coincide
   // con el CAI, la Estación o el Cuadrante que el usuario tenga
   // seleccionados arriba en Filtros? Si el shapefile es a nivel de
@@ -299,6 +343,19 @@ export function MapaGeorreferenciacion() {
   }
   const soloLectura = esModoConsulta();
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
+
+  // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
+  // mano (si lo hizo), o si no, el que se detecte solo. Así el resaltado
+  // por filtro funciona aunque nadie haya tocado la configuración manual de
+  // "Colorear por casos".
+  const camposUnionAutoDetectados = useMemo(() => {
+    const mapa = new Map<string, string | null>();
+    for (const capa of capas) {
+      mapa.set(capa.id, capa.campoUnion ?? detectarCampoUnion(capa.geojson, valoresConocidos));
+    }
+    return mapa;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capas, valoresConocidos]);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [capasPuntos, setCapasPuntos] = useState<CapaPuntos[]>([]);
@@ -313,14 +370,16 @@ export function MapaGeorreferenciacion() {
   const featuresPorFiltroActivo = useMemo(() => {
     const resultado: any[] = [];
     for (const capa of capas) {
-      if (!capa.visible || !capa.campoUnion) continue;
+      if (!capa.visible) continue;
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      if (!campo) continue;
       for (const f of extraerFeatures(capa.geojson)) {
-        if (coincideConFiltrosActivos(f?.properties?.[capa.campoUnion])) resultado.push(f);
+        if (coincideConFiltrosActivos(f?.properties?.[campo])) resultado.push(f);
       }
     }
     return resultado;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capas, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes, jerarquiaCai]);
+  }, [capas, camposUnionAutoDetectados, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes, jerarquiaCai]);
 
   // "Zona activa" = lo que se haya seleccionado con un clic puntual, o —
   // si no hay ningún clic— TODOS los polígonos que ya coincidan con el
@@ -1129,6 +1188,7 @@ export function MapaGeorreferenciacion() {
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
             <SeleccionPorClicEnMapa
               capas={capas}
+              camposUnion={camposUnionAutoDetectados}
               onSeleccionar={(sel) => {
                 setZonaSeleccionada((actual) => (actual?.feature === sel?.feature ? null : sel));
                 setDelitoZonaSeleccionada(null);
@@ -1144,10 +1204,11 @@ export function MapaGeorreferenciacion() {
 
               function estiloFeature(feature: any) {
                 const esSeleccionadaPorClic = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
+                const campoEfectivo = camposUnionAutoDetectados.get(capa.id);
                 // Resalta TODOS los polígonos que correspondan al CAI, la
                 // Estación o el Cuadrante filtrados arriba — no solo el que
                 // se haya seleccionado con un clic puntual.
-                const esSeleccionadaPorFiltro = capa.campoUnion ? coincideConFiltrosActivos(feature?.properties?.[capa.campoUnion]) : false;
+                const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
                 if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
                   return { color: '#000000', weight: 3, fillColor: '#116762', fillOpacity: esSeleccionadaPorClic ? 0.05 : 0.25 };
                 }
@@ -1176,7 +1237,7 @@ export function MapaGeorreferenciacion() {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}`}
+                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}`}
                   data={capa.geojson as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
