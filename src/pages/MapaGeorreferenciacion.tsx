@@ -12,7 +12,7 @@ import {
 } from '../data/puntosStorage';
 import { GridHeatmapLayer } from '../components/mapa/GridHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
-import { exportarHtmlComoImagen } from '../utils/exportarImagen';
+import { exportarMapaComoImagen } from '../utils/exportarImagen';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
@@ -233,22 +233,36 @@ export function MapaGeorreferenciacion() {
     return mapa;
   }, [records]);
 
+  // Igual que arriba pero a nivel de CAI — necesaria para que un polígono
+  // de CAI (no de cuadrante) también se resalte cuando el filtro activo es
+  // por Estación (ej. "Estación Norte" debe resaltar sus CAI 1-4 Y sus
+  // cuadrantes, no solo estos últimos).
+  const jerarquiaCai = useMemo(() => {
+    const mapa = new Map<string, string | null>();
+    for (const r of records) {
+      if (r.cai && !mapa.has(normalizar(r.cai))) mapa.set(normalizar(r.cai), r.estacion);
+    }
+    return mapa;
+  }, [records]);
+
   // ¿Este valor (el que traiga el shapefile en su campo de unión) coincide
   // con el CAI, la Estación o el Cuadrante que el usuario tenga
   // seleccionados arriba en Filtros? Si el shapefile es a nivel de
-  // cuadrante, resuelve primero a qué CAI/estación pertenece ese cuadrante
-  // antes de comparar.
+  // cuadrante o de CAI, resuelve primero a qué CAI/estación pertenece antes
+  // de comparar.
   function coincideConFiltrosActivos(valorCrudo: unknown): boolean {
     if (!valorCrudo) return false;
     const norm = normalizar(valorCrudo);
     if (filters.cai.some((c) => normalizar(c) === norm)) return true;
     if (filters.estacion.some((e) => normalizar(e) === norm)) return true;
     if (filters.cuadrante.some((c) => normalizar(c) === norm)) return true;
-    const info = jerarquiaCuadrantes.get(norm);
-    if (info) {
-      if (info.cai && filters.cai.some((c) => normalizar(c) === normalizar(info.cai))) return true;
-      if (info.estacion && filters.estacion.some((e) => normalizar(e) === normalizar(info.estacion))) return true;
+    const infoCuadrante = jerarquiaCuadrantes.get(norm);
+    if (infoCuadrante) {
+      if (infoCuadrante.cai && filters.cai.some((c) => normalizar(c) === normalizar(infoCuadrante.cai))) return true;
+      if (infoCuadrante.estacion && filters.estacion.some((e) => normalizar(e) === normalizar(infoCuadrante.estacion))) return true;
     }
+    const estacionDelCai = jerarquiaCai.get(norm);
+    if (estacionDelCai && filters.estacion.some((e) => normalizar(e) === normalizar(estacionDelCai))) return true;
     return false;
   }
   const soloLectura = esModoConsulta();
@@ -274,7 +288,7 @@ export function MapaGeorreferenciacion() {
     }
     return resultado;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capas, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes]);
+  }, [capas, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes, jerarquiaCai]);
 
   // "Zona activa" = lo que se haya seleccionado con un clic puntual, o —
   // si no hay ningún clic— TODOS los polígonos que ya coincidan con el
@@ -573,8 +587,10 @@ export function MapaGeorreferenciacion() {
     try {
       const contenedor = document.querySelector('[data-mapa-contenedor]') as HTMLElement | null;
       if (contenedor) {
-        await exportarHtmlComoImagen(contenedor, `Mapa de calor — ${zonaActiva.nombre}`, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'));
+        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'));
       }
+    } catch {
+      setError('No fue posible generar la imagen del mapa. Intenta de nuevo — si persiste, prueba alejando un poco el zoom antes de descargar.');
     } finally {
       setDescargandoZona(false);
     }
@@ -964,16 +980,6 @@ export function MapaGeorreferenciacion() {
             )}
           </div>
         ))}
-
-        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-          <p className="mb-1 font-semibold text-slate-700">Cómo cargar un Shapefile:</p>
-          <ol className="list-decimal space-y-0.5 pl-4">
-            <li>Reúne los 4 archivos del mismo shapefile: <code>.shp</code>, <code>.shx</code>, <code>.dbf</code> y <code>.prj</code> (todos con el mismo nombre).</li>
-            <li>Selecciónalos todos y comprímelos juntos en un único archivo <code>.zip</code> (sin crear una carpeta dentro del zip).</li>
-            <li>Sube ese <code>.zip</code> con el botón "Cargar capa". Puedes repetir esto para cargar varias capas (ej. Estaciones, Cuadrantes, Barrios) y activarlas/desactivarlas por separado.</li>
-          </ol>
-          <p className="mt-2">También puedes cargar directamente un archivo <code>.geojson</code> o <code>.json</code>.</p>
-        </div>
       </Card>
 
       <Card className={clsx('overflow-hidden p-0', pantallaCompleta && 'fixed inset-0 z-[9999] rounded-none')}>
@@ -1074,7 +1080,6 @@ export function MapaGeorreferenciacion() {
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              crossOrigin="anonymous"
             />
             {capas.filter((c) => c.visible).map((capa) => {
               const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;

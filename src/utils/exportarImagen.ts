@@ -836,3 +836,34 @@ export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: stri
   enlace.href = canvasFinal.toDataURL('image/png');
   enlace.click();
 }
+
+// Exportación DEDICADA para el mapa (Georreferenciación) — separada del
+// resto del dashboard a propósito. Las "tiles" del mapa base (imágenes de
+// OpenStreetMap) llegan al navegador desde otro dominio; aunque se les pida
+// CORS, algunos servidores/momentos no lo confirman, y ahí el lienzo queda
+// "contaminado" — html2canvas entonces genera un PNG corrupto (justo el
+// error "formato no compatible" que se reportó). La solución más confiable
+// es simplemente NO intentar copiar esas imágenes de fondo al lienzo: se
+// ignoran con "ignoreElements", y sí se capturan los polígonos, el mapa de
+// calor y las etiquetas (que son SVG/HTML propios del dashboard, sin ese
+// problema). El resultado sale con fondo gris liso en vez del mapa de
+// calles — un cambio consciente para que la descarga SIEMPRE funcione.
+export async function exportarMapaComoImagen(elemento: HTMLElement, nombreArchivo: string): Promise<void> {
+  const html2canvasMod = (await import('html2canvas')).default;
+  const canvas = await html2canvasMod(elemento, {
+    backgroundColor: '#e5e7eb',
+    scale: 2,
+    useCORS: true,
+    ignoreElements: (el) => el.classList?.contains('leaflet-tile') || el.classList?.contains('leaflet-tile-container'),
+  });
+  let dataUrl: string;
+  try {
+    dataUrl = canvas.toDataURL('image/png');
+  } catch {
+    throw new Error('No fue posible generar la imagen del mapa (el lienzo quedó bloqueado por el navegador).');
+  }
+  const enlace = document.createElement('a');
+  enlace.download = `${nombreArchivo}.png`;
+  enlace.href = dataUrl;
+  enlace.click();
+}
