@@ -676,7 +676,7 @@ export function MapaGeorreferenciacion() {
     if (!zonaActiva) return;
     setDescargandoZona(true);
     try {
-      const contenedor = document.querySelector('[data-mapa-contenedor]') as HTMLElement | null;
+      const contenedor = document.querySelector('[data-mapa-contenedor] .leaflet-container') as HTMLElement | null;
       if (contenedor) {
         // Desglose REAL por delito — cada línea sale de contar
         // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
