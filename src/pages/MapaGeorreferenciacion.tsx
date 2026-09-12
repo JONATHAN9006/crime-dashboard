@@ -359,6 +359,32 @@ export function MapaGeorreferenciacion() {
   // activan solos en cuanto se cargue su Excel correspondiente más adelante.
   const [fuentesActivas, setFuentesActivas] = useState({ irisp1: true, delitos: true, operatividad: false, macri: false });
 
+  // Colores por CAI — configurables a mano, se guardan en localStorage para
+  // que se mantengan mientras se use el dashboard (no se pierden al
+  // refrescar la página). Nunca afectan el color del mapa de calor, solo
+  // sirven para diferenciar visualmente cada CAI.
+  const [coloresCai, setColoresCai] = useState<Record<string, string>>(() => {
+    try {
+      const guardado = localStorage.getItem('mepoy-colores-cai');
+      return guardado ? JSON.parse(guardado) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-colores-cai', JSON.stringify(coloresCai)); } catch { /* si el navegador bloquea localStorage, simplemente no se guarda */ }
+  }, [coloresCai]);
+  const PALETA_CAI_DEFECTO = ['#3b82f6', '#ef4444', '#22c55e', '#a855f7', '#f97316', '#14b8a6', '#eab308', '#ec4899'];
+  function colorDeCai(nombreCai: string): string {
+    if (coloresCai[nombreCai]) return coloresCai[nombreCai];
+    const indice = opcionesFiltroMapa.cai.indexOf(nombreCai);
+    return PALETA_CAI_DEFECTO[indice % PALETA_CAI_DEFECTO.length] ?? '#116762';
+  }
+
+  // Transparencia configurable — independiente para el mapa de calor, el
+  // relleno de los polígonos, y las etiquetas. 0 a 100 (%).
+  const [opacidades, setOpacidades] = useState({ calor: 70, poligono: 100, etiquetas: 100 });
+
   // Jerarquía real cuadrante → CAI → estación, tomada de los datos ya
   // cargados — así, si un shapefile trae solo el nombre del CUADRANTE (el
   // caso más común), igual se puede saber si ese cuadrante pertenece al CAI
@@ -857,44 +883,57 @@ export function MapaGeorreferenciacion() {
     <div className="space-y-5">
       <PageHeader title="Mapa / Georreferenciación" subtitle="Visualiza y compara varias capas geográficas (Shapefile o GeoJSON) sobre el territorio." />
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-700">Filtros de visualización</p>
-            <p className="text-xs text-slate-400">
-              {filtrosActivos.length > 0
-                ? <>Filtros activos: <strong>{filtrosActivos.join(' · ')}</strong> ({filteredRecords.length.toLocaleString('es-CO')} registros)</>
-                : <>Sin filtros activos — {filteredRecords.length.toLocaleString('es-CO')} registros considerados</>}
-              {' '}· propios de este mapa, no afectan al resto del dashboard.
-            </p>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_260px]">
+        {/* ── COLUMNA IZQUIERDA: Filtros de visualización ── */}
+        <div className="rounded-xl bg-brand-navy p-4 text-white lg:sticky lg:top-4 lg:self-start">
+          <p className="mb-3 text-sm font-bold">Filtros de visualización</p>
+
+          <div className="space-y-3">
+            {([
+              ['delito', 'Delito'], ['cuadrante', 'Zona de Atención'], ['estacion', 'Estación'], ['cai', 'CAI'], ['barrioHecho', 'Barrio'],
+            ] as const).map(([clave, etiqueta]) => (
+              <div key={clave}>
+                <label className="mb-1 block text-xs font-semibold text-slate-300">{etiqueta}</label>
+                <select
+                  value={filtrosMapa[clave][0] ?? ''}
+                  onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, [clave]: e.target.value ? [e.target.value] : [] }))}
+                  className="w-full rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-sm text-white"
+                >
+                  <option value="" className="text-slate-800">Todos</option>
+                  {opcionesFiltroMapa[clave].map((v) => <option key={v} value={v} className="text-slate-800">{v}</option>)}
+                </select>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
+
+          <button
+            type="button"
+            onClick={() => setMostrarSelectorFuentes(true)}
+            className="mt-4 w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/20"
+          >
+            📊 Seleccionar fuentes
+          </button>
+
+          <div className="mt-3 flex gap-2">
             <button
               type="button"
-              onClick={() => setMostrarSelectorFuentes(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy"
+              onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [] })}
+              className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
             >
-              📊 Seleccionar fuentes
+              🔄 Limpiar
             </button>
-            <button
-              type="button"
-              onClick={() => setMostrarFiltrosMapa(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy"
-            >
-              ⚙️ Filtros de mapa
-            </button>
-            {filtrosActivos.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [] })}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:border-slate-400"
-              >
-                🔄 Limpiar filtros
-              </button>
-            )}
           </div>
+
+          <p className="mt-3 text-[11px] text-slate-400">
+            {filtrosActivos.length > 0
+              ? <>{filteredRecords.length.toLocaleString('es-CO')} registros con estos filtros.</>
+              : <>Sin filtros — {filteredRecords.length.toLocaleString('es-CO')} registros considerados.</>}
+            {' '}Propios de este mapa, no afectan al resto del dashboard.
+          </p>
         </div>
-      </Card>
+
+        {/* ── COLUMNA CENTRAL: el mapa en sí (todo lo que ya existía) ── */}
+        <div className="min-w-0 space-y-5">
 
       {mostrarSelectorFuentes && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarSelectorFuentes(false)}>
@@ -923,39 +962,6 @@ export function MapaGeorreferenciacion() {
             </div>
             <p className="mt-3 text-[11px] text-slate-400">Operatividad y Macri quedan listas para activarse solas en cuanto se cargue su información correspondiente (capturas, incautaciones, etc.) — todavía no hay datos de esas fuentes.</p>
             <button type="button" onClick={() => setMostrarSelectorFuentes(false)} className="mt-3 w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Cerrar</button>
-          </div>
-        </div>
-      )}
-
-      {mostrarFiltrosMapa && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarFiltrosMapa(false)}>
-          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-3 text-sm font-bold text-slate-700">Filtros de mapa</p>
-            <div className="grid grid-cols-2 gap-3">
-              {([
-                ['delito', 'Delito'], ['estacion', 'Estación'], ['cai', 'CAI'], ['cuadrante', 'Zona de Atención'], ['barrioHecho', 'Barrio'],
-              ] as const).map(([clave, etiqueta]) => (
-                <div key={clave}>
-                  <label className="mb-1 block text-xs font-semibold text-slate-500">{etiqueta}</label>
-                  <select
-                    multiple
-                    size={4}
-                    value={filtrosMapa[clave]}
-                    onChange={(e) => {
-                      const seleccionados = Array.from(e.target.selectedOptions).map((o) => o.value);
-                      setFiltrosMapa((prev) => ({ ...prev, [clave]: seleccionados }));
-                    }}
-                    className="w-full rounded-lg border border-slate-300 text-xs"
-                  >
-                    {opcionesFiltroMapa[clave].map((v) => <option key={v} value={v}>{v}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex justify-end gap-2">
-              <button type="button" onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [] })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-500">Limpiar</button>
-              <button type="button" onClick={() => setMostrarFiltrosMapa(false)} className="rounded-lg bg-brand-green px-3 py-2 text-sm font-semibold text-white">Aplicar</button>
-            </div>
           </div>
         </div>
       )}
@@ -1382,15 +1388,26 @@ export function MapaGeorreferenciacion() {
                 // Estación o el Cuadrante filtrados arriba — no solo el que
                 // se haya seleccionado con un clic puntual.
                 const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
+                const opacidadPoligono = opacidades.poligono / 100;
                 if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
-                  return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 };
+                  return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 * opacidadPoligono };
                 }
                 if (capa.colorearPorCasos && conteos && capa.campoUnion) {
                   const valorCrudo = feature?.properties?.[capa.campoUnion!];
                   const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
-                  return { color: '#475569', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 };
+                  return { color: '#475569', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
                 }
-                return { color: '#116762', weight: 2, fillColor: '#116762', fillOpacity: 0.15 };
+                // Capas de CAI (dimensión sin "colorear por casos" activo):
+                // usan el color propio configurable de cada CAI en vez del
+                // verde institucional genérico, para diferenciarlos entre sí.
+                if (campoEfectivo && opcionesFiltroMapa.cai.length > 0) {
+                  const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
+                  const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
+                  if (coincideCai) {
+                    return { color: colorDeCai(coincideCai), weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
+                  }
+                }
+                return { color: '#116762', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
               }
 
               function onEachFeature(feature: any, layer: L.Layer) {
@@ -1410,7 +1427,7 @@ export function MapaGeorreferenciacion() {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}`}
+                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}`}
                   data={capa.geojson as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
@@ -1447,6 +1464,7 @@ export function MapaGeorreferenciacion() {
               <KernelHeatmapLayer
                 puntos={puntosDelitosParaMostrar}
                 colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']}
+                opacidad={opacidades.calor / 100}
               />
             )}
 
@@ -1459,6 +1477,7 @@ export function MapaGeorreferenciacion() {
               <KernelHeatmapLayer
                 puntos={puntosIrisp1ParaMostrar}
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
+                opacidad={opacidades.calor / 100}
               />
             )}
 
@@ -1471,7 +1490,7 @@ export function MapaGeorreferenciacion() {
               <>
                 <AjustarVistaAPoligono feature={zonaActiva.feature} />
                 {puntosEnZonaParaCalor.length > 0 && (
-                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />
+                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} opacidad={opacidades.calor / 100} />
                 )}
               </>
             )}
@@ -1619,6 +1638,57 @@ export function MapaGeorreferenciacion() {
           <MapPin size={13} /> El mapa se centra en Popayán por defecto. Al cargar una capa, ajusta el zoom manualmente para ubicarla.
         </div>
       )}
+        </div>
+        {/* fin columna central */}
+
+        {/* ── COLUMNA DERECHA: Configuración visual ── */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 lg:sticky lg:top-4 lg:self-start">
+          <p className="mb-3 text-sm font-bold text-slate-700">🎨 Configuración visual</p>
+
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Colores de CAI</p>
+          {opcionesFiltroMapa.cai.length === 0 ? (
+            <p className="mb-4 text-xs text-slate-400">Todavía no hay CAI en los datos cargados.</p>
+          ) : (
+            <div className="mb-4 space-y-1.5">
+              {opcionesFiltroMapa.cai.map((nombreCai) => (
+                <div key={nombreCai} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate text-slate-600" title={nombreCai}>{nombreCai}</span>
+                  <input
+                    type="color"
+                    value={colorDeCai(nombreCai)}
+                    onChange={(e) => setColoresCai((prev) => ({ ...prev, [nombreCai]: e.target.value }))}
+                    className="h-6 w-9 shrink-0 cursor-pointer rounded border border-slate-200"
+                    title={`Color de ${nombreCai}`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Transparencia</p>
+          <div className="space-y-3">
+            {([
+              ['calor', 'Mapa de calor'], ['poligono', 'Polígono'], ['etiquetas', 'Etiquetas'],
+            ] as const).map(([clave, etiqueta]) => (
+              <div key={clave}>
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                  <span>{etiqueta}</span>
+                  <span className="font-semibold text-slate-700">{opacidades[clave]}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={opacidades[clave]}
+                  onChange={(e) => setOpacidades((prev) => ({ ...prev, [clave]: Number(e.target.value) }))}
+                  className="w-full accent-brand-green"
+                />
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-slate-400">Los colores de CAI y la transparencia se guardan mientras uses el dashboard.</p>
+        </div>
+      </div>
     </div>
   );
 }
