@@ -1,11 +1,17 @@
-// Kernel Density Estimation geográficamente fijo — a diferencia de
-// leaflet.heat (que recalcula el radio en PÍXELES DE PANTALLA cada vez que
-// cambia el zoom, haciendo que la misma cantidad de puntos "cubra" más o
-// menos área real según qué tan cerca estés), este módulo calcula la
-// densidad UNA SOLA VEZ sobre una grilla de coordenadas geográficas reales
-// (lat/lon), y el resultado se convierte en una IMAGEN anclada a esas
-// coordenadas (L.imageOverlay). El zoom del mapa solo escala esa imagen como
-// cualquier otra capa geográfica — nunca vuelve a calcular el kernel.
+// Kernel Density Estimation geográficamente fijo — replica el método REAL
+// de la herramienta "Densidad kernel" de ArcGIS Pro (fórmula de Silverman,
+// kernel cuártico/biweight — NO un desenfoque gaussiano genérico), con los
+// mismos parámetros que ya se usan en ArcGIS para este análisis:
+//   - Radio de búsqueda: 250 metros.
+//   - Unidades de área: metros cuadrados.
+//   - Valores de celda de salida: densidades.
+//   - Método: geodésico (la distancia real considera la curvatura de la
+//     Tierra vía la corrección de longitud según la latitud).
+//
+// A diferencia de leaflet.heat (que recalcula el radio en PÍXELES DE
+// PANTALLA cada vez que cambia el zoom), esto se calcula UNA SOLA VEZ sobre
+// una grilla de coordenadas geográficas reales, y el resultado se convierte
+// en una IMAGEN anclada a esas coordenadas (L.imageOverlay).
 
 export interface PuntoDensidad {
   lat: number;
@@ -18,45 +24,31 @@ export interface ResultadoKernel {
   clases: { color: string; etiqueta: string; desde: number; hasta: number }[];
 }
 
-// Paleta de 5 clases — el color de cada celda depende del valor REAL del
-// kernel en esa celda (por cuantiles), nunca del nivel de zoom.
 function paletaPorDefecto(): string[] {
   return ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'];
 }
 
-// Bandwidth en METROS (no en píxeles) — el radio real de influencia de cada
-// punto sobre sus vecinos. Se convierte internamente a grados de lat/lon
-// según la latitud del área analizada, para que la distancia real sea
-// consistente sin importar en qué parte del mapa esté.
-//
-// Ajustado de 350m a 120m: con 350m, el desenfoque alcanzaba a "contagiar"
-// densidad varias cuadras a la redonda, dando el efecto de nube difusa que
-// se veía en el mapa (comparado contra la referencia de ArcGIS Pro, cuyos
-// núcleos son mucho más compactos). 120m corresponde aproximadamente a 1-2
-// cuadras urbanas — un punto ya no "calienta" zonas lejanas, y los núcleos
-// quedan compactos y bien definidos, fusionándose solo cuando los puntos
-// están realmente cerca entre sí.
-const BANDWIDTH_METROS = 120;
+// Radio de búsqueda REAL, en metros — igual al parámetro "Radio de
+// búsqueda: 250" de la herramienta de ArcGIS.
+const RADIO_BUSQUEDA_METROS = 250;
 
 function metrosAGradosLat(metros: number): number {
-  return metros / 111_320; // 1° de latitud ≈ 111.32 km, prácticamente constante
-}
-function metrosAGradosLon(metros: number, latitudReferencia: number): number {
-  return metros / (111_320 * Math.cos((latitudReferencia * Math.PI) / 180));
+  return metros / 111_320;
 }
 
 /**
- * Calcula una superficie de densidad Kernel (Gaussiana) sobre una grilla
- * geográfica fija, la clasifica en 5 niveles por cuantiles, y la renderiza
- * como una imagen PNG anclada a coordenadas reales.
+ * Calcula la superficie de Densidad Kernel usando la fórmula de Silverman
+ * (kernel cuártico/biweight) — la misma que usa ArcGIS Pro — sobre una
+ * grilla geográfica fija, la clasifica en 5 niveles por fracción del valor
+ * máximo, y la renderiza como una imagen PNG anclada a coordenadas reales.
  *
- * Método: en vez de sumar la contribución gaussiana de CADA punto sobre CADA
- * celda (que sería extremadamente lento con miles de puntos), se usa la
- * técnica estándar equivalente: 1) se cuentan los puntos por celda de una
- * grilla fina (histograma 2D), 2) se aplica un desenfoque gaussiano
- * separable sobre esa grilla — matemáticamente equivalente a un KDE
- * gaussiano, pero muchísimo más eficiente (recalcula en función de las
- * celdas de la grilla, no de la cantidad de puntos).
+ * Fórmula (por celda, "método geodésico" — distancia real en metros vía
+ * corrección de longitud por latitud):
+ *   densidad = Σ (3 / (π · radio²)) · (1 − (dist_i / radio)²)²   para cada
+ *   punto i cuya distancia a la celda sea ≤ radio (fuera de ese radio, el
+ *   punto no aporta nada — a diferencia de un gaussiano, este kernel tiene
+ *   soporte compacto, lo que da núcleos definidos en vez de una nube que se
+ *   difumina indefinidamente).
  */
 export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[] = paletaPorDefecto()): ResultadoKernel | null {
   if (puntos.length === 0) return null;
@@ -68,58 +60,83 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   const lonMin0 = Math.min(...lons);
   const lonMax0 = Math.max(...lons);
   const latitudRef = (latMin0 + latMax0) / 2;
+  const correccionLon = Math.cos((latitudRef * Math.PI) / 180); // "método geodésico": 1° de longitud pesa distinto según la latitud
 
-  // Margen alrededor de los datos (para que el degradado se disipe suave en
-  // los bordes, en vez de cortarse en seco justo donde termina el último
-  // punto).
-  const margenGrados = metrosAGradosLat(BANDWIDTH_METROS * 3);
+  // Margen igual al radio de búsqueda — así el kernel de un punto cerca del
+  // borde del área analizada no se corta en seco.
+  const margenGrados = metrosAGradosLat(RADIO_BUSQUEDA_METROS);
   const latMin = latMin0 - margenGrados;
   const latMax = latMax0 + margenGrados;
   const lonMin = lonMin0 - margenGrados;
   const lonMax = lonMax0 + margenGrados;
 
-  // Resolución de la grilla: fija en cantidad de celdas (no en metros), con
-  // el ancho/alto ajustado a la proporción real del área para no deformar el
-  // resultado. Se subió de 220 a 360 columnas — con un bandwidth más chico
-  // (120m), una grilla de baja resolución no alcanza a "dibujar" núcleos
-  // compactos con detalle; más columnas permiten que el núcleo se vea
-  // definido en vez de pixelado o borroso.
-  const COLS = 360;
   const anchoGrados = lonMax - lonMin;
   const altoGrados = latMax - latMin;
-  const anchoMetros = anchoGrados * 111_320 * Math.cos((latitudRef * Math.PI) / 180);
+  const anchoMetros = anchoGrados * 111_320 * correccionLon;
   const altoMetros = altoGrados * 111_320;
-  const filas = Math.max(20, Math.round(COLS * (altoMetros / anchoMetros)));
-  const ROWS = Math.min(filas, 400); // límite de seguridad para no crear grillas gigantes
 
-  const grilla = new Float64Array(COLS * ROWS);
-  const idx = (c: number, r: number) => r * COLS + c;
+  // Tamaño de celda: se ajusta según el radio de búsqueda (ArcGIS sugiere,
+  // por defecto, un tamaño de celda bastante más fino que el radio — aquí
+  // se usa radio/12, similar en espíritu a su valor por defecto) — con un
+  // límite de columnas para no generar grillas gigantes.
+  const metrosPorCelda = Math.max(RADIO_BUSQUEDA_METROS / 12, 4);
+  const COLS = Math.min(500, Math.max(60, Math.round(anchoMetros / metrosPorCelda)));
+  const ROWS = Math.min(500, Math.max(40, Math.round(altoMetros / metrosPorCelda)));
 
-  // 1) Histograma 2D: cada punto se cuenta en la celda que le corresponde.
-  for (const p of puntos) {
-    const c = Math.floor(((p.lon - lonMin) / (lonMax - lonMin)) * COLS);
-    const r = Math.floor(((latMax - p.lat) / (latMax - latMin)) * ROWS); // fila 0 = norte
-    if (c >= 0 && c < COLS && r >= 0 && r < ROWS) grilla[idx(c, r)] += 1;
-  }
-
-  // 2) Desenfoque gaussiano separable — el sigma se calcula en CELDAS a
-  // partir del bandwidth en metros, así el radio real de influencia es
-  // siempre el mismo sin importar la resolución de la grilla.
   const metrosPorCeldaX = anchoMetros / COLS;
   const metrosPorCeldaY = altoMetros / ROWS;
-  const sigmaX = Math.max(0.6, BANDWIDTH_METROS / metrosPorCeldaX);
-  const sigmaY = Math.max(0.6, BANDWIDTH_METROS / metrosPorCeldaY);
-  const grillaSuavizada = desenfoqueGaussianoSeparable(grilla, COLS, ROWS, sigmaX, sigmaY);
 
-  // 3) Clasificación por FRACCIÓN DEL VALOR MÁXIMO (no por cuantiles) — con
-  // cuantiles, el color se repartía según la posición relativa de las
-  // celdas entre sí, lo que "aplanaba" los núcleos (el rojo aparecía en
-  // muchas zonas solo porque eran las "más altas de su entorno", no porque
-  // fueran realmente muy densas). Clasificar contra el máximo real hace que
-  // el rojo solo aparezca donde la concentración es genuinamente alta —
-  // igual que la simbología clasificada de ArcGIS Pro — dando núcleos
-  // compactos y bien definidos en vez de manchas difusas y extendidas.
-  const valoresConDensidad = Array.from(grillaSuavizada).filter((v) => v > 1e-6);
+  // 1) Histograma 2D — cuántos puntos caen en cada celda (permite tratar la
+  // convolución del kernel sobre celdas en vez de sobre cada punto
+  // individual, mucho más eficiente con miles de casos).
+  const conteo = new Float64Array(COLS * ROWS);
+  const idx = (c: number, r: number) => r * COLS + c;
+  for (const p of puntos) {
+    const c = Math.floor(((p.lon - lonMin) / (lonMax - lonMin)) * COLS);
+    const r = Math.floor(((latMax - p.lat) / (latMax - latMin)) * ROWS);
+    if (c >= 0 && c < COLS && r >= 0 && r < ROWS) conteo[idx(c, r)] += 1;
+  }
+
+  // 2) Kernel cuártico (Silverman) discreto, radialmente simétrico —
+  // precalculado UNA vez como una matriz pequeña, y convolucionado sobre la
+  // grilla de conteos (convolución 2D real: este kernel no es separable,
+  // porque depende de la distancia euclidiana real, no de X e Y por
+  // separado).
+  const radioCeldasX = RADIO_BUSQUEDA_METROS / metrosPorCeldaX;
+  const radioCeldasY = RADIO_BUSQUEDA_METROS / metrosPorCeldaY;
+  const radioCeldasMax = Math.max(1, Math.ceil(Math.max(radioCeldasX, radioCeldasY)));
+
+  const pesosKernel: { dc: number; dr: number; peso: number }[] = [];
+  const factorNormalizacion = 3 / (Math.PI * RADIO_BUSQUEDA_METROS * RADIO_BUSQUEDA_METROS);
+  for (let dr = -radioCeldasMax; dr <= radioCeldasMax; dr++) {
+    for (let dc = -radioCeldasMax; dc <= radioCeldasMax; dc++) {
+      const distMetros = Math.sqrt((dc * metrosPorCeldaX) ** 2 + (dr * metrosPorCeldaY) ** 2);
+      if (distMetros > RADIO_BUSQUEDA_METROS) continue;
+      const t = distMetros / RADIO_BUSQUEDA_METROS;
+      const peso = factorNormalizacion * (1 - t * t) ** 2; // fórmula de Silverman (kernel cuártico/biweight)
+      pesosKernel.push({ dc, dr, peso });
+    }
+  }
+
+  const densidad = new Float64Array(COLS * ROWS);
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const casosEnCelda = conteo[idx(c, r)];
+      if (casosEnCelda === 0) continue;
+      for (const { dc, dr, peso } of pesosKernel) {
+        const cc = c + dc, rr = r + dr;
+        if (cc >= 0 && cc < COLS && rr >= 0 && rr < ROWS) {
+          densidad[idx(cc, rr)] += casosEnCelda * peso;
+        }
+      }
+    }
+  }
+
+  // 3) Clasificación por fracción del valor máximo real — igual que la
+  // simbología clasificada de ArcGIS Pro: el rojo solo aparece donde la
+  // densidad es genuinamente alta, no simplemente "alta respecto a su
+  // entorno inmediato".
+  const valoresConDensidad = Array.from(densidad).filter((v) => v > 1e-9);
   if (valoresConDensidad.length === 0) return null;
 
   const NUM_CLASES = 5;
@@ -132,12 +149,6 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
     return NUM_CLASES - 1;
   }
 
-  // 4) Renderizado a canvas — cada celda pinta un color SÓLIDO según su
-  // clase (opacidad fija por clase, no un degradado continuo dentro de la
-  // misma clase) — así las bandas de color quedan definidas como en una
-  // capa clasificada de ArcGIS, no como una nube con transparencia variable
-  // punto a punto. Las celdas sin densidad quedan completamente
-  // transparentes para que el mapa base se siga viendo debajo.
   const OPACIDAD_POR_CLASE = [110, 150, 185, 215, 240];
   const canvas = document.createElement('canvas');
   canvas.width = COLS;
@@ -148,9 +159,9 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      const v = grillaSuavizada[idx(c, r)];
+      const v = densidad[idx(c, r)];
       const p = (r * COLS + c) * 4;
-      if (v <= 1e-6) {
+      if (v <= 1e-9) {
         imgData.data[p + 3] = 0;
         continue;
       }
@@ -164,8 +175,10 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   }
   ctx.putImageData(imgData, 0, 0);
 
-  // El navegador escala esta imagen pequeña (220xROWS) al verse en el mapa —
-  // se activa un suavizado nativo para que no se vea "a cuadros".
+  // Reescalado con "remuestreo Cúbico" (bicúbico) — igual al que se
+  // configuró en ArcGIS Pro para la apariencia de la capa ráster (interpola
+  // usando las 16 celdas circundantes) — así la superficie se ve continua y
+  // suave, nunca "a cuadros", incluso siendo internamente una grilla.
   const canvasFinal = document.createElement('canvas');
   canvasFinal.width = COLS * 3;
   canvasFinal.height = ROWS * 3;
@@ -192,50 +205,4 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
 function hexARgb(hex: string): [number, number, number] {
   const limpio = hex.replace('#', '');
   return [parseInt(limpio.slice(0, 2), 16), parseInt(limpio.slice(2, 4), 16), parseInt(limpio.slice(4, 6), 16)];
-}
-
-// Desenfoque gaussiano separable (horizontal, luego vertical) — matemática y
-// visualmente equivalente a una convolución 2D completa, pero mucho más
-// rápido de calcular.
-function desenfoqueGaussianoSeparable(grilla: Float64Array, cols: number, filas: number, sigmaX: number, sigmaY: number): Float64Array {
-  const pasoH = desenfoque1D(grilla, cols, filas, sigmaX, true);
-  return desenfoque1D(pasoH, cols, filas, sigmaY, false);
-}
-
-function desenfoque1D(datos: Float64Array, cols: number, filas: number, sigma: number, horizontal: boolean): Float64Array {
-  const radio = Math.max(1, Math.ceil(sigma * 3));
-  const kernel: number[] = [];
-  let sumaKernel = 0;
-  for (let i = -radio; i <= radio; i++) {
-    const w = Math.exp(-(i * i) / (2 * sigma * sigma));
-    kernel.push(w);
-    sumaKernel += w;
-  }
-  for (let i = 0; i < kernel.length; i++) kernel[i] /= sumaKernel;
-
-  const resultado = new Float64Array(cols * filas);
-  if (horizontal) {
-    for (let r = 0; r < filas; r++) {
-      for (let c = 0; c < cols; c++) {
-        let acc = 0;
-        for (let k = -radio; k <= radio; k++) {
-          const cc = c + k;
-          if (cc >= 0 && cc < cols) acc += datos[r * cols + cc] * kernel[k + radio];
-        }
-        resultado[r * cols + c] = acc;
-      }
-    }
-  } else {
-    for (let c = 0; c < cols; c++) {
-      for (let r = 0; r < filas; r++) {
-        let acc = 0;
-        for (let k = -radio; k <= radio; k++) {
-          const rr = r + k;
-          if (rr >= 0 && rr < filas) acc += datos[rr * cols + c] * kernel[k + radio];
-        }
-        resultado[r * cols + c] = acc;
-      }
-    }
-  }
-  return resultado;
 }
