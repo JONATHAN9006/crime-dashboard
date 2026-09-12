@@ -12,7 +12,7 @@ import {
 } from '../data/puntosStorage';
 import { GridHeatmapLayer } from '../components/mapa/GridHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
-import { exportarMapaComoImagen } from '../utils/exportarImagen';
+import { exportarPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
@@ -712,30 +712,33 @@ export function MapaGeorreferenciacion() {
     if (!zonaActiva) return;
     setDescargandoZona(true);
     try {
-      const contenedor = document.querySelector('[data-mapa-contenedor] .leaflet-container') as HTMLElement | null;
-      if (contenedor) {
-        // Desglose REAL por delito — cada línea sale de contar
-        // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
-        // en el mapa de calor), agrupados por delito. Nunca es un número
-        // inventado: si dice "Homicidio: 3", es porque hay exactamente 3
-        // puntos de Homicidio dentro de ese polígono.
-        const conteoPorDelito = new Map<string, number>();
-        for (const p of puntosEnZonaParaCalor) {
-          const nombre = p.delitoCorto ?? 'No reportado';
-          conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
-        }
-        const lineasDelito = Array.from(conteoPorDelito.entries())
-          .sort((a, b) => b[1] - a[1])
-          .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
-        const etiquetas = [
-          `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
-          ...lineasDelito,
-        ];
-        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'), etiquetas);
+      // Desglose REAL por delito — cada línea sale de contar
+      // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
+      // en el mapa de calor), agrupados por delito. Nunca es un número
+      // inventado: si dice "Homicidio: 3", es porque hay exactamente 3
+      // puntos de Homicidio dentro de ese polígono.
+      const conteoPorDelito = new Map<string, number>();
+      for (const p of puntosEnZonaParaCalor) {
+        const nombre = p.delitoCorto ?? 'No reportado';
+        conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
       }
+      const lineasDelito = Array.from(conteoPorDelito.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+      const etiquetas = [
+        `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
+        ...lineasDelito,
+      ];
+      await exportarPoligonoAislado({
+        feature: zonaActiva.feature,
+        puntos: puntosEnZonaParaCalor,
+        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        etiquetas,
+        nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+      });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
-      setError('No fue posible generar la imagen del mapa. Revisa la consola del navegador (F12) para más detalle, o intenta con un acercamiento (zoom) distinto.');
+      setError('No fue posible generar la imagen del mapa. Revisa la consola del navegador (F12) para más detalle.');
     } finally {
       setDescargandoZona(false);
     }
