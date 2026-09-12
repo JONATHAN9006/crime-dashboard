@@ -804,6 +804,9 @@ export function MapaGeorreferenciacion() {
         colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
@@ -811,6 +814,49 @@ export function MapaGeorreferenciacion() {
     } finally {
       setDescargandoZona(false);
     }
+  }
+
+  async function copiarZonaAlPortapapeles() {
+    if (!zonaActiva) return;
+    setDescargandoZona(true);
+    try {
+      const conteoPorDelito = new Map<string, number>();
+      for (const p of puntosEnZonaParaCalor) {
+        const nombre = p.delitoCorto ?? 'No reportado';
+        conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+      }
+      const lineasDelito = Array.from(conteoPorDelito.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+      const etiquetas = [
+        `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
+        ...lineasDelito,
+      ];
+      await exportarPoligonoAislado({
+        feature: zonaActiva.feature,
+        puntos: puntosEnZonaParaCalor,
+        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        etiquetas,
+        nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+        alPortapapeles: true,
+      });
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la copia al portapapeles:', err);
+      setError('No fue posible copiar la imagen al portapapeles. Revisa la consola (F12), o usa "Descargar imagen".');
+    } finally {
+      setDescargandoZona(false);
+    }
+  }
+
+  function ajustarVistaAZonaActiva() {
+    if (!mapaRef.current || !zonaActiva) return;
+    try {
+      const capaTemporal = L.geoJSON(zonaActiva.feature);
+      mapaRef.current.fitBounds(capaTemporal.getBounds(), { padding: [30, 30], maxZoom: 17 });
+    } catch { /* geometría inválida — se ignora */ }
   }
 
   function elegirFuenteFullscreen(fuente: 'irisp1' | 'delitos') {
@@ -913,6 +959,39 @@ export function MapaGeorreferenciacion() {
           >
             📊 Seleccionar fuentes
           </button>
+
+          {!soloLectura && (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Cargar información</p>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="flex w-full items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/20"
+              >
+                <FileUp size={13} /> {cargando ? 'Procesando...' : 'Cargar capa'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalCapaPuntos('IRISP1')}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
+              >
+                <FileUp size={13} /> IRISP1
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalCapaPuntos('Delitos')}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
+              >
+                <FileUp size={13} /> Delitos
+              </button>
+              <button type="button" disabled title="Próximamente — falta cargar la información de Operatividad" className="flex w-full cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-500">
+                <FileUp size={13} /> Operatividad <span className="ml-auto rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase">Próx.</span>
+              </button>
+              <button type="button" disabled title="Próximamente — falta cargar la información de Macri" className="flex w-full cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-500">
+                <FileUp size={13} /> Macri <span className="ml-auto rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase">Próx.</span>
+              </button>
+            </div>
+          )}
 
           <div className="mt-3 flex gap-2">
             <button
@@ -1620,14 +1699,29 @@ export function MapaGeorreferenciacion() {
 
               <p className="mb-2 text-xs text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono</p>
 
-              <button
-                onClick={descargarZonaSeleccionada}
-                disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-green px-3 py-2 text-xs font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Download size={13} />
-                {descargandoZona ? 'Generando...' : 'Descargar mapa de calor de esta zona'}
-              </button>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={ajustarVistaAZonaActiva}
+                  className="col-span-2 flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy"
+                >
+                  🎯 Ajustar a polígono
+                </button>
+                <button
+                  onClick={descargarZonaSeleccionada}
+                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-brand-green px-3 py-2 text-xs font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={13} />
+                  {descargandoZona ? '...' : 'Descargar'}
+                </button>
+                <button
+                  onClick={copiarZonaAlPortapapeles}
+                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  📋 Copiar
+                </button>
+              </div>
             </div>
           )}
         </div>

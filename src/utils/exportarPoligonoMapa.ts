@@ -47,9 +47,11 @@ export async function exportarPoligonoAislado(opciones: {
   nombreArchivo: string;
   opacidadPoligono?: number; // 0 a 1
   opacidadCalor?: number; // 0 a 1
+  opacidadEtiquetas?: number; // 0 a 1
   colorBorde?: string;
+  alPortapapeles?: boolean; // true = copiar al portapapeles en vez de descargar el archivo
 }): Promise<void> {
-  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.15, opacidadCalor = 0.8, colorBorde = '#000000' } = opciones;
+  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.15, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', alPortapapeles = false } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -173,6 +175,7 @@ export async function exportarPoligonoAislado(opciones: {
       }
     }
 
+    ctx.globalAlpha = opacidadEtiquetas;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
     ctx.fillRect(mejor.x, mejor.y, anchoCaja, altoCaja);
     ctx.fillStyle = '#ffffff';
@@ -180,6 +183,17 @@ export async function exportarPoligonoAislado(opciones: {
     etiquetas.forEach((texto, i) => {
       ctx.fillText(texto, mejor.x + paddingX, mejor.y + paddingY + alturaLinea * i + alturaLinea / 2);
     });
+    ctx.globalAlpha = 1;
+  }
+
+  if (alPortapapeles) {
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('No fue posible generar la imagen para copiarla al portapapeles.');
+    if (!navigator.clipboard || !('write' in navigator.clipboard)) {
+      throw new Error('Este navegador no permite copiar imágenes al portapapeles — usa "Descargar imagen" en su lugar.');
+    }
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return;
   }
 
   const enlace = document.createElement('a');
