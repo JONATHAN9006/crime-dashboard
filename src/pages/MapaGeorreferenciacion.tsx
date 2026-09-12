@@ -314,7 +314,50 @@ function colorPorIntensidad(valor: number, max: number): string {
 }
 
 export function MapaGeorreferenciacion() {
-  const { records, filteredRecords, filters } = useData();
+  const { records } = useData();
+
+  // Filtros PROPIOS de este módulo — independientes del filtro general del
+  // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
+  // que se entra a la página; cambiar aquí NUNCA afecta a ningún otro
+  // módulo, y viceversa.
+  const [filtrosMapa, setFiltrosMapa] = useState({
+    delito: [] as string[],
+    estacion: [] as string[],
+    cai: [] as string[],
+    cuadrante: [] as string[],
+    barrioHecho: [] as string[],
+  });
+  const filters = filtrosMapa; // alias interno — así el resto del archivo, que ya usa "filters.delito" etc., no hay que reescribirlo entero.
+
+  // Registros filtrados SOLO con los filtros propios del mapa — reemplaza
+  // al "filteredRecords" global (que aquí no aplica) para lo poco que se
+  // usa (el conteo "colorear por casos" y el texto informativo).
+  const filteredRecords = useMemo(() => {
+    return records.filter((r) =>
+      (filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
+      (filtrosMapa.estacion.length === 0 || filtrosMapa.estacion.includes(r.estacion)) &&
+      (filtrosMapa.cai.length === 0 || filtrosMapa.cai.includes(r.cai)) &&
+      (filtrosMapa.cuadrante.length === 0 || filtrosMapa.cuadrante.includes(r.cuadrante)) &&
+      (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)),
+    );
+  }, [records, filtrosMapa]);
+
+  // Opciones disponibles para cada filtro — SOLO valores que de verdad
+  // existen en los datos cargados (nunca una lista vacía ni inventada).
+  const opcionesFiltroMapa = useMemo(() => ({
+    delito: Array.from(new Set(records.map((r) => r.delito).filter(Boolean))).sort(),
+    estacion: Array.from(new Set(records.map((r) => r.estacion).filter(Boolean))).sort(),
+    cai: Array.from(new Set(records.map((r) => r.cai).filter(Boolean))).sort(),
+    cuadrante: Array.from(new Set(records.map((r) => r.cuadrante).filter(Boolean))).sort(),
+    barrioHecho: Array.from(new Set(records.map((r) => r.barrioHecho).filter(Boolean))).sort(),
+  }), [records]);
+
+  const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
+  const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
+  // Fuentes propias del módulo — Operatividad y Macri quedan como
+  // interruptores preparados (sin datos ni capa real detrás todavía); se
+  // activan solos en cuanto se cargue su Excel correspondiente más adelante.
+  const [fuentesActivas, setFuentesActivas] = useState({ irisp1: true, delitos: true, operatividad: false, macri: false });
 
   // Jerarquía real cuadrante → CAI → estación, tomada de los datos ya
   // cargados — así, si un shapefile trae solo el nombre del CUADRANTE (el
@@ -787,8 +830,8 @@ export function MapaGeorreferenciacion() {
   // seleccionado en "Limpiar filtros" para cada fuente — ninguna
   // selección = mapa base; solo una = su mapa de calor propio; las dos =
   // modo comparación automático (ver punto 13 de la lógica pedida).
-  const mostrarCalorDelitos = pantallaCompleta ? !!seleccionDelitos : capasPuntos.some((c) => c.tipo === 'delitos' && c.visible);
-  const mostrarCalorIrisp1 = pantallaCompleta ? !!seleccionIrisp1 : capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible);
+  const mostrarCalorDelitos = fuentesActivas.delitos && (pantallaCompleta ? !!seleccionDelitos : capasPuntos.some((c) => c.tipo === 'delitos' && c.visible));
+  const mostrarCalorIrisp1 = fuentesActivas.irisp1 && (pantallaCompleta ? !!seleccionIrisp1 : capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible));
 
   // Grilla de correspondencia espacial: se activa con "Comparar" (modo
   // normal) O automáticamente en pantalla completa cuando AMBAS fuentes
@@ -803,13 +846,10 @@ export function MapaGeorreferenciacion() {
   );
 
   const filtrosActivos = [
-    filters.anio.length > 0 && `Año: ${filters.anio.join(', ')}`,
-    filters.mes.length > 0 && `Mes: ${filters.mes.join(', ')}`,
-    filters.fechaInicial && `Desde: ${filters.fechaInicial}`,
-    filters.fechaFinal && `Hasta: ${filters.fechaFinal}`,
     filters.estacion.length > 0 && `Estación: ${filters.estacion.join(', ')}`,
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
-    filters.cuadrante.length > 0 && `Cuadrante: ${filters.cuadrante.join(', ')}`,
+    filters.cai.length > 0 && `CAI: ${filters.cai.join(', ')}`,
+    filters.cuadrante.length > 0 && `Zona de Atención: ${filters.cuadrante.join(', ')}`,
     filters.barrioHecho.length > 0 && `Barrio: ${filters.barrioHecho.join(', ')}`,
   ].filter(Boolean) as string[];
 
@@ -817,15 +857,108 @@ export function MapaGeorreferenciacion() {
     <div className="space-y-5">
       <PageHeader title="Mapa / Georreferenciación" subtitle="Visualiza y compara varias capas geográficas (Shapefile o GeoJSON) sobre el territorio." />
 
-      <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-        <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
-        <p>
-          El mapa usa los mismos <strong>filtros generales</strong> del dashboard (arriba de esta página) — no hay filtros duplicados aquí.{' '}
-          {filtrosActivos.length > 0
-            ? <>Filtros activos: <strong>{filtrosActivos.join(' · ')}</strong> ({filteredRecords.length.toLocaleString('es-CO')} registros).</>
-            : <>Actualmente no hay filtros activos: se consideran los {filteredRecords.length.toLocaleString('es-CO')} registros cargados.</>}
-        </p>
-      </div>
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-700">Filtros de visualización</p>
+            <p className="text-xs text-slate-400">
+              {filtrosActivos.length > 0
+                ? <>Filtros activos: <strong>{filtrosActivos.join(' · ')}</strong> ({filteredRecords.length.toLocaleString('es-CO')} registros)</>
+                : <>Sin filtros activos — {filteredRecords.length.toLocaleString('es-CO')} registros considerados</>}
+              {' '}· propios de este mapa, no afectan al resto del dashboard.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMostrarSelectorFuentes(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy"
+            >
+              📊 Seleccionar fuentes
+            </button>
+            <button
+              type="button"
+              onClick={() => setMostrarFiltrosMapa(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy"
+            >
+              ⚙️ Filtros de mapa
+            </button>
+            {filtrosActivos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [] })}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:border-slate-400"
+              >
+                🔄 Limpiar filtros
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {mostrarSelectorFuentes && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarSelectorFuentes(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold text-slate-700">Seleccionar fuentes</p>
+            <div className="space-y-2">
+              {[
+                { clave: 'irisp1' as const, etiqueta: 'IRISP1', disponible: true },
+                { clave: 'delitos' as const, etiqueta: 'Delitos', disponible: true },
+                { clave: 'operatividad' as const, etiqueta: 'Operatividad', disponible: false },
+                { clave: 'macri' as const, etiqueta: 'Macri', disponible: false },
+              ].map((f) => (
+                <label key={f.clave} className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${f.disponible ? 'border-slate-200' : 'border-slate-100 text-slate-400'}`}>
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={fuentesActivas[f.clave]}
+                      disabled={!f.disponible}
+                      onChange={(e) => setFuentesActivas((prev) => ({ ...prev, [f.clave]: e.target.checked }))}
+                    />
+                    {f.etiqueta}
+                  </span>
+                  {!f.disponible && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">Próximamente</span>}
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-slate-400">Operatividad y Macri quedan listas para activarse solas en cuanto se cargue su información correspondiente (capturas, incautaciones, etc.) — todavía no hay datos de esas fuentes.</p>
+            <button type="button" onClick={() => setMostrarSelectorFuentes(false)} className="mt-3 w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {mostrarFiltrosMapa && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarFiltrosMapa(false)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold text-slate-700">Filtros de mapa</p>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                ['delito', 'Delito'], ['estacion', 'Estación'], ['cai', 'CAI'], ['cuadrante', 'Zona de Atención'], ['barrioHecho', 'Barrio'],
+              ] as const).map(([clave, etiqueta]) => (
+                <div key={clave}>
+                  <label className="mb-1 block text-xs font-semibold text-slate-500">{etiqueta}</label>
+                  <select
+                    multiple
+                    size={4}
+                    value={filtrosMapa[clave]}
+                    onChange={(e) => {
+                      const seleccionados = Array.from(e.target.selectedOptions).map((o) => o.value);
+                      setFiltrosMapa((prev) => ({ ...prev, [clave]: seleccionados }));
+                    }}
+                    className="w-full rounded-lg border border-slate-300 text-xs"
+                  >
+                    {opcionesFiltroMapa[clave].map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [] })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-500">Limpiar</button>
+              <button type="button" onClick={() => setMostrarFiltrosMapa(false)} className="rounded-lg bg-brand-green px-3 py-2 text-sm font-semibold text-white">Aplicar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
