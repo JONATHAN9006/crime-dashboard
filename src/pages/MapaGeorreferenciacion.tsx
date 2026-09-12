@@ -10,7 +10,7 @@ import { guardarCapas, cargarCapas, limpiarCapas, type CapaGeografica } from '..
 import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
-import { GridHeatmapLayer } from '../components/mapa/GridHeatmapLayer';
+import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
@@ -1311,7 +1311,7 @@ export function MapaGeorreferenciacion() {
                 requiere que "Comparar" esté activo: se enciende y apaga con
                 su propio checkbox, en sincronía directa con la capa. */}
             {mostrarCalorDelitos && (
-              <GridHeatmapLayer
+              <KernelHeatmapLayer
                 puntos={puntosDelitosParaMostrar}
                 colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']}
               />
@@ -1323,7 +1323,7 @@ export function MapaGeorreferenciacion() {
                 puntos de capas tipo "irisp1", y depende únicamente del
                 checkbox "IRISP1" de arriba, igual que Delitos. */}
             {mostrarCalorIrisp1 && (
-              <GridHeatmapLayer
+              <KernelHeatmapLayer
                 puntos={puntosIrisp1ParaMostrar}
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
               />
@@ -1338,7 +1338,7 @@ export function MapaGeorreferenciacion() {
               <>
                 <AjustarVistaAPoligono feature={zonaActiva.feature} />
                 {puntosEnZonaParaCalor.length > 0 && (
-                  <GridHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />
+                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />
                 )}
               </>
             )}
