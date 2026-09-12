@@ -854,10 +854,26 @@ export async function exportarMapaComoImagen(
   etiquetas?: string[],
 ): Promise<void> {
   const html2canvasMod = (await import('html2canvas')).default;
+  // Leaflet arma internamente paneles (tiles, overlays) bastante más
+  // grandes que el área realmente visible del mapa —para poder desplazarlo
+  // suavemente sin recargar tiles todo el tiempo— y html2canvas, si no se
+  // le dice lo contrario, intenta capturar ESE tamaño interno inflado en
+  // vez de lo que de verdad se ve en pantalla: de ahí el enorme espacio en
+  // blanco reportado. Se le fija explícitamente el tamaño real y visible
+  // del contenedor (su "clientWidth/clientHeight", el que sí tiene en
+  // cuenta el recorte por overflow) para que jamás capture más que eso.
+  const anchoReal = elemento.clientWidth;
+  const altoReal = elemento.clientHeight;
   const canvas = await html2canvasMod(elemento, {
     backgroundColor: '#e5e7eb',
     scale: 1,
     useCORS: true,
+    width: anchoReal,
+    height: altoReal,
+    windowWidth: anchoReal,
+    windowHeight: altoReal,
+    x: 0,
+    y: 0,
     ignoreElements: (el) => el.classList?.contains('leaflet-tile') || el.classList?.contains('leaflet-tile-container'),
     onclone: (doc, clonado) => {
       congelarEstilosParaCaptura(elemento, clonado);
