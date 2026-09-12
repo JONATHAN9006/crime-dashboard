@@ -59,7 +59,12 @@ function Shell() {
           )}
           {!loading && (records.length > 0 || !requiereDatos) && (
             <div className="space-y-5">
-              {records.length > 0 && <FilterPanel />}
+              {/* El Mapa de Georreferenciación tiene su PROPIO panel de
+                  filtros (dentro de la página misma) — los filtros
+                  generales del dashboard no se muestran ahí, mientras que
+                  el resto de los módulos los sigue usando exactamente igual
+                  que siempre. */}
+              {records.length > 0 && pagina !== 'mapa' && <FilterPanel />}
               <Pagina />
             </div>
           )}
