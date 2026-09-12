@@ -46,6 +46,29 @@ function extraerFeatures(geojson: any): any[] {
   return Array.isArray(geojson) ? geojson.flatMap((g) => g.features || []) : geojson?.features || [];
 }
 
+// Todos los anillos (contornos) de polígono de un feature — o de VARIOS, si
+// "feature" en realidad es una FeatureCollection (la selección "Filtro
+// activo (N zonas)" combina así varios polígonos en una sola unidad). Cada
+// anillo es un array de [lon, lat] — el formato crudo de GeoJSON, todavía
+// sin proyectar a píxeles.
+function extraerAnillosDeFeature(feature: any): [number, number][][] {
+  const anillos: [number, number][][] = [];
+  function procesarGeometria(geom: any) {
+    if (!geom) return;
+    if (geom.type === 'Polygon') {
+      for (const anillo of geom.coordinates) anillos.push(anillo);
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poligono of geom.coordinates) for (const anillo of poligono) anillos.push(anillo);
+    }
+  }
+  if (feature?.type === 'FeatureCollection') {
+    for (const f of feature.features || []) procesarGeometria(f.geometry);
+  } else {
+    procesarGeometria(feature?.geometry);
+  }
+  return anillos;
+}
+
 // Detecta automáticamente las propiedades disponibles en los features de una
 // capa, para que el usuario pueda elegir con cuál unir los datos filtrados
 // (sin tener que adivinar el nombre exacto del campo).
@@ -190,6 +213,18 @@ function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: 
       onSeleccionar(mejor ? { capaId: mejor.capaId, feature: mejor.feature, nombre: mejor.nombre } : null);
     },
   });
+  return null;
+}
+
+// Guarda la instancia real de Leaflet en una ref accesible desde fuera del
+// árbol de componentes del mapa (la necesita la descarga, para proyectar
+// las coordenadas del polígono seleccionado a píxeles y poder recortar la
+// imagen exactamente a su forma).
+function CapturarInstanciaDeMapa({ mapaRef }: { mapaRef: React.MutableRefObject<L.Map | null> }) {
+  const map = useMap();
+  useEffect(() => {
+    mapaRef.current = map;
+  }, [map, mapaRef]);
   return null;
 }
 
@@ -395,6 +430,7 @@ export function MapaGeorreferenciacion() {
         }
       : null;
   const [descargandoZona, setDescargandoZona] = useState(false);
+  const mapaRef = useRef<L.Map | null>(null);
   const [modalCapaPuntos, setModalCapaPuntos] = useState<string | null>(null);
   const [modoComparacion, setModoComparacion] = useState(false);
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
@@ -677,6 +713,25 @@ export function MapaGeorreferenciacion() {
     setDescargandoZona(true);
     try {
       const contenedor = document.querySelector('[data-mapa-contenedor] .leaflet-container') as HTMLElement | null;
+
+      // Proyecta el polígono (o los varios, si la selección viene de un
+      // filtro con varias zonas) a coordenadas de PÍXEL dentro del propio
+      // mapa — con esto, la exportación puede recortar la imagen a la
+      // forma real del polígono en vez de al rectángulo completo del mapa,
+      // dejando transparente todo lo que quede afuera.
+      let mascara: { x: number; y: number }[][] | undefined;
+      if (mapaRef.current && contenedor) {
+        const anillos = extraerAnillosDeFeature(zonaActiva.feature);
+        if (anillos.length > 0) {
+          mascara = anillos.map((anillo) =>
+            anillo.map(([lon, lat]) => {
+              const punto = mapaRef.current!.latLngToContainerPoint([lat, lon]);
+              return { x: punto.x, y: punto.y };
+            }),
+          );
+        }
+      }
+
       if (contenedor) {
         // Desglose REAL por delito — cada línea sale de contar
         // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
@@ -695,7 +750,7 @@ export function MapaGeorreferenciacion() {
           `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
           ...lineasDelito,
         ];
-        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'), etiquetas);
+        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'), etiquetas, mascara);
       }
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
@@ -1186,6 +1241,7 @@ export function MapaGeorreferenciacion() {
 
           <MapContainer center={CENTRO_DEFECTO} zoom={12} style={{ height: '100%', width: '100%' }}>
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
+            <CapturarInstanciaDeMapa mapaRef={mapaRef} />
             <SeleccionPorClicEnMapa
               capas={capas}
               camposUnion={camposUnionAutoDetectados}

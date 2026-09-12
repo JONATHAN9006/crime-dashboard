@@ -848,27 +848,69 @@ export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: stri
 // calor y las etiquetas (que son SVG/HTML propios del dashboard, sin ese
 // problema). El resultado sale con fondo gris liso en vez del mapa de
 // calles — un cambio consciente para que la descarga SIEMPRE funcione.
-export async function exportarMapaComoImagen(elemento: HTMLElement, nombreArchivo: string, etiquetas?: string[]): Promise<void> {
+export async function exportarMapaComoImagen(
+  elemento: HTMLElement,
+  nombreArchivo: string,
+  etiquetas?: string[],
+  mascara?: { x: number; y: number }[][],
+): Promise<void> {
   const html2canvasMod = (await import('html2canvas')).default;
-  const canvas = await html2canvasMod(elemento, {
+  let canvas = await html2canvasMod(elemento, {
     backgroundColor: '#e5e7eb',
     scale: 1,
     useCORS: true,
     ignoreElements: (el) => el.classList?.contains('leaflet-tile') || el.classList?.contains('leaflet-tile-container'),
     onclone: (doc, clonado) => {
-      // MISMA corrección que ya usa el resto del dashboard (ver
-      // capturarComponenteComoCanvas más abajo): html2canvas no entiende
-      // los colores modernos que usa Tailwind (oklab/oklch/color-mix, ej.
-      // en clases como "bg-white/95") y truena con el error real que se
-      // encontró: "Attempting to parse an unsupported color function
-      // oklab". Se reemplaza el estilo de cada elemento por su color YA
-      // CALCULADO por el navegador (nunca en oklab) y se quitan las hojas
-      // de estilo del clon para que html2canvas no vuelva a toparse con
-      // esas clases directamente.
       congelarEstilosParaCaptura(elemento, clonado);
       doc.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => n.remove());
     },
   });
+
+  // Recorte a la FORMA real del polígono seleccionado (no solo un
+  // rectángulo): se pinta el contorno del polígono en un lienzo aparte y se
+  // usa como máscara ("destination-in" conserva solo lo que caiga DENTRO
+  // de esa forma, dejando transparente todo lo demás) — así, si se
+  // seleccionó "Estación Norte", la imagen final muestra únicamente ese
+  // territorio, nunca la Estación Sur ni el resto del mapa. Después se
+  // recorta el lienzo al rectángulo mínimo que sí tiene contenido, para no
+  // dejar márgenes vacíos de sobra.
+  if (mascara && mascara.length > 0) {
+    const lienzoMascara = document.createElement('canvas');
+    lienzoMascara.width = canvas.width;
+    lienzoMascara.height = canvas.height;
+    const ctxMascara = lienzoMascara.getContext('2d')!;
+    ctxMascara.fillStyle = '#000000';
+    ctxMascara.beginPath();
+    for (const anillo of mascara) {
+      if (anillo.length === 0) continue;
+      ctxMascara.moveTo(anillo[0].x, anillo[0].y);
+      for (let i = 1; i < anillo.length; i++) ctxMascara.lineTo(anillo[i].x, anillo[i].y);
+      ctxMascara.closePath();
+    }
+    ctxMascara.fill();
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(lienzoMascara, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Rectángulo mínimo que contiene todos los puntos de la máscara —
+    // recortar a esto elimina el margen transparente sobrante alrededor
+    // del polígono.
+    const todosLosPuntos = mascara.flat();
+    const minX = Math.max(0, Math.floor(Math.min(...todosLosPuntos.map((p) => p.x))) - 10);
+    const minY = Math.max(0, Math.floor(Math.min(...todosLosPuntos.map((p) => p.y))) - 10);
+    const maxX = Math.min(canvas.width, Math.ceil(Math.max(...todosLosPuntos.map((p) => p.x))) + 10);
+    const maxY = Math.min(canvas.height, Math.ceil(Math.max(...todosLosPuntos.map((p) => p.y))) + 10);
+    const anchoRecorte = Math.max(1, maxX - minX);
+    const altoRecorte = Math.max(1, maxY - minY);
+
+    const lienzoRecortado = document.createElement('canvas');
+    lienzoRecortado.width = anchoRecorte;
+    lienzoRecortado.height = altoRecorte;
+    lienzoRecortado.getContext('2d')!.drawImage(canvas, minX, minY, anchoRecorte, altoRecorte, 0, 0, anchoRecorte, altoRecorte);
+    canvas = lienzoRecortado;
+  }
 
   // Las etiquetas (una por delito, con su cantidad) se dibujan DIRECTO sobre
   // el lienzo ya capturado — quedan grabadas en el PNG final, no son un
