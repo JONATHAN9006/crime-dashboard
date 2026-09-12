@@ -713,25 +713,6 @@ export function MapaGeorreferenciacion() {
     setDescargandoZona(true);
     try {
       const contenedor = document.querySelector('[data-mapa-contenedor] .leaflet-container') as HTMLElement | null;
-
-      // Proyecta el polígono (o los varios, si la selección viene de un
-      // filtro con varias zonas) a coordenadas de PÍXEL dentro del propio
-      // mapa — con esto, la exportación puede recortar la imagen a la
-      // forma real del polígono en vez de al rectángulo completo del mapa,
-      // dejando transparente todo lo que quede afuera.
-      let mascara: { x: number; y: number }[][] | undefined;
-      if (mapaRef.current && contenedor) {
-        const anillos = extraerAnillosDeFeature(zonaActiva.feature);
-        if (anillos.length > 0) {
-          mascara = anillos.map((anillo) =>
-            anillo.map(([lon, lat]) => {
-              const punto = mapaRef.current!.latLngToContainerPoint([lat, lon]);
-              return { x: punto.x, y: punto.y };
-            }),
-          );
-        }
-      }
-
       if (contenedor) {
         // Desglose REAL por delito — cada línea sale de contar
         // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
@@ -750,7 +731,7 @@ export function MapaGeorreferenciacion() {
           `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
           ...lineasDelito,
         ];
-        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'), etiquetas, mascara);
+        await exportarMapaComoImagen(contenedor, `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'), etiquetas);
       }
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
@@ -1392,11 +1373,12 @@ export function MapaGeorreferenciacion() {
                 </CircleMarker>
               ))}
 
-            {/* En modo comparación, los puntos individuales se ocultan por
-                completo — la comparación se lee del mapa de calor (más
-                abajo) y de la grilla de coincidencia, sin puntos sueltos que
-                compitan visualmente con el degradado. */}
-            {!modoComparacion && !(pantallaCompleta && (seleccionIrisp1 || seleccionDelitos)) && capasPuntosProcesadas.filter(({ capa }) => capa.visible).map(({ capa, puntosFiltrados, ordenDelitos }) => (
+            {/* Los puntos individuales se ocultan por completo en modo
+                comparación, y también cuando cualquiera de los dos mapas de
+                calor (Delitos o IRISP1) está activo — se pidió ver
+                directamente el mapa de calor "ya pintado", sin los puntos
+                sueltos compitiendo visualmente con la cuadrícula de color. */}
+            {!modoComparacion && !mostrarCalorDelitos && !mostrarCalorIrisp1 && capasPuntosProcesadas.filter(({ capa }) => capa.visible).map(({ capa, puntosFiltrados, ordenDelitos }) => (
               puntosFiltrados.map((p, i) => {
                 // Vista normal (sin comparar): cada delito con su propio
                 // color, igual que semaforiza el resto del dashboard.
