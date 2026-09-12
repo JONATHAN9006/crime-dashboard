@@ -848,38 +848,65 @@ export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: stri
 // calor y las etiquetas (que son SVG/HTML propios del dashboard, sin ese
 // problema). El resultado sale con fondo gris liso en vez del mapa de
 // calles — un cambio consciente para que la descarga SIEMPRE funcione.
+// Recorta, de abajo hacia arriba, cualquier franja del lienzo que sea
+// completamente uniforme (todo del mismo color, o transparente) — deja
+// intacto todo lo que esté arriba de la primera fila con contenido real.
+// Nunca asume ningún tamaño de antemano: revisa directamente los píxeles
+// que sí se dibujaron.
+function recortarFranjaInferiorVacia(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || canvas.width === 0 || canvas.height === 0) return canvas;
+  const datos = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+  function filaEsUniforme(y: number): boolean {
+    const base = y * canvas.width * 4;
+    const [r0, g0, b0, a0] = [datos[base], datos[base + 1], datos[base + 2], datos[base + 3]];
+    for (let x = 1; x < canvas.width; x++) {
+      const i = base + x * 4;
+      if (datos[i] !== r0 || datos[i + 1] !== g0 || datos[i + 2] !== b0 || datos[i + 3] !== a0) return false;
+    }
+    return true;
+  }
+
+  let ultimaFilaConContenido = canvas.height - 1;
+  while (ultimaFilaConContenido > 0 && filaEsUniforme(ultimaFilaConContenido)) {
+    ultimaFilaConContenido--;
+  }
+
+  const nuevoAlto = ultimaFilaConContenido + 1;
+  if (nuevoAlto >= canvas.height) return canvas; // no había nada que recortar
+
+  const recortado = document.createElement('canvas');
+  recortado.width = canvas.width;
+  recortado.height = Math.max(1, nuevoAlto);
+  recortado.getContext('2d')!.drawImage(canvas, 0, 0);
+  return recortado;
+}
+
 export async function exportarMapaComoImagen(
   elemento: HTMLElement,
   nombreArchivo: string,
   etiquetas?: string[],
 ): Promise<void> {
   const html2canvasMod = (await import('html2canvas')).default;
-  // Leaflet arma internamente paneles (tiles, overlays) bastante más
-  // grandes que el área realmente visible del mapa —para poder desplazarlo
-  // suavemente sin recargar tiles todo el tiempo— y html2canvas, si no se
-  // le dice lo contrario, intenta capturar ESE tamaño interno inflado en
-  // vez de lo que de verdad se ve en pantalla: de ahí el enorme espacio en
-  // blanco reportado. Se le fija explícitamente el tamaño real y visible
-  // del contenedor (su "clientWidth/clientHeight", el que sí tiene en
-  // cuenta el recorte por overflow) para que jamás capture más que eso.
-  const anchoReal = elemento.clientWidth;
-  const altoReal = elemento.clientHeight;
-  const canvas = await html2canvasMod(elemento, {
+  let canvas = await html2canvasMod(elemento, {
     backgroundColor: '#e5e7eb',
     scale: 1,
     useCORS: true,
-    width: anchoReal,
-    height: altoReal,
-    windowWidth: anchoReal,
-    windowHeight: altoReal,
-    x: 0,
-    y: 0,
     ignoreElements: (el) => el.classList?.contains('leaflet-tile') || el.classList?.contains('leaflet-tile-container'),
     onclone: (doc, clonado) => {
       congelarEstilosParaCaptura(elemento, clonado);
       doc.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => n.remove());
     },
   });
+
+  // Recorta cualquier franja vacía sobrante ABAJO del contenido real —
+  // revisando los píxeles de verdad (no adivinando ningún tamaño). Se
+  // recorre el lienzo de abajo hacia arriba; mientras una fila completa
+  // sea del mismo color de fondo (o transparente), se descarta; se
+  // detiene en la primera fila que sí tenga algo distinto pintado encima
+  // (calles, polígonos, mapa de calor, etc.).
+  canvas = recortarFranjaInferiorVacia(canvas);
 
   // Las etiquetas (una por delito, con su cantidad) se dibujan DIRECTO sobre
   // el lienzo ya capturado — quedan grabadas en el PNG final, no son un
