@@ -418,6 +418,16 @@ export function MapaGeorreferenciacion() {
     return mapa;
   }, [records]);
 
+  // CAI que pertenecen a la Estación filtrada en este momento — se
+  // recalcula solo cuando cambia la Estación o la lista real de CAI. Vacío
+  // si no hay ninguna Estación filtrada (o si hay más de una).
+  const caiDeEstacionActiva = useMemo(() => {
+    if (filtrosMapa.estacion.length !== 1) return [];
+    const estacionNorm = normalizar(filtrosMapa.estacion[0]);
+    return opcionesFiltroMapa.cai.filter((cai) => normalizar(jerarquiaCai.get(normalizar(cai)) ?? '') === estacionNorm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrosMapa.estacion, jerarquiaCai, opcionesFiltroMapa.cai]);
+
   // Todo lo que el dashboard ya conoce como "nombre real" de una zona
   // (estación, CAI o cuadrante) — se usa para adivinar solo qué columna de
   // cada shapefile corresponde a cuál cosa, sin que el usuario tenga que
@@ -1584,6 +1594,29 @@ export function MapaGeorreferenciacion() {
           )}
         </div>
       </Card>
+
+      {caiDeEstacionActiva.length > 0 && (
+        <Card>
+          <p className="mb-3 text-sm font-bold text-slate-700">CAI de {filtrosMapa.estacion[0]}</p>
+          <div className="flex flex-wrap gap-2">
+            {caiDeEstacionActiva.map((cai) => {
+              const seleccionado = filtrosMapa.cai.includes(cai);
+              return (
+                <button
+                  key={cai}
+                  type="button"
+                  onClick={() => setFiltrosMapa((prev) => ({ ...prev, cai: seleccionado ? [] : [cai] }))}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${seleccionado ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}
+                >
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colorDeCai(cai) }} />
+                  {cai}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">Haz clic en un CAI para resaltarlo en el mapa de arriba — un segundo clic lo quita.</p>
+        </Card>
+      )}
 
       {capas.length === 0 && (
         <div className="flex items-center gap-2 text-xs text-slate-400">
