@@ -4,11 +4,10 @@ import { agruparPor, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
 import { AporteBarList } from '../components/charts/AporteBarList';
 
-// Azul rey — se usa en TODAS las barras de esta página en vez del rojo de
-// alerta que usa el resto del dashboard (Operatividad es un indicador
-// positivo — capturas, incautaciones — no una alerta de delito).
+// Azul rey — SOLO para el recuadro que resalta la barra con más casos, para
+// distinguir Operatividad de Delictividad (que usa recuadro rojo). El
+// color de las barras en sí se queda igual al institucional de siempre.
 const AZUL_REY = '#1d4ed8';
-const PALETA_AZUL = ['#1d4ed8', '#93c5fd'];
 
 // "Operatividad por Unidad" — mismo espíritu que "Delictividad por Unidad"
 // (tabla de resumen + barras con aporte %), pero sobre el dataset de
@@ -21,6 +20,7 @@ export function OperatividadUnidad() {
   const { filteredOperatividadRecords, operatividadMeta, filters } = useData();
   const [topBarrio, setTopBarrio] = useState<number | 'todas'>(5);
   const [topDelito, setTopDelito] = useState(10);
+  const [topZona, setTopZona] = useState(10);
 
   const registros = filteredOperatividadRecords;
   const total = registros.length;
@@ -28,8 +28,9 @@ export function OperatividadUnidad() {
   const porCategoria = agruparPor(registros, (r) => r.categoria || 'Sin categoría');
   const conAportePorCategoria = porCategoria.map((d) => ({ ...d, aportePct: total > 0 ? (d.casos / total) * 100 : 0 }));
 
-  const porCuadrante = agruparPor(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
-  const conAportePorCuadrante = porCuadrante.map((d) => ({ ...d, aportePct: total > 0 ? (d.casos / total) * 100 : 0 }));
+  const porCuadranteCompleto = agruparPor(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
+  const totalZonas = porCuadranteCompleto.reduce((a, d) => a + d.casos, 0);
+  const porCuadrante = porCuadranteCompleto.slice(0, topZona).map((d) => ({ ...d, aportePct: totalZonas > 0 ? (d.casos / totalZonas) * 100 : 0 }));
 
   const porBarrioCompleto = agruparPor(registros, (r) => r.barrioHecho || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const totalBarrios = porBarrioCompleto.reduce((a, d) => a + d.casos, 0);
@@ -94,16 +95,16 @@ export function OperatividadUnidad() {
               Atención por ahora (se quitó "Por Estación" a pedido). */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card title="Por categoría de operatividad" descargable="operatividad-categoria">
-              <AporteBarList data={conAportePorCategoria} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} />
+              <AporteBarList data={conAportePorCategoria} colorBordeMaximo={AZUL_REY} />
             </Card>
             <Card title="Por delito asociado" descargable="operatividad-delito" actions={<SelectorTop valor={topDelito} onChange={setTopDelito} />}>
-              {porDelito.length > 0 ? <AporteBarList data={porDelito} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
+              {porDelito.length > 0 ? <AporteBarList data={porDelito} colorBordeMaximo={AZUL_REY} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
             </Card>
-            <Card title="Por zona de atención" descargable="operatividad-zona">
-              {conAportePorCuadrante.length > 0 ? <AporteBarList data={conAportePorCuadrante} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
+            <Card title="Por zona de atención" descargable="operatividad-zona" actions={<SelectorTopZona valor={topZona} onChange={setTopZona} />}>
+              {porCuadrante.length > 0 ? <AporteBarList data={porCuadrante} colorBordeMaximo={AZUL_REY} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
             </Card>
             <Card title="Por barrio" descargable="operatividad-barrio" actions={<SelectorTopBarrio valor={topBarrio} onChange={setTopBarrio} />}>
-              {porBarrio.length > 0 ? <AporteBarList data={porBarrio} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
+              {porBarrio.length > 0 ? <AporteBarList data={porBarrio} colorBordeMaximo={AZUL_REY} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
             </Card>
           </div>
         </>
@@ -116,6 +117,15 @@ function SelectorTop({ valor, onChange }: { valor: number; onChange: (v: number)
   return (
     <select value={valor} onChange={(e) => onChange(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
       {[5, 10, 15, 20].map((n) => <option key={n} value={n}>Top {n}</option>)}
+    </select>
+  );
+}
+
+function SelectorTopZona({ valor, onChange }: { valor: number; onChange: (v: number) => void }) {
+  return (
+    <select value={valor} onChange={(e) => onChange(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
+      <option value={5}>Top 5</option>
+      <option value={10}>Top 10</option>
     </select>
   );
 }
