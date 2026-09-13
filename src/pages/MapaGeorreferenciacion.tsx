@@ -384,6 +384,12 @@ export function MapaGeorreferenciacion() {
   // Transparencia configurable — independiente para el mapa de calor, el
   // relleno de los polígonos, y las etiquetas. 0 a 100 (%).
   const [opacidades, setOpacidades] = useState({ calor: 70, poligono: 100, etiquetas: 100 });
+  // Los paneles de detalle de cada fuente de puntos (Estado del trámite,
+  // Dependencia, Semaforización, etc.) ahora empiezan COLAPSADOS — con el
+  // nuevo panel "Filtros de visualización" de la izquierda, ya no hace
+  // falta tenerlos abiertos por defecto; siguen disponibles con un clic
+  // para quien los necesite.
+  const [capasDetalleAbiertas, setCapasDetalleAbiertas] = useState<Set<string>>(new Set());
 
   // Jerarquía real cuadrante → CAI → estación, tomada de los datos ya
   // cargados — así, si un shapefile trae solo el nombre del CUADRANTE (el
@@ -1075,6 +1081,14 @@ export function MapaGeorreferenciacion() {
                 <input type="checkbox" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
                 Comparar IRISP1 vs Delitos
               </label>
+              <label className="flex cursor-not-allowed items-center gap-1.5 text-slate-400" title="Próximamente — falta cargar la información de Operatividad">
+                <input type="checkbox" checked={fuentesActivas.operatividad} disabled onChange={(e) => setFuentesActivas((prev) => ({ ...prev, operatividad: e.target.checked }))} />
+                <span className="h-2 w-2 rounded-full bg-slate-300" /> Operatividad
+              </label>
+              <label className="flex cursor-not-allowed items-center gap-1.5 text-slate-400" title="Próximamente — falta cargar la información de Macri">
+                <input type="checkbox" checked={fuentesActivas.macri} disabled onChange={(e) => setFuentesActivas((prev) => ({ ...prev, macri: e.target.checked }))} />
+                <span className="h-2 w-2 rounded-full bg-slate-300" /> Macri
+              </label>
             </div>
           </div>
           <div className="flex gap-2">
@@ -1238,13 +1252,24 @@ export function MapaGeorreferenciacion() {
               <div className="flex items-center gap-3 text-[11px] text-slate-500">
                 <span className="flex items-center gap-1"><User size={11} /> {capa.cargadoPor}</span>
                 <span className="flex items-center gap-1"><Calendar size={11} /> {new Date(capa.fechaCarga).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                <button
+                  type="button"
+                  onClick={() => setCapasDetalleAbiertas((prev) => {
+                    const nuevo = new Set(prev);
+                    if (nuevo.has(capa.id)) nuevo.delete(capa.id); else nuevo.add(capa.id);
+                    return nuevo;
+                  })}
+                  className="font-semibold text-brand-navy hover:underline"
+                >
+                  {capasDetalleAbiertas.has(capa.id) ? '▲ Ocultar detalles' : '▼ Ver detalles'}
+                </button>
                 {!soloLectura && (
                   <button onClick={() => quitarCapaPuntos(capa.id)} className="text-slate-400 hover:text-rose-600"><Trash2 size={14} /></button>
                 )}
               </div>
             </div>
 
-            {capa.visible && (capa.colEstado || capa.colEstadoExistencia || capa.colDependencia) && (
+            {capasDetalleAbiertas.has(capa.id) && capa.visible && (capa.colEstado || capa.colEstadoExistencia || capa.colDependencia) && (
               <div className="grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50 p-3 sm:grid-cols-3">
                 {capa.colEstado && (
                   <FiltroChips
@@ -1273,7 +1298,7 @@ export function MapaGeorreferenciacion() {
               </div>
             )}
 
-            {capa.visible && (resumenEstado.length > 0 || resumenExistencia.length > 0) && (
+            {capasDetalleAbiertas.has(capa.id) && capa.visible && (resumenEstado.length > 0 || resumenExistencia.length > 0) && (
               <div className="grid grid-cols-1 gap-3 border-t border-slate-100 p-3 sm:grid-cols-2">
                 {resumenExistencia.length > 0 && (
                   <TablaResumen titulo="Por estado de existencia" filas={resumenExistencia} />
@@ -1284,7 +1309,7 @@ export function MapaGeorreferenciacion() {
               </div>
             )}
 
-            {capa.visible && capa.colDelito && ordenDelitos.length > 0 && (
+            {capasDetalleAbiertas.has(capa.id) && capa.visible && capa.colDelito && ordenDelitos.length > 0 && (
               <div className="border-t border-slate-100 p-3">
                 {modoComparacion ? (
                   <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">

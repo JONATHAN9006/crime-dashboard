@@ -1,13 +1,10 @@
 // Exportador AISLADO del polígono seleccionado (Estación/CAI/Zona de
-// Atención) con su mapa de calor — construido dibujando directamente sobre
-// un lienzo nuevo, SIN capturar pantalla (nada de html2canvas). Después de
-// varios intentos fallidos capturando el DOM de Leaflet (paneles internos
-// inflados, colores modernos de Tailwind que rompían el parser, coordenadas
-// que no coincidían), esta es la vía confiable: se conoce exactamente la
-// geometría del polígono y de la superficie de densidad, así que se
-// proyectan a píxeles con matemáticas propias y se dibujan directamente. El
-// fondo del lienzo es transparente por naturaleza (nunca se rellena) —
-// todo lo que quede fuera del polígono simplemente nunca se pinta.
+// Atención) con su mapa de calor Y las calles reales — construido
+// dibujando directamente sobre un lienzo nuevo. Usa proyección Web
+// Mercator (la MISMA que usan las tiles de calles de OpenStreetMap) para
+// que las calles, el polígono y el mapa de calor calcen exactamente en la
+// misma posición — no una proyección aproximada distinta a la de las
+// tiles.
 import { calcularKernelDensidad, type PuntoDensidad } from './kernelDensity';
 
 export interface PuntoParaMapaCalor {
@@ -16,7 +13,8 @@ export interface PuntoParaMapaCalor {
   delitoCorto?: string | null;
 }
 
-const ANCHO_LIENZO = 1200; // px — el alto sale solo, según la proporción real del polígono
+const ANCHO_LIENZO = 1200; // px — el alto sale solo, según la proporción Web Mercator real del área
+const TAMANO_TILE = 256;
 
 function extraerAnillos(feature: any): [number, number][][] {
   const anillos: [number, number][][] = [];
@@ -30,28 +28,39 @@ function extraerAnillos(feature: any): [number, number][][] {
   return anillos;
 }
 
-function cargarImagen(dataUrl: string): Promise<HTMLImageElement> {
+// Proyección Web Mercator NORMALIZADA (0 a 1 en cada eje) — la misma
+// fórmula que usa cualquier mapa de calles (OSM, Google Maps, etc.).
+function lonAMercatorX(lon: number): number {
+  return (lon + 180) / 360;
+}
+function latAMercatorY(lat: number): number {
+  const rad = (lat * Math.PI) / 180;
+  return (1 - Math.log(Math.tan(Math.PI / 4 + rad / 2)) / Math.PI) / 2;
+}
+
+function cargarImagen(url: string, conCors: boolean): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    if (conCors) img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = reject;
-    img.src = dataUrl;
+    img.src = url;
   });
 }
 
 export async function exportarPoligonoAislado(opciones: {
-  feature: any; // GeoJSON Feature o FeatureCollection del polígono ya seleccionado
-  puntos: PuntoParaMapaCalor[]; // puntos YA filtrados (por delito, fecha, etc.) — nunca se recalculan aquí
-  colores: string[]; // 5 clases, de menor a mayor densidad
-  etiquetas: string[]; // líneas de texto ya armadas (nombre de zona, delito(s) y total)
+  feature: any;
+  puntos: PuntoParaMapaCalor[];
+  colores: string[];
+  etiquetas: string[];
   nombreArchivo: string;
-  opacidadPoligono?: number; // 0 a 1
-  opacidadCalor?: number; // 0 a 1
-  opacidadEtiquetas?: number; // 0 a 1
+  opacidadPoligono?: number;
+  opacidadCalor?: number;
+  opacidadEtiquetas?: number;
   colorBorde?: string;
-  alPortapapeles?: boolean; // true = copiar al portapapeles en vez de descargar el archivo
+  alPortapapeles?: boolean;
 }): Promise<void> {
-  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.15, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', alPortapapeles = false } = opciones;
+  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', alPortapapeles = false } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -62,31 +71,29 @@ export async function exportarPoligonoAislado(opciones: {
   const minLat = Math.min(...todosLosPuntosAnillo.map((p) => p[1]));
   const maxLat = Math.max(...todosLosPuntosAnillo.map((p) => p[1]));
 
-  // Margen alrededor del polígono (8% del tamaño, para que no quede pegado
-  // a los bordes de la imagen, tal como se pidió).
   const margenLon = (maxLon - minLon) * 0.08 || 0.001;
   const margenLat = (maxLat - minLat) * 0.08 || 0.001;
   const loLon = minLon - margenLon, hiLon = maxLon + margenLon;
   const loLat = minLat - margenLat, hiLat = maxLat + margenLat;
 
-  const latProm = (minLat + maxLat) / 2;
-  const correccionLon = Math.cos((latProm * Math.PI) / 180);
-  const anchoGeografico = (hiLon - loLon) * correccionLon;
-  const altoGeografico = hiLat - loLat;
-  const alto = Math.max(1, Math.round(ANCHO_LIENZO * (altoGeografico / anchoGeografico)));
+  const mercLoX = lonAMercatorX(loLon), mercHiX = lonAMercatorX(hiLon);
+  const mercLoY = latAMercatorY(hiLat), mercHiY = latAMercatorY(loLat);
+  const anchoMerc = mercHiX - mercLoX;
+  const altoMerc = mercHiY - mercLoY;
+
+  const alto = Math.max(1, Math.round(ANCHO_LIENZO * (altoMerc / anchoMerc)));
 
   function lonAX(lon: number): number {
-    return ((lon - loLon) / (hiLon - loLon)) * ANCHO_LIENZO;
+    return ((lonAMercatorX(lon) - mercLoX) / anchoMerc) * ANCHO_LIENZO;
   }
   function latAY(lat: number): number {
-    return (1 - (lat - loLat) / (hiLat - loLat)) * alto;
+    return ((latAMercatorY(lat) - mercLoY) / altoMerc) * alto;
   }
 
   const canvas = document.createElement('canvas');
   canvas.width = ANCHO_LIENZO;
   canvas.height = alto;
   const ctx = canvas.getContext('2d')!;
-  // OJO: nunca se rellena el fondo — se deja transparente a propósito.
 
   function trazarAnillosComoRuta() {
     ctx.beginPath();
@@ -98,20 +105,52 @@ export async function exportarPoligonoAislado(opciones: {
     }
   }
 
-  // 1) Relleno tenue del polígono (para que se note el territorio incluso
-  // donde no haya casos).
+  // 1) CALLES REALES — recortadas al polígono con ctx.clip() antes de
+  // dibujar nada más.
+  const zoom = Math.max(13, Math.min(18, Math.floor(Math.log2(ANCHO_LIENZO / (anchoMerc * TAMANO_TILE)))));
+  const escalaMundo = Math.pow(2, zoom);
+  const txMin = Math.floor(mercLoX * escalaMundo);
+  const txMax = Math.floor(mercHiX * escalaMundo);
+  const tyMin = Math.floor(mercLoY * escalaMundo);
+  const tyMax = Math.floor(mercHiY * escalaMundo);
+
+  ctx.save();
+  trazarAnillosComoRuta();
+  ctx.clip();
+  try {
+    const tareasTiles: Promise<void>[] = [];
+    for (let tx = txMin; tx <= txMax; tx++) {
+      for (let ty = tyMin; ty <= tyMax; ty++) {
+        const subdominio = ['a', 'b', 'c'][(tx + ty) % 3];
+        const url = `https://${subdominio}.tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+        tareasTiles.push(
+          cargarImagen(url, true)
+            .then((img) => {
+              const xIzq = ((tx / escalaMundo - mercLoX) / anchoMerc) * ANCHO_LIENZO;
+              const yArriba = ((ty / escalaMundo - mercLoY) / altoMerc) * alto;
+              const anchoTile = ((1 / escalaMundo) / anchoMerc) * ANCHO_LIENZO;
+              const altoTile = ((1 / escalaMundo) / altoMerc) * alto;
+              ctx.drawImage(img, xIzq, yArriba, anchoTile + 0.5, altoTile + 0.5);
+            })
+            .catch(() => { /* tile puntual falló — se deja transparente ahí y se sigue */ }),
+        );
+      }
+    }
+    await Promise.all(tareasTiles);
+  } finally {
+    ctx.restore();
+  }
+
+  // 2) Relleno MUY tenue adicional, encima de las calles.
   trazarAnillosComoRuta();
   ctx.fillStyle = `rgba(17, 103, 98, ${opacidadPoligono})`;
   ctx.fill();
 
-  // 2) Mapa de calor — SUPERFICIE CONTINUA (Kernel Density real, el mismo
-  // método que ya usa el resto del dashboard — histograma + desenfoque
-  // gaussiano, clasificado por fracción del máximo real, nunca una
-  // cuadrícula de cuadrados) — recortada al polígono con ctx.clip().
+  // 3) Mapa de calor — superficie continua (Kernel Density, Silverman/ArcGIS).
   if (puntos.length > 0) {
     const resultadoKernel = calcularKernelDensidad(puntos as PuntoDensidad[], colores);
     if (resultadoKernel) {
-      const img = await cargarImagen(resultadoKernel.dataUrl);
+      const img = await cargarImagen(resultadoKernel.dataUrl, false);
       const [[latSur, lonOeste], [latNorte, lonEste]] = resultadoKernel.bounds;
       const x0 = lonAX(lonOeste), x1 = lonAX(lonEste);
       const y0 = latAY(latNorte), y1 = latAY(latSur);
@@ -126,19 +165,13 @@ export async function exportarPoligonoAislado(opciones: {
     }
   }
 
-  // 3) Borde del polígono, SIN recorte, para que quede nítido encima de todo.
+  // 4) Borde del polígono, sin recorte.
   trazarAnillosComoRuta();
   ctx.strokeStyle = colorBorde;
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // 4) Etiqueta — posicionamiento INTELIGENTE: se prueban las 4 esquinas
-  // (con margen hacia adentro) y se elige la que tenga MENOS densidad de
-  // calor pintada ahí (se mide revisando directamente los píxeles ya
-  // dibujados en el lienzo) — así el cuadro de texto nunca tapa un
-  // hotspot. Nunca se ubica fuera del polígono: las 4 candidatas ya están
-  // adentro por construcción (esquinas del rectángulo del polígono,
-  // recortadas con margen).
+  // 5) Etiqueta — esquina con menos densidad de calor pintada ahí.
   if (etiquetas.length > 0) {
     const tamanoFuente = 15;
     const alturaLinea = 21;
@@ -148,20 +181,20 @@ export async function exportarPoligonoAislado(opciones: {
     const altoCaja = paddingY * 2 + alturaLinea * etiquetas.length;
 
     const candidatas = [
-      { x: margenCaja, y: margenCaja }, // superior izquierda
-      { x: canvas.width - anchoCaja - margenCaja, y: margenCaja }, // superior derecha
-      { x: margenCaja, y: canvas.height - altoCaja - margenCaja }, // inferior izquierda
-      { x: canvas.width - anchoCaja - margenCaja, y: canvas.height - altoCaja - margenCaja }, // inferior derecha
+      { x: margenCaja, y: margenCaja },
+      { x: canvas.width - anchoCaja - margenCaja, y: margenCaja },
+      { x: margenCaja, y: canvas.height - altoCaja - margenCaja },
+      { x: canvas.width - anchoCaja - margenCaja, y: canvas.height - altoCaja - margenCaja },
     ];
 
-    function densidadPromedioEn(x: number, y: number, ancho: number, alto: number): number {
+    function densidadPromedioEn(x: number, y: number, ancho: number, alto2: number): number {
       const xi = Math.max(0, Math.floor(x)), yi = Math.max(0, Math.floor(y));
       const anchoReal = Math.min(ancho, canvas.width - xi);
-      const altoReal = Math.min(alto, canvas.height - yi);
+      const altoReal = Math.min(alto2, canvas.height - yi);
       if (anchoReal <= 0 || altoReal <= 0) return Infinity;
       const datos = ctx.getImageData(xi, yi, anchoReal, altoReal).data;
       let suma = 0;
-      for (let i = 3; i < datos.length; i += 4) suma += datos[i]; // canal alfa: a más opaco, más "calor" pintado ahí
+      for (let i = 3; i < datos.length; i += 4) suma += datos[i];
       return suma / (anchoReal * altoReal);
     }
 
@@ -196,8 +229,15 @@ export async function exportarPoligonoAislado(opciones: {
     return;
   }
 
+  let dataUrl: string;
+  try {
+    dataUrl = canvas.toDataURL('image/png');
+  } catch (err) {
+    console.error('[exportarPoligonoAislado] El lienzo quedó bloqueado (canvas "tainted") — probablemente por las tiles de calles:', err);
+    throw new Error('No fue posible generar la imagen (el lienzo quedó bloqueado). Revisa la consola (F12) para más detalle.');
+  }
   const enlace = document.createElement('a');
   enlace.download = `${nombreArchivo}.png`;
-  enlace.href = canvas.toDataURL('image/png');
+  enlace.href = dataUrl;
   enlace.click();
 }
