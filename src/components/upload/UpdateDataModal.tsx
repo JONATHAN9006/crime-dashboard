@@ -59,14 +59,14 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
       <p className="mb-2 text-sm font-medium text-slate-700">¿Qué información vas a subir?</p>
       <div className="mb-4 grid grid-cols-2 gap-2">
         <button
-          onClick={() => { setTipoDataset('delictividad'); setResultado(null); setResultadoOperatividad(null); }}
+          onClick={() => { setTipoDataset('delictividad'); setResultado(null); setResultadoOperatividad(null); setArchivo(null); }}
           className={`rounded-lg border p-3 text-left text-sm ${tipoDataset === 'delictividad' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
         >
           <p className="font-semibold text-slate-800">🚔 Delictividad</p>
           <p className="mt-0.5 text-xs text-slate-500">Matriz Base o descarga DB2 (delitos, casos).</p>
         </button>
         <button
-          onClick={() => { setTipoDataset('operatividad'); setResultado(null); setResultadoOperatividad(null); }}
+          onClick={() => { setTipoDataset('operatividad'); setResultado(null); setResultadoOperatividad(null); setArchivo(null); }}
           className={`rounded-lg border p-3 text-left text-sm ${tipoDataset === 'operatividad' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
         >
           <p className="font-semibold text-slate-800">🎯 Operatividad</p>
