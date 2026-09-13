@@ -59,8 +59,9 @@ export async function exportarPoligonoAislado(opciones: {
   opacidadEtiquetas?: number;
   colorBorde?: string;
   alPortapapeles?: boolean;
+  anillosInternos?: [number, number][][]; // límites de cuadrante u otra subdivisión, dibujados ADEMÁS del contorno principal
 }): Promise<void> {
-  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', alPortapapeles = false } = opciones;
+  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', alPortapapeles = false, anillosInternos = [] } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -170,6 +171,22 @@ export async function exportarPoligonoAislado(opciones: {
   ctx.strokeStyle = colorBorde;
   ctx.lineWidth = 3;
   ctx.stroke();
+
+  // 4b) Límites internos (ej. cuadrantes dentro de una estación o CAI) —
+  // en negro, más delgados que el contorno principal, para diferenciar la
+  // subdivisión interna sin competir visualmente con el borde exterior.
+  if (anillosInternos.length > 0) {
+    ctx.beginPath();
+    for (const anillo of anillosInternos) {
+      if (anillo.length === 0) continue;
+      ctx.moveTo(lonAX(anillo[0][0]), latAY(anillo[0][1]));
+      for (let i = 1; i < anillo.length; i++) ctx.lineTo(lonAX(anillo[i][0]), latAY(anillo[i][1]));
+      ctx.closePath();
+    }
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 
   // 5) Etiqueta — esquina con menos densidad de calor pintada ahí.
   if (etiquetas.length > 0) {

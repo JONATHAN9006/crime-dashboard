@@ -344,12 +344,13 @@ export function MapaGeorreferenciacion() {
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).
+  const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
   const opcionesFiltroMapa = useMemo(() => ({
-    delito: Array.from(new Set(records.map((r) => r.delito).filter(Boolean))).sort(),
-    estacion: Array.from(new Set(records.map((r) => r.estacion).filter(Boolean))).sort(),
-    cai: Array.from(new Set(records.map((r) => r.cai).filter(Boolean))).sort(),
-    cuadrante: Array.from(new Set(records.map((r) => r.cuadrante).filter(Boolean))).sort(),
-    barrioHecho: Array.from(new Set(records.map((r) => r.barrioHecho).filter(Boolean))).sort(),
+    delito: Array.from(new Set(records.map((r) => r.delito).filter(esValorReal))).sort(),
+    estacion: Array.from(new Set(records.map((r) => r.estacion).filter(esValorReal))).sort(),
+    cai: Array.from(new Set(records.map((r) => r.cai).filter(esValorReal))).sort(),
+    cuadrante: Array.from(new Set(records.map((r) => r.cuadrante).filter(esValorReal))).sort(),
+    barrioHecho: Array.from(new Set(records.map((r) => r.barrioHecho).filter(esValorReal))).sort(),
   }), [records]);
 
   const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
@@ -794,10 +795,35 @@ export function MapaGeorreferenciacion() {
     });
   }, [zonaActiva, delitoZonaSeleccionada, todosLosPuntosVisiblesConDelito]);
 
+  // Límites internos de CUADRANTE que caen dentro de una zona dada — se
+  // dibujan también en la imagen exportada (además del contorno de la zona
+  // en sí), para que se vea la subdivisión interna.
+  function calcularAnillosCuadrantesInternos(feature: any): [number, number][][] {
+    const anillos: [number, number][][] = [];
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      if (!campo) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const valor = String(f?.properties?.[campo] ?? '');
+        const esCuadrante = opcionesFiltroMapa.cuadrante.some((c) => normalizar(c) === normalizar(valor));
+        if (!esCuadrante) continue;
+        const geom = f.geometry;
+        const puntoRepresentativo: [number, number] | undefined = geom?.type === 'Polygon' ? geom.coordinates[0]?.[0] : geom?.type === 'MultiPolygon' ? geom.coordinates[0]?.[0]?.[0] : undefined;
+        if (!puntoRepresentativo) continue;
+        if (puntoEnFeatureGeoJSON(puntoRepresentativo[0], puntoRepresentativo[1], feature)) {
+          anillos.push(...extraerAnillosDeFeature(f));
+        }
+      }
+    }
+    return anillos;
+  }
+
   async function descargarZonaSeleccionada() {
     if (!zonaActiva) return;
     setDescargandoZona(true);
     try {
+      const anillosCuadrantesInternos = calcularAnillosCuadrantesInternos(zonaActiva.feature);
+
       // Desglose REAL por delito — cada línea sale de contar
       // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
       // en el mapa de calor), agrupados por delito. Nunca es un número
@@ -824,6 +850,7 @@ export function MapaGeorreferenciacion() {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        anillosInternos: anillosCuadrantesInternos,
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
@@ -837,6 +864,7 @@ export function MapaGeorreferenciacion() {
     if (!zonaActiva) return;
     setDescargandoZona(true);
     try {
+      const anillosCuadrantesInternos = calcularAnillosCuadrantesInternos(zonaActiva.feature);
       const conteoPorDelito = new Map<string, number>();
       for (const p of puntosEnZonaParaCalor) {
         const nombre = p.delitoCorto ?? 'No reportado';
@@ -859,6 +887,7 @@ export function MapaGeorreferenciacion() {
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
         alPortapapeles: true,
+        anillosInternos: anillosCuadrantesInternos,
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la copia al portapapeles:', err);
@@ -1342,7 +1371,7 @@ export function MapaGeorreferenciacion() {
                 if (capa.colorearPorCasos && conteos && capa.campoUnion) {
                   const valorCrudo = feature?.properties?.[capa.campoUnion!];
                   const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
-                  return { color: '#475569', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
+                  return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
                 }
                 // Capas de CAI (dimensión sin "colorear por casos" activo):
                 // usan el color propio configurable de cada CAI en vez del
@@ -1351,10 +1380,10 @@ export function MapaGeorreferenciacion() {
                   const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
                   const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
                   if (coincideCai) {
-                    return { color: colorDeCai(coincideCai), weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
+                    return { color: '#000000', weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
                   }
                 }
-                return { color: '#116762', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
+                return { color: '#000000', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
               }
 
               function onEachFeature(feature: any, layer: L.Layer) {
