@@ -66,18 +66,20 @@ function altoTablaDelitos(cantidad: number): number {
   return ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_DELITOS * cantidad + ALTO_MARGEN_INFERIOR_BLOQUE;
 }
 
+function altoTablaTop5(): number {
+  return ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_DELITOS * 5 + ALTO_MARGEN_INFERIOR_BLOQUE;
+}
+
 function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
   const altoMeses = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12 + ALTO_MARGEN_INFERIOR_BLOQUE;
   const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4 + ALTO_MARGEN_INFERIOR_BLOQUE;
-  const altoDelitos = altoTablaDelitos(nodo.delitos.length);
-  // La banda usa la altura del MÁS ALTO de los tres — si hay muchos
-  // delitos, la tarjeta completa crece para darles espacio en una sola
-  // columna (ver dibujarBloqueDelitos), en vez de comprimirlos en dos
-  // columnas y dejar espacio en blanco sin usar debajo de los otros dos.
-  return Math.max(altoMeses, altoTrimestres, altoDelitos);
+  // Columna 1 ahora apila Trimestres + Top 5 delitos (en vez de la lista
+  // completa de delitos, que se movió a la columna 3 como mapa).
+  const altoColumna1 = altoTrimestres + PADDING_TARJETA + altoTablaTop5();
+  return Math.max(altoMeses, altoColumna1);
 }
 
-export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string): Promise<void> {
+export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
   const escudoBase64 = await cargarEscudoBase64();
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   let y = 0;
@@ -243,7 +245,83 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     });
   }
 
-  function dibujarTarjetaNodo(nodo: NodoMicrogerencia) {
+  // Versión COMPACTA de la tabla de delitos — solo el Top 5 (nodo.delitos
+  // ya viene ordenado de mayor a menor), para la columna 1 debajo de
+  // Trimestres.
+  function dibujarTop5Delitos(nodo: NodoMicrogerencia, x0: number, ancho: number, alto: number) {
+    pdf.setFillColor(...COLOR_VIOLETA_CLARO);
+    pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'F');
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9);
+    pdf.setTextColor(91, 33, 182);
+    pdf.text('TOP 5 DELITOS', x0 + PADDING_TARJETA, y + 6);
+
+    const top5 = nodo.delitos.slice(0, 5);
+    if (top5.length === 0) return;
+
+    const colDelito = x0 + PADDING_TARJETA;
+    const col2026 = x0 + ancho * 0.78;
+    const colDif = x0 + ancho * 0.96;
+    let fy = y + ALTO_ENCABEZADO_BLOQUE + 2;
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(6.5);
+    pdf.setTextColor(...COLOR_MUTED);
+    pdf.text('2026', col2026, fy, { align: 'right' });
+    pdf.text('Dif', colDif, fy, { align: 'right' });
+    fy += 5;
+
+    top5.forEach((d, i) => {
+      pdf.setFillColor(...(i % 2 === 0 ? COLOR_VIOLETA_ALTERNO : COLOR_VIOLETA_CLARO));
+      pdf.rect(x0 + 1, fy - 3.6, ancho - 2, ALTO_FILA_DELITOS, 'F');
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.8);
+      pdf.setTextColor(...COLOR_TEXTO);
+      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.65 });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...COLOR_TEXTO);
+      pdf.text(formatearNumero(d.fecha2026), col2026, fy, { align: 'right' });
+      pdf.setTextColor(...colorPorDif(d.dif));
+      pdf.text(`${d.dif >= 0 ? '+' : ''}${formatearNumero(d.dif)}`, colDif, fy, { align: 'right' });
+      fy += ALTO_FILA_DELITOS;
+    });
+  }
+
+  // Mapa + mapa de calor del nodo, si se pudo generar (ver
+  // ModalMicrogerencia.tsx) — si no hay imagen disponible para este nodo
+  // específico, se cae de vuelta a la lista completa de delitos, para que
+  // el PDF nunca quede con un espacio vacío.
+  function dibujarImagenMapaONodo(nodo: NodoMicrogerencia, imagenDataUrl: string | undefined, x0: number, ancho: number, alto: number) {
+    if (!imagenDataUrl) {
+      dibujarBloqueDelitos(nodo, x0, ancho, alto);
+      return;
+    }
+    pdf.setFillColor(...COLOR_TARJETA_FONDO);
+    pdf.setDrawColor(203, 213, 225);
+    pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'FD');
+    try {
+      // Se calcula el tamaño respetando la proporción real de la imagen
+      // para que no se vea estirada — se centra dentro del recuadro.
+      const propsImg = (pdf as any).getImageProperties(imagenDataUrl);
+      const proporcion = propsImg.width / propsImg.height;
+      let anchoImg = ancho - 4;
+      let altoImg = anchoImg / proporcion;
+      if (altoImg > alto - 4) {
+        altoImg = alto - 4;
+        anchoImg = altoImg * proporcion;
+      }
+      const xImg = x0 + (ancho - anchoImg) / 2;
+      const yImg = y + (alto - altoImg) / 2;
+      pdf.addImage(imagenDataUrl, 'PNG', xImg, yImg, anchoImg, altoImg);
+    } catch {
+      // Si la imagen viene corrupta o en un formato que jsPDF no acepta,
+      // no se rompe el PDF entero — simplemente se deja el recuadro vacío.
+    }
+  }
+
+  function dibujarTarjetaNodo(nodo: NodoMicrogerencia, imagenMapaDataUrl?: string) {
     const altoTarjeta = altoDeTarjeta(nodo);
     nuevaPaginaSiNoCabe(altoTarjeta);
 
@@ -265,25 +343,33 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     dibujarMetricas(nodo);
     y += PADDING_TARJETA / 2;
 
-    // Tres columnas lado a lado, en el orden pedido: Trimestres →
-    // Distribución por mes → Delitos.
+    // Columna 1: Trimestres arriba, Top 5 delitos debajo. Columna 2:
+    // Distribución por mes. Columna 3: mapa + mapa de calor del nodo (si
+    // se pudo generar) — o, si no hay imagen disponible, la lista
+    // completa de delitos como respaldo.
     const anchoTrimestres = ANCHO_UTIL * 0.25;
-    const anchoDelitos = ANCHO_UTIL * 0.42;
-    const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoDelitos - PADDING_TARJETA * 2;
+    const anchoTercera = ANCHO_UTIL * 0.42;
+    const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoTercera - PADDING_TARJETA * 2;
     const altoBanda = altoBandaTresColumnas(nodo);
 
     const xMeses = MARGEN + anchoTrimestres + PADDING_TARJETA;
-    const xDelitos = xMeses + anchoMeses + PADDING_TARJETA;
+    const xTercera = xMeses + anchoMeses + PADDING_TARJETA;
 
-    dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoBanda, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175]);
+    const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4 + ALTO_MARGEN_INFERIOR_BLOQUE;
+    dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoTrimestres, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175]);
+    const yOriginal = y;
+    y += altoTrimestres + PADDING_TARJETA;
+    dibujarTop5Delitos(nodo, MARGEN, anchoTrimestres, altoTablaTop5());
+    y = yOriginal;
+
     dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoBanda, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14]);
-    dibujarBloqueDelitos(nodo, xDelitos, anchoDelitos, altoBanda);
+    dibujarImagenMapaONodo(nodo, imagenMapaDataUrl, xTercera, anchoTercera, altoBanda);
 
     y += altoBanda + ESPACIO_ENTRE_TARJETAS;
   }
 
   dibujarEncabezadoPagina();
-  for (const nodo of nodos) dibujarTarjetaNodo(nodo);
+  for (const nodo of nodos) dibujarTarjetaNodo(nodo, imagenesPorNodo?.get(nodo.nombre));
 
   const totalPaginas = (pdf as any).internal.getNumberOfPages();
   for (let p = 1; p <= totalPaginas; p++) {

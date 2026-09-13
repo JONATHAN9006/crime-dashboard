@@ -192,6 +192,21 @@ function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[
 // calor, y de todas las que sí contienen ese punto, se elige la de MENOR
 // área — es decir, la más específica/anidada (el Cuadrante antes que su
 // Estación, si ambos contienen el punto).
+function areaRealDeFeature(feature: any): number {
+  const anillos = extraerAnillosDeFeature(feature);
+  let area = 0;
+  for (const anillo of anillos) {
+    let a = 0;
+    for (let i = 0; i < anillo.length - 1; i++) {
+      const [x1, y1] = anillo[i];
+      const [x2, y2] = anillo[i + 1];
+      a += x1 * y2 - x2 * y1;
+    }
+    area += Math.abs(a) / 2;
+  }
+  return area;
+}
+
 function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
   useMapEvents({
     click(e) {
@@ -202,8 +217,13 @@ function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: 
         const campo = camposUnion.get(capa.id);
         for (const f of extraerFeatures(capa.geojson)) {
           if (!puntoEnFeatureGeoJSON(lng, lat, f)) continue;
-          const bounds = L.geoJSON(f).getBounds();
-          const area = (bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest());
+          // Área REAL del polígono (fórmula del área de Gauss/shoelace) —
+          // no la del rectángulo que lo contiene. Un cuadrante alargado o
+          // irregular puede tener un rectángulo-contenedor más grande que
+          // el de una Estación entera, y eso hacía que perdiera la
+          // comparación "el más específico gana" — con el área real esto
+          // ya no pasa.
+          const area = areaRealDeFeature(f);
           if (!mejor || area < mejor.area) {
             const nombre = campo && f.properties?.[campo] ? String(f.properties[campo]) : (f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
             mejor = { capaId: capa.id, feature: f, nombre, area };
@@ -802,11 +822,19 @@ export function MapaGeorreferenciacion() {
     const anillos: [number, number][][] = [];
     for (const capa of capas) {
       const campo = camposUnionAutoDetectados.get(capa.id);
-      if (!campo) continue;
+      // Una capa cuenta como "de cuadrantes" si SU CONFIGURACIÓN ya lo dice
+      // (dimension === 'cuadrante', puesta a mano en "Colorear por casos")
+      // — más confiable que solo comparar nombres, que puede fallar si el
+      // shapefile trae los cuadrantes escritos distinto a como aparecen en
+      // los datos ya cargados.
+      const esCapaDeCuadrantes = capa.dimension === 'cuadrante';
       for (const f of extraerFeatures(capa.geojson)) {
-        const valor = String(f?.properties?.[campo] ?? '');
-        const esCuadrante = opcionesFiltroMapa.cuadrante.some((c) => normalizar(c) === normalizar(valor));
-        if (!esCuadrante) continue;
+        if (!esCapaDeCuadrantes) {
+          if (!campo) continue;
+          const valor = String(f?.properties?.[campo] ?? '');
+          const coincidePorNombre = opcionesFiltroMapa.cuadrante.some((c) => normalizar(c) === normalizar(valor));
+          if (!coincidePorNombre) continue;
+        }
         const geom = f.geometry;
         const puntoRepresentativo: [number, number] | undefined = geom?.type === 'Polygon' ? geom.coordinates[0]?.[0] : geom?.type === 'MultiPolygon' ? geom.coordinates[0]?.[0]?.[0] : undefined;
         if (!puntoRepresentativo) continue;
@@ -1128,12 +1156,36 @@ export function MapaGeorreferenciacion() {
             <div className="mt-4 border-t border-white/10 pt-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Capas cargadas</p>
               <div className="space-y-1.5">
-                {capas.map((capa) => (
-                  <label key={capa.id} className="flex cursor-pointer items-center gap-2 text-xs">
-                    <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
-                    <span className="truncate">{capa.nombre}</span>
-                  </label>
-                ))}
+                {capas.map((capa) => {
+                  const detectado = camposUnionAutoDetectados.get(capa.id);
+                  return (
+                    <div key={capa.id}>
+                      <label className="flex cursor-pointer items-center gap-2 text-xs">
+                        <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
+                        <span className="truncate">{capa.nombre}</span>
+                      </label>
+                      {/* Si no se pudo detectar sola qué columna trae el
+                          nombre (CAI/Estación/Cuadrante) — porque el
+                          shapefile usa una redacción distinta a la de tus
+                          datos — se puede elegir a mano aquí, en vez de
+                          seguir adivinando. En cuanto se detecta sola, este
+                          aviso desaparece solo. */}
+                      {!detectado && (
+                        <div className="ml-6 mt-1 rounded-lg bg-amber-500/10 p-2 text-[11px] text-amber-200">
+                          <p className="mb-1">No se detectó sola qué columna nombra esta capa — elige el campo correcto:</p>
+                          <select
+                            value=""
+                            onChange={(e) => actualizarCapa(capa.id, { campoUnion: e.target.value || null })}
+                            className="w-full rounded border border-amber-400/30 bg-slate-800 px-1.5 py-1 text-white"
+                          >
+                            <option value="">— Selecciona el campo —</option>
+                            {propiedadesDisponibles(capa.geojson).map((p) => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -4,6 +4,7 @@ import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia } from '../../data/pdfMicrogerencia';
+import { generarImagenMapaGeneral, generarImagenMapaEstacion, NOMBRES_ESTACION_CORTOS } from '../../data/microgerenciaMapas';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 
 function formatearPct(n: number | null): string {
@@ -223,16 +224,39 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
   const raizVistaActual = vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : vista === 'distrito2' ? datos.distrito2 : null;
 
+  // Genera el mapa real (calles + mapa de calor) SOLO para los nodos donde
+  // tiene sentido — "MEPOY General" (todo Popayán) y los nodos cuyo nombre
+  // sea exactamente una estación conocida (ej. "E-Norte"). El resto de los
+  // nodos (Distrito, CAI, Cuadrante, Delito) se quedan con la lista de
+  // delitos de siempre — generar un mapa por cada uno sería demasiado
+  // lento y no aporta tanto en esos niveles.
+  async function generarImagenesParaNodos(nodos: NodoMicrogerencia[], delitoFiltrado: string | null): Promise<Map<string, string>> {
+    const mapa = new Map<string, string>();
+    for (const nodo of nodos) {
+      if (nodo.nombre === 'MEPOY General — Consolidado') {
+        const img = await generarImagenMapaGeneral(delitoFiltrado);
+        if (img) mapa.set(nodo.nombre, img);
+      } else if (NOMBRES_ESTACION_CORTOS.has(nodo.nombre)) {
+        const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado);
+        if (img) mapa.set(nodo.nombre, img);
+      }
+    }
+    return mapa;
+  }
+
   async function descargarPdf() {
     if (!datos) return;
     setGenerandoPdf(true);
     try {
       if (seleccionados.size > 0) {
-        await generarPdfMicrogerencia(Array.from(seleccionados.values()), `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`);
+        const nodosSeleccionados = Array.from(seleccionados.values());
+        const imagenes = await generarImagenesParaNodos(nodosSeleccionados, datos.delitoFiltrado);
+        await generarPdfMicrogerencia(nodosSeleccionados, `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`, imagenes);
       } else if (vista === 'delitos') {
         await generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos);
       } else if (raizVistaActual) {
-        await generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista]);
+        const imagenes = await generarImagenesParaNodos([raizVistaActual], datos.delitoFiltrado);
+        await generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista], imagenes);
       }
     } finally {
       setGenerandoPdf(false);
