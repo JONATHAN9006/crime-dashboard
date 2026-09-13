@@ -4,15 +4,22 @@ import { agruparPor, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
 import { AporteBarList } from '../components/charts/AporteBarList';
 
+// Azul rey — se usa en TODAS las barras de esta página en vez del rojo de
+// alerta que usa el resto del dashboard (Operatividad es un indicador
+// positivo — capturas, incautaciones — no una alerta de delito).
+const AZUL_REY = '#1d4ed8';
+const PALETA_AZUL = ['#1d4ed8', '#93c5fd'];
+
 // "Operatividad por Unidad" — mismo espíritu que "Delictividad por Unidad"
 // (tabla de resumen + barras con aporte %), pero sobre el dataset de
 // Operatividad (capturas, incautaciones, recuperaciones), que se filtra
 // con los MISMOS filtros generales del dashboard (ver DataContext:
 // filteredOperatividadRecords ya viene cruzado por Delito, Estación,
-// Cuadrante, Barrio, Año, Mes y fecha).
+// Cuadrante, Barrio, Año, Mes y fecha — con Delito y Estación ya
+// traducidos al mismo vocabulario del filtro general).
 export function OperatividadUnidad() {
   const { filteredOperatividadRecords, operatividadMeta, filters } = useData();
-  const [topBarrio, setTopBarrio] = useState(10);
+  const [topBarrio, setTopBarrio] = useState<number | 'todas'>(5);
   const [topDelito, setTopDelito] = useState(10);
 
   const registros = filteredOperatividadRecords;
@@ -21,15 +28,13 @@ export function OperatividadUnidad() {
   const porCategoria = agruparPor(registros, (r) => r.categoria || 'Sin categoría');
   const conAportePorCategoria = porCategoria.map((d) => ({ ...d, aportePct: total > 0 ? (d.casos / total) * 100 : 0 }));
 
-  const porEstacion = agruparPor(registros, (r) => r.estacion || 'NO REPORTADO');
-  const conAportePorEstacion = porEstacion.map((d) => ({ ...d, aportePct: total > 0 ? (d.casos / total) * 100 : 0 }));
-
   const porCuadrante = agruparPor(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const conAportePorCuadrante = porCuadrante.map((d) => ({ ...d, aportePct: total > 0 ? (d.casos / total) * 100 : 0 }));
 
   const porBarrioCompleto = agruparPor(registros, (r) => r.barrioHecho || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const totalBarrios = porBarrioCompleto.reduce((a, d) => a + d.casos, 0);
-  const porBarrio = porBarrioCompleto.slice(0, topBarrio).map((d) => ({ ...d, aportePct: totalBarrios > 0 ? (d.casos / totalBarrios) * 100 : 0 }));
+  const porBarrioRecortado = topBarrio === 'todas' ? porBarrioCompleto : porBarrioCompleto.slice(0, topBarrio);
+  const porBarrio = porBarrioRecortado.map((d) => ({ ...d, aportePct: totalBarrios > 0 ? (d.casos / totalBarrios) * 100 : 0 }));
 
   const porDelitoCompleto = agruparPor(registros, (r) => r.delitoAsociado || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const totalDelitoAsoc = porDelitoCompleto.reduce((a, d) => a + d.casos, 0);
@@ -38,7 +43,7 @@ export function OperatividadUnidad() {
   const filtrosActivos = [
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
     filters.estacion.length > 0 && `Estación: ${filters.estacion.join(', ')}`,
-    filters.cuadrante.length > 0 && `Cuadrante: ${filters.cuadrante.join(', ')}`,
+    filters.cuadrante.length > 0 && `Zona de Atención: ${filters.cuadrante.join(', ')}`,
     filters.barrioHecho.length > 0 && `Barrio: ${filters.barrioHecho.join(', ')}`,
     filters.anio.length > 0 && `Año: ${filters.anio.join(', ')}`,
     filters.mes.length > 0 && `Mes: ${filters.mes.join(', ')}`,
@@ -67,7 +72,8 @@ export function OperatividadUnidad() {
             </div>
           )}
 
-          <Card title="Resumen general" subtitle="Totales de operatividad con los filtros actuales" descargable="resumen-operatividad">
+          {/* Resumen general — compacto y centrado, mismo criterio que en Delictividad. */}
+          <Card title="Resumen general" subtitle="Totales de operatividad con los filtros actuales" descargable="resumen-operatividad" className="mx-auto max-w-xl">
             <table className="w-full text-sm">
               <tbody>
                 {[
@@ -76,29 +82,28 @@ export function OperatividadUnidad() {
                   ...conAportePorCategoria.map((c) => ({ etiqueta: c.key, valor: `${formatNumero(c.casos)} (${c.aportePct.toFixed(1)}%)` })),
                 ].map((fila, i) => (
                   <tr key={fila.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/60' : ''}>
-                    <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">{fila.etiqueta}</td>
-                    <td className="rounded-r-lg py-2 pr-3 text-right text-base font-bold text-slate-800">{fila.valor}</td>
+                    <td className="rounded-l-lg py-1.5 pl-3 text-xs font-medium text-slate-600">{fila.etiqueta}</td>
+                    <td className="rounded-r-lg py-1.5 pr-3 text-right text-sm font-bold text-slate-800">{fila.valor}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </Card>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* 3 componentes por fila — Categoría, Delito asociado y Zona de
+              Atención por ahora (se quitó "Por Estación" a pedido). */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card title="Por categoría de operatividad" descargable="operatividad-categoria">
-              <AporteBarList data={conAportePorCategoria} />
+              <AporteBarList data={conAportePorCategoria} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} />
             </Card>
             <Card title="Por delito asociado" descargable="operatividad-delito" actions={<SelectorTop valor={topDelito} onChange={setTopDelito} />}>
-              {porDelito.length > 0 ? <AporteBarList data={porDelito} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
+              {porDelito.length > 0 ? <AporteBarList data={porDelito} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
             </Card>
-            <Card title="Por estación" descargable="operatividad-estacion">
-              {conAportePorEstacion.length > 0 ? <AporteBarList data={conAportePorEstacion} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
+            <Card title="Por zona de atención" descargable="operatividad-zona">
+              {conAportePorCuadrante.length > 0 ? <AporteBarList data={conAportePorCuadrante} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
             </Card>
-            <Card title="Por zona de atención (cuadrante)" descargable="operatividad-cuadrante">
-              {conAportePorCuadrante.length > 0 ? <AporteBarList data={conAportePorCuadrante} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
-            </Card>
-            <Card title="Por barrio — Top" descargable="operatividad-barrio" actions={<SelectorTop valor={topBarrio} onChange={setTopBarrio} />}>
-              {porBarrio.length > 0 ? <AporteBarList data={porBarrio} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
+            <Card title="Por barrio" descargable="operatividad-barrio" actions={<SelectorTopBarrio valor={topBarrio} onChange={setTopBarrio} />}>
+              {porBarrio.length > 0 ? <AporteBarList data={porBarrio} colorMaximo={AZUL_REY} paletaBarras={PALETA_AZUL} /> : <p className="py-6 text-center text-sm text-slate-400">Sin datos.</p>}
             </Card>
           </div>
         </>
@@ -111,6 +116,20 @@ function SelectorTop({ valor, onChange }: { valor: number; onChange: (v: number)
   return (
     <select value={valor} onChange={(e) => onChange(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
       {[5, 10, 15, 20].map((n) => <option key={n} value={n}>Top {n}</option>)}
+    </select>
+  );
+}
+
+function SelectorTopBarrio({ valor, onChange }: { valor: number | 'todas'; onChange: (v: number | 'todas') => void }) {
+  return (
+    <select
+      value={valor}
+      onChange={(e) => onChange(e.target.value === 'todas' ? 'todas' : Number(e.target.value))}
+      className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
+    >
+      <option value={5}>Top 5</option>
+      <option value={10}>Top 10</option>
+      <option value="todas">Todas</option>
     </select>
   );
 }

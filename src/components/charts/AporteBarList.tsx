@@ -35,12 +35,15 @@ const COLUMNAS_GRID = '130px minmax(0, 1fr) 56px 64px';
  * como encabezado centrado sobre su propia columna — nunca un porcentaje
  * flotando suelto encima del gráfico.
  */
-export function AporteBarList({ data, onBarClick, resaltarMaximo = true }: {
+export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMaximo = '#dc2626', paletaBarras }: {
   data: FilaAporte[];
   onBarClick?: (key: string) => void;
   resaltarMaximo?: boolean;
+  colorMaximo?: string; // color del borde y de la barra que resalta el valor más alto — rojo por defecto (alerta), pero configurable
+  paletaBarras?: string[]; // colores de las barras normales (no la resaltada) — teal/gris por defecto
 }) {
   const maxCasos = Math.max(1, ...data.map((d) => d.casos));
+  const paleta = paletaBarras ?? PALETA_BARRAS;
 
   return (
     <div>
@@ -60,7 +63,7 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true }: {
         {data.map((d, i) => {
           const anchoPct = Math.max(2, (d.casos / maxCasos) * 100);
           const esMaximo = resaltarMaximo && d.casos === maxCasos && maxCasos > 0;
-          const color = esMaximo ? VERDE_MAXIMO : PALETA_BARRAS[i % PALETA_BARRAS.length];
+          const color = esMaximo ? colorMaximo : paleta[i % paleta.length];
           return (
             <div
               key={d.key}
@@ -74,7 +77,7 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true }: {
                 <div
                   data-export-track="true"
                   className="rounded"
-                  style={esMaximo ? { border: '2px dashed #dc2626', padding: '1px' } : undefined}
+                  style={esMaximo ? { border: `2px dashed ${colorMaximo}`, padding: '1px' } : undefined}
                 >
                   <div className="h-2 overflow-hidden rounded bg-slate-100">
                     <div
