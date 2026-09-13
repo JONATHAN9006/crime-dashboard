@@ -12,7 +12,7 @@ import {
 } from '../data/puntosStorage';
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
-import { exportarPoligonoAislado } from '../utils/exportarPoligonoMapa';
+import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
@@ -816,6 +816,82 @@ export function MapaGeorreferenciacion() {
       }
     }
     return anillos;
+  }
+
+  // Busca el polígono PROPIO de un CAI (no el de la estación completa) —
+  // recorre las capas cargadas y devuelve el primer feature cuyo campo
+  // detectado coincida con ese nombre de CAI exacto.
+  function buscarFeatureDeCai(nombreCai: string): any | null {
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      if (!campo) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const valor = String(f?.properties?.[campo] ?? '');
+        if (normalizar(valor) === normalizar(nombreCai)) return f;
+      }
+    }
+    return null;
+  }
+
+  // Miniaturas de mapa de calor, una por cada CAI de la Estación
+  // seleccionada — se regeneran solas cuando cambia la lista de CAI o el
+  // delito filtrado. Cada una usa el MISMO motor de dibujo que la
+  // descarga principal (calles + Kernel Density + borde), solo que a un
+  // tamaño más chico para que las 3-4 se generen rápido.
+  const [previsualizacionesCai, setPrevisualizacionesCai] = useState<Record<string, string | 'cargando' | 'error'>>({});
+
+  useEffect(() => {
+    if (caiDeEstacionActiva.length === 0) return;
+    let cancelado = false;
+    for (const nombreCai of caiDeEstacionActiva) {
+      setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'cargando' }));
+      const feature = buscarFeatureDeCai(nombreCai);
+      if (!feature) {
+        setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'error' }));
+        continue;
+      }
+      const puntosDeEsteCai = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
+      const conteoPorDelito = new Map<string, number>();
+      for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
+      const etiquetas = [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`];
+      generarDataUrlPoligonoAislado({
+        feature,
+        puntos: puntosDeEsteCai,
+        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        etiquetas,
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+      })
+        .then((dataUrl) => { if (!cancelado) setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: dataUrl })); })
+        .catch(() => { if (!cancelado) setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'error' })); });
+    }
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(',')]);
+
+  async function descargarPrevisualizacionCai(nombreCai: string) {
+    const feature = buscarFeatureDeCai(nombreCai);
+    if (!feature) return;
+    const puntosDeEsteCai = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
+    const conteoPorDelito = new Map<string, number>();
+    for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
+    const lineasDelito = Array.from(conteoPorDelito.entries()).sort((a, b) => b[1] - a[1]).map(([d, c]) => `${d}: ${c} caso${c === 1 ? '' : 's'}`);
+    try {
+      await exportarPoligonoAislado({
+        feature,
+        puntos: puntosDeEsteCai,
+        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        etiquetas: [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`, ...lineasDelito],
+        nombreArchivo: `mapa-calor-${nombreCai}`.replace(/\s+/g, '-'),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+      });
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la descarga de la miniatura de CAI:', err);
+      setError(`No fue posible descargar el mapa de ${nombreCai}. Revisa la consola (F12).`);
+    }
   }
 
   async function descargarZonaSeleccionada() {
@@ -1626,24 +1702,47 @@ export function MapaGeorreferenciacion() {
 
       {caiDeEstacionActiva.length > 0 && (
         <Card>
-          <p className="mb-3 text-sm font-bold text-slate-700">CAI de {filtrosMapa.estacion[0]}</p>
-          <div className="flex flex-wrap gap-2">
+          <p className="mb-3 text-sm font-bold text-slate-700">CAI de {filtrosMapa.estacion[0]} — mapa de calor por CAI</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {caiDeEstacionActiva.map((cai) => {
               const seleccionado = filtrosMapa.cai.includes(cai);
+              const previa = previsualizacionesCai[cai];
               return (
-                <button
-                  key={cai}
-                  type="button"
-                  onClick={() => setFiltrosMapa((prev) => ({ ...prev, cai: seleccionado ? [] : [cai] }))}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${seleccionado ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}
-                >
-                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colorDeCai(cai) }} />
-                  {cai}
-                </button>
+                <div key={cai} className={`overflow-hidden rounded-lg border ${seleccionado ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setFiltrosMapa((prev) => ({ ...prev, cai: seleccionado ? [] : [cai] }))}
+                    className="flex aspect-square w-full items-center justify-center bg-slate-50"
+                    title="Clic para resaltar este CAI en el mapa de arriba"
+                  >
+                    {previa === 'cargando' || !previa ? (
+                      <span className="text-xs text-slate-400">Generando…</span>
+                    ) : previa === 'error' ? (
+                      <span className="px-2 text-center text-xs text-slate-400">Sin geometría propia para este CAI</span>
+                    ) : (
+                      <img src={previa} alt={`Mapa de calor de ${cai}`} className="h-full w-full object-contain" />
+                    )}
+                  </button>
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2 py-1.5">
+                    <span className="flex items-center gap-1.5 truncate text-xs font-semibold text-slate-600">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorDeCai(cai) }} />
+                      {cai}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => descargarPrevisualizacionCai(cai)}
+                      disabled={typeof previa !== 'string' || previa === 'error'}
+                      className="shrink-0 text-slate-400 hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-40"
+                      title={`Descargar mapa de ${cai}`}
+                    >
+                      <Download size={14} />
+                    </button>
+                  </div>
+                </div>
               );
             })}
           </div>
-          <p className="mt-2 text-[11px] text-slate-400">Haz clic en un CAI para resaltarlo en el mapa de arriba — un segundo clic lo quita.</p>
+          <p className="mt-2 text-[11px] text-slate-400">Haz clic en una miniatura para resaltar ese CAI en el mapa de arriba — un segundo clic lo quita. El ícono de descarga baja esa imagen individual.</p>
         </Card>
       )}
 

@@ -13,7 +13,6 @@ export interface PuntoParaMapaCalor {
   delitoCorto?: string | null;
 }
 
-const ANCHO_LIENZO = 1200; // px — el alto sale solo, según la proporción Web Mercator real del área
 const TAMANO_TILE = 256;
 
 function extraerAnillos(feature: any): [number, number][][] {
@@ -28,8 +27,6 @@ function extraerAnillos(feature: any): [number, number][][] {
   return anillos;
 }
 
-// Proyección Web Mercator NORMALIZADA (0 a 1 en cada eje) — la misma
-// fórmula que usa cualquier mapa de calles (OSM, Google Maps, etc.).
 function lonAMercatorX(lon: number): number {
   return (lon + 180) / 360;
 }
@@ -48,20 +45,25 @@ function cargarImagen(url: string, conCors: boolean): Promise<HTMLImageElement> 
   });
 }
 
-export async function exportarPoligonoAislado(opciones: {
+export interface OpcionesPoligonoAislado {
   feature: any;
   puntos: PuntoParaMapaCalor[];
   colores: string[];
   etiquetas: string[];
-  nombreArchivo: string;
   opacidadPoligono?: number;
   opacidadCalor?: number;
   opacidadEtiquetas?: number;
   colorBorde?: string;
-  alPortapapeles?: boolean;
-  anillosInternos?: [number, number][][]; // límites de cuadrante u otra subdivisión, dibujados ADEMÁS del contorno principal
-}): Promise<void> {
-  const { feature, puntos, colores, etiquetas, nombreArchivo, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', alPortapapeles = false, anillosInternos = [] } = opciones;
+  anillosInternos?: [number, number][][];
+  anchoLienzo?: number; // más chico = más rápido (ideal para miniaturas de vista previa)
+}
+
+// Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
+// en un lienzo nuevo y lo devuelve — SIN decidir qué hacer con el
+// resultado (eso lo deciden las funciones de más abajo: descargar, copiar
+// al portapapeles, o generar una miniatura de vista previa).
+export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
+  const { feature, puntos, colores, etiquetas, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200 } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -82,17 +84,17 @@ export async function exportarPoligonoAislado(opciones: {
   const anchoMerc = mercHiX - mercLoX;
   const altoMerc = mercHiY - mercLoY;
 
-  const alto = Math.max(1, Math.round(ANCHO_LIENZO * (altoMerc / anchoMerc)));
+  const alto = Math.max(1, Math.round(anchoLienzo * (altoMerc / anchoMerc)));
 
   function lonAX(lon: number): number {
-    return ((lonAMercatorX(lon) - mercLoX) / anchoMerc) * ANCHO_LIENZO;
+    return ((lonAMercatorX(lon) - mercLoX) / anchoMerc) * anchoLienzo;
   }
   function latAY(lat: number): number {
     return ((latAMercatorY(lat) - mercLoY) / altoMerc) * alto;
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = ANCHO_LIENZO;
+  canvas.width = anchoLienzo;
   canvas.height = alto;
   const ctx = canvas.getContext('2d')!;
 
@@ -108,7 +110,7 @@ export async function exportarPoligonoAislado(opciones: {
 
   // 1) CALLES REALES — recortadas al polígono con ctx.clip() antes de
   // dibujar nada más.
-  const zoom = Math.max(13, Math.min(18, Math.floor(Math.log2(ANCHO_LIENZO / (anchoMerc * TAMANO_TILE)))));
+  const zoom = Math.max(13, Math.min(18, Math.floor(Math.log2(anchoLienzo / (anchoMerc * TAMANO_TILE)))));
   const escalaMundo = Math.pow(2, zoom);
   const txMin = Math.floor(mercLoX * escalaMundo);
   const txMax = Math.floor(mercHiX * escalaMundo);
@@ -127,9 +129,9 @@ export async function exportarPoligonoAislado(opciones: {
         tareasTiles.push(
           cargarImagen(url, true)
             .then((img) => {
-              const xIzq = ((tx / escalaMundo - mercLoX) / anchoMerc) * ANCHO_LIENZO;
+              const xIzq = ((tx / escalaMundo - mercLoX) / anchoMerc) * anchoLienzo;
               const yArriba = ((ty / escalaMundo - mercLoY) / altoMerc) * alto;
-              const anchoTile = ((1 / escalaMundo) / anchoMerc) * ANCHO_LIENZO;
+              const anchoTile = ((1 / escalaMundo) / anchoMerc) * anchoLienzo;
               const altoTile = ((1 / escalaMundo) / altoMerc) * alto;
               ctx.drawImage(img, xIzq, yArriba, anchoTile + 0.5, altoTile + 0.5);
             })
@@ -172,9 +174,7 @@ export async function exportarPoligonoAislado(opciones: {
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // 4b) Límites internos (ej. cuadrantes dentro de una estación o CAI) —
-  // en negro, más delgados que el contorno principal, para diferenciar la
-  // subdivisión interna sin competir visualmente con el borde exterior.
+  // 4b) Límites internos (ej. cuadrantes dentro de una estación o CAI).
   if (anillosInternos.length > 0) {
     ctx.beginPath();
     for (const anillo of anillosInternos) {
@@ -190,8 +190,8 @@ export async function exportarPoligonoAislado(opciones: {
 
   // 5) Etiqueta — esquina con menos densidad de calor pintada ahí.
   if (etiquetas.length > 0) {
-    const tamanoFuente = 15;
-    const alturaLinea = 21;
+    const tamanoFuente = Math.max(10, Math.round(15 * (anchoLienzo / 1200)));
+    const alturaLinea = Math.round(tamanoFuente * 1.4);
     const paddingX = 14, paddingY = 10, margenCaja = 16;
     ctx.font = `bold ${tamanoFuente}px Arial`;
     const anchoCaja = Math.max(...etiquetas.map((t) => ctx.measureText(t).width)) + paddingX * 2;
@@ -236,7 +236,15 @@ export async function exportarPoligonoAislado(opciones: {
     ctx.globalAlpha = 1;
   }
 
-  if (alPortapapeles) {
+  return canvas;
+}
+
+// Descarga el PNG (o lo copia al portapapeles) — construido sobre el mismo
+// núcleo de arriba.
+export async function exportarPoligonoAislado(opciones: OpcionesPoligonoAislado & { nombreArchivo: string; alPortapapeles?: boolean }): Promise<void> {
+  const canvas = await generarCanvasPoligonoAislado(opciones);
+
+  if (opciones.alPortapapeles) {
     const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('No fue posible generar la imagen para copiarla al portapapeles.');
     if (!navigator.clipboard || !('write' in navigator.clipboard)) {
@@ -254,7 +262,15 @@ export async function exportarPoligonoAislado(opciones: {
     throw new Error('No fue posible generar la imagen (el lienzo quedó bloqueado). Revisa la consola (F12) para más detalle.');
   }
   const enlace = document.createElement('a');
-  enlace.download = `${nombreArchivo}.png`;
+  enlace.download = `${opciones.nombreArchivo}.png`;
   enlace.href = dataUrl;
   enlace.click();
+}
+
+// Genera SOLO el data URL (para usarlo como miniatura de vista previa, ej.
+// <img src={...}/>) — usa un lienzo más chico por defecto para que
+// generar varias miniaturas a la vez (una por CAI) no sea lento.
+export async function generarDataUrlPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<string> {
+  const canvas = await generarCanvasPoligonoAislado({ anchoLienzo: 420, ...opciones });
+  return canvas.toDataURL('image/png');
 }
