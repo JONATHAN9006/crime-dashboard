@@ -353,6 +353,7 @@ export function MapaGeorreferenciacion() {
   }), [records]);
 
   const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
+  const [mostrarEnConstruccion, setMostrarEnConstruccion] = useState<string | null>(null);
   const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
   // Fuentes propias del módulo — Operatividad y Macri quedan como
   // interruptores preparados (sin datos ni capa real detrás todavía); se
@@ -1054,11 +1055,11 @@ export function MapaGeorreferenciacion() {
               >
                 <FileUp size={13} /> Delitos
               </button>
-              <button type="button" disabled title="Próximamente — falta cargar la información de Operatividad" className="flex w-full cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-500">
-                <FileUp size={13} /> Operatividad <span className="ml-auto rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase">Próx.</span>
+              <button type="button" onClick={() => setMostrarEnConstruccion('Operatividad')} className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10">
+                <FileUp size={13} /> Operatividad
               </button>
-              <button type="button" disabled title="Próximamente — falta cargar la información de Macri" className="flex w-full cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-500">
-                <FileUp size={13} /> Macri <span className="ml-auto rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase">Próx.</span>
+              <button type="button" onClick={() => setMostrarEnConstruccion('Macri')} className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10">
+                <FileUp size={13} /> Macri
               </button>
             </div>
           )}
@@ -1111,6 +1112,17 @@ export function MapaGeorreferenciacion() {
             </div>
             <p className="mt-3 text-[11px] text-slate-400">Operatividad y Macri quedan listas para activarse solas en cuanto se cargue su información correspondiente (capturas, incautaciones, etc.) — todavía no hay datos de esas fuentes.</p>
             <button type="button" onClick={() => setMostrarSelectorFuentes(false)} className="mt-3 w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {mostrarEnConstruccion && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarEnConstruccion(null)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-1 text-3xl">🚧</p>
+            <p className="mb-1 text-sm font-bold text-slate-700">{mostrarEnConstruccion} — En construcción</p>
+            <p className="mb-4 text-xs text-slate-500">Esta fuente todavía no tiene información cargada. En cuanto se suba el Excel correspondiente, se activa aquí mismo.</p>
+            <button type="button" onClick={() => setMostrarEnConstruccion(null)} className="w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Entendido</button>
           </div>
         </div>
       )}
@@ -1171,6 +1183,14 @@ export function MapaGeorreferenciacion() {
             onGuardar={guardarNuevaCapaPuntos}
           />
         )}
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".zip,.geojson,.json"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }}
+        />
       </Card>
 
 
