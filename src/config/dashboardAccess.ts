@@ -12,6 +12,7 @@
 export interface AccesoHerramientas {
   resumen: boolean;
   unidad: boolean;
+  operatividadUnidad: boolean;
   ultimasSemanas: boolean;
   matrizCalor: boolean;
   mapa: boolean;
@@ -33,6 +34,7 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
   jefe: {
     resumen: true,
     unidad: true,
+    operatividadUnidad: true,
     ultimasSemanas: false,
     matrizCalor: false,
     mapa: false,
@@ -50,6 +52,7 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
   interno: {
     resumen: true,
     unidad: true,
+    operatividadUnidad: true,
     ultimasSemanas: true,
     matrizCalor: true,
     mapa: true,
