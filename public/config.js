@@ -1,3 +1,4 @@
+Config · JS
 // Configuración en tiempo de ejecución del dashboard.
 // Puedes editar este archivo directamente en el servidor (sin recompilar el proyecto).
 //
@@ -8,9 +9,10 @@
 // agenteIAUrl: URL del backend del "Analista IA" (una función serverless aparte,
 //   ver netlify/functions/agenteIA.ts) — deja "" si todavía no lo has desplegado;
 //   el Analista IA se muestra igual, pero avisa que no está configurado.
-
+ 
 window.APP_CONFIG = {
-  backendUrl: "https://script.google.com/macros/s/AKfycbxxSpQQWb4W_7PCFGSWQPwjG3Vi3oPWXan80VI3_V4PCox-bZRhX-jjgFsqrKpazfUe8g/exec",
+  backendUrl: "https://script.google.com/macros/s/AKfycbw5YKQVuG9z0nvgCNqqSvxm9x_7EKqX2XAyoTcXY215CZEbj8b35sgARZozhAa6IegG/exec",
   updatePassword: "Mepoy-2026",
   agenteIAUrl: "",
 };
+ 
