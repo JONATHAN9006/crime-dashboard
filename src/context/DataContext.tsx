@@ -340,14 +340,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    // Espera a que la Delictividad termine de cargar/sincronizar antes de
+    // pedir Operatividad — NUNCA deben competir al mismo tiempo por el
+    // mismo backend. Google Apps Script (nivel gratuito) tiene un límite
+    // bajo de ejecuciones simultáneas; pedir los dos datasets a la vez
+    // puede hacer que una de las solicitudes de Delictividad falle o
+    // regrese una respuesta incompleta — visto de primera mano.
+    if (loading) return;
+    let cancelado = false;
     (async () => {
-      // 1) Si hay backend, intenta traer la versión central primero.
+      // Margen de seguridad adicional: deja que la sincronización principal
+      // termine de asentarse antes de disparar la de Operatividad.
+      await new Promise((r) => setTimeout(r, 1500));
+      if (cancelado) return;
+
+      // 1) Si hay backend, intenta traer la versión central primero — las
+      // dos llamadas van UNA DESPUÉS DE LA OTRA (no en paralelo), para no
+      // sumarle más carga simultánea al mismo backend compartido.
       if (backendUrl) {
         try {
-          const [csv, metaRemota] = await Promise.all([
-            descargarCsvRemoto(backendUrl, 'operatividad'),
-            consultarMetaRemota(backendUrl, 'operatividad').catch(() => null),
-          ]);
+          const csv = await descargarCsvRemoto(backendUrl, 'operatividad');
+          const metaRemota = await consultarMetaRemota(backendUrl, 'operatividad').catch(() => null);
+          if (cancelado) return;
           const registros = parsearOperatividadDesdeCsv(csv);
           if (registros.length > 0) {
             guardarOperatividadLocal(
@@ -370,8 +384,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
       } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
     })();
+    return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backendUrl]);
+  }, [backendUrl, loading]);
 
   const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string): Promise<{ registros: number } | { error: string }> => {
     try {
