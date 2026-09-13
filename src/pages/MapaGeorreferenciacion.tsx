@@ -390,6 +390,7 @@ export function MapaGeorreferenciacion() {
   // falta tenerlos abiertos por defecto; siguen disponibles con un clic
   // para quien los necesite.
   const [capasDetalleAbiertas, setCapasDetalleAbiertas] = useState<Set<string>>(new Set());
+  const [mostrarDetalleCapasEnConfig, setMostrarDetalleCapasEnConfig] = useState(false);
 
   // Jerarquía real cuadrante → CAI → estación, tomada de los datos ya
   // cargados — así, si un shapefile trae solo el nombre del CUADRANTE (el
@@ -1052,81 +1053,29 @@ export function MapaGeorreferenciacion() {
       )}
 
       <Card>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Layers size={16} className="text-brand-navy" />
-            <p className="text-sm font-semibold text-slate-700">Capas cargadas ({capas.length})</p>
-            {/* Interruptores para los PUNTOS individuales de cada fuente
-                (independiente del mapa de calor de abajo). */}
-            <div className="ml-3 flex items-center gap-3 border-l border-slate-200 pl-3 text-xs">
-              <label className="flex cursor-pointer items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible)}
-                  onChange={(e) => alternarVisibilidadPorTipo('irisp1', e.target.checked)}
-                  disabled={!capasPuntos.some((c) => c.tipo === 'irisp1')}
-                />
-                <span className="h-2 w-2 rounded-full bg-[#2563eb]" /> IRISP1
-              </label>
-              <label className="flex cursor-pointer items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={capasPuntos.some((c) => c.tipo === 'delitos' && c.visible)}
-                  onChange={(e) => alternarVisibilidadPorTipo('delitos', e.target.checked)}
-                  disabled={!capasPuntos.some((c) => c.tipo === 'delitos')}
-                />
-                <span className="h-2 w-2 rounded-full bg-[#dc2626]" /> Delitos
-              </label>
-              <label className="flex cursor-pointer items-center gap-1.5">
-                <input type="checkbox" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
-                Comparar IRISP1 vs Delitos
-              </label>
-              <label className="flex cursor-not-allowed items-center gap-1.5 text-slate-400" title="Próximamente — falta cargar la información de Operatividad">
-                <input type="checkbox" checked={fuentesActivas.operatividad} disabled onChange={(e) => setFuentesActivas((prev) => ({ ...prev, operatividad: e.target.checked }))} />
-                <span className="h-2 w-2 rounded-full bg-slate-300" /> Operatividad
-              </label>
-              <label className="flex cursor-not-allowed items-center gap-1.5 text-slate-400" title="Próximamente — falta cargar la información de Macri">
-                <input type="checkbox" checked={fuentesActivas.macri} disabled onChange={(e) => setFuentesActivas((prev) => ({ ...prev, macri: e.target.checked }))} />
-                <span className="h-2 w-2 rounded-full bg-slate-300" /> Macri
-              </label>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            {!soloLectura && (
-              <>
-                <button
-                  onClick={() => inputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg bg-brand-navy px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-navy-light"
-                >
-                  <FileUp size={14} /> {cargando ? 'Procesando...' : 'Cargar capa'}
-                </button>
-                <button
-                  onClick={() => setModalCapaPuntos('IRISP1')}
-                  className="flex items-center gap-1.5 rounded-lg border border-brand-green px-3 py-1.5 text-sm font-medium text-brand-green hover:bg-brand-green/5"
-                >
-                  <FileUp size={14} /> IRISP1
-                </button>
-                <button
-                  onClick={() => setModalCapaPuntos('Delitos')}
-                  className="flex items-center gap-1.5 rounded-lg border border-brand-green px-3 py-1.5 text-sm font-medium text-brand-green hover:bg-brand-green/5"
-                >
-                  <FileUp size={14} /> Delitos
-                </button>
-                {capas.length > 0 && (
-                  <button onClick={limpiarTodo} className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-sm text-rose-600 hover:bg-rose-50">
-                    <Trash2 size={14} /> Quitar todas
-                  </button>
-                )}
-              </>
-            )}
+        <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
+          <label className="flex cursor-pointer items-center gap-1.5">
             <input
-              ref={inputRef}
-              type="file"
-              accept=".zip,.geojson,.json"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }}
+              type="checkbox"
+              checked={capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible)}
+              onChange={(e) => alternarVisibilidadPorTipo('irisp1', e.target.checked)}
+              disabled={!capasPuntos.some((c) => c.tipo === 'irisp1')}
             />
-          </div>
+            <span className="h-2 w-2 rounded-full bg-[#2563eb]" /> IRISP1
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={capasPuntos.some((c) => c.tipo === 'delitos' && c.visible)}
+              onChange={(e) => alternarVisibilidadPorTipo('delitos', e.target.checked)}
+              disabled={!capasPuntos.some((c) => c.tipo === 'delitos')}
+            />
+            <span className="h-2 w-2 rounded-full bg-[#dc2626]" /> Delitos
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input type="checkbox" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
+            Comparar IRISP1 vs Delitos
+          </label>
         </div>
 
         {/* La leyenda de cada escala aparece en cuanto su mapa de calor está
@@ -1159,219 +1108,8 @@ export function MapaGeorreferenciacion() {
             onGuardar={guardarNuevaCapaPuntos}
           />
         )}
-
-        {/* Panel de control de capas: activar/desactivar, y configurar coloreado por casos */}
-        {capas.length > 0 && (
-          <div className="space-y-2">
-            {capas.map((capa) => {
-              const props = propiedadesDisponibles(capa.geojson);
-              return (
-                <div key={capa.id} className="rounded-lg border border-slate-200">
-                  <div className="flex items-center justify-between gap-2 p-2.5">
-                    <label className="flex flex-1 cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={capa.visible}
-                        onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })}
-                      />
-                      {capa.visible ? <Eye size={14} className="text-brand-green" /> : <EyeOff size={14} className="text-slate-300" />}
-                      <span className="text-sm font-medium text-slate-700">{capa.nombre}</span>
-                      <span className="text-xs text-slate-400">({contarFeatures(capa.geojson)} elementos)</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setCapaExpandida(capaExpandida === capa.id ? null : capa.id)}
-                        className="flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-                      >
-                        <Palette size={12} /> Colorear por casos
-                      </button>
-                      {!soloLectura && (
-                        <button onClick={() => quitarCapa(capa.id)} className="text-slate-400 hover:text-rose-600">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {capaExpandida === capa.id && (
-                    <div className="border-t border-slate-100 bg-slate-50 p-3">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <label className="flex items-center gap-2 text-xs text-slate-600">
-                          <input
-                            type="checkbox"
-                            checked={capa.colorearPorCasos}
-                            onChange={(e) => actualizarCapa(capa.id, { colorearPorCasos: e.target.checked })}
-                          />
-                          Colorear por cantidad de casos filtrados
-                        </label>
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-500">¿A qué corresponde esta capa?</label>
-                          <select
-                            value={capa.dimension ?? ''}
-                            onChange={(e) => actualizarCapa(capa.id, { dimension: (e.target.value || null) as any })}
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                          >
-                            <option value="">Selecciona...</option>
-                            {DIMENSIONES.map((d) => <option key={d.valor} value={d.valor}>{d.etiqueta}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-500">Campo del archivo con el nombre</label>
-                          <select
-                            value={capa.campoUnion ?? ''}
-                            onChange={(e) => actualizarCapa(capa.id, { campoUnion: e.target.value || null })}
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                          >
-                            <option value="">Selecciona...</option>
-                            {props.map((p) => <option key={p} value={p}>{p}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        Ejemplo: si esta capa trae los polígonos de las estaciones y el archivo tiene una columna llamada "NOMBRE", selecciona "Estación" y "NOMBRE" — el mapa comparará ese valor contra los nombres de estación de los datos filtrados (ej. "E-Norte") para colorear cada polígono según su cantidad de casos.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-
-        {/* Capas de puntos (IRISP1 / Delitos): quién y cuándo las cargó,
-            filtros propios, semaforización por delito y tabla resumen. */}
-        {capasPuntosProcesadas.map(({ capa, puntosFiltrados, resumenEstado, resumenExistencia, ordenDelitos, todosLosDelitosCortos }) => (
-          <div key={capa.id} className="mb-3 rounded-lg border border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
-              <label className="flex flex-1 cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapaPuntos(capa.id, { visible: e.target.checked })} />
-                {capa.visible ? <Eye size={14} className="text-brand-green" /> : <EyeOff size={14} className="text-slate-300" />}
-                <span className="text-sm font-medium text-slate-700">{capa.nombre}</span>
-                <span className="text-xs text-slate-400">({puntosFiltrados.length} de {capa.puntos.length} puntos)</span>
-              </label>
-              <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                <span className="flex items-center gap-1"><User size={11} /> {capa.cargadoPor}</span>
-                <span className="flex items-center gap-1"><Calendar size={11} /> {new Date(capa.fechaCarga).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</span>
-                <button
-                  type="button"
-                  onClick={() => setCapasDetalleAbiertas((prev) => {
-                    const nuevo = new Set(prev);
-                    if (nuevo.has(capa.id)) nuevo.delete(capa.id); else nuevo.add(capa.id);
-                    return nuevo;
-                  })}
-                  className="font-semibold text-brand-navy hover:underline"
-                >
-                  {capasDetalleAbiertas.has(capa.id) ? '▲ Ocultar detalles' : '▼ Ver detalles'}
-                </button>
-                {!soloLectura && (
-                  <button onClick={() => quitarCapaPuntos(capa.id)} className="text-slate-400 hover:text-rose-600"><Trash2 size={14} /></button>
-                )}
-              </div>
-            </div>
-
-            {capasDetalleAbiertas.has(capa.id) && capa.visible && (capa.colEstado || capa.colEstadoExistencia || capa.colDependencia) && (
-              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50 p-3 sm:grid-cols-3">
-                {capa.colEstado && (
-                  <FiltroChips
-                    titulo="Estado del trámite"
-                    valores={[...new Set(capa.puntos.map((p) => String(p.fila[capa.colEstado!] ?? 'Sin dato')))]}
-                    seleccionados={capa.filtroEstado}
-                    onToggle={(v) => alternarFiltroCapa(capa, 'filtroEstado', v)}
-                  />
-                )}
-                {capa.colEstadoExistencia && (
-                  <FiltroChips
-                    titulo="Estado de existencia"
-                    valores={[...new Set(capa.puntos.map((p) => String(p.fila[capa.colEstadoExistencia!] ?? 'Sin dato')))]}
-                    seleccionados={capa.filtroEstadoExistencia}
-                    onToggle={(v) => alternarFiltroCapa(capa, 'filtroEstadoExistencia', v)}
-                  />
-                )}
-                {capa.colDependencia && (
-                  <FiltroChips
-                    titulo="Dependencia"
-                    valores={[...new Set(capa.puntos.map((p) => String(p.fila[capa.colDependencia!] ?? 'Sin dato')))]}
-                    seleccionados={capa.filtroDependencia}
-                    onToggle={(v) => alternarFiltroCapa(capa, 'filtroDependencia', v)}
-                  />
-                )}
-              </div>
-            )}
-
-            {capasDetalleAbiertas.has(capa.id) && capa.visible && (resumenEstado.length > 0 || resumenExistencia.length > 0) && (
-              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 p-3 sm:grid-cols-2">
-                {resumenExistencia.length > 0 && (
-                  <TablaResumen titulo="Por estado de existencia" filas={resumenExistencia} />
-                )}
-                {resumenEstado.length > 0 && (
-                  <TablaResumen titulo="Por estado del trámite" filas={resumenEstado} />
-                )}
-              </div>
-            )}
-
-            {capasDetalleAbiertas.has(capa.id) && capa.visible && capa.colDelito && ordenDelitos.length > 0 && (
-              <div className="border-t border-slate-100 p-3">
-                {modoComparacion ? (
-                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: capa.tipo === 'irisp1' ? '#2563eb' : '#dc2626' }} />
-                    Modo comparación: {capa.tipo === 'irisp1' ? 'azul (IRISP1)' : 'rojo (Delitos)'}
-                  </span>
-                ) : (
-                  <>
-                    <span className="mb-1.5 block text-[11px] font-semibold text-slate-500">Semaforización (un color por delito):</span>
-                    <div className="flex flex-col gap-1">
-                      {ordenDelitos.map((d) => (
-                        <span key={d} className="flex items-center gap-1.5 text-[11px] text-slate-600">
-                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorPorDelito(d, ordenDelitos, capa.tipo) }} />
-                          {d}
-                        </span>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Delitos "manipulables": todos los que trae esta capa, existan o
-                no como opción en el filtro principal del dashboard — permite
-                sumar al mapa delitos como "Receptación" que el dashboard no
-                conoce, sin afectar ningún otro componente. */}
-            {capa.visible && todosLosDelitosCortos.length > 0 && (
-              <div className="border-t border-slate-100 p-3">
-                <p className="mb-1.5 text-[11px] font-semibold text-slate-500">
-                  Agregar delitos al mapa (independiente del filtro principal):
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {todosLosDelitosCortos.map((d) => {
-                    const activo = capa.filtroDelitoPropio.includes(d);
-                    const yaCubiertoPorFiltroPrincipal = filters.delito.includes(d);
-                    return (
-                      <button
-                        key={d}
-                        onClick={() => alternarDelitoPropio(capa, d)}
-                        title={yaCubiertoPorFiltroPrincipal ? 'Ya está incluido por el filtro principal del dashboard' : undefined}
-                        className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                          activo || yaCubiertoPorFiltroPrincipal
-                            ? 'border-brand-green bg-brand-green text-white'
-                            : 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                        }`}
-                      >
-                        {d}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {filters.delito.length > 0 && capa.colDelito && puntosFiltrados.length === 0 && (
-              <p className="border-t border-slate-100 p-3 text-xs text-slate-400">
-                Ningún punto de "{capa.nombre}" coincide con el Delito seleccionado en el filtro general.
-              </p>
-            )}
-          </div>
-        ))}
       </Card>
+
 
       <Card className={clsx('overflow-hidden p-0', pantallaCompleta && 'fixed inset-0 z-[9999] rounded-none')}>
         <div data-mapa-contenedor className="relative" style={{ height: pantallaCompleta ? '100vh' : '65vh', width: '100%' }}>
@@ -1781,6 +1519,229 @@ export function MapaGeorreferenciacion() {
                   />
                 </div>
               ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setMostrarDetalleCapasEnConfig((v) => !v)}
+            className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-xs font-semibold text-brand-navy hover:bg-slate-50"
+          >
+            {mostrarDetalleCapasEnConfig ? '▲ Ocultar detalles de capas' : '▼ Ver detalles de capas'}
+          </button>
+          {mostrarDetalleCapasEnConfig && (
+            <div className="mb-4 max-h-[480px] overflow-y-auto rounded-lg border border-slate-100 p-2 text-xs">
+        {/* Panel de control de capas: activar/desactivar, y configurar coloreado por casos */}
+        {capas.length > 0 && (
+          <div className="space-y-2">
+            {capas.map((capa) => {
+              const props = propiedadesDisponibles(capa.geojson);
+              return (
+                <div key={capa.id} className="rounded-lg border border-slate-200">
+                  <div className="flex items-center justify-between gap-2 p-2.5">
+                    <label className="flex flex-1 cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={capa.visible}
+                        onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })}
+                      />
+                      {capa.visible ? <Eye size={14} className="text-brand-green" /> : <EyeOff size={14} className="text-slate-300" />}
+                      <span className="text-sm font-medium text-slate-700">{capa.nombre}</span>
+                      <span className="text-xs text-slate-400">({contarFeatures(capa.geojson)} elementos)</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCapaExpandida(capaExpandida === capa.id ? null : capa.id)}
+                        className="flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                      >
+                        <Palette size={12} /> Colorear por casos
+                      </button>
+                      {!soloLectura && (
+                        <button onClick={() => quitarCapa(capa.id)} className="text-slate-400 hover:text-rose-600">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {capaExpandida === capa.id && (
+                    <div className="border-t border-slate-100 bg-slate-50 p-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <label className="flex items-center gap-2 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={capa.colorearPorCasos}
+                            onChange={(e) => actualizarCapa(capa.id, { colorearPorCasos: e.target.checked })}
+                          />
+                          Colorear por cantidad de casos filtrados
+                        </label>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-500">¿A qué corresponde esta capa?</label>
+                          <select
+                            value={capa.dimension ?? ''}
+                            onChange={(e) => actualizarCapa(capa.id, { dimension: (e.target.value || null) as any })}
+                            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            <option value="">Selecciona...</option>
+                            {DIMENSIONES.map((d) => <option key={d.valor} value={d.valor}>{d.etiqueta}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-500">Campo del archivo con el nombre</label>
+                          <select
+                            value={capa.campoUnion ?? ''}
+                            onChange={(e) => actualizarCapa(capa.id, { campoUnion: e.target.value || null })}
+                            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            <option value="">Selecciona...</option>
+                            {props.map((p) => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        Ejemplo: si esta capa trae los polígonos de las estaciones y el archivo tiene una columna llamada "NOMBRE", selecciona "Estación" y "NOMBRE" — el mapa comparará ese valor contra los nombres de estación de los datos filtrados (ej. "E-Norte") para colorear cada polígono según su cantidad de casos.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+
+        {/* Capas de puntos (IRISP1 / Delitos): quién y cuándo las cargó,
+            filtros propios, semaforización por delito y tabla resumen. */}
+        {capasPuntosProcesadas.map(({ capa, puntosFiltrados, resumenEstado, resumenExistencia, ordenDelitos, todosLosDelitosCortos }) => (
+          <div key={capa.id} className="mb-3 rounded-lg border border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
+              <label className="flex flex-1 cursor-pointer items-center gap-2">
+                <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapaPuntos(capa.id, { visible: e.target.checked })} />
+                {capa.visible ? <Eye size={14} className="text-brand-green" /> : <EyeOff size={14} className="text-slate-300" />}
+                <span className="text-sm font-medium text-slate-700">{capa.nombre}</span>
+                <span className="text-xs text-slate-400">({puntosFiltrados.length} de {capa.puntos.length} puntos)</span>
+              </label>
+              <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                <span className="flex items-center gap-1"><User size={11} /> {capa.cargadoPor}</span>
+                <span className="flex items-center gap-1"><Calendar size={11} /> {new Date(capa.fechaCarga).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                <button
+                  type="button"
+                  onClick={() => setCapasDetalleAbiertas((prev) => {
+                    const nuevo = new Set(prev);
+                    if (nuevo.has(capa.id)) nuevo.delete(capa.id); else nuevo.add(capa.id);
+                    return nuevo;
+                  })}
+                  className="font-semibold text-brand-navy hover:underline"
+                >
+                  {capasDetalleAbiertas.has(capa.id) ? '▲ Ocultar detalles' : '▼ Ver detalles'}
+                </button>
+                {!soloLectura && (
+                  <button onClick={() => quitarCapaPuntos(capa.id)} className="text-slate-400 hover:text-rose-600"><Trash2 size={14} /></button>
+                )}
+              </div>
+            </div>
+
+            {capasDetalleAbiertas.has(capa.id) && capa.visible && (capa.colEstado || capa.colEstadoExistencia || capa.colDependencia) && (
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50 p-3 sm:grid-cols-3">
+                {capa.colEstado && (
+                  <FiltroChips
+                    titulo="Estado del trámite"
+                    valores={[...new Set(capa.puntos.map((p) => String(p.fila[capa.colEstado!] ?? 'Sin dato')))]}
+                    seleccionados={capa.filtroEstado}
+                    onToggle={(v) => alternarFiltroCapa(capa, 'filtroEstado', v)}
+                  />
+                )}
+                {capa.colEstadoExistencia && (
+                  <FiltroChips
+                    titulo="Estado de existencia"
+                    valores={[...new Set(capa.puntos.map((p) => String(p.fila[capa.colEstadoExistencia!] ?? 'Sin dato')))]}
+                    seleccionados={capa.filtroEstadoExistencia}
+                    onToggle={(v) => alternarFiltroCapa(capa, 'filtroEstadoExistencia', v)}
+                  />
+                )}
+                {capa.colDependencia && (
+                  <FiltroChips
+                    titulo="Dependencia"
+                    valores={[...new Set(capa.puntos.map((p) => String(p.fila[capa.colDependencia!] ?? 'Sin dato')))]}
+                    seleccionados={capa.filtroDependencia}
+                    onToggle={(v) => alternarFiltroCapa(capa, 'filtroDependencia', v)}
+                  />
+                )}
+              </div>
+            )}
+
+            {capasDetalleAbiertas.has(capa.id) && capa.visible && (resumenEstado.length > 0 || resumenExistencia.length > 0) && (
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 p-3 sm:grid-cols-2">
+                {resumenExistencia.length > 0 && (
+                  <TablaResumen titulo="Por estado de existencia" filas={resumenExistencia} />
+                )}
+                {resumenEstado.length > 0 && (
+                  <TablaResumen titulo="Por estado del trámite" filas={resumenEstado} />
+                )}
+              </div>
+            )}
+
+            {capasDetalleAbiertas.has(capa.id) && capa.visible && capa.colDelito && ordenDelitos.length > 0 && (
+              <div className="border-t border-slate-100 p-3">
+                {modoComparacion ? (
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: capa.tipo === 'irisp1' ? '#2563eb' : '#dc2626' }} />
+                    Modo comparación: {capa.tipo === 'irisp1' ? 'azul (IRISP1)' : 'rojo (Delitos)'}
+                  </span>
+                ) : (
+                  <>
+                    <span className="mb-1.5 block text-[11px] font-semibold text-slate-500">Semaforización (un color por delito):</span>
+                    <div className="flex flex-col gap-1">
+                      {ordenDelitos.map((d) => (
+                        <span key={d} className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorPorDelito(d, ordenDelitos, capa.tipo) }} />
+                          {d}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Delitos "manipulables": todos los que trae esta capa, existan o
+                no como opción en el filtro principal del dashboard — permite
+                sumar al mapa delitos como "Receptación" que el dashboard no
+                conoce, sin afectar ningún otro componente. */}
+            {capa.visible && todosLosDelitosCortos.length > 0 && (
+              <div className="border-t border-slate-100 p-3">
+                <p className="mb-1.5 text-[11px] font-semibold text-slate-500">
+                  Agregar delitos al mapa (independiente del filtro principal):
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {todosLosDelitosCortos.map((d) => {
+                    const activo = capa.filtroDelitoPropio.includes(d);
+                    const yaCubiertoPorFiltroPrincipal = filters.delito.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => alternarDelitoPropio(capa, d)}
+                        title={yaCubiertoPorFiltroPrincipal ? 'Ya está incluido por el filtro principal del dashboard' : undefined}
+                        className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                          activo || yaCubiertoPorFiltroPrincipal
+                            ? 'border-brand-green bg-brand-green text-white'
+                            : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {filters.delito.length > 0 && capa.colDelito && puntosFiltrados.length === 0 && (
+              <p className="border-t border-slate-100 p-3 text-xs text-slate-400">
+                Ningún punto de "{capa.nombre}" coincide con el Delito seleccionado en el filtro general.
+              </p>
+            )}
+          </div>
+        ))}
             </div>
           )}
 
