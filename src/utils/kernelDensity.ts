@@ -147,7 +147,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   const anclasRgb = [coloresRgb[0], ...coloresRgb]; // el color "0" se repite para el ancla en fracción 0
 
   function colorInterpolado(v: number): [number, number, number] {
-    const fraccion = Math.min(1, v / maxValor);
+    const fraccion = Math.min(1, (v / maxValor - UMBRAL_MINIMO_FRACCION) / (1 - UMBRAL_MINIMO_FRACCION));
     for (let i = 0; i < ANCLAS_FRACCION.length - 1; i++) {
       const f0 = ANCLAS_FRACCION[i], f1 = ANCLAS_FRACCION[i + 1];
       if (fraccion >= f0 && fraccion <= f1) {
@@ -165,8 +165,8 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   // zonas de transición se leen más suaves, sin un salto de opacidad
   // abrupto entre niveles.
   function opacidadContinua(v: number): number {
-    const fraccion = Math.min(1, v / maxValor);
-    return Math.round(100 + fraccion * 145); // 100 (mínimo visible) a 245 (casi opaco en el núcleo)
+    const fraccion = Math.min(1, (v / maxValor - UMBRAL_MINIMO_FRACCION) / (1 - UMBRAL_MINIMO_FRACCION));
+    return Math.round(130 + fraccion * 125); // 130 (mínimo visible, ya por encima del umbral) a 255 (opaco en el núcleo)
   }
 
   const canvas = document.createElement('canvas');
@@ -175,11 +175,24 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   const ctx = canvas.getContext('2d')!;
   const imgData = ctx.createImageData(COLS, ROWS);
 
+  // UMBRAL MÍNIMO — antes se pintaba CUALQUIER rastro de densidad (por
+  // mínimo que fuera) como verde sólido; con miles de puntos repartidos
+  // por toda la ciudad, sus radios de 250m se solapan casi en todas
+  // partes, y eso dejaba TODO el polígono con un lavado verde parejo (el
+  // problema real que se detectó comparando contra ArcGIS: ahí, la mayor
+  // parte del mapa queda SIN NINGÚN color, y el color solo aparece cerca
+  // de las concentraciones genuinas). Por eso ahora cualquier valor por
+  // debajo de este umbral se deja completamente transparente — igual que
+  // la clase más baja de la simbología clasificada de ArcGIS, que empieza
+  // en un mínimo real, no en "cualquier rastro mayor que cero".
+  const UMBRAL_MINIMO_FRACCION = 0.12;
+  const umbralMinimo = maxValor * UMBRAL_MINIMO_FRACCION;
+
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const v = densidad[idx(c, r)];
       const p = (r * COLS + c) * 4;
-      if (v <= 1e-9) {
+      if (v <= umbralMinimo) {
         imgData.data[p + 3] = 0;
         continue;
       }
