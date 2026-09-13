@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { CrimeRecord, DatasetMeta, FilterState, UpdateMode, UpdateSummary } from '../types/crime';
 import type { OperatividadRecord } from '../types/operatividad';
-import { parsearOperatividad } from '../data/operatividadParser';
+import { parsearOperatividad, parsearOperatividadDesdeCsv } from '../data/operatividadParser';
+import { serializarOperatividadCsv } from '../data/operatividadSerializer';
 import { emptyFilterState } from '../types/crime';
 import { parseCsvText } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
@@ -59,7 +60,7 @@ interface DataContextValue {
   operatividadRecords: OperatividadRecord[];
   filteredOperatividadRecords: OperatividadRecord[];
   operatividadMeta: { totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null;
-  cargarArchivoOperatividad: (file: File, usuario?: string) => Promise<{ registros: number } | { error: string }>;
+  cargarArchivoOperatividad: (file: File, token?: string, usuario?: string) => Promise<{ registros: number } | { error: string }>;
 }
 
 import { excluirDelitosOmitidos } from '../utils/delitosExcluidos';
@@ -324,36 +325,80 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ── Dataset de OPERATIVIDAD ──────────────────────────────────────────
+  // Mismo patrón que Delictividad: si hay backend configurado, se
+  // sincroniza con el servidor central (todos ven la misma actualización);
+  // si no, se guarda solo en este navegador (localStorage) como respaldo.
   const [operatividadRecords, setOperatividadRecords] = useState<OperatividadRecord[]>([]);
   const [operatividadMeta, setOperatividadMeta] = useState<{ totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null>(null);
 
-  useEffect(() => {
+  function guardarOperatividadLocal(registros: OperatividadRecord[], ultimaActualizacion: Date, nombreArchivo: string) {
+    setOperatividadRecords(registros);
+    setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion, nombreArchivo });
     try {
-      const guardado = localStorage.getItem('mepoy-operatividad');
-      if (guardado) {
-        const datos = JSON.parse(guardado);
-        const registros: OperatividadRecord[] = (datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
-        setOperatividadRecords(registros);
-        setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
-      }
-    } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
-  }, []);
+      localStorage.setItem('mepoy-operatividad', JSON.stringify({ registros, ultimaActualizacion, nombreArchivo }));
+    } catch { /* si no cabe en localStorage, se queda solo en memoria para esta sesión */ }
+  }
 
-  const cargarArchivoOperatividad = useCallback(async (file: File, _usuario?: string): Promise<{ registros: number } | { error: string }> => {
+  useEffect(() => {
+    (async () => {
+      // 1) Si hay backend, intenta traer la versión central primero.
+      if (backendUrl) {
+        try {
+          const [csv, metaRemota] = await Promise.all([
+            descargarCsvRemoto(backendUrl, 'operatividad'),
+            consultarMetaRemota(backendUrl, 'operatividad').catch(() => null),
+          ]);
+          const registros = parsearOperatividadDesdeCsv(csv);
+          if (registros.length > 0) {
+            guardarOperatividadLocal(
+              registros,
+              metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion) : new Date(),
+              'Servidor central',
+            );
+            return;
+          }
+        } catch { /* si falla la conexión, se sigue con lo que haya guardado localmente */ }
+      }
+      // 2) Respaldo local (sin backend, o backend sin datos todavía).
+      try {
+        const guardado = localStorage.getItem('mepoy-operatividad');
+        if (guardado) {
+          const datos = JSON.parse(guardado);
+          const registros: OperatividadRecord[] = (datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
+          setOperatividadRecords(registros);
+          setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
+        }
+      } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendUrl]);
+
+  const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string): Promise<{ registros: number } | { error: string }> => {
     try {
       const { registros } = await parsearOperatividad(file);
       if (registros.length === 0) return { error: 'No se encontraron registros válidos en el archivo (¿tiene las columnas OPERATIVIDAD y DELITO_ASOCIADO?).' };
-      setOperatividadRecords(registros);
+
       const ahora = new Date();
-      setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: ahora, nombreArchivo: file.name });
-      try {
-        localStorage.setItem('mepoy-operatividad', JSON.stringify({ registros, ultimaActualizacion: ahora, nombreArchivo: file.name }));
-      } catch { /* si no cabe en localStorage, se queda solo en memoria para esta sesión */ }
+
+      if (backendUrl) {
+        if (!token) return { error: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
+        try {
+          const csv = serializarOperatividadCsv(registros);
+          const res = await subirCsvRemoto(backendUrl, token, csv, usuario || 'No identificado', 'operatividad');
+          if (!res.ok) return { error: res.error || 'El servidor central rechazó la actualización de Operatividad.' };
+        } catch {
+          return { error: 'No fue posible conectar con el servidor central para sincronizar Operatividad.' };
+        }
+        guardarOperatividadLocal(registros, ahora, 'Servidor central');
+      } else {
+        guardarOperatividadLocal(registros, ahora, file.name);
+      }
+
       return { registros: registros.length };
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'No fue posible leer el archivo de Operatividad.' };
     }
-  }, []);
+  }, [backendUrl]);
 
   // Se filtra con los MISMOS filtros generales del dashboard, usando el
   // campo equivalente de cada uno (Delito ↔ delitoAsociado, Estación,

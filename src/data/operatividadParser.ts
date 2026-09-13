@@ -66,14 +66,8 @@ export function esArchivoOperatividad(headers: string[]): boolean {
   return limpios.includes('OPERATIVIDAD') && limpios.includes('DELITO_ASOCIADO');
 }
 
-export async function parsearOperatividad(file: File): Promise<{ registros: OperatividadRecord[]; columnasDetectadas: string[] }> {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
-  const hoja = workbook.Sheets[workbook.SheetNames[0]];
-  const filas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
-  const columnasDetectadas = filas.length > 0 ? Object.keys(filas[0]) : [];
-
-  const registros: OperatividadRecord[] = filas.map((fila, indice) => {
+function mapearFilas(filas: Record<string, unknown>[]): OperatividadRecord[] {
+  return filas.map((fila, indice) => {
     const fecha = parsearFecha(fila['FECHA_HECHO']);
     const anio = fecha ? fecha.getFullYear() : numeroONull(fila['ANIO']);
     const mes = fecha ? fecha.getMonth() + 1 : null;
@@ -108,6 +102,24 @@ export async function parsearOperatividad(file: File): Promise<{ registros: Oper
     };
     return rec;
   });
+}
 
-  return { registros, columnasDetectadas };
+export async function parsearOperatividad(file: File): Promise<{ registros: OperatividadRecord[]; columnasDetectadas: string[] }> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const hoja = workbook.Sheets[workbook.SheetNames[0]];
+  const filas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
+  const columnasDetectadas = filas.length > 0 ? Object.keys(filas[0]) : [];
+  return { registros: mapearFilas(filas), columnasDetectadas };
+}
+
+// Para cuando el CSV viene del backend central (ver remoteApi.ts) — mismo
+// mapeo de columnas, pero partiendo de texto CSV (delimitador ";", igual
+// que csvSerializer.ts) en vez de un archivo .xlsx recién subido.
+export function parsearOperatividadDesdeCsv(csvTexto: string): OperatividadRecord[] {
+  if (!csvTexto || !csvTexto.trim()) return [];
+  const workbook = XLSX.read(csvTexto, { type: 'string', raw: true, FS: ';' });
+  const hoja = workbook.Sheets[workbook.SheetNames[0]];
+  const filas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
+  return mapearFilas(filas);
 }

@@ -25,7 +25,7 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
 
     if (tipoDataset === 'operatividad') {
       setProcesando(true);
-      const res = await cargarArchivoOperatividad(archivo, usuario);
+      const res = await cargarArchivoOperatividad(archivo, token || undefined, usuario);
       setResultadoOperatividad(res);
       setProcesando(false);
       return;
@@ -52,7 +52,7 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
     onCompletado?.();
   }
 
-  const requiereClave = tipoDataset === 'delictividad' && (!!backendUrl || !!updatePassword);
+  const requiereClave = !!backendUrl || (tipoDataset === 'delictividad' && !!updatePassword);
 
   return (
     <div>
@@ -86,10 +86,17 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
       )}
 
       {tipoDataset === 'operatividad' && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-          <CloudOff size={15} className="mt-0.5 shrink-0" />
-          <p>La Operatividad se guarda solo en este navegador (todavía no está conectada al servidor central) — y cada carga <strong>reemplaza</strong> la anterior.</p>
-        </div>
+        backendUrl ? (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-brand-navy/20 bg-brand-navy/5 p-3 text-xs text-brand-navy">
+            <UploadCloud size={15} className="mt-0.5 shrink-0" />
+            <p>La Operatividad se sincroniza con el servidor central, igual que la Delictividad — cualquier persona que consulte el dashboard verá esta misma actualización. Cada carga <strong>reemplaza</strong> la anterior.</p>
+          </div>
+        ) : (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <CloudOff size={15} className="mt-0.5 shrink-0" />
+            <p>La Operatividad se guarda solo en este navegador (todavía no hay servidor central configurado) — y cada carga <strong>reemplaza</strong> la anterior.</p>
+          </div>
+        )
       )}
 
       {tipoDataset === 'delictividad' && backendUrl && !resultado && (
