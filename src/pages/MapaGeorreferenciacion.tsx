@@ -868,7 +868,7 @@ export function MapaGeorreferenciacion() {
     }
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(',')]);
+  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas]);
 
   async function descargarPrevisualizacionCai(nombreCai: string) {
     const feature = buscarFeatureDeCai(nombreCai);
