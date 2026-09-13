@@ -1008,6 +1008,20 @@ export function MapaGeorreferenciacion() {
             ))}
           </div>
 
+          {capas.length > 0 && (
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Capas cargadas</p>
+              <div className="space-y-1.5">
+                {capas.map((capa) => (
+                  <label key={capa.id} className="flex cursor-pointer items-center gap-2 text-xs">
+                    <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
+                    <span className="truncate">{capa.nombre}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => setMostrarSelectorFuentes(true)}

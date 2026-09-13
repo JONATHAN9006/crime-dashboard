@@ -132,30 +132,48 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
     }
   }
 
-  // 3) Clasificación por fracción del valor máximo real — igual que la
-  // simbología clasificada de ArcGIS Pro: el rojo solo aparece donde la
-  // densidad es genuinamente alta, no simplemente "alta respecto a su
-  // entorno inmediato".
+  // 3) Color CONTINUO por interpolación — nunca "banding" de 5 bloques
+  // fijos. Los mismos puntos de corte de siempre (0%, 8%, 22%, 42%, 68%,
+  // 100% del máximo real) se usan como anclas de color, y CUALQUIER valor
+  // intermedio se interpola linealmente entre las dos anclas más cercanas
+  // — así la transición entre verde, amarillo, naranja y rojo es
+  // genuinamente continua, no un salto brusco de un bloque a otro.
   const valoresConDensidad = Array.from(densidad).filter((v) => v > 1e-9);
   if (valoresConDensidad.length === 0) return null;
 
-  const NUM_CLASES = 5;
   const maxValor = Math.max(...valoresConDensidad);
-  const FRACCIONES_CORTE = [0.08, 0.22, 0.42, 0.68];
-  const cortes = FRACCIONES_CORTE.map((f) => f * maxValor);
+  const ANCLAS_FRACCION = [0, 0.08, 0.22, 0.42, 0.68, 1];
+  const coloresRgb = colores.map(hexARgb);
+  const anclasRgb = [coloresRgb[0], ...coloresRgb]; // el color "0" se repite para el ancla en fracción 0
 
-  function clasificar(v: number): number {
-    for (let i = 0; i < cortes.length; i++) if (v <= cortes[i]) return i;
-    return NUM_CLASES - 1;
+  function colorInterpolado(v: number): [number, number, number] {
+    const fraccion = Math.min(1, v / maxValor);
+    for (let i = 0; i < ANCLAS_FRACCION.length - 1; i++) {
+      const f0 = ANCLAS_FRACCION[i], f1 = ANCLAS_FRACCION[i + 1];
+      if (fraccion >= f0 && fraccion <= f1) {
+        const t = f1 === f0 ? 0 : (fraccion - f0) / (f1 - f0);
+        const [r0, g0, b0] = anclasRgb[i];
+        const [r1, g1, b1] = anclasRgb[i + 1];
+        return [Math.round(r0 + (r1 - r0) * t), Math.round(g0 + (g1 - g0) * t), Math.round(b0 + (b1 - b0) * t)];
+      }
+    }
+    return anclasRgb[anclasRgb.length - 1];
   }
 
-  const OPACIDAD_POR_CLASE = [110, 150, 185, 215, 240];
+  // La opacidad también sube de forma continua con la fracción (no por
+  // bloques) — los núcleos de mayor densidad quedan más sólidos, y las
+  // zonas de transición se leen más suaves, sin un salto de opacidad
+  // abrupto entre niveles.
+  function opacidadContinua(v: number): number {
+    const fraccion = Math.min(1, v / maxValor);
+    return Math.round(100 + fraccion * 145); // 100 (mínimo visible) a 245 (casi opaco en el núcleo)
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = COLS;
   canvas.height = ROWS;
   const ctx = canvas.getContext('2d')!;
   const imgData = ctx.createImageData(COLS, ROWS);
-  const coloresRgb = colores.map(hexARgb);
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -165,12 +183,11 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
         imgData.data[p + 3] = 0;
         continue;
       }
-      const clase = clasificar(v);
-      const [rr, gg, bb] = coloresRgb[clase];
+      const [rr, gg, bb] = colorInterpolado(v);
       imgData.data[p] = rr;
       imgData.data[p + 1] = gg;
       imgData.data[p + 2] = bb;
-      imgData.data[p + 3] = OPACIDAD_POR_CLASE[clase];
+      imgData.data[p + 3] = opacidadContinua(v);
     }
   }
   ctx.putImageData(imgData, 0, 0);
@@ -191,8 +208,8 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   const clases = colores.map((color, i) => ({
     color,
     etiqueta: etiquetasClase[i],
-    desde: i === 0 ? 0 : cortes[i - 1],
-    hasta: i === NUM_CLASES - 1 ? maxValor : cortes[i],
+    desde: ANCLAS_FRACCION[i] * maxValor,
+    hasta: ANCLAS_FRACCION[i + 1] * maxValor,
   }));
 
   return {
