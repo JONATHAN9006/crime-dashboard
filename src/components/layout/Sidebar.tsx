@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LayoutDashboard, Gauge, Building2, CalendarRange, Flame,
-  Map, X, GitCompare, Table2, ShieldCheck, ChevronLeft, UserRound, Activity, Package, Eye,
+  Map, X, GitCompare, Table2, ShieldCheck, ChevronLeft, UserRound, Activity, Package, Eye, Target,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
@@ -9,7 +9,7 @@ import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 
 export type PaginaId =
-  | 'resumen' | 'unidad' | 'ultimasSemanas'
+  | 'resumen' | 'unidad' | 'operatividadUnidad' | 'ultimasSemanas'
   | 'matrizCalor' | 'mapa' | 'tasaCosec'
   | 'comparativo' | 'tabla' | 'calidad' | 'productos';
 
@@ -21,7 +21,8 @@ const MENSAJE_BLOQUEADO = 'Este componente se encuentra en análisis y construcc
 
 const ITEMS_PRINCIPALES: { id: PaginaId; label: string; icon: React.ElementType }[] = [
   { id: 'resumen', label: 'Inicio / Resumen', icon: LayoutDashboard },
-  { id: 'unidad', label: 'Análisis por Unidad', icon: Building2 },
+  { id: 'unidad', label: 'Delictividad por Unidad', icon: Building2 },
+  { id: 'operatividadUnidad', label: 'Operatividad por Unidad', icon: Target },
   { id: 'ultimasSemanas', label: 'Últimas 4 Semanas', icon: CalendarRange },
   { id: 'matrizCalor', label: 'Matriz de Calor', icon: Flame },
   { id: 'mapa', label: 'Mapa / Georreferenciación', icon: Map },

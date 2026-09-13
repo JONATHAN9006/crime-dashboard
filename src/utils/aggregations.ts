@@ -9,7 +9,7 @@ export interface CountItem {
 // Agrupa por un campo. "casos" = cantidad de HECHOS/filas (1 hecho = 1 caso,
 // sin sumar la columna Cantidad — así lo reporta oficialmente la unidad,
 // incluso si un hecho puntual involucró más de una víctima).
-export function agruparPor(records: CrimeRecord[], getter: (r: CrimeRecord) => string): CountItem[] {
+export function agruparPor<T>(records: T[], getter: (r: T) => string): CountItem[] {
   const map = new Map<string, CountItem>();
   for (const r of records) {
     const key = getter(r) || 'NO REPORTADO';

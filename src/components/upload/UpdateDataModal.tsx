@@ -8,18 +8,28 @@ import { obtenerConfig } from '../../config';
 type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string }) | { error: string };
 
 export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) {
-  const { cargarArchivo, limpiarTodo, meta, records, backendUrl } = useData();
+  const { cargarArchivo, limpiarTodo, meta, records, backendUrl, cargarArchivoOperatividad, operatividadMeta } = useData();
   const { updatePassword } = obtenerConfig();
+  const [tipoDataset, setTipoDataset] = useState<'delictividad' | 'operatividad'>('delictividad');
   const [modo, setModo] = useState<UpdateMode>('agregar');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [token, setToken] = useState('');
   const [usuario, setUsuario] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  const [resultadoOperatividad, setResultadoOperatividad] = useState<{ registros: number } | { error: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function procesar() {
     if (!archivo) return;
+
+    if (tipoDataset === 'operatividad') {
+      setProcesando(true);
+      const res = await cargarArchivoOperatividad(archivo, usuario);
+      setResultadoOperatividad(res);
+      setProcesando(false);
+      return;
+    }
 
     // Protección local: si no hay backend configurado, la clave se valida en el
     // propio navegador contra la clave definida en config.js.
@@ -38,51 +48,86 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
     setArchivo(null);
     setToken('');
     setResultado(null);
+    setResultadoOperatividad(null);
     onCompletado?.();
   }
 
-  const requiereClave = !!backendUrl || !!updatePassword;
+  const requiereClave = tipoDataset === 'delictividad' && (!!backendUrl || !!updatePassword);
 
   return (
     <div>
-      {meta && (
+      <p className="mb-2 text-sm font-medium text-slate-700">¿Qué información vas a subir?</p>
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => { setTipoDataset('delictividad'); setResultado(null); setResultadoOperatividad(null); }}
+          className={`rounded-lg border p-3 text-left text-sm ${tipoDataset === 'delictividad' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+        >
+          <p className="font-semibold text-slate-800">🚔 Delictividad</p>
+          <p className="mt-0.5 text-xs text-slate-500">Matriz Base o descarga DB2 (delitos, casos).</p>
+        </button>
+        <button
+          onClick={() => { setTipoDataset('operatividad'); setResultado(null); setResultadoOperatividad(null); }}
+          className={`rounded-lg border p-3 text-left text-sm ${tipoDataset === 'operatividad' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+        >
+          <p className="font-semibold text-slate-800">🎯 Operatividad</p>
+          <p className="mt-0.5 text-xs text-slate-500">Capturas, incautaciones, recuperaciones.</p>
+        </button>
+      </div>
+
+      {tipoDataset === 'delictividad' && meta && (
         <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
           <p>Datos actuales: <strong>{records.length.toLocaleString('es-CO')}</strong> registros · Última actualización: {meta.ultimaActualizacion ? formatFechaHora(meta.ultimaActualizacion) : '—'}</p>
         </div>
       )}
+      {tipoDataset === 'operatividad' && operatividadMeta && (
+        <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          <p>Datos actuales: <strong>{operatividadMeta.totalRegistros.toLocaleString('es-CO')}</strong> registros · Última actualización: {operatividadMeta.ultimaActualizacion ? formatFechaHora(operatividadMeta.ultimaActualizacion) : '—'}</p>
+        </div>
+      )}
 
-      {backendUrl && !resultado && (
+      {tipoDataset === 'operatividad' && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <CloudOff size={15} className="mt-0.5 shrink-0" />
+          <p>La Operatividad se guarda solo en este navegador (todavía no está conectada al servidor central) — y cada carga <strong>reemplaza</strong> la anterior.</p>
+        </div>
+      )}
+
+      {tipoDataset === 'delictividad' && backendUrl && !resultado && (
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-brand-navy/20 bg-brand-navy/5 p-3 text-xs text-brand-navy">
           <UploadCloud size={15} className="mt-0.5 shrink-0" />
           <p>Este dashboard está conectado a un servidor central. Al cargar el archivo, la actualización quedará disponible para <strong>todas</strong> las personas que consulten el dashboard, no solo en este navegador.</p>
         </div>
       )}
-      {!backendUrl && !resultado && (
+      {tipoDataset === 'delictividad' && !backendUrl && !resultado && (
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           <CloudOff size={15} className="mt-0.5 shrink-0" />
           <p>Este dashboard aún no está conectado a un servidor central: la actualización solo se guardará en este navegador.</p>
         </div>
       )}
 
-      {!resultado && (
+      {!resultado && !resultadoOperatividad && (
         <>
-          <p className="mb-2 text-sm font-medium text-slate-700">Modo de actualización</p>
-          <div className="mb-4 grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setModo('agregar')}
-              className={`rounded-lg border p-3 text-left text-sm ${modo === 'agregar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
-            >
-              <p className="font-semibold text-slate-800">Agregar información</p>
-              <p className="mt-0.5 text-xs text-slate-500">Incorpora nuevos registros sin perder los existentes. Detecta duplicados automáticamente.</p>
-            </button>
-            <button
-              onClick={() => setModo('reemplazar')}
-              className={`rounded-lg border p-3 text-left text-sm ${modo === 'reemplazar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
-            >
-              <p className="font-semibold text-slate-800">Reemplazar información</p>
-              <p className="mt-0.5 text-xs text-slate-500">Elimina los datos actuales y trabaja únicamente con el nuevo archivo.</p>
-            </button>
-          </div>
+          {tipoDataset === 'delictividad' && (
+            <>
+              <p className="mb-2 text-sm font-medium text-slate-700">Modo de actualización</p>
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setModo('agregar')}
+                  className={`rounded-lg border p-3 text-left text-sm ${modo === 'agregar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+                >
+                  <p className="font-semibold text-slate-800">Agregar información</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Incorpora nuevos registros sin perder los existentes. Detecta duplicados automáticamente.</p>
+                </button>
+                <button
+                  onClick={() => setModo('reemplazar')}
+                  className={`rounded-lg border p-3 text-left text-sm ${modo === 'reemplazar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+                >
+                  <p className="font-semibold text-slate-800">Reemplazar información</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Elimina los datos actuales y trabaja únicamente con el nuevo archivo.</p>
+                </button>
+              </div>
+            </>
+          )}
 
           <p className="mb-2 text-sm font-medium text-slate-700">Archivo de datos (CSV o Excel)</p>
           <div
@@ -91,7 +136,11 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
           >
             <UploadCloud size={26} className="text-slate-400" />
             <p className="text-sm text-slate-600">{archivo ? archivo.name : 'Haz clic para seleccionar un archivo CSV o Excel (.xlsx)'}</p>
-            <p className="text-xs text-slate-400">Acepta Matriz Base (Año, Mes, Fecha Dia, Delito...) o una descarga DB2 directa del aplicativo (FECHA_HECHO, DELITOS, CANTIDAD...) — se transforma automáticamente.</p>
+            <p className="text-xs text-slate-400">
+              {tipoDataset === 'delictividad'
+                ? 'Acepta Matriz Base (Año, Mes, Fecha Dia, Delito...) o una descarga DB2 directa del aplicativo (FECHA_HECHO, DELITOS, CANTIDAD...) — se transforma automáticamente.'
+                : 'Excel con las columnas OPERATIVIDAD y DELITO_ASOCIADO (capturas, incautaciones, recuperaciones).'}
+            </p>
             <input
               ref={inputRef}
               type="file"
@@ -135,13 +184,34 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
             <FolderOpen size={16} /> {procesando ? 'Procesando...' : 'Cargar y validar archivo'}
           </button>
 
-          <button
-            onClick={async () => { if (confirm('¿Eliminar todos los datos de este navegador? (esto no afecta al servidor central)')) { await limpiarTodo(); reiniciar(); } }}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-rose-200 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50"
-          >
-            <Trash2 size={13} /> Limpiar datos locales de este navegador
-          </button>
+          {tipoDataset === 'delictividad' && (
+            <button
+              onClick={async () => { if (confirm('¿Eliminar todos los datos de este navegador? (esto no afecta al servidor central)')) { await limpiarTodo(); reiniciar(); } }}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-rose-200 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50"
+            >
+              <Trash2 size={13} /> Limpiar datos locales de este navegador
+            </button>
+          )}
         </>
+      )}
+
+      {resultadoOperatividad && 'error' in resultadoOperatividad && (
+        <div className="flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          <p>{resultadoOperatividad.error}</p>
+        </div>
+      )}
+      {resultadoOperatividad && !('error' in resultadoOperatividad) && (
+        <div className="space-y-2">
+          <div className="flex items-start gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
+            <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold">Operatividad actualizada</p>
+              <p>Registros cargados: {resultadoOperatividad.registros}</p>
+            </div>
+          </div>
+          <button onClick={reiniciar} className="mt-2 w-full rounded-lg bg-brand-navy py-2 text-sm font-semibold text-white">Cerrar</button>
+        </div>
       )}
 
       {resultado && 'error' in resultado && (

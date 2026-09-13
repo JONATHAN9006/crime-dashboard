@@ -5,6 +5,7 @@ import { Header } from './components/layout/Header';
 import { FilterPanel } from './components/filters/FilterPanel';
 import { ResumenEjecutivo } from './pages/ResumenEjecutivo';
 import { AnalisisUnidad } from './pages/AnalisisUnidad';
+import { OperatividadUnidad } from './pages/OperatividadUnidad';
 import { UltimasSemanas } from './pages/UltimasSemanas';
 import { MatrizCalor } from './pages/MatrizCalor';
 import { MapaGeorreferenciacion } from './pages/MapaGeorreferenciacion';
@@ -20,6 +21,7 @@ import { DASHBOARD_ACCESS } from './config/dashboardAccess';
 const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
   unidad: AnalisisUnidad,
+  operatividadUnidad: OperatividadUnidad,
   ultimasSemanas: UltimasSemanas,
   matrizCalor: MatrizCalor,
   mapa: MapaGeorreferenciacion,

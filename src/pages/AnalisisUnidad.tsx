@@ -50,7 +50,7 @@ function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor:
 }
 
 export function AnalisisUnidad() {
-  const { records, filteredRecords, recordsBase, filters, meta, drillDown } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, drillDown, filteredOperatividadRecords } = useData();
   const modoAcceso = obtenerModoAcceso();
   const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
   const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
@@ -192,6 +192,18 @@ export function AnalisisUnidad() {
   const porDelitoVigenciaActual = porDelitoVigenciaActualCompleto.slice(0, topDelitos).map((d) => ({
     ...d,
     aportePct: totalDelitosVigenciaActual > 0 ? (d.casos / totalDelitosVigenciaActual) * 100 : 0,
+  }));
+
+  // Operatividad (capturas, incautaciones, recuperaciones) — dataset
+  // SEPARADO del de delictividad, ya filtrado por DataContext con los
+  // MISMOS filtros generales (Delito ↔ delito asociado, Estación,
+  // Cuadrante, Barrio, Año, Mes, fecha). Si el delito filtrado es
+  // "Homicidio", esto ya trae solo la operatividad asociada a Homicidio.
+  const porCategoriaOperatividad = agruparPor(filteredOperatividadRecords, (r) => r.categoria || 'Sin categoría');
+  const totalOperatividad = porCategoriaOperatividad.reduce((a, d) => a + d.casos, 0);
+  const porCategoriaOperatividadConAporte = porCategoriaOperatividad.map((d) => ({
+    ...d,
+    aportePct: totalOperatividad > 0 ? (d.casos / totalOperatividad) * 100 : 0,
   }));
 
   return (
@@ -366,6 +378,7 @@ export function AnalisisUnidad() {
               <AporteBarList data={porDelitoVigenciaActual} onBarClick={(key) => drillDown('delito', key)} />
             </Card>
           </div>
+
 
           {/* Todo lo siguiente reorganizado en filas de máximo 3 (items-start:
               cada tarjeta usa solo el alto que necesita su propio contenido).

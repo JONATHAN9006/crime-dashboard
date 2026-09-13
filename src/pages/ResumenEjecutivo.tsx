@@ -46,7 +46,7 @@ function FiltroTendenciaBoton({ activo, color, icono, etiqueta, onClick }: {
 }
 
 export function ResumenEjecutivo() {
-  const { records, filteredRecords, recordsBase, filters, meta } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, filteredOperatividadRecords, operatividadMeta } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
@@ -261,6 +261,36 @@ export function ResumenEjecutivo() {
           </p>
         </Card>
       </div>
+
+      {/* Resumen de Operatividad — mismo espíritu que el de delitos, tabla
+          simple con el total por categoría (capturas, incautaciones,
+          recuperaciones), respetando los mismos filtros generales. */}
+      {operatividadMeta && (
+        <Card title="Operatividad — resumen general" subtitle="Capturas, incautaciones y recuperaciones, con los filtros actuales" descargable="resumen-operatividad-inicio">
+          {(() => {
+            const porCategoria = agruparPor(filteredOperatividadRecords, (r) => r.categoria || 'Sin categoría');
+            const total = filteredOperatividadRecords.length;
+            return porCategoria.length > 0 ? (
+              <table className="w-full text-sm">
+                <tbody>
+                  <tr className="bg-slate-50/60">
+                    <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">Total operatividad</td>
+                    <td className="rounded-r-lg py-2 pr-3 text-right text-base font-bold text-slate-800">{formatNumero(total)}</td>
+                  </tr>
+                  {porCategoria.map((c, i) => (
+                    <tr key={c.key} className={i % 2 !== 0 ? 'bg-slate-50/60' : ''}>
+                      <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">{c.key}</td>
+                      <td className="rounded-r-lg py-2 pr-3 text-right text-base font-bold text-slate-800">{formatNumero(c.casos)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="py-4 text-center text-sm text-slate-400">Sin registros de operatividad para el filtro actual.</p>
+            );
+          })()}
+        </Card>
+      )}
     </div>
   );
 }

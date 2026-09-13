@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { CrimeRecord, DatasetMeta, FilterState, UpdateMode, UpdateSummary } from '../types/crime';
+import type { OperatividadRecord } from '../types/operatividad';
+import { parsearOperatividad } from '../data/operatividadParser';
 import { emptyFilterState } from '../types/crime';
 import { parseCsvText } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
@@ -51,6 +53,13 @@ interface DataContextValue {
   recordsBase: CrimeRecord[];
   actualizacionDisponible: boolean; // true brevemente justo después de una sincronización automática (para mostrar un aviso tipo "toast")
   descartarAvisoActualizacion: () => void;
+  // Dataset de OPERATIVIDAD — separado del de delictividad, con su propia
+  // carga, pero filtrado con los MISMOS filtros generales cuando el campo
+  // tiene equivalente.
+  operatividadRecords: OperatividadRecord[];
+  filteredOperatividadRecords: OperatividadRecord[];
+  operatividadMeta: { totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null;
+  cargarArchivoOperatividad: (file: File, usuario?: string) => Promise<{ registros: number } | { error: string }>;
 }
 
 import { excluirDelitosOmitidos } from '../utils/delitosExcluidos';
@@ -314,6 +323,57 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [registrosVisibles, filters],
   );
 
+  // ── Dataset de OPERATIVIDAD ──────────────────────────────────────────
+  const [operatividadRecords, setOperatividadRecords] = useState<OperatividadRecord[]>([]);
+  const [operatividadMeta, setOperatividadMeta] = useState<{ totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null>(null);
+
+  useEffect(() => {
+    try {
+      const guardado = localStorage.getItem('mepoy-operatividad');
+      if (guardado) {
+        const datos = JSON.parse(guardado);
+        const registros: OperatividadRecord[] = (datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
+        setOperatividadRecords(registros);
+        setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
+      }
+    } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
+  }, []);
+
+  const cargarArchivoOperatividad = useCallback(async (file: File, _usuario?: string): Promise<{ registros: number } | { error: string }> => {
+    try {
+      const { registros } = await parsearOperatividad(file);
+      if (registros.length === 0) return { error: 'No se encontraron registros válidos en el archivo (¿tiene las columnas OPERATIVIDAD y DELITO_ASOCIADO?).' };
+      setOperatividadRecords(registros);
+      const ahora = new Date();
+      setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: ahora, nombreArchivo: file.name });
+      try {
+        localStorage.setItem('mepoy-operatividad', JSON.stringify({ registros, ultimaActualizacion: ahora, nombreArchivo: file.name }));
+      } catch { /* si no cabe en localStorage, se queda solo en memoria para esta sesión */ }
+      return { registros: registros.length };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'No fue posible leer el archivo de Operatividad.' };
+    }
+  }, []);
+
+  // Se filtra con los MISMOS filtros generales del dashboard, usando el
+  // campo equivalente de cada uno (Delito ↔ delitoAsociado, Estación,
+  // Cuadrante, Barrio, Año, Mes, rango de fecha) — nunca los filtros que no
+  // tienen equivalente en este dataset (armas, modalidad, género, etc.).
+  const filteredOperatividadRecords = useMemo(() => {
+    return operatividadRecords.filter((r) => {
+      if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
+      if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
+      if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;
+      if (filters.zona.length > 0 && !filters.zona.includes(r.zona)) return false;
+      if (filters.anio.length > 0 && (r.anio === null || !filters.anio.includes(String(r.anio)))) return false;
+      if (filters.mes.length > 0 && (r.mes === null || !filters.mes.includes(String(r.mes)))) return false;
+      if (filters.fechaInicial && (!r.fecha || r.fecha < new Date(filters.fechaInicial))) return false;
+      if (filters.fechaFinal && (!r.fecha || r.fecha > new Date(filters.fechaFinal + 'T23:59:59'))) return false;
+      return true;
+    });
+  }, [operatividadRecords, filters]);
+
   const value: DataContextValue = {
     records: registrosVisibles,
     filteredRecords,
@@ -334,6 +394,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     sincronizar,
     recordsBase,
     actualizacionDisponible,
+    operatividadRecords,
+    filteredOperatividadRecords,
+    operatividadMeta,
+    cargarArchivoOperatividad,
     descartarAvisoActualizacion,
   };
 
