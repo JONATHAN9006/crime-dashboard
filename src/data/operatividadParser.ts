@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { OperatividadRecord } from '../types/operatividad';
-import { MAPA_DELITO, MAPA_ESTACION, MAPA_CAI } from './db2Mapeos';
+import { MAPA_DELITO, MAPA_ESTACION } from './db2Mapeos';
+import { mapearCuadrante } from './db2Transform';
 
 const NOMBRES_MES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -39,16 +40,17 @@ function traducirEstacion(valorCrudo: string): string {
 }
 
 // PERTE_CUADRANTE viene siempre vacío en este archivo — la subdivisión real
-// (la "Zona de Atención"/CAI) está en PERTE_DEPENDENCIA, con el mismo
-// formato de código que ya traduce MAPA_CAI en el dataset principal. Si el
-// código no está en esa tabla (ej. dependencias especializadas que no son
-// una zona de atención real, como un Grupo de Investigación Judicial), se
-// muestra "Otra dependencia" en vez del código crudo sin traducir.
+// (la "Zona de Atención") está en PERTE_DEPENDENCIA. Se usa EXACTAMENTE la
+// misma función que traduce este mismo tipo de código en el dataset
+// principal (mapearCuadrante, en db2Transform.ts) — que no solo busca en
+// una tabla fija, sino que además sabe DECODIFICAR el patrón del código
+// (MEPOYMNVCCD01E0[1|2]C##NNNNNN → "Z. Atención N Norte/Sur", etc.) — así
+// se traduce igual de bien aunque el código no esté todavía en la tabla.
+const columnasDesconocidasOperatividad = new Set<string>();
 function traducirDependenciaAZona(valorCrudo: string): string {
   if (!valorCrudo) return '';
-  const traducido = MAPA_CAI[valorCrudo.toUpperCase()];
-  if (traducido) return traducido;
-  return /^MEPOY/i.test(valorCrudo) ? 'Otra dependencia' : valorCrudo;
+  const resultado = mapearCuadrante(valorCrudo, columnasDesconocidasOperatividad);
+  return resultado === 'NO REPORTADO' ? '' : resultado;
 }
 
 // FECHA_HECHO viene como entero AAAAMMDD (ej. 20260324) — a veces también

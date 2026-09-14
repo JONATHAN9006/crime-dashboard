@@ -38,7 +38,7 @@ export function OperatividadUnidad() {
   const porCategoria = agruparPor(registros, (r) => r.categoria || 'Sin categoría');
   const conAportePorCategoria = conAporte(porCategoria);
 
-  const porCuadranteCompleto = agruparPor(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO' && d.key !== 'Otra dependencia');
+  const porCuadranteCompleto = agruparPor(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const porCuadrante = conAporte(recortar(porCuadranteCompleto, topZona));
 
   const porBarrioCompleto = agruparPor(registros, (r) => r.barrioHecho || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
