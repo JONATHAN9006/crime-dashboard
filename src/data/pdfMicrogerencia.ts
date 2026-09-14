@@ -73,9 +73,9 @@ function altoTablaTop5(): number {
 function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
   const altoMeses = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12 + ALTO_MARGEN_INFERIOR_BLOQUE;
   const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4 + ALTO_MARGEN_INFERIOR_BLOQUE;
-  // Columna 1 ahora apila Trimestres + Top 5 delitos (en vez de la lista
-  // completa de delitos, que se movió a la columna 3 como mapa).
-  const altoColumna1 = altoTrimestres + PADDING_TARJETA + altoTablaTop5();
+  // Columna 1 apila Trimestres + TODOS los delitos (alcanzan de sobra) — la
+  // columna 3 queda libre para el mapa de calor.
+  const altoColumna1 = altoTrimestres + PADDING_TARJETA + altoTablaDelitos(nodo.delitos.length);
   return Math.max(altoMeses, altoColumna1);
 }
 
@@ -295,7 +295,16 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // el PDF nunca quede con un espacio vacío.
   function dibujarImagenMapaONodo(nodo: NodoMicrogerencia, imagenDataUrl: string | undefined, x0: number, ancho: number, alto: number) {
     if (!imagenDataUrl) {
-      dibujarBloqueDelitos(nodo, x0, ancho, alto);
+      // Los delitos ya se muestran completos debajo de Trimestres (columna
+      // 1) — aquí, si no hay mapa disponible para este nodo, se deja un
+      // aviso simple en vez de repetir esa misma tabla dos veces.
+      pdf.setFillColor(...COLOR_TARJETA_FONDO);
+      pdf.setDrawColor(203, 213, 225);
+      pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'FD');
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(...COLOR_MUTED);
+      pdf.text('Mapa no disponible para este elemento', x0 + ancho / 2, y + alto / 2, { align: 'center', maxWidth: ancho - 8 });
       return;
     }
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
@@ -359,7 +368,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoTrimestres, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175]);
     const yOriginal = y;
     y += altoTrimestres + PADDING_TARJETA;
-    dibujarTop5Delitos(nodo, MARGEN, anchoTrimestres, altoTablaTop5());
+    dibujarBloqueDelitos(nodo, MARGEN, anchoTrimestres, altoTablaDelitos(nodo.delitos.length));
     y = yOriginal;
 
     dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoBanda, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14]);

@@ -40,9 +40,15 @@ function traducirEstacion(valorCrudo: string): string {
 
 // PERTE_CUADRANTE viene siempre vacío en este archivo — la subdivisión real
 // (la "Zona de Atención"/CAI) está en PERTE_DEPENDENCIA, con el mismo
-// formato de código que ya traduce MAPA_CAI en el dataset principal.
+// formato de código que ya traduce MAPA_CAI en el dataset principal. Si el
+// código no está en esa tabla (ej. dependencias especializadas que no son
+// una zona de atención real, como un Grupo de Investigación Judicial), se
+// muestra "Otra dependencia" en vez del código crudo sin traducir.
 function traducirDependenciaAZona(valorCrudo: string): string {
-  return MAPA_CAI[valorCrudo.toUpperCase()] ?? valorCrudo;
+  if (!valorCrudo) return '';
+  const traducido = MAPA_CAI[valorCrudo.toUpperCase()];
+  if (traducido) return traducido;
+  return /^MEPOY/i.test(valorCrudo) ? 'Otra dependencia' : valorCrudo;
 }
 
 // FECHA_HECHO viene como entero AAAAMMDD (ej. 20260324) — a veces también

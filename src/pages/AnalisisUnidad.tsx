@@ -14,6 +14,7 @@ import { BotonGenerarPdf } from '../components/ui/BotonGenerarPdf';
 import { ProveedorRegistroPdf } from '../context/RegistroPdfContext';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { AporteBarList } from '../components/charts/AporteBarList';
+import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoBarrasConAporte } from '../components/charts/ComparativoBarrasConAporte';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
@@ -55,6 +56,7 @@ export function AnalisisUnidad() {
   const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
   const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
   const [topDelitos, setTopDelitos] = useState<number | undefined>(10);
+  const [topCai, setTopCai] = useState<ValorTop>(10);
   const [topCuadrante, setTopCuadrante] = useState(10);
   const [topBarrio, setTopBarrio] = useState(10);
   const [topArma, setTopArma] = useState(10);
@@ -192,6 +194,18 @@ export function AnalisisUnidad() {
   const porDelitoVigenciaActual = porDelitoVigenciaActualCompleto.slice(0, topDelitos).map((d) => ({
     ...d,
     aportePct: totalDelitosVigenciaActual > 0 ? (d.casos / totalDelitosVigenciaActual) * 100 : 0,
+  }));
+
+  // CAI más afectados — misma vigencia actual (ventana.recsActual), mismo
+  // criterio que "Top delitos" de arriba.
+  const porCaiCompleto = ventana.disponible
+    ? agruparPor(ventana.recsActual, (r) => r.cai || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO')
+    : [];
+  const totalCaiVigenciaActual = porCaiCompleto.reduce((a, d) => a + d.casos, 0);
+  const porCaiRecortado = topCai === 'todas' ? porCaiCompleto : porCaiCompleto.slice(0, topCai);
+  const porCaiVigenciaActual = porCaiRecortado.map((d) => ({
+    ...d,
+    aportePct: totalCaiVigenciaActual > 0 ? (d.casos / totalCaiVigenciaActual) * 100 : 0,
   }));
 
   // Operatividad (capturas, incautaciones, recuperaciones) — dataset
@@ -378,6 +392,16 @@ export function AnalisisUnidad() {
               <AporteBarList data={porDelitoVigenciaActual} onBarClick={(key) => drillDown('delito', key)} />
             </Card>
           </div>
+
+          {/* CAI más afectados — misma vigencia actual que "Top delitos". */}
+          <Card
+            title="CAI más afectados"
+            descargable="cai-mas-afectados"
+            subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
+            actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}
+          >
+            <AporteBarList data={porCaiVigenciaActual} onBarClick={(key) => drillDown('cai', key)} />
+          </Card>
 
 
           {/* Todo lo siguiente reorganizado en filas de máximo 3 (items-start:
