@@ -78,11 +78,11 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMa
                 <div
                   data-export-track="true"
                   className="rounded"
-                  style={esMaximo ? { border: `2px dashed ${colorBordeMaximo}`, padding: '1px' } : undefined}
+                  style={esMaximo ? { border: `3px dashed ${colorBordeMaximo}`, padding: '1px' } : undefined}
                 >
-                  <div className="h-2 overflow-hidden rounded bg-slate-100">
+                  <div className="h-3.5 overflow-hidden rounded bg-slate-100">
                     <div
-                      className="h-2 rounded transition-all"
+                      className="h-3.5 rounded transition-all"
                       style={{ width: `${anchoPct}%`, backgroundColor: color }}
                     />
                   </div>

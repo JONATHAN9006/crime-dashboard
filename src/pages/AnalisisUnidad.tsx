@@ -394,14 +394,16 @@ export function AnalisisUnidad() {
           </div>
 
           {/* CAI más afectados — misma vigencia actual que "Top delitos". */}
-          <Card
-            title="CAI más afectados"
-            descargable="cai-mas-afectados"
-            subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
-            actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}
-          >
-            <AporteBarList data={porCaiVigenciaActual} onBarClick={(key) => drillDown('cai', key)} />
-          </Card>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card
+              title="CAI más afectados"
+              descargable="cai-mas-afectados"
+              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
+              actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}
+            >
+              <AporteBarList data={porCaiVigenciaActual} onBarClick={(key) => drillDown('cai', key)} />
+            </Card>
+          </div>
 
 
           {/* Todo lo siguiente reorganizado en filas de máximo 3 (items-start:

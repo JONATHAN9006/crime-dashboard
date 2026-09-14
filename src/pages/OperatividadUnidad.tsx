@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { agruparPor, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
-import { VerticalBarList } from '../components/charts/VerticalBarList';
+import { AporteBarList } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
 
 // Azul rey — SOLO para el recuadro que resalta la barra con más casos, para
@@ -98,16 +98,16 @@ export function OperatividadUnidad() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card title="Por categoría de operatividad" descargable="operatividad-categoria">
-              <VerticalBarList data={conAportePorCategoria} colorBordeMaximo={AZUL_REY} />
+              <AporteBarList data={conAportePorCategoria} colorBordeMaximo={AZUL_REY} />
             </Card>
             <Card title="Por delito asociado" descargable="operatividad-delito" actions={<SelectorTopBotones valor={topDelito} onChange={setTopDelito} />}>
-              <VerticalBarList data={porDelito} colorBordeMaximo={AZUL_REY} />
+              <AporteBarList data={porDelito} colorBordeMaximo={AZUL_REY} />
             </Card>
             <Card title="Por zona de atención" descargable="operatividad-zona" actions={<SelectorTopBotones valor={topZona} onChange={setTopZona} />}>
-              <VerticalBarList data={porCuadrante} colorBordeMaximo={AZUL_REY} />
+              <AporteBarList data={porCuadrante} colorBordeMaximo={AZUL_REY} />
             </Card>
             <Card title="Por barrio" descargable="operatividad-barrio" actions={<SelectorTopBotones valor={topBarrio} onChange={setTopBarrio} />}>
-              <VerticalBarList data={porBarrio} colorBordeMaximo={AZUL_REY} />
+              <AporteBarList data={porBarrio} colorBordeMaximo={AZUL_REY} />
             </Card>
           </div>
         </>
