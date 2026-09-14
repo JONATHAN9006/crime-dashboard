@@ -213,30 +213,29 @@ function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: 
     click(e) {
       const { lat, lng } = e.latlng;
       let mejor: { capaId: string; feature: any; nombre: string; area: number } | null = null;
+      const diagnostico: any[] = [];
       for (const capa of capas) {
-        if (!capa.visible) continue;
+        if (!capa.visible) {
+          diagnostico.push({ capa: capa.nombre, visible: false });
+          continue;
+        }
         const campo = camposUnion.get(capa.id);
-        for (const f of extraerFeatures(capa.geojson)) {
+        const features = extraerFeatures(capa.geojson);
+        let coincidenciasEnEstaCapa = 0;
+        for (const f of features) {
           if (!puntoEnFeatureGeoJSON(lng, lat, f)) continue;
-          // Área REAL del polígono (fórmula del área de Gauss/shoelace) —
-          // no la del rectángulo que lo contiene. Un cuadrante alargado o
-          // irregular puede tener un rectángulo-contenedor más grande que
-          // el de una Estación entera, y eso hacía que perdiera la
-          // comparación "el más específico gana" — con el área real esto
-          // ya no pasa.
+          coincidenciasEnEstaCapa++;
           const area = areaRealDeFeature(f);
           if (!mejor || area < mejor.area) {
             const valorCrudo = campo && f.properties?.[campo] ? String(f.properties[campo]) : '';
-            // Si el valor crudo es un código sin traducir (ej. de la capa
-            // de Cuadrantes), se traduce con la misma función del dataset
-            // principal — así el nombre mostrado y usado para detectar el
-            // filtro siempre queda legible, nunca el código de la fuente.
             const traducido = valorCrudo ? mapearCuadrante(valorCrudo, new Set()) : '';
             const nombre = (traducido && traducido !== 'NO REPORTADO') ? traducido : (valorCrudo || f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
             mejor = { capaId: capa.id, feature: f, nombre, area };
           }
         }
+        diagnostico.push({ capa: capa.nombre, visible: true, totalFeatures: features.length, campoDetectado: campo, coincidenciasEnEstePunto: coincidenciasEnEstaCapa });
       }
+      console.log('[Mapa: clic]', { lat, lng, resultado: mejor?.nombre ?? 'NINGUNA COINCIDENCIA', capas: diagnostico });
       onSeleccionar(mejor ? { capaId: mejor.capaId, feature: mejor.feature, nombre: mejor.nombre } : null);
     },
   });
