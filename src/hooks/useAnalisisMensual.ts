@@ -38,7 +38,8 @@ export function useAnalisisMensual() {
   const { records, filteredRecords, recordsBase, filters, meta } = useData();
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
   const cmp = useComparativoGeneral(ventana);
-  const { todos } = useAniosComparables(filteredRecords);
+  const sinFiltroTemporalExplicito = filters.anio.length === 0 && !filters.fechaInicial && !filters.fechaFinal;
+  const { todos } = useAniosComparables(filteredRecords, sinFiltroTemporalExplicito);
   const mensual = useTendenciaMensual(filteredRecords);
 
   const serieMensualAnioActual = useMemo(

@@ -24,13 +24,24 @@ export interface KpiResumen {
 // hooks/useComparativoHomologo.ts, que aplica el corte "a la fecha" correcto.
 // Mantener una única fuente evita que dos componentes muestren cifras distintas
 // para el mismo dato (ver hooks/useComparativoHomologo.ts para el detalle).
-export function useAniosComparables(records: CrimeRecord[]) {
+export function useAniosComparables(records: CrimeRecord[], limitarADosMasRecientesSiSinFiltro = false) {
   return useMemo(() => {
     const anios = Array.from(new Set(records.filter((r) => r.anio).map((r) => r.anio!))).sort((a, b) => b - a);
     const actual = anios[0] ?? null;
     const anterior = anios[1] ?? null;
-    return { actual, anterior, todos: anios.sort((a, b) => a - b) };
-  }, [records]);
+    // Sin un filtro de Año explícito, "todos" no debe listar TODOS los años
+    // que haya en la base (con datos históricos cargados eso puede ser 20+
+    // años y crear un checkbox por cada uno) — por defecto se limita a los
+    // 2 más recientes. Cuando el usuario sí elige años específicos en el
+    // filtro principal, `records` ya viene restringido a esos años (ver
+    // aplicarFiltros), así que "todos" naturalmente muestra exactamente
+    // esos, sin límite de 2 (puede elegir 3 o más si quiere).
+    const todosOrdenados = anios.sort((a, b) => a - b);
+    const todos = limitarADosMasRecientesSiSinFiltro && todosOrdenados.length > 2
+      ? todosOrdenados.slice(-2)
+      : todosOrdenados;
+    return { actual, anterior, todos };
+  }, [records, limitarADosMasRecientesSiSinFiltro]);
 }
 
 // KPIs que NO dependen de comparar vigencias (esos casos van en
