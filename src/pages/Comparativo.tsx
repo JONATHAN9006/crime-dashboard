@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Info } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { useVentanaComparativa, useComparativoGeneral, useComparativoCategoria } from '../hooks/useComparativoHomologo';
+import { useVentanaComparativa, useComparativoGeneral, useComparativoCategoria, type VentanaComparativa } from '../hooks/useComparativoHomologo';
 import { useTendenciaMensual } from '../hooks/useTemporalAnalysis';
 import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { KpiCard } from '../components/ui/KpiCard';
@@ -24,12 +24,46 @@ export function Comparativo() {
   const [dimension, setDimension] = useState<(typeof DIMENSIONES)[number]['key']>('mes');
   const mensual = useTendenciaMensual(filteredRecords);
 
-  const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
+  const ventanaAutomatica = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
+
+  // Selector manual de 2 años — por defecto usa la ventana automática (los
+  // 2 años homólogos más recientes, "a la fecha"). Si el usuario elige
+  // años DISTINTOS a esos, se arma una comparación de AÑO CALENDARIO
+  // COMPLETO para cada uno (no tendría sentido un corte "a la fecha" para
+  // años que ya terminaron hace tiempo).
+  const aniosDisponibles = useMemo(() => [...(meta?.aniosDisponibles ?? [])].map(Number).filter((n) => !isNaN(n)).sort((a, b) => a - b), [meta]);
+  const [anioA, setAnioA] = useState<number | null>(null);
+  const [anioB, setAnioB] = useState<number | null>(null);
+
+  const usaSeleccionManual = anioA !== null && anioB !== null && (anioA !== ventanaAutomatica.anioAnterior || anioB !== ventanaAutomatica.anioActual);
+
+  const ventanaManual: VentanaComparativa | null = useMemo(() => {
+    if (!usaSeleccionManual || anioA === null || anioB === null) return null;
+    const [anioMenor, anioMayor] = anioA < anioB ? [anioA, anioB] : [anioB, anioA];
+    const recsActual = recordsBase.filter((r) => r.anio === anioMayor);
+    const recsAnterior = recordsBase.filter((r) => r.anio === anioMenor);
+    return {
+      disponible: true,
+      actualInicio: new Date(anioMayor, 0, 1),
+      actualFin: new Date(anioMayor, 11, 31, 23, 59, 59, 999),
+      anteriorInicio: new Date(anioMenor, 0, 1),
+      anteriorFin: new Date(anioMenor, 11, 31, 23, 59, 59, 999),
+      anioActual: anioMayor,
+      anioAnterior: anioMenor,
+      esRangoPersonalizado: true,
+      diasTranscurridos: 365,
+      recsActual,
+      recsAnterior,
+      recsAnioAnteriorCompleto: recsAnterior,
+    };
+  }, [usaSeleccionManual, anioA, anioB, recordsBase]);
+
+  const ventana = ventanaManual ?? ventanaAutomatica;
   const cmp = useComparativoGeneral(ventana);
   const porDelito = useComparativoCategoria(ventana, (r) => r.delito, 15);
   const porEstacion = useComparativoCategoria(ventana, (r) => r.estacion, 15);
 
-  if (!ventana.disponible) {
+  if (!ventanaAutomatica.disponible) {
     return (
       <div>
         <PageHeader title="Comparativo de Vigencias" />
@@ -46,20 +80,56 @@ export function Comparativo() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Comparativo de Vigencias" subtitle={`Comparación homóloga entre ${anterior} y ${actual}, detectada automáticamente a partir de los datos.`} />
+      <PageHeader
+        title="Comparativo de Vigencias"
+        subtitle={`Comparación homóloga entre ${anterior} y ${actual}, detectada automáticamente a partir de los datos.`}
+      />
+
+      {aniosDisponibles.length > 2 && (
+        <Card>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm font-medium text-slate-700">Comparar años específicos:</p>
+            <select
+              value={anioA ?? ventanaAutomatica.anioAnterior}
+              onChange={(e) => setAnioA(Number(e.target.value))}
+              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+            >
+              {aniosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <span className="text-sm text-slate-400">vs.</span>
+            <select
+              value={anioB ?? ventanaAutomatica.anioActual}
+              onChange={(e) => setAnioB(Number(e.target.value))}
+              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+            >
+              {aniosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            {usaSeleccionManual && (
+              <button
+                onClick={() => { setAnioA(null); setAnioB(null); }}
+                className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Volver al automático ({ventanaAutomatica.anioAnterior}-{ventanaAutomatica.anioActual})
+              </button>
+            )}
+          </div>
+        </Card>
+      )}
 
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
         <p>
-          {ventana.esRangoPersonalizado
+          {usaSeleccionManual
+            ? <>Comparando el año calendario completo de {anterior} contra el de {actual} (01/01–31/12 en ambos).</>
+            : ventana.esRangoPersonalizado
             ? <>Comparando {formatFecha(ventana.actualInicio)}–{formatFecha(ventana.actualFin)} ({actual}) contra el mismo rango de {anterior}: {formatFecha(ventana.anteriorInicio)}–{formatFecha(ventana.anteriorFin)}.</>
             : <>Se compara el 01/01–{formatFecha(ventana.actualFin)} de {actual} contra el mismo rango de {anterior}, para no comparar un año completo contra uno parcial.</>}
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard titulo={`Total ${anterior} (a la fecha)`} valor={formatNumero(cmp.casosAnterior)} acento="gray" />
-        <KpiCard titulo={`Total ${actual} (a la fecha)`} valor={formatNumero(cmp.casosActual)} acento="navy" />
+        <KpiCard titulo={`Total ${anterior}${usaSeleccionManual ? '' : ' (a la fecha)'}`} valor={formatNumero(cmp.casosAnterior)} acento="gray" />
+        <KpiCard titulo={`Total ${actual}${usaSeleccionManual ? '' : ' (a la fecha)'}`} valor={formatNumero(cmp.casosActual)} acento="navy" />
         <KpiCard
           titulo="Diferencia absoluta"
           valor={`${cmp.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmp.variacionAbs)}`}
