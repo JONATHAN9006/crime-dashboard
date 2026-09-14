@@ -110,7 +110,60 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
     .filter((p) => !estacionCorta || p.estacionCorta === estacionCorta);
 }
 
-/** Imagen de TODO Popayán (todas las estaciones juntas) — para "MEPOY General". */
+function extraerAnillosDeFeature(feature: any): [number, number][][] {
+  const anillos: [number, number][][] = [];
+  const geom = feature?.geometry;
+  if (!geom) return anillos;
+  if (geom.type === 'Polygon') for (const anillo of geom.coordinates) anillos.push(anillo);
+  else if (geom.type === 'MultiPolygon') for (const poligono of geom.coordinates) for (const anillo of poligono) anillos.push(anillo);
+  return anillos;
+}
+
+// Punto-en-polígono simple (ray casting) — para ubicar un punto
+// representativo de cada CAI dentro (o no) del área que se está
+// exportando, y así saber si dibujar su línea interna.
+function puntoEnAnillo(x: number, y: number, anillo: [number, number][]): boolean {
+  let dentro = false;
+  for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i++) {
+    const [xi, yi] = anillo[i];
+    const [xj, yj] = anillo[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dentro = !dentro;
+  }
+  return dentro;
+}
+function puntoEnFeature(x: number, y: number, feature: any): boolean {
+  return extraerAnillosDeFeature(feature).some((anillo) => puntoEnAnillo(x, y, anillo));
+}
+
+// Límites internos (ej. CAI dentro de una Estación) que caen dentro del
+// área que se está exportando — misma idea que ya usa la descarga del
+// mapa principal: se identifica la capa más granular DISTINTA de la que
+// ya se está usando como contorno principal, y se dibujan sus features
+// cuyo punto representativo caiga dentro.
+async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: string): Promise<[number, number][][]> {
+  const capas = await cargarCapas();
+  let mejorCapa: any = null;
+  let maxElementos = 0;
+  for (const capa of capas) {
+    if (capa.id === capaContornoId) continue;
+    const cantidad = extraerFeatures(capa.geojson).length;
+    if (cantidad > maxElementos) {
+      maxElementos = cantidad;
+      mejorCapa = capa;
+    }
+  }
+  if (!mejorCapa) return [];
+  const anillos: [number, number][][] = [];
+  for (const f of extraerFeatures(mejorCapa.geojson)) {
+    const anillosF = extraerAnillosDeFeature(f);
+    const punto = anillosF[0]?.[0];
+    if (!punto) continue;
+    if (puntoEnFeature(punto[0], punto[1], featureOColeccion)) anillos.push(...anillosF);
+  }
+  return anillos;
+}
+
+/** Imagen de Popayán (Estación Norte + Sur) — para "MEPOY General". */
 export async function generarImagenMapaGeneral(delitoFiltrado: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeEstaciones();
@@ -118,18 +171,26 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
       console.warn('[Microgerencia→Mapa] No se encontró ninguna capa de Estación cargada en "Mapa/Georreferenciación" (o ninguna columna suya coincide con nombres de estación conocidos).');
       return undefined;
     }
+    // "General" = Norte + Sur (el área urbana) — no las estaciones rurales.
+    const featuresNorteSur = localizada.features.filter((f) => {
+      const nombre = normalizar(nombreEstacionDeFeature(f, localizada.columna));
+      return nombre === normalizar('E-Norte') || nombre === normalizar('E-Sur');
+    });
+    const featuresParaMapa = featuresNorteSur.length > 0 ? featuresNorteSur : localizada.features;
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado);
     if (puntos.length === 0) {
-      console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación" — es un Excel aparte con columnas de latitud/longitud, distinto de la Matriz Base/DB2 principal.', { delitoFiltrado });
+      console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación".', { delitoFiltrado });
       return undefined;
     }
-    const featureCollection = { type: 'FeatureCollection', features: localizada.features };
+    const featureCollection = { type: 'FeatureCollection', features: featuresParaMapa };
+    const anillosInternos = await obtenerAnillosInternos(featureCollection, localizada.capa.id);
     return await generarDataUrlPoligonoAislado({
       feature: featureCollection,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
       etiquetas: [],
       anchoLienzo: 700,
+      anillosInternos,
     });
   } catch (err) {
     console.error('[Microgerencia→Mapa] Falló generando el mapa general:', err);
@@ -137,7 +198,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
   }
 }
 
-/** Imagen de UNA estación específica (ej. "E-Norte") — para los nodos de Distrito/Estación. */
+/** Imagen de UNA estación específica (ej. "E-Norte") — para los nodos de Distrito/Estación. Incluye las líneas internas de CAI. */
 export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeEstaciones();
@@ -155,12 +216,14 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
     }
+    const anillosInternos = await obtenerAnillosInternos(feature, localizada.capa.id);
     return await generarDataUrlPoligonoAislado({
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
       etiquetas: [],
       anchoLienzo: 700,
+      anillosInternos,
     });
   } catch (err) {
     console.error(`[Microgerencia→Mapa] Falló generando el mapa de "${nombreEstacionCorta}":`, err);
