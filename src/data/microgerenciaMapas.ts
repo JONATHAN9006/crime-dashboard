@@ -55,21 +55,44 @@ async function localizarCapaDeEstaciones() {
       });
       if (coincidencias.length >= Math.min(2, feats.length)) return { capa, columna, features: extraerFeatures(capa.geojson) };
     }
+
+    // Respaldo: si el NOMBRE de la capa ya sugiere que es de estaciones
+    // (ej. "JURIS_ESTACIONES_2026") pero ninguna columna coincidió por
+    // valor, se elige la columna con MENOS valores distintos entre las que
+    // no sean puramente numéricas — una Estación real tiene pocos valores
+    // únicos (2 a 6), muy distinto de un ID (uno por cada elemento).
+    if (/ESTAC/i.test(capa.nombre)) {
+      const todosLosFeatures = extraerFeatures(capa.geojson);
+      let mejorColumna: string | null = null;
+      let menosValores = Infinity;
+      for (const columna of columnas) {
+        const valores = todosLosFeatures.map((f) => String(f?.properties?.[columna] ?? '').trim());
+        if (valores.some((v) => /^\d+$/.test(v))) continue; // descarta columnas puramente numéricas (IDs)
+        const unicos = new Set(valores.filter(Boolean));
+        if (unicos.size >= 2 && unicos.size < menosValores) {
+          menosValores = unicos.size;
+          mejorColumna = columna;
+        }
+      }
+      if (mejorColumna) {
+        console.warn(`[Microgerencia→Mapa] "${capa.nombre}" — se detectó por nombre de capa (no por valor); columna elegida por respaldo: "${mejorColumna}" (${menosValores} valores distintos).`);
+        return { capa, columna: mejorColumna, features: todosLosFeatures };
+      }
+    }
   }
 
   // Diagnóstico: si no se encontró nada, se muestra QUÉ había disponible
   // (capas, columnas y un par de valores de ejemplo de cada una) para
   // poder identificar la causa real en vez de seguir adivinando a ciegas.
-  console.warn('[Microgerencia→Mapa] Ninguna columna de las capas cargadas coincidió con nombres de estación. Capas disponibles:', capas.map((capa) => {
+  // Se imprime como TEXTO PLANO (no un objeto colapsado) para poder
+  // copiarlo directo desde la consola sin tener que expandir nada.
+  const detalle = capas.map((capa) => {
     const feats = extraerFeatures(capa.geojson).slice(0, 3);
     const columnas = Object.keys(feats[0]?.properties ?? {});
-    return {
-      nombre: capa.nombre,
-      campoUnionManual: (capa as any).campoUnion ?? null,
-      columnas,
-      ejemploValores: columnas.reduce((acc: any, col) => { acc[col] = feats.map((f) => f?.properties?.[col]); return acc; }, {}),
-    };
-  }));
+    const lineas = columnas.map((col) => `      ${col}: ${JSON.stringify(feats.map((f) => f?.properties?.[col]))}`);
+    return `  Capa "${capa.nombre}" (campoUnionManual: ${(capa as any).campoUnion ?? 'ninguno'}):\n${lineas.join('\n')}`;
+  }).join('\n');
+  console.warn(`[Microgerencia→Mapa] Ninguna columna coincidió con nombres de estación. Columnas y valores de ejemplo de cada capa:\n${detalle}`);
   return null;
 }
 
