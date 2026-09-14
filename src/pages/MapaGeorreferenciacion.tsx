@@ -214,7 +214,11 @@ function IrACoordenadas({ onIr }: { onIr: (lat: number, lon: number) => void }) 
   function ir() {
     const latNum = parseFloat(lat.replace(',', '.'));
     const lonNum = parseFloat(lon.replace(',', '.'));
-    if (Number.isFinite(latNum) && Number.isFinite(lonNum)) onIr(latNum, lonNum);
+    if (Number.isFinite(latNum) && Number.isFinite(lonNum)) {
+      onIr(latNum, lonNum);
+      setLat('');
+      setLon('');
+    }
   }
   return (
     <div className="flex items-center gap-1.5">
@@ -253,6 +257,17 @@ function AjustarVistaAPunto({ punto }: { punto: { lat: number; lon: number } }) 
       <Popup>Coordenada: {punto.lat.toFixed(6)}, {punto.lon.toFixed(6)}</Popup>
     </CircleMarker>
   );
+}
+
+// Paleta fija de colores bien distinguibles entre sí — a cada delito se le
+// asigna uno de forma estable (mismo delito, mismo color, siempre), usando
+// un hash simple del nombre para elegir la posición en la paleta.
+const PALETA_DELITOS_PUNTOS = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0284c7', '#9333ea', '#ca8a04'];
+function colorPorDelitoSimple(nombreDelito: string | null | undefined): string {
+  const nombre = nombreDelito || 'Sin delito';
+  let hash = 0;
+  for (let i = 0; i < nombre.length; i++) hash = (hash * 31 + nombre.charCodeAt(i)) >>> 0;
+  return PALETA_DELITOS_PUNTOS[hash % PALETA_DELITOS_PUNTOS.length];
 }
 
 function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
@@ -850,13 +865,13 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   const puntosDelitosVisibles = useMemo(
     () => capasPuntosProcesadas
       .filter(({ capa }) => capa.tipo === 'delitos' && capa.visible)
-      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon }))),
+      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
     [capasPuntosProcesadas],
   );
   const puntosIrisp1Visibles = useMemo(
     () => capasPuntosProcesadas
       .filter(({ capa }) => capa.tipo === 'irisp1' && capa.visible)
-      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon }))),
+      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
     [capasPuntosProcesadas],
   );
 
@@ -1481,7 +1496,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         {/* La leyenda de cada escala aparece en cuanto su mapa de calor está
             encendido (sincronizado con el checkbox de esa fuente); el aviso
             de correspondencia solo cuando "Comparar" también está activo. */}
-        {(mostrarCalorDelitos || mostrarCalorIrisp1) && (
+        {modoVisualizacion === 'calor' && (mostrarCalorDelitos || mostrarCalorIrisp1) && (
           <div className="mb-3 flex flex-wrap items-center gap-5 text-xs text-slate-600">
             {mostrarCalorDelitos && <LeyendaGradiente titulo="Delitos" colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />}
             {mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
@@ -1491,6 +1506,23 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                 Correspondencia espacial (pasa el mouse sobre el mapa)
               </span>
             )}
+          </div>
+        )}
+
+        {/* Modo "Puntos" — leyenda de qué color corresponde a cada delito
+            que efectivamente aparece en los puntos que se están mostrando
+            (no una lista fija: solo los delitos realmente presentes). */}
+        {modoVisualizacion === 'puntos' && (mostrarCalorDelitos || mostrarCalorIrisp1) && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+            {Array.from(new Set([
+              ...(mostrarCalorDelitos ? puntosDelitosParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
+              ...(mostrarCalorIrisp1 ? puntosIrisp1ParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
+            ])).sort().map((delito) => (
+              <span key={delito} className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorPorDelitoSimple(delito) }} />
+                {delito}
+              </span>
+            ))}
           </div>
         )}
 
@@ -1764,16 +1796,24 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             {/* Modo "Puntos" — en vez de la superficie de densidad, cada
                 delito/IRISP1 se marca individualmente (mismo color que su
                 fuente), respetando los mismos checkboxes de arriba. */}
-            {modoVisualizacion === 'puntos' && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => (
-              <CircleMarker key={`pd-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#dc2626', weight: 1, fillColor: '#dc2626', fillOpacity: 0.7 }}>
-                <Popup>{(p as any).delitoCorto ?? 'Delito'}</Popup>
-              </CircleMarker>
-            ))}
-            {modoVisualizacion === 'puntos' && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => (
-              <CircleMarker key={`pi-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#2563eb', weight: 1, fillColor: '#2563eb', fillOpacity: 0.7 }}>
-                <Popup>{(p as any).delitoCorto ?? 'IRISP1'}</Popup>
-              </CircleMarker>
-            ))}
+            {modoVisualizacion === 'puntos' && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => {
+              const delito = (p as any).delitoCorto ?? null;
+              const color = colorPorDelitoSimple(delito);
+              return (
+                <CircleMarker key={`pd-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color, weight: 1, fillColor: color, fillOpacity: 0.75 }}>
+                  <Popup>{delito ?? 'Delito'}</Popup>
+                </CircleMarker>
+              );
+            })}
+            {modoVisualizacion === 'puntos' && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => {
+              const delito = (p as any).delitoCorto ?? null;
+              const color = colorPorDelitoSimple(delito);
+              return (
+                <CircleMarker key={`pi-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color, weight: 2, fillColor: color, fillOpacity: 0.4 }}>
+                  <Popup>{delito ?? 'IRISP1'}</Popup>
+                </CircleMarker>
+              );
+            })}
 
             {/* Zona seleccionada con un clic sobre un polígono cargado: el
                 mapa se encuadra en ella y, si hay puntos dentro, se pinta un

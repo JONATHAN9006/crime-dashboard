@@ -89,36 +89,16 @@ function normalizarFila(row: Record<string, string>): Record<string, string> {
 // Busca una columna por coincidencia exacta y, si no la encuentra, por
 // coincidencia insensible a mayúsculas/minúsculas (tolerante a variaciones
 // como "HORA_24" vs "Hora_24").
-//
-// IMPORTANTE: cuando un archivo mezcla filas de dos orígenes distintos (ej.
-// formato histórico con columna "CAI" + formato DB2 ya transformado con
-// columna "CAI Final"), el CSV combinado que se sincroniza con el backend
-// (ver csvSerializer.ts) puede terminar con AMBAS columnas presentes en
-// cada fila — una de ellas vacía, porque esa fila no venía de ese formato.
-// Si esta función se quedara con el PRIMER alias que exista (sin importar
-// si está vacío), una fila de origen DB2 perdería su valor real de
-// "CAI Final" porque la columna "CAI" (vacía, heredada del otro formato)
-// aparece primero en la lista de alias. Por eso se prioriza el primer
-// candidato con VALOR (no solo que exista la columna); solo si ninguno
-// tiene valor se recurre al primero que exista (aunque esté vacío), para
-// no cambiar el comportamiento cuando el dato realmente no fue reportado.
 function findColumn(row: Record<string, string>, candidates: string[]): string {
-  let primeraColumnaExistente: string | undefined;
   for (const c of candidates) {
-    if (row[c] !== undefined) {
-      if (primeraColumnaExistente === undefined) primeraColumnaExistente = row[c];
-      if (String(row[c]).trim() !== '') return row[c];
-    }
+    if (row[c] !== undefined) return row[c];
   }
   const keys = Object.keys(row);
   for (const c of candidates) {
     const found = keys.find((k) => k.toLowerCase() === c.toLowerCase());
-    if (found) {
-      if (primeraColumnaExistente === undefined) primeraColumnaExistente = row[found];
-      if (String(row[found]).trim() !== '') return row[found];
-    }
+    if (found) return row[found];
   }
-  return primeraColumnaExistente ?? '';
+  return '';
 }
 
 // Parsea fechas en formato dd/mm/yyyy (o d/m/yyyy), formato del origen histórico.
