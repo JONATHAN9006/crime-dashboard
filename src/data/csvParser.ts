@@ -1,6 +1,8 @@
 import Papa from 'papaparse';
 import type { CrimeRecord } from '../types/crime';
 import { esSerieExcelPlausible, convertirSerieExcelAFecha } from './excelSerial';
+import { MAPA_DELITO, MAPA_ESTACION } from './db2Mapeos';
+import { mapearCuadrante } from './db2Transform';
 
 // Columnas mínimas para poder procesar un archivo. Se acepta CUALQUIERA de los
 // dos formatos: el histórico (FECHA_HECHO/DELITOS/CANTIDAD) o el formato oficial
@@ -12,10 +14,10 @@ export const COLUMNAS_REQUERIDAS = COLUMNAS_REQUERIDAS_NUEVO;
 // Mapa de campo lógico -> posibles nombres de columna en el CSV (tolerante a variaciones
 // entre el formato histórico y el formato oficial vigente "Base_de_Datos_General").
 const COLUMN_MAP: Record<string, string[]> = {
-  fecha: ['FECHA_HECHO', 'FECHA_HECHO NEW'],
+  fecha: ['FECHA_HECHO', 'FECHA_HECHO NEW', 'FECHA HECHOS', 'FECHA HECHO', 'FECHA_HECHOS'],
   hora: ['HORA HECHO', 'HORA_24', 'HORA_HECHO'],
   cantidad: ['CANTIDAD'],
-  delito: ['DELITOS', 'Delito'],
+  delito: ['DELITOS', 'Delito', 'DELITO', 'TEMATICA'],
   modalidad: ['MODALIDAD', 'Modalidad Final'],
   armas: ['ARMAS', 'Arma Final'],
   causaLesion: ['CAUSA_LESION', 'Causa Lesion Final'],
@@ -213,11 +215,23 @@ export interface ParseResult {
 
 // Un archivo es válido si cumple con el formato histórico completo O con el
 // formato oficial vigente completo. Si no cumple ninguno, se reporta el que
-// tenga menos columnas faltantes (normalmente el vigente).
+// tenga menos columnas faltantes (normalmente el vigente). La comprobación
+// usa los MISMOS alias que ya usa la lectura real de datos (COLUMN_MAP) en
+// vez de un solo nombre fijo — así una variante como "FECHA HECHOS" (con
+// espacio y en plural) valida igual que "FECHA_HECHO".
+function tieneColumna(headers: string[], alias: string[]): boolean {
+  const headersNorm = headers.map((h) => h.toUpperCase().replace(/[_\s]+/g, ' ').trim());
+  return alias.some((a) => headersNorm.includes(a.toUpperCase().replace(/[_\s]+/g, ' ').trim()));
+}
+
 export function detectarColumnasFaltantes(headersOriginales: string[]): string[] {
   const headers = headersOriginales.map((h) => h.trim());
-  const faltanLegacy = COLUMNAS_REQUERIDAS_LEGACY.filter((c) => !headers.includes(c));
-  const faltanNuevo = COLUMNAS_REQUERIDAS_NUEVO.filter((c) => !headers.includes(c));
+  const faltanLegacy = [
+    !tieneColumna(headers, COLUMN_MAP.fecha) && 'FECHA_HECHO',
+    !tieneColumna(headers, COLUMN_MAP.delito) && 'DELITOS',
+    !tieneColumna(headers, COLUMN_MAP.cantidad) && 'CANTIDAD',
+  ].filter(Boolean) as string[];
+  const faltanNuevo = COLUMNAS_REQUERIDAS_NUEVO.filter((c) => !tieneColumna(headers, [c]));
   if (faltanLegacy.length === 0 || faltanNuevo.length === 0) return [];
   return faltanNuevo.length <= faltanLegacy.length ? faltanNuevo : faltanLegacy;
 }
@@ -318,14 +332,30 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
 
       cantidad,
 
-      delito: normalizeCategoria(findColumn(row, COLUMN_MAP.delito)),
+      delito: (() => {
+        const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.delito));
+        // Algunas fuentes (ej. TEMATICA de una matriz histórica) traen el
+        // nombre largo del delito ("HURTO PERSONAS") en vez de la forma
+        // corta que ya usa el resto del dashboard ("H. Personas") — se
+        // traduce con la misma tabla del formato DB2 para que no queden
+        // como si fueran delitos distintos. Si ya viene en forma corta (o
+        // no está en la tabla), se deja tal cual.
+        return MAPA_DELITO[bruto.toUpperCase()] ?? bruto;
+      })(),
       armas: normalizeCategoria(findColumn(row, COLUMN_MAP.armas)),
       modalidad: normalizeCategoria(findColumn(row, COLUMN_MAP.modalidad)),
       causaLesion: normalizeCategoria(findColumn(row, COLUMN_MAP.causaLesion)),
 
-      estacion: normalizeCategoria(findColumn(row, COLUMN_MAP.estacion)),
+      estacion: (() => {
+        const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.estacion));
+        return MAPA_ESTACION[bruto.toUpperCase()] ?? bruto;
+      })(),
       cai: normalizeCategoria(findColumn(row, COLUMN_MAP.cai)),
-      cuadrante: sanearCuadrante(normalizeCategoria(findColumn(row, COLUMN_MAP.cuadrante)), estacionesConocidas),
+      cuadrante: sanearCuadrante((() => {
+        const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.cuadrante));
+        const traducido = mapearCuadrante(bruto, new Set());
+        return (traducido && traducido !== 'NO REPORTADO') ? traducido : bruto;
+      })(), estacionesConocidas),
       barrioHecho: normalizeCategoria(findColumn(row, COLUMN_MAP.barrioHecho)),
       zona: normalizeCategoria(findColumn(row, COLUMN_MAP.zona)).toUpperCase() || 'NO REPORTADO',
       claseSitio: normalizeCategoria(findColumn(row, COLUMN_MAP.claseSitio)),

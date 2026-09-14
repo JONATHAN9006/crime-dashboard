@@ -28,7 +28,14 @@ export const NOMBRES_ESTACION_CORTOS = new Set(Object.values(MAPA_ESTACION));
 // encontrar una cuyos valores (crudos o ya traducidos) coincidan con
 // nombres de estación conocidos.
 async function localizarCapaDeEstaciones() {
-  const capas = await cargarCapas();
+  let capas = await cargarCapas();
+  if (capas.length === 0) {
+    // Justo después de un refresco de página, la base de datos local
+    // puede tardar un instante en quedar lista — se reintenta una vez
+    // después de una pequeña espera antes de darlo por vacío de verdad.
+    await new Promise((r) => setTimeout(r, 400));
+    capas = await cargarCapas();
+  }
   if (capas.length === 0) {
     console.warn('[Microgerencia→Mapa] cargarCapas() no devolvió ninguna capa — no hay shapefiles guardados en este navegador.');
     return null;
@@ -102,12 +109,26 @@ function nombreEstacionDeFeature(feature: any, columna: string): string {
 }
 
 async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string) {
-  const capasPuntos = await cargarCapasPuntos();
-  return capasPuntos
+  let capasPuntos = await cargarCapasPuntos();
+  if (capasPuntos.length === 0) {
+    await new Promise((r) => setTimeout(r, 400));
+    capasPuntos = await cargarCapasPuntos();
+  }
+  const resultado = capasPuntos
     .filter((c) => c.visible)
     .flatMap((c) => c.puntos)
     .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
     .filter((p) => !estacionCorta || p.estacionCorta === estacionCorta);
+
+  if (resultado.length === 0) {
+    console.warn('[Microgerencia→Mapa] Detalle de capas de puntos:', capasPuntos.map((c) => ({
+      nombre: c.nombre,
+      visible: c.visible,
+      totalPuntos: c.puntos.length,
+      ejemploPunto: c.puntos[0] ?? null,
+    })));
+  }
+  return resultado;
 }
 
 function extraerAnillosDeFeature(feature: any): [number, number][][] {

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { procesarFilas, type ParseResult } from './csvParser';
+import { procesarFilas, detectarColumnasFaltantes, type ParseResult } from './csvParser';
 import { transformarDatosDB2, COLUMNAS_REQUERIDAS_DB2 } from './db2Transform';
 
 export function esArchivoExcel(nombreArchivo: string): boolean {
@@ -40,8 +40,28 @@ function leerXlsxComoFilas(file: File): Promise<FilasCrudas> {
         // de Excel), y dateNF fija el formato de salida a dd/mm/yyyy sin
         // depender de que el archivo de origen conserve el estilo de celda.
         const workbook = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'dd"/"mm"/"yyyy' });
-        const nombreHoja = workbook.SheetNames[0];
-        const hoja = workbook.Sheets[nombreHoja];
+
+        // Un libro puede traer varias hojas (resúmenes, tablas dinámicas,
+        // datos de otros temas) — no siempre la PRIMERA es la de los datos
+        // reales. Se recorre cada hoja y se usa la primera cuyo encabezado
+        // sí cumpla con las columnas mínimas requeridas (o el formato DB2
+        // crudo); si ninguna califica, se usa la primera como antes, para
+        // no romper archivos de una sola hoja.
+        let nombreHojaElegida = workbook.SheetNames[0];
+        for (const nombreHoja of workbook.SheetNames) {
+          const hojaCandidata = workbook.Sheets[nombreHoja];
+          const encabezado = (XLSX.utils.sheet_to_json(hojaCandidata, { header: 1, range: 0, blankrows: false })[0] as string[] | undefined) || [];
+          if (encabezado.length === 0) continue;
+          const headersLimpios = encabezado.map((h) => String(h ?? '').trim());
+          const calificaPorColumnasMinimas = detectarColumnasFaltantes(headersLimpios).length === 0;
+          const calificaPorDB2Crudo = COLUMNAS_REQUERIDAS_DB2.every((c) => headersLimpios.includes(c));
+          if (calificaPorColumnasMinimas || calificaPorDB2Crudo) {
+            nombreHojaElegida = nombreHoja;
+            break;
+          }
+        }
+
+        const hoja = workbook.Sheets[nombreHojaElegida];
         const csv = XLSX.utils.sheet_to_csv(hoja, { FS: ';', blankrows: false, dateNF: 'dd"/"mm"/"yyyy' });
         resolve(leerCsvComoFilas(csv));
       } catch (err) {
