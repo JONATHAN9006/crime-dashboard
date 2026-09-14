@@ -208,6 +208,18 @@ export function AnalisisUnidad() {
     aportePct: totalCaiVigenciaActual > 0 ? (d.casos / totalCaiVigenciaActual) * 100 : 0,
   }));
 
+  // Turno de vigilancia — mismo criterio de vigencia actual que los demás
+  // componentes de esta página (3 turnos de 8 horas, calculados ya desde
+  // la carga del archivo — ver csvParser.ts).
+  const porTurnoCompleto = ventana.disponible
+    ? agruparPor(ventana.recsActual, (r) => r.turno || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO')
+    : [];
+  const totalTurnoVigenciaActual = porTurnoCompleto.reduce((a, d) => a + d.casos, 0);
+  const porTurnoVigenciaActual = porTurnoCompleto.map((d) => ({
+    ...d,
+    aportePct: totalTurnoVigenciaActual > 0 ? (d.casos / totalTurnoVigenciaActual) * 100 : 0,
+  }));
+
   // Operatividad (capturas, incautaciones, recuperaciones) — dataset
   // SEPARADO del de delictividad, ya filtrado por DataContext con los
   // MISMOS filtros generales (Delito ↔ delito asociado, Estación,
@@ -393,7 +405,7 @@ export function AnalisisUnidad() {
             </Card>
           </div>
 
-          {/* CAI más afectados — misma vigencia actual que "Top delitos". */}
+          {/* CAI más afectados / Turno de Vigilancia — misma vigencia actual que "Top delitos". */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card
               title="CAI más afectados"
@@ -402,6 +414,17 @@ export function AnalisisUnidad() {
               actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}
             >
               <AporteBarList data={porCaiVigenciaActual} onBarClick={(key) => drillDown('cai', key)} />
+            </Card>
+            <Card
+              title="Turno de Vigilancia"
+              descargable="turno-vigilancia"
+              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
+            >
+              {porTurnoVigenciaActual.length > 0 ? (
+                <AporteBarList data={porTurnoVigenciaActual} onBarClick={(key) => drillDown('turno', key)} />
+              ) : (
+                <p className="py-6 text-center text-sm text-slate-400">Sin datos de turno para el filtro actual.</p>
+              )}
             </Card>
           </div>
 
