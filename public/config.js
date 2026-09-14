@@ -1,4 +1,4 @@
-Config · JS
+//Config · JS
 // Configuración en tiempo de ejecución del dashboard.
 // Puedes editar este archivo directamente en el servidor (sin recompilar el proyecto).
 //
