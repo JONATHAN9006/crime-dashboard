@@ -424,26 +424,35 @@ export function MapaGeorreferenciacion() {
   // al "filteredRecords" global (que aquí no aplica) para lo poco que se
   // usa (el conteo "colorear por casos" y el texto informativo).
 // Detecta y parsea una fecha dentro de la fila cruda de un punto (Delitos /
-// IRISP1) — prueba los nombres de columna de fecha más comunes que ya se
-// han visto en los distintos formatos de archivo (Matriz Base, DB2,
-// históricos), sin necesidad de que el usuario diga cuál es.
-const NOMBRES_COLUMNA_FECHA = ['FECHA_HECHO', 'FECHA HECHO', 'FECHA_HECHO NEW', 'FECHA HECHOS', 'FECHA DIA', 'FECHA', 'FECHA_HECHO_1'];
+// IRISP1) — en vez de exigir un nombre de columna exacto (que falla si el
+// archivo de origen usa una variante distinta), busca CUALQUIER columna
+// cuyo nombre contenga "FECHA" y prueba si su valor es una fecha real con
+// un año dentro de un rango razonable (1990-2035) — así funciona sin
+// importar cómo se llame exactamente la columna en cada archivo.
 function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
-  for (const nombre of NOMBRES_COLUMNA_FECHA) {
-    const clave = Object.keys(p.fila).find((k) => k.trim().toUpperCase().replace(/[_\s]+/g, ' ') === nombre);
-    if (!clave) continue;
+  const clavesFecha = Object.keys(p.fila).filter((k) => /FECHA/i.test(k));
+  for (const clave of clavesFecha) {
     const valor = p.fila[clave];
-    if (valor instanceof Date && !isNaN(valor.getTime())) return valor;
+    if (valor instanceof Date && !isNaN(valor.getTime())) {
+      if (valor.getFullYear() >= 1990 && valor.getFullYear() <= 2035) return valor;
+      continue;
+    }
+    if (typeof valor === 'number' && valor > 20000 && valor < 60000) {
+      // Posible número de serie de Excel para una fecha (días desde 1900).
+      const fecha = new Date(Date.UTC(1899, 11, 30) + valor * 86400000);
+      if (!isNaN(fecha.getTime()) && fecha.getFullYear() >= 1990 && fecha.getFullYear() <= 2035) return fecha;
+      continue;
+    }
     if (typeof valor === 'string' && valor.trim()) {
       const partes = valor.trim().split(/[\/\-]/);
       if (partes.length === 3) {
         const [a, b, c] = partes.map((x) => parseInt(x, 10));
         // dd/mm/yyyy es el formato más común en estos archivos.
-        if (c > 1900) return new Date(c, b - 1, a);
-        if (a > 1900) return new Date(a, b - 1, c);
+        if (c >= 1990 && c <= 2035) { const f = new Date(c, b - 1, a); if (!isNaN(f.getTime())) return f; }
+        if (a >= 1990 && a <= 2035) { const f = new Date(a, b - 1, c); if (!isNaN(f.getTime())) return f; }
       }
       const intento = new Date(valor);
-      if (!isNaN(intento.getTime())) return intento;
+      if (!isNaN(intento.getTime()) && intento.getFullYear() >= 1990 && intento.getFullYear() <= 2035) return intento;
     }
   }
   return null;
@@ -824,6 +833,12 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         }
         return true;
       });
+
+      if ((filters.fechaInicial || filters.fechaFinal) && capa.puntos.length > 0 && puntosFiltrados.length === 0) {
+        const columnasEjemplo = Object.keys(capa.puntos[0].fila);
+        const columnasConFecha = columnasEjemplo.filter((k) => /FECHA/i.test(k));
+        console.warn(`[Mapa: filtro de fecha] La capa "${capa.nombre}" quedó en 0 puntos al filtrar por fecha. Columnas con "FECHA" en el nombre: ${JSON.stringify(columnasConFecha)}. Valor de ejemplo: ${JSON.stringify(columnasConFecha.map((c) => capa.puntos[0].fila[c]))}`);
+      }
 
       // Todos los delitos distintos que trae la capa (nombre corto), para el
       // selector propio "manipulables" — incluye los que YA coinciden con el
