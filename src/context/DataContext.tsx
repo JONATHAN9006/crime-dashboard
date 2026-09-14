@@ -246,8 +246,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         resumen.filasConErroresDB2 = parsed.filasConErroresDB2;
         resumen.valoresNuevosDB2 = parsed.valoresNuevosDB2;
 
+        // El parámetro oficial de corte ("a la fecha") solo viaja en archivos
+        // DB2; un archivo sin esa columna (ej. una carga histórica antigua)
+        // NO debe borrar el valor ya conocido de una carga DB2 anterior —
+        // por eso se conserva el de `meta` si el archivo recién subido no
+        // trae uno propio, en vez de sobrescribirlo siempre con el del
+        // último archivo (que en modo "agregar" puede no ser el más
+        // completo de los dos).
+        const fechaMaxParametroFinal = parsed.fechaMaxParametro ?? meta?.fechaMaxParametro ?? null;
+
         const columnasFinal = Array.from(new Set([...lastColumns, ...parsed.columnasDetectadas]));
-        await persistirYActualizar(registrosFinales, file.name, columnasFinal, undefined, parsed.fechaMaxParametro);
+        await persistirYActualizar(registrosFinales, file.name, columnasFinal, undefined, fechaMaxParametroFinal);
 
         // Si hay backend configurado, sube el dataset final (ya fusionado) para que
         // todos los que consulten el dashboard vean esta misma actualización.
@@ -256,7 +265,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             return { ...resumen, sincronizado: false, errorSincronizacion: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
           }
           try {
-            const csvCompleto = serializarCsv(registrosFinales);
+            const csvCompleto = serializarCsv(registrosFinales, fechaMaxParametroFinal);
             const res = await subirCsvRemoto(backendUrl, token, csvCompleto, usuario || 'No identificado');
             if (!res.ok) {
               return { ...resumen, sincronizado: false, errorSincronizacion: res.error || 'El servidor central rechazó la actualización.' };
@@ -278,7 +287,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         return { error: 'Ocurrió un error al procesar el archivo. Verifica que sea un CSV válido.' };
       }
     },
-    [records, lastColumns, persistirYActualizar, backendUrl],
+    [records, lastColumns, persistirYActualizar, backendUrl, meta],
   );
 
   const limpiarTodo = useCallback(async () => {
