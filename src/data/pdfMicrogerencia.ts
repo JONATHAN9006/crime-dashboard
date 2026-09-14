@@ -73,9 +73,10 @@ function altoTablaTop5(): number {
 function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
   const altoMeses = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12 + ALTO_MARGEN_INFERIOR_BLOQUE;
   const altoTrimestres = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 4 + ALTO_MARGEN_INFERIOR_BLOQUE;
-  // Columna 1 apila Trimestres + TODOS los delitos (alcanzan de sobra) — la
-  // columna 3 queda libre para el mapa de calor.
-  const altoColumna1 = altoTrimestres + PADDING_TARJETA + altoTablaDelitos(nodo.delitos.length);
+  // Columna 1 apila Trimestres + Top 10 delitos (no todos) — así nunca
+  // queda desproporcionadamente más alta que Meses o el mapa.
+  const cantidadDelitosMostrados = Math.min(nodo.delitos.length, 10);
+  const altoColumna1 = altoTrimestres + PADDING_TARJETA + altoTablaDelitos(cantidadDelitosMostrados);
   return Math.max(altoMeses, altoColumna1);
 }
 
@@ -376,10 +377,18 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoTrimestres, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175]);
     const yOriginal = y;
     y += altoTrimestres + PADDING_TARJETA;
-    dibujarBloqueDelitos(nodo, MARGEN, anchoTrimestres, altoTablaDelitos(nodo.delitos.length));
+    // Debajo de Trimestres: Top 10 delitos (no todos) — así la columna 1
+    // nunca queda desproporcionadamente más alta que las otras dos.
+    const delitosTop10 = { ...nodo, delitos: nodo.delitos.slice(0, 10) };
+    dibujarBloqueDelitos(delitosTop10, MARGEN, anchoTrimestres, altoTablaDelitos(delitosTop10.delitos.length));
     y = yOriginal;
 
-    dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoBanda, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14]);
+    // "Distribución por mes" usa su propia altura natural (12 filas fijas)
+    // — NUNCA la altura compartida/estirada de toda la banda, que dejaba
+    // un espacio vacío feo debajo de diciembre cuando la columna de
+    // Delitos era más alta.
+    const altoMesesPropio = ALTO_ENCABEZADO_BLOQUE + ALTO_FILA_TRIM_MES * 12 + ALTO_MARGEN_INFERIOR_BLOQUE;
+    dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoMesesPropio, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14]);
     dibujarImagenMapaONodo(nodo, imagenMapaDataUrl, xTercera, anchoTercera, altoBanda);
 
     y += altoBanda + ESPACIO_ENTRE_TARJETAS;
