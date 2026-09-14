@@ -62,9 +62,15 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
 export async function generarImagenMapaGeneral(delitoFiltrado: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeEstaciones();
-    if (!localizada || localizada.features.length === 0) return undefined;
+    if (!localizada || localizada.features.length === 0) {
+      console.warn('[Microgerencia→Mapa] No se encontró ninguna capa de Estación cargada en "Mapa/Georreferenciación" (o ninguna columna suya coincide con nombres de estación conocidos).');
+      return undefined;
+    }
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado);
-    if (puntos.length === 0) return undefined;
+    if (puntos.length === 0) {
+      console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación" — es un Excel aparte con columnas de latitud/longitud, distinto de la Matriz Base/DB2 principal.', { delitoFiltrado });
+      return undefined;
+    }
     const featureCollection = { type: 'FeatureCollection', features: localizada.features };
     return await generarDataUrlPoligonoAislado({
       feature: featureCollection,
@@ -73,7 +79,8 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
       etiquetas: [],
       anchoLienzo: 700,
     });
-  } catch {
+  } catch (err) {
+    console.error('[Microgerencia→Mapa] Falló generando el mapa general:', err);
     return undefined;
   }
 }
@@ -82,11 +89,20 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
 export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeEstaciones();
-    if (!localizada) return undefined;
+    if (!localizada) {
+      console.warn(`[Microgerencia→Mapa] No se encontró la capa de Estación (para "${nombreEstacionCorta}").`);
+      return undefined;
+    }
     const feature = localizada.features.find((f) => normalizar(nombreEstacionDeFeature(f, localizada.columna)) === normalizar(nombreEstacionCorta));
-    if (!feature) return undefined;
+    if (!feature) {
+      console.warn(`[Microgerencia→Mapa] La capa de Estación no tiene ningún polígono que coincida con "${nombreEstacionCorta}" en la columna "${localizada.columna}".`);
+      return undefined;
+    }
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado, nombreEstacionCorta);
-    if (puntos.length === 0) return undefined;
+    if (puntos.length === 0) {
+      console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
+      return undefined;
+    }
     return await generarDataUrlPoligonoAislado({
       feature,
       puntos,
@@ -94,7 +110,8 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       etiquetas: [],
       anchoLienzo: 700,
     });
-  } catch {
+  } catch (err) {
+    console.error(`[Microgerencia→Mapa] Falló generando el mapa de "${nombreEstacionCorta}":`, err);
     return undefined;
   }
 }

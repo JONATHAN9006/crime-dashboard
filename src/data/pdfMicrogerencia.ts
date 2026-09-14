@@ -57,7 +57,7 @@ const ALTO_FILA_METRICAS = 22;
 const ALTO_FILA_TRIM_MES = 6.2; // Trimestres/Meses: filas fijas (4 y 12), letra más grande
 const ALTO_FILA_DELITOS = 5.6; // Delitos: cantidad variable, en 1 o 2 columnas según cuántos haya
 const ALTO_ENCABEZADO_BLOQUE = 10;
-const ALTO_MARGEN_INFERIOR_BLOQUE = 6; // espacio de sobra bajo la última fila, para que el texto nunca sobresalga del color de fondo
+const ALTO_MARGEN_INFERIOR_BLOQUE = 10; // espacio de sobra bajo la última fila, para que el texto nunca sobresalga del color de fondo
 const PADDING_TARJETA = 4;
 const ESPACIO_ENTRE_TARJETAS = 8;
 
@@ -107,7 +107,15 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     return ALTO_TITULO_TARJETA + ALTO_FILA_METRICAS + altoBandaTresColumnas(nodo) + PADDING_TARJETA * 3;
   }
 
+  const Y_TOPE_PAGINA_FRESCA = 30; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
+
   function nuevaPaginaSiNoCabe(altoNecesario: number) {
+    // Si ya estamos arriba de todo en una página recién empezada, NUNCA
+    // saltar a una página nueva — aunque el contenido sea más alto de lo
+    // que cabe, saltar solo produciría una página en blanco (el problema
+    // sería exactamente el mismo en la página siguiente). Se deja dibujar
+    // aquí mismo, aunque se pase un poco del margen inferior.
+    if (y <= Y_TOPE_PAGINA_FRESCA) return;
     if (y + altoNecesario > MM_ALTO - MARGEN) {
       pdf.addPage();
       dibujarEncabezadoPagina();
