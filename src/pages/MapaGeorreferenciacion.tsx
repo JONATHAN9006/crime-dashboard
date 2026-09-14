@@ -208,6 +208,53 @@ function areaRealDeFeature(feature: any): number {
   return area;
 }
 
+function IrACoordenadas({ onIr }: { onIr: (lat: number, lon: number) => void }) {
+  const [lat, setLat] = useState('');
+  const [lon, setLon] = useState('');
+  function ir() {
+    const latNum = parseFloat(lat.replace(',', '.'));
+    const lonNum = parseFloat(lon.replace(',', '.'));
+    if (Number.isFinite(latNum) && Number.isFinite(lonNum)) onIr(latNum, lonNum);
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        placeholder="Latitud"
+        value={lat}
+        onChange={(e) => setLat(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && ir()}
+        className="w-24 rounded border border-slate-300 px-1.5 py-0.5 text-xs"
+      />
+      <input
+        type="text"
+        placeholder="Longitud"
+        value={lon}
+        onChange={(e) => setLon(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && ir()}
+        className="w-24 rounded border border-slate-300 px-1.5 py-0.5 text-xs"
+      />
+      <button type="button" onClick={ir} className="rounded bg-brand-navy px-2 py-0.5 text-xs font-medium text-white hover:bg-brand-navy-light">
+        <MapPin size={12} className="inline -mt-0.5 mr-1" />Ir
+      </button>
+    </div>
+  );
+}
+
+// Ajusta la vista del mapa a un punto exacto (coordenadas escritas a mano) —
+// un marcador temporal queda puesto ahí hasta que se busque otro punto.
+function AjustarVistaAPunto({ punto }: { punto: { lat: number; lon: number } }) {
+  const mapa = useMap();
+  useEffect(() => {
+    mapa.setView([punto.lat, punto.lon], 17, { animate: true });
+  }, [punto.lat, punto.lon]);
+  return (
+    <CircleMarker center={[punto.lat, punto.lon]} radius={9} pathOptions={{ color: '#dc2626', weight: 3, fillColor: '#dc2626', fillOpacity: 0.3 }}>
+      <Popup>Coordenada: {punto.lat.toFixed(6)}, {punto.lon.toFixed(6)}</Popup>
+    </CircleMarker>
+  );
+}
+
 function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
   useMapEvents({
     click(e) {
@@ -266,6 +313,7 @@ function AjustarVistaAPoligono({ feature }: { feature: any }) {
   }, [feature]);
   return null;
 }
+
 
 function LeyendaGradiente({ titulo, colores }: { titulo: string; colores: string[] }) {
   return (
@@ -352,19 +400,49 @@ export function MapaGeorreferenciacion() {
     cai: [] as string[],
     cuadrante: [] as string[],
     barrioHecho: [] as string[],
+    fechaInicial: '' as string,
+    fechaFinal: '' as string,
   });
   const filters = filtrosMapa; // alias interno — así el resto del archivo, que ya usa "filters.delito" etc., no hay que reescribirlo entero.
 
   // Registros filtrados SOLO con los filtros propios del mapa — reemplaza
   // al "filteredRecords" global (que aquí no aplica) para lo poco que se
   // usa (el conteo "colorear por casos" y el texto informativo).
+// Detecta y parsea una fecha dentro de la fila cruda de un punto (Delitos /
+// IRISP1) — prueba los nombres de columna de fecha más comunes que ya se
+// han visto en los distintos formatos de archivo (Matriz Base, DB2,
+// históricos), sin necesidad de que el usuario diga cuál es.
+const NOMBRES_COLUMNA_FECHA = ['FECHA_HECHO', 'FECHA HECHO', 'FECHA_HECHO NEW', 'FECHA HECHOS', 'FECHA DIA', 'FECHA', 'FECHA_HECHO_1'];
+function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
+  for (const nombre of NOMBRES_COLUMNA_FECHA) {
+    const clave = Object.keys(p.fila).find((k) => k.trim().toUpperCase().replace(/[_\s]+/g, ' ') === nombre);
+    if (!clave) continue;
+    const valor = p.fila[clave];
+    if (valor instanceof Date && !isNaN(valor.getTime())) return valor;
+    if (typeof valor === 'string' && valor.trim()) {
+      const partes = valor.trim().split(/[\/\-]/);
+      if (partes.length === 3) {
+        const [a, b, c] = partes.map((x) => parseInt(x, 10));
+        // dd/mm/yyyy es el formato más común en estos archivos.
+        if (c > 1900) return new Date(c, b - 1, a);
+        if (a > 1900) return new Date(a, b - 1, c);
+      }
+      const intento = new Date(valor);
+      if (!isNaN(intento.getTime())) return intento;
+    }
+  }
+  return null;
+}
+
   const filteredRecords = useMemo(() => {
     return records.filter((r) =>
       (filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
       (filtrosMapa.estacion.length === 0 || filtrosMapa.estacion.includes(r.estacion)) &&
       (filtrosMapa.cai.length === 0 || filtrosMapa.cai.includes(r.cai)) &&
       (filtrosMapa.cuadrante.length === 0 || filtrosMapa.cuadrante.includes(r.cuadrante)) &&
-      (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)),
+      (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
+      (!filtrosMapa.fechaInicial || (r.fecha && r.fecha >= new Date(filtrosMapa.fechaInicial))) &&
+      (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))),
     );
   }, [records, filtrosMapa]);
 
@@ -380,6 +458,8 @@ export function MapaGeorreferenciacion() {
   }), [records]);
 
   const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
+  const [modoVisualizacion, setModoVisualizacion] = useState<'calor' | 'puntos'>('calor');
+  const [coordenadaManual, setCoordenadaManual] = useState<{ lat: number; lon: number } | null>(null);
   const [mostrarEnConstruccion, setMostrarEnConstruccion] = useState<string | null>(null);
   const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
   // Fuentes propias del módulo — Operatividad y Macri quedan como
@@ -721,6 +801,12 @@ export function MapaGeorreferenciacion() {
         if (capa.colEstado && capa.filtroEstado.length > 0 && !capa.filtroEstado.includes(String(p.fila[capa.colEstado] ?? ''))) return false;
         if (capa.colEstadoExistencia && capa.filtroEstadoExistencia.length > 0 && !capa.filtroEstadoExistencia.includes(String(p.fila[capa.colEstadoExistencia] ?? ''))) return false;
         if (capa.colDependencia && capa.filtroDependencia.length > 0 && !capa.filtroDependencia.includes(String(p.fila[capa.colDependencia] ?? ''))) return false;
+        if (filters.fechaInicial || filters.fechaFinal) {
+          const fechaPunto = extraerFechaDePunto(p);
+          if (!fechaPunto) return false;
+          if (filters.fechaInicial && fechaPunto < new Date(filters.fechaInicial)) return false;
+          if (filters.fechaFinal && fechaPunto > new Date(filters.fechaFinal + 'T23:59:59')) return false;
+        }
         return true;
       });
 
@@ -743,12 +829,24 @@ export function MapaGeorreferenciacion() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.delito, filters.estacion]);
+  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
   // nunca combinados en una sola lista. El mapa de calor comparativo y la
   // grilla de coincidencia se calculan a partir de estas dos listas.
+  // Puntos que pertenecen al Barrio elegido en el filtro — se busca en
+  // TODAS las columnas de cada punto (los archivos de puntos no siempre
+  // usan el mismo nombre de columna para "barrio"), para poder ajustar el
+  // zoom ahí aunque no haya un polígono propio de barrios cargado.
+  const puntosDelBarrioSeleccionado = useMemo(() => {
+    if (filtrosMapa.barrioHecho.length !== 1) return [];
+    const barrioNorm = normalizar(filtrosMapa.barrioHecho[0]);
+    const todosLosPuntos = capasPuntosProcesadas.filter(({ capa }) => capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados);
+    return todosLosPuntos.filter((p) => Object.values(p.fila).some((v) => normalizar(String(v ?? '')) === barrioNorm));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrosMapa.barrioHecho.join(','), capasPuntosProcesadas]);
+
   const puntosDelitosVisibles = useMemo(
     () => capasPuntosProcesadas
       .filter(({ capa }) => capa.tipo === 'delitos' && capa.visible)
@@ -1176,6 +1274,31 @@ export function MapaGeorreferenciacion() {
             ))}
           </div>
 
+          {/* Rango de fecha — filtra el mapa de calor / puntos por una
+              ventana de tiempo específica, además de los filtros de
+              arriba. Aplica tanto a las capas de puntos (Delitos/IRISP1)
+              como a los polígonos coloreados por casos. */}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-300">Fecha inicial</label>
+              <input
+                type="date"
+                value={filtrosMapa.fechaInicial}
+                onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, fechaInicial: e.target.value }))}
+                className="w-full rounded-lg border border-white/20 bg-white px-2 py-1.5 text-xs text-slate-800"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-300">Fecha final</label>
+              <input
+                type="date"
+                value={filtrosMapa.fechaFinal}
+                onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, fechaFinal: e.target.value }))}
+                className="w-full rounded-lg border border-white/20 bg-white px-2 py-1.5 text-xs text-slate-800"
+              />
+            </div>
+          </div>
+
           {capas.length > 0 && (
             <div className="mt-4 border-t border-white/10 pt-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Capas cargadas</p>
@@ -1258,7 +1381,7 @@ export function MapaGeorreferenciacion() {
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [] })}
+              onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [], fechaInicial: '', fechaFinal: '' })}
               className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
             >
               🔄 Limpiar
@@ -1342,6 +1465,17 @@ export function MapaGeorreferenciacion() {
             <input type="checkbox" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
             Comparar IRISP1 vs Delitos
           </label>
+          <span className="mx-1 h-4 w-px bg-slate-200" />
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input type="radio" name="modoVisualizacion" checked={modoVisualizacion === 'calor'} onChange={() => setModoVisualizacion('calor')} />
+            Mapa de calor
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input type="radio" name="modoVisualizacion" checked={modoVisualizacion === 'puntos'} onChange={() => setModoVisualizacion('puntos')} />
+            Puntos
+          </label>
+          <span className="mx-1 h-4 w-px bg-slate-200" />
+          <IrACoordenadas onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
         </div>
 
         {/* La leyenda de cada escala aparece en cuanto su mapa de calor está
@@ -1603,7 +1737,10 @@ export function MapaGeorreferenciacion() {
                 Depende ÚNICAMENTE del checkbox "Delitos" de arriba — ya NO
                 requiere que "Comparar" esté activo: se enciende y apaga con
                 su propio checkbox, en sincronía directa con la capa. */}
-            {mostrarCalorDelitos && (
+            {coordenadaManual && <AjustarVistaAPunto punto={coordenadaManual} />}
+            {puntosDelBarrioSeleccionado.length > 0 && <AjustarVistaAPuntos puntos={puntosDelBarrioSeleccionado} />}
+
+            {mostrarCalorDelitos && modoVisualizacion === 'calor' && (
               <KernelHeatmapLayer
                 puntos={puntosDelitosParaMostrar}
                 colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']}
@@ -1616,13 +1753,27 @@ export function MapaGeorreferenciacion() {
                 distinta a la de Delitos. Se calcula EXCLUSIVAMENTE con los
                 puntos de capas tipo "irisp1", y depende únicamente del
                 checkbox "IRISP1" de arriba, igual que Delitos. */}
-            {mostrarCalorIrisp1 && (
+            {mostrarCalorIrisp1 && modoVisualizacion === 'calor' && (
               <KernelHeatmapLayer
                 puntos={puntosIrisp1ParaMostrar}
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
                 opacidad={opacidades.calor / 100}
               />
             )}
+
+            {/* Modo "Puntos" — en vez de la superficie de densidad, cada
+                delito/IRISP1 se marca individualmente (mismo color que su
+                fuente), respetando los mismos checkboxes de arriba. */}
+            {modoVisualizacion === 'puntos' && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => (
+              <CircleMarker key={`pd-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#dc2626', weight: 1, fillColor: '#dc2626', fillOpacity: 0.7 }}>
+                <Popup>{(p as any).delitoCorto ?? 'Delito'}</Popup>
+              </CircleMarker>
+            ))}
+            {modoVisualizacion === 'puntos' && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => (
+              <CircleMarker key={`pi-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#2563eb', weight: 1, fillColor: '#2563eb', fillOpacity: 0.7 }}>
+                <Popup>{(p as any).delitoCorto ?? 'IRISP1'}</Popup>
+              </CircleMarker>
+            ))}
 
             {/* Zona seleccionada con un clic sobre un polígono cargado: el
                 mapa se encuadra en ella y, si hay puntos dentro, se pinta un
