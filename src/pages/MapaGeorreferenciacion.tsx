@@ -14,6 +14,7 @@ import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { mapearCuadrante } from '../data/db2Transform';
+import { MAPA_ESTACION } from '../data/db2Mapeos';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
@@ -247,14 +248,22 @@ function IrACoordenadas({ onIr }: { onIr: (lat: number, lon: number) => void }) 
 
 // Ajusta la vista del mapa a un punto exacto (coordenadas escritas a mano) —
 // un marcador temporal queda puesto ahí hasta que se busque otro punto.
-function AjustarVistaAPunto({ punto }: { punto: { lat: number; lon: number } }) {
+function AjustarVistaAPunto({ punto, info }: { punto: { lat: number; lon: number }; info: { estacion?: string; cai?: string; cuadrante?: string; barrio?: string; barrioAproximado?: boolean } | null }) {
   const mapa = useMap();
   useEffect(() => {
     mapa.setView([punto.lat, punto.lon], 17, { animate: true });
   }, [punto.lat, punto.lon]);
   return (
     <CircleMarker center={[punto.lat, punto.lon]} radius={9} pathOptions={{ color: '#dc2626', weight: 3, fillColor: '#dc2626', fillOpacity: 0.3 }}>
-      <Popup>Coordenada: {punto.lat.toFixed(6)}, {punto.lon.toFixed(6)}</Popup>
+      <Popup>
+        <div className="space-y-1 text-xs">
+          <p className="font-semibold text-slate-700">Coordenada: {punto.lat.toFixed(6)}, {punto.lon.toFixed(6)}</p>
+          <p><strong>Estación:</strong> {info?.estacion ?? 'No disponible'}</p>
+          <p><strong>CAI:</strong> {info?.cai ?? 'No disponible'}</p>
+          <p><strong>Cuadrante / Zona de Atención:</strong> {info?.cuadrante ?? 'No disponible'}</p>
+          <p><strong>Barrio:</strong> {info?.barrio ?? 'No disponible'}{info?.barrioAproximado && ' (aproximado, por el punto más cercano)'}</p>
+        </div>
+      </Popup>
     </CircleMarker>
   );
 }
@@ -869,6 +878,53 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // TODAS las columnas de cada punto (los archivos de puntos no siempre
   // usan el mismo nombre de columna para "barrio"), para poder ajustar el
   // zoom ahí aunque no haya un polígono propio de barrios cargado.
+  // A qué Estación/CAI/Cuadrante pertenece la coordenada escrita a mano —
+  // punto-en-polígono contra las capas cargadas. El Barrio no suele tener
+  // shapefile propio, así que se aproxima con el punto de Delitos/IRISP1
+  // más cercano (a menos de ~150m) que ya traiga barrio en su fila.
+  const infoCoordenadaManual = useMemo(() => {
+    if (!coordenadaManual) return null;
+    const { lat, lon } = coordenadaManual;
+    const resultado: { estacion?: string; cai?: string; cuadrante?: string; barrio?: string; barrioAproximado?: boolean } = {};
+
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      for (const f of extraerFeatures(capa.geojson)) {
+        if (!puntoEnFeatureGeoJSON(lon, lat, f)) continue;
+        const valorCrudo = campo ? String(f.properties?.[campo] ?? '') : '';
+        if (!valorCrudo) continue;
+        if (opcionesFiltroMapa.estacion.some((e) => normalizar(e) === normalizar(MAPA_ESTACION[valorCrudo.toUpperCase()] ?? valorCrudo))) {
+          resultado.estacion = MAPA_ESTACION[valorCrudo.toUpperCase()] ?? valorCrudo;
+        } else if (opcionesFiltroMapa.cai.some((c) => normalizar(c) === normalizar(valorCrudo))) {
+          resultado.cai = valorCrudo;
+        } else {
+          const traducido = mapearCuadrante(valorCrudo, new Set());
+          resultado.cuadrante = (traducido && traducido !== 'NO REPORTADO') ? traducido : valorCrudo;
+        }
+      }
+    }
+
+    let mejorDistancia = Infinity;
+    for (const cp of capasPuntos) {
+      const colBarrio = Object.keys(cp.puntos[0]?.fila ?? {}).find((k) => /BARRIO/i.test(k));
+      if (!colBarrio) continue;
+      for (const p of cp.puntos) {
+        const dLat = p.lat - lat, dLon = p.lon - lon;
+        const distMetrosAprox = Math.sqrt(dLat * dLat + dLon * dLon) * 111320;
+        if (distMetrosAprox < mejorDistancia && distMetrosAprox < 150) {
+          const valorBarrio = String(p.fila[colBarrio] ?? '').trim();
+          if (valorBarrio) {
+            mejorDistancia = distMetrosAprox;
+            resultado.barrio = valorBarrio;
+            resultado.barrioAproximado = true;
+          }
+        }
+      }
+    }
+    return resultado;
+  }, [coordenadaManual, capas, camposUnionAutoDetectados, opcionesFiltroMapa, capasPuntos]);
+
   const puntosDelBarrioSeleccionado = useMemo(() => {
     if (filtrosMapa.barrioHecho.length !== 1) return [];
     const barrioNorm = normalizar(filtrosMapa.barrioHecho[0]);
@@ -1784,7 +1840,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                 Depende ÚNICAMENTE del checkbox "Delitos" de arriba — ya NO
                 requiere que "Comparar" esté activo: se enciende y apaga con
                 su propio checkbox, en sincronía directa con la capa. */}
-            {coordenadaManual && <AjustarVistaAPunto punto={coordenadaManual} />}
+            {coordenadaManual && <AjustarVistaAPunto punto={coordenadaManual} info={infoCoordenadaManual} />}
             {puntosDelBarrioSeleccionado.length > 0 && <AjustarVistaAPuntos puntos={puntosDelBarrioSeleccionado} />}
 
             {mostrarCalorDelitos && modoVisualizacion === 'calor' && (
