@@ -29,9 +29,24 @@ export const NOMBRES_ESTACION_CORTOS = new Set(Object.values(MAPA_ESTACION));
 // nombres de estación conocidos.
 async function localizarCapaDeEstaciones() {
   const capas = await cargarCapas();
+  if (capas.length === 0) {
+    console.warn('[Microgerencia→Mapa] cargarCapas() no devolvió ninguna capa — no hay shapefiles guardados en este navegador.');
+    return null;
+  }
   for (const capa of capas) {
     const feats = extraerFeatures(capa.geojson).slice(0, 200);
     if (feats.length === 0) continue;
+
+    // Si esta capa ya tiene un campo elegido a mano (el mismo selector de
+    // respaldo del Mapa, para cuando la detección automática no basta),
+    // se usa ESE directamente — sin necesidad de que vuelva a adivinar.
+    if ((capa as any).campoUnion) {
+      const columna = (capa as any).campoUnion as string;
+      const valores = feats.map((f) => normalizar(f?.properties?.[columna]));
+      const pareceEstacion = valores.some((v) => Object.keys(MAPA_ESTACION).some((k) => normalizar(k) === v)) || feats.some((f) => NOMBRES_ESTACION_CORTOS.has(f?.properties?.[columna]));
+      if (pareceEstacion) return { capa, columna, features: extraerFeatures(capa.geojson) };
+    }
+
     const columnas = Object.keys(feats[0]?.properties ?? {});
     for (const columna of columnas) {
       const coincidencias = feats.filter((f) => {
@@ -41,6 +56,20 @@ async function localizarCapaDeEstaciones() {
       if (coincidencias.length >= Math.min(2, feats.length)) return { capa, columna, features: extraerFeatures(capa.geojson) };
     }
   }
+
+  // Diagnóstico: si no se encontró nada, se muestra QUÉ había disponible
+  // (capas, columnas y un par de valores de ejemplo de cada una) para
+  // poder identificar la causa real en vez de seguir adivinando a ciegas.
+  console.warn('[Microgerencia→Mapa] Ninguna columna de las capas cargadas coincidió con nombres de estación. Capas disponibles:', capas.map((capa) => {
+    const feats = extraerFeatures(capa.geojson).slice(0, 3);
+    const columnas = Object.keys(feats[0]?.properties ?? {});
+    return {
+      nombre: capa.nombre,
+      campoUnionManual: (capa as any).campoUnion ?? null,
+      columnas,
+      ejemploValores: columnas.reduce((acc: any, col) => { acc[col] = feats.map((f) => f?.properties?.[col]); return acc; }, {}),
+    };
+  }));
   return null;
 }
 
