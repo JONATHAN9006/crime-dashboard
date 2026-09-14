@@ -114,16 +114,10 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
 }
 
 export function DataStatusPanel() {
-  const { records, meta, backendUrl, remoteMeta } = useData();
+  const { meta, backendUrl, remoteMeta } = useData();
   if (!meta) return null;
 
-  // Desglose de "Total de casos" por año — el total general no dice de qué
-  // vigencia es cada uno; esto lo aclara sin quitar el dato general.
-  const casosPorAnio = meta.aniosDisponibles.map((anio) => ({
-    label: `Total casos ${anio}`,
-    valor: formatNumero(records.filter((r) => String(r.anio) === String(anio)).length),
-  }));
-  // Rango de años para el título del total general (ej. "2025-2026"), o el
+  // Rango de años para el título del total general (ej. "2003-2026"), o el
   // año único si solo hay uno — se arma solo, sin fechas fijas en el código.
   const aniosOrdenados = [...meta.aniosDisponibles].sort();
   const rangoAnios = aniosOrdenados.length > 1
@@ -135,8 +129,7 @@ export function DataStatusPanel() {
     { label: 'Primer registro', valor: formatFecha(meta.fechaMin) },
     { label: 'Último registro', valor: formatFecha(meta.fechaMax) },
     { label: `Total de casos (${rangoAnios})`, valor: formatNumero(meta.totalCasos) },
-    ...casosPorAnio,
-    { label: 'Años disponibles', valor: meta.aniosDisponibles.join(', ') || '—' },
+    { label: 'Años disponibles', valor: rangoAnios || '—' },
     { label: 'Estaciones disponibles', valor: String(meta.estacionesDisponibles.length) },
     { label: 'Barrios disponibles', valor: String(meta.barriosDisponibles.length) },
     { label: 'Delitos disponibles', valor: String(meta.delitosDisponibles.length) },

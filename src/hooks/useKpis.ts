@@ -38,9 +38,10 @@ export function useAniosComparables(records: CrimeRecord[]) {
 // aplicados (incluida la fecha), como corresponde a un "resumen de lo filtrado".
 export function useKpis(records: CrimeRecord[]): KpiResumen {
   return useMemo(() => {
+    const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'PENDIENTE POR ASIGNAR', 'PENDIENTE', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
     const porDelito = agruparPor(records, (r) => r.delito);
-    const porEstacion = agruparPor(records, (r) => r.estacion);
-    const porBarrio = agruparPor(records, (r) => r.barrioHecho);
+    const porEstacion = agruparPor(records, (r) => r.estacion).filter((d) => esValorReal(d.key));
+    const porBarrio = agruparPor(records, (r) => r.barrioHecho).filter((d) => esValorReal(d.key));
 
     const total = totalCasos(records);
     const { min, max } = minMaxDiario(records);

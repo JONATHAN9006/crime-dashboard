@@ -106,13 +106,13 @@ export function useUltimasSemanas(records: CrimeRecord[]): UltimasSemanasResumen
     const totalS4 = semanas[3].total;
     const variacionTotalPct = totalS1 > 0 ? ((totalS4 - totalS1) / totalS1) * 100 : null;
 
-    const porEstacion = agruparPor(registrosVentana, (r) => r.estacion);
+    const porEstacion = agruparPor(registrosVentana, (r) => r.estacion).filter((e) => !['NO REPORTADO','PENDIENTE POR ASIGNAR','SIN ASIGNAR'].includes(e.key.toUpperCase()));
     const porArma = agruparPor(registrosVentana, (r) => r.armas).filter((a) => a.key !== 'NO REPORTADO');
     const porHora = agruparPor(registrosVentana, (r) => (r.hora !== null ? `${String(r.hora).padStart(2, '0')}:00` : 'NO REPORTADO'));
     const porCuadrante = agruparPor(registrosVentana, (r) => r.cuadrante).filter((c) => c.key !== 'NO REPORTADO');
     const porCausaLesion = agruparPor(registrosVentana, (r) => r.causaLesion).filter((c) => c.key !== 'NO REPORTADO');
     const porClaseSitio = agruparPor(registrosVentana, (r) => r.claseSitio).filter((c) => c.key !== 'NO REPORTADO');
-    const porBarrio = agruparPor(registrosVentana, (r) => r.barrioHecho).filter((b) => b.key !== 'NO REPORTADO');
+    const porBarrio = agruparPor(registrosVentana, (r) => r.barrioHecho).filter((b) => !['NO REPORTADO','PENDIENTE POR ASIGNAR','SIN ASIGNAR'].includes(b.key.toUpperCase()));
     // Horario más afectado: por franja (Madrugada/Mañana/Tarde/Noche), no por hora exacta.
     const porFranja = agruparPor(registrosVentana, (r) => r.franjaHoraria).filter((f) => f.key !== 'NO REPORTADO');
     const totalVentanaParaPct = totalCasos(registrosVentana);
