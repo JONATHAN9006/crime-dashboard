@@ -820,27 +820,34 @@ export function MapaGeorreferenciacion() {
   // en sí), para que se vea la subdivisión interna.
   function calcularAnillosCuadrantesInternos(feature: any): [number, number][][] {
     const anillos: [number, number][][] = [];
+
+    // La capa de "cuadrantes"/Zona de Atención es, de las capas de
+    // polígono cargadas, la que tiene MÁS elementos — es la subdivisión
+    // más fina (una Estación tiene ~5 CAI, pero decenas de cuadrantes).
+    // Se identifica así, por conteo, en vez de comparar nombres: el
+    // shapefile puede traer sus valores en un formato distinto al de los
+    // datos ya cargados (código crudo vs. nombre traducido), y esa
+    // comparación puede fallar aunque el resaltado en vivo del mapa sí
+    // funcione (que usa otra lógica, jerárquica, no una comparación
+    // directa de texto).
+    let capaConMasElementos: CapaGeografica | null = null;
+    let maxElementos = 0;
     for (const capa of capas) {
-      const campo = camposUnionAutoDetectados.get(capa.id);
-      // Una capa cuenta como "de cuadrantes" si SU CONFIGURACIÓN ya lo dice
-      // (dimension === 'cuadrante', puesta a mano en "Colorear por casos")
-      // — más confiable que solo comparar nombres, que puede fallar si el
-      // shapefile trae los cuadrantes escritos distinto a como aparecen en
-      // los datos ya cargados.
-      const esCapaDeCuadrantes = capa.dimension === 'cuadrante';
-      for (const f of extraerFeatures(capa.geojson)) {
-        if (!esCapaDeCuadrantes) {
-          if (!campo) continue;
-          const valor = String(f?.properties?.[campo] ?? '');
-          const coincidePorNombre = opcionesFiltroMapa.cuadrante.some((c) => normalizar(c) === normalizar(valor));
-          if (!coincidePorNombre) continue;
-        }
-        const geom = f.geometry;
-        const puntoRepresentativo: [number, number] | undefined = geom?.type === 'Polygon' ? geom.coordinates[0]?.[0] : geom?.type === 'MultiPolygon' ? geom.coordinates[0]?.[0]?.[0] : undefined;
-        if (!puntoRepresentativo) continue;
-        if (puntoEnFeatureGeoJSON(puntoRepresentativo[0], puntoRepresentativo[1], feature)) {
-          anillos.push(...extraerAnillosDeFeature(f));
-        }
+      if (!capa.visible) continue;
+      const cantidad = extraerFeatures(capa.geojson).length;
+      if (cantidad > maxElementos) {
+        maxElementos = cantidad;
+        capaConMasElementos = capa;
+      }
+    }
+    if (!capaConMasElementos) return anillos;
+
+    for (const f of extraerFeatures(capaConMasElementos.geojson)) {
+      const geom = f.geometry;
+      const puntoRepresentativo: [number, number] | undefined = geom?.type === 'Polygon' ? geom.coordinates[0]?.[0] : geom?.type === 'MultiPolygon' ? geom.coordinates[0]?.[0]?.[0] : undefined;
+      if (!puntoRepresentativo) continue;
+      if (puntoEnFeatureGeoJSON(puntoRepresentativo[0], puntoRepresentativo[1], feature)) {
+        anillos.push(...extraerAnillosDeFeature(f));
       }
     }
     return anillos;
@@ -1475,6 +1482,21 @@ export function MapaGeorreferenciacion() {
               onSeleccionar={(sel) => {
                 setZonaSeleccionada((actual) => (actual?.feature === sel?.feature ? null : sel));
                 setDelitoZonaSeleccionada(null);
+                // Detecta a qué filtro corresponde lo que se acaba de hacer
+                // clic (Estación, CAI o Zona de Atención/Cuadrante) y lo
+                // refleja automáticamente en el formulario de filtros de
+                // arriba — así el filtro y el mapa siempre quedan
+                // sincronizados, sin tener que elegirlo a mano dos veces.
+                if (sel) {
+                  const nombreNorm = normalizar(sel.nombre);
+                  if (opcionesFiltroMapa.cuadrante.some((c) => normalizar(c) === nombreNorm)) {
+                    setFiltrosMapa((prev) => ({ ...prev, cuadrante: [sel.nombre], cai: [], estacion: [] }));
+                  } else if (opcionesFiltroMapa.cai.some((c) => normalizar(c) === nombreNorm)) {
+                    setFiltrosMapa((prev) => ({ ...prev, cai: [sel.nombre], cuadrante: [] }));
+                  } else if (opcionesFiltroMapa.estacion.some((e) => normalizar(e) === nombreNorm)) {
+                    setFiltrosMapa((prev) => ({ ...prev, estacion: [sel.nombre], cai: [], cuadrante: [] }));
+                  }
+                }
               }}
             />
             <TileLayer
