@@ -184,7 +184,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       ctx.closePath();
     }
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 3;
     ctx.stroke();
   }
 

@@ -13,6 +13,7 @@ import {
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
+import { mapearCuadrante } from '../data/db2Transform';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
@@ -225,7 +226,13 @@ function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: 
           // ya no pasa.
           const area = areaRealDeFeature(f);
           if (!mejor || area < mejor.area) {
-            const nombre = campo && f.properties?.[campo] ? String(f.properties[campo]) : (f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
+            const valorCrudo = campo && f.properties?.[campo] ? String(f.properties[campo]) : '';
+            // Si el valor crudo es un código sin traducir (ej. de la capa
+            // de Cuadrantes), se traduce con la misma función del dataset
+            // principal — así el nombre mostrado y usado para detectar el
+            // filtro siempre queda legible, nunca el código de la fuente.
+            const traducido = valorCrudo ? mapearCuadrante(valorCrudo, new Set()) : '';
+            const nombre = (traducido && traducido !== 'NO REPORTADO') ? traducido : (valorCrudo || f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
             mejor = { capaId: capa.id, feature: f, nombre, area };
           }
         }
@@ -474,6 +481,17 @@ export function MapaGeorreferenciacion() {
     if (filters.cai.some((c) => normalizar(c) === norm)) return true;
     if (filters.estacion.some((e) => normalizar(e) === norm)) return true;
     if (filters.cuadrante.some((c) => normalizar(c) === norm)) return true;
+    // El shapefile de Cuadrantes puede traer el código crudo
+    // (MEPOYMNVCCD01E01C02000007) en vez del nombre ya traducido
+    // (Zona de Atención 7 Norte) — se traduce con la MISMA función que
+    // usa el dataset principal antes de comparar, para que igual coincida.
+    const traducidoDesdeCodigo = mapearCuadrante(String(valorCrudo), new Set());
+    if (traducidoDesdeCodigo && traducidoDesdeCodigo !== 'NO REPORTADO') {
+      const normTraducido = normalizar(traducidoDesdeCodigo);
+      if (filters.cuadrante.some((c) => normalizar(c) === normTraducido)) return true;
+      if (filters.estacion.some((e) => normalizar(e) === normTraducido)) return true;
+      if (filters.cai.some((c) => normalizar(c) === normTraducido)) return true;
+    }
     const infoCuadrante = jerarquiaCuadrantes.get(norm);
     if (infoCuadrante) {
       if (infoCuadrante.cai && filters.cai.some((c) => normalizar(c) === normalizar(infoCuadrante.cai))) return true;
