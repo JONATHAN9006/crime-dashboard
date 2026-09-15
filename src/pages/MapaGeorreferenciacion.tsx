@@ -215,6 +215,16 @@ function AjustarVistaInicial({ puntos }: { puntos: { lat: number; lon: number }[
     yaAjustado.current = true;
     const bounds = L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    // Si uno o dos puntos tienen coordenadas muy alejadas del resto (un
+    // error de digitación, o algo geocodificado mal), fitBounds igual
+    // intenta encuadrarlos a TODOS — terminando con un zoom de país o de
+    // continente en vez de la ciudad. Como límite de seguridad, si el
+    // zoom resultante queda por debajo de un nivel de ciudad razonable,
+    // se sube — no perfecto (no "ignora" el punto raro), pero evita el
+    // caso extremo de arrancar viendo medio continente.
+    setTimeout(() => {
+      if (map.getZoom() < 11) map.setZoom(11);
+    }, 0);
   }, [puntos, map]);
   return null;
 }
@@ -2288,12 +2298,6 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
               <p className="mb-2 text-xs text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono</p>
 
               <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={ajustarVistaAZonaActiva}
-                  className="col-span-2 flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy"
-                >
-                  🎯 Ajustar a polígono
-                </button>
                 <button
                   onClick={descargarZonaSeleccionada}
                   disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}

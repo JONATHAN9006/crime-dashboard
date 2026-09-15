@@ -227,16 +227,19 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   }
   ctx.putImageData(imgData, 0, 0);
 
-  // Reescalado con "remuestreo Cúbico" (bicúbico) — igual al que se
-  // configuró en ArcGIS Pro para la apariencia de la capa ráster (interpola
-  // usando las 16 celdas circundantes) — así la superficie se ve continua y
-  // suave, nunca "a cuadros", incluso siendo internamente una grilla.
+  // Antes se reescalaba con suavizado bicúbico para que el degradado
+  // CONTINUO se viera parejo. Ahora los colores son bandas FIJAS y
+  // discretas (ver ANCLAS_FRACCION_FIJAS más arriba) — ese mismo suavizado
+  // difuminaba el borde justo entre una banda y la siguiente, dando el
+  // aspecto "lavado"/degradado que se reportó como problema. Sin
+  // suavizado, cada banda queda sólida y definida — más denso, con los
+  // límites de intensidad realmente visibles, en vez de una transición
+  // borrosa entre colores.
   const canvasFinal = document.createElement('canvas');
   canvasFinal.width = COLS * 3;
   canvasFinal.height = ROWS * 3;
   const ctxFinal = canvasFinal.getContext('2d')!;
-  ctxFinal.imageSmoothingEnabled = true;
-  ctxFinal.imageSmoothingQuality = 'high';
+  ctxFinal.imageSmoothingEnabled = false;
   ctxFinal.drawImage(canvas, 0, 0, canvasFinal.width, canvasFinal.height);
 
   const etiquetasClase = ['Muy baja', 'Baja', 'Media', 'Alta', 'Muy alta'];

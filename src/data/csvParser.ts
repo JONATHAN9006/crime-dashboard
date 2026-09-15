@@ -56,9 +56,30 @@ function parseCoordenadaLocal(v: string): number | null {
   if (isNaN(n)) return null;
   return n;
 }
+// Rango específico del área de Popayán (con margen amplio, ~150km a la
+// redonda) — antes se validaba contra TODA Colombia, un país enorme; un
+// solo dato mal digitado que cayera en, por ejemplo, Bogotá o la Costa
+// (dentro de Colombia, pero lejísimos de Popayán) pasaba la validación
+// igual, y ese único punto forzaba el mapa a encuadrar medio país al
+// abrir — bug real, confirmado con datos reales del histórico.
+const LAT_MIN_REGION = 0.9, LAT_MAX_REGION = 4.0;
+const LON_MIN_REGION = -78.2, LON_MAX_REGION = -75.0;
+
 function coordenadaValidaColombia(lat: number | null, lon: number | null): boolean {
   if (lat === null || lon === null) return false;
-  return lat >= -4.5 && lat <= 13.5 && lon >= -82 && lon <= -66.5;
+  return lat >= LAT_MIN_REGION && lat <= LAT_MAX_REGION && lon >= LON_MIN_REGION && lon <= LON_MAX_REGION;
+}
+
+// Error de digitación real y frecuente en el histórico: la longitud de
+// Popayán es negativa (~-76.6, al oeste), pero algunas filas la traen en
+// positivo (~76.6) — un simple olvido del signo menos. El resultado, de
+// resto, es prácticamente la coordenada correcta (mismo valor absoluto,
+// dentro del rango esperado una vez corregido el signo), así que se
+// corrige en vez de descartarla.
+function corregirSignoLongitud(lat: number | null, lon: number | null): number | null {
+  if (lat === null || lon === null || lon <= 0) return lon;
+  const lonCorregida = -lon;
+  return coordenadaValidaColombia(lat, lonCorregida) ? lonCorregida : lon;
 }
 
 
@@ -408,12 +429,14 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
 
       lat: (() => {
         const lat = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.latitud));
-        const lon = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.longitud));
+        const lonCruda = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.longitud));
+        const lon = corregirSignoLongitud(lat, lonCruda);
         return coordenadaValidaColombia(lat, lon) ? lat : null;
       })(),
       lon: (() => {
         const lat = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.latitud));
-        const lon = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.longitud));
+        const lonCruda = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.longitud));
+        const lon = corregirSignoLongitud(lat, lonCruda);
         return coordenadaValidaColombia(lat, lon) ? lon : null;
       })(),
 
