@@ -1095,6 +1095,17 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
     [capasPuntosProcesadas],
   );
 
+  // Solo "Delitos" (nunca mezclado con IRISP1/Operatividad/Macri, aunque
+  // también estén visibles en ese momento) — es lo único que usan las
+  // descargas de imagen (mapa general, CAI, zona), para que su total
+  // siempre pueda compararse en pie de igualdad con "Delictividad por
+  // Unidad", que también es exclusivamente Delitos. Mezclar fuentes ahí
+  // era justo lo que hacía que los totales nunca coincidieran.
+  const todosLosPuntosDelitosVisibles = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'delitos' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+
   const delitosDisponiblesEnZona = useMemo(() => {
     if (!zonaActiva) return [];
     const universo = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, zonaActiva.feature));
@@ -1179,7 +1190,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'error' }));
         continue;
       }
-      const puntosDeEsteCai = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
+      const puntosDeEsteCai = todosLosPuntosDelitosVisibles.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
       const conteoPorDelito = new Map<string, number>();
       for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
       const etiquetas = [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`];
@@ -1202,7 +1213,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   async function descargarPrevisualizacionCai(nombreCai: string) {
     const feature = buscarFeatureDeCai(nombreCai);
     if (!feature) return;
-    const puntosDeEsteCai = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
+    const puntosDeEsteCai = todosLosPuntosDelitosVisibles.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
     const conteoPorDelito = new Map<string, number>();
     for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
     const lineasDelito = Array.from(conteoPorDelito.entries()).sort((a, b) => b[1] - a[1]).map(([d, c]) => `${d}: ${c} caso${c === 1 ? '' : 's'}`);
@@ -1326,7 +1337,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         geometry: { type: 'Polygon', coordinates: [[[oeste, sur], [este, sur], [este, norte], [oeste, norte], [oeste, sur]]] },
         properties: {},
       };
-      const puntosVisibles = todosLosPuntosVisiblesConDelito;
+      const puntosVisibles = todosLosPuntosDelitosVisibles;
 
       const conteoPorDelito = new Map<string, number>();
       for (const p of puntosVisibles) {
@@ -1369,7 +1380,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         opacidadEtiquetas: opacidades.etiquetas / 100,
         anillosInternos: anillosCapasVisibles,
         colorBorde: '#1f2937',
-        tamanoFuenteBase: 11,
+        tamanoFuenteBase: 8,
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);

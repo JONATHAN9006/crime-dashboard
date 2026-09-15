@@ -57,6 +57,7 @@ export interface OpcionesPoligonoAislado {
   anillosInternos?: [number, number][][];
   anchoLienzo?: number; // más chico = más rápido (ideal para miniaturas de vista previa)
   tamanoFuenteBase?: number; // tamaño de referencia a 1200px de ancho (por defecto 15)
+  margen?: number; // margen alrededor del polígono, como fracción de su ancho/alto (por defecto 0.08); 0 = recorte exacto, sin nada sobresaliendo
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -215,7 +216,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   if (etiquetas.length > 0) {
     const tamanoFuente = Math.max(9, Math.round(tamanoFuenteBase * (anchoLienzo / 1200)));
     const alturaLinea = Math.round(tamanoFuente * 1.4);
-    const paddingX = 14, paddingY = 10, margenCaja = 16;
+    const paddingX = Math.round(tamanoFuente * 0.7), paddingY = Math.round(tamanoFuente * 0.5), margenCaja = 16;
     ctx.font = `bold ${tamanoFuente}px Arial`;
     const anchoCaja = Math.max(...etiquetas.map((t) => ctx.measureText(t).width)) + paddingX * 2;
     const altoCaja = paddingY * 2 + alturaLinea * etiquetas.length;
