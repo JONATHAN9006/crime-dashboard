@@ -56,6 +56,7 @@ export interface OpcionesPoligonoAislado {
   colorBorde?: string;
   anillosInternos?: [number, number][][];
   anchoLienzo?: number; // más chico = más rápido (ideal para miniaturas de vista previa)
+  tamanoFuenteBase?: number; // tamaño de referencia a 1200px de ancho (por defecto 15)
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -63,7 +64,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200 } = opciones;
+  const { feature, puntos, colores, etiquetas, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15 } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -174,23 +175,31 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // 4b) Límites internos (ej. cuadrantes dentro de una estación o CAI).
+  // 4b) Límites internos (ej. cuadrantes dentro de una estación o CAI, o
+  // las capas administrativas cargadas para el mapa general). Se envuelve
+  // en try/catch a propósito: esto se dibuja DESPUÉS de las calles y el
+  // mapa de calor, que ya quedaron listos en el canvas — si una geometría
+  // rara acá fallara, no debe borrar ni impedir lo que ya se dibujó antes.
   if (anillosInternos.length > 0) {
-    ctx.beginPath();
-    for (const anillo of anillosInternos) {
-      if (anillo.length === 0) continue;
-      ctx.moveTo(lonAX(anillo[0][0]), latAY(anillo[0][1]));
-      for (let i = 1; i < anillo.length; i++) ctx.lineTo(lonAX(anillo[i][0]), latAY(anillo[i][1]));
-      ctx.closePath();
+    try {
+      ctx.beginPath();
+      for (const anillo of anillosInternos) {
+        if (anillo.length === 0) continue;
+        ctx.moveTo(lonAX(anillo[0][0]), latAY(anillo[0][1]));
+        for (let i = 1; i < anillo.length; i++) ctx.lineTo(lonAX(anillo[i][0]), latAY(anillo[i][1]));
+        ctx.closePath();
+      }
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } catch (e) {
+      console.warn('[exportarPoligonoMapa] No se pudieron dibujar los límites internos, se sigue sin ellos:', e);
     }
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
-    ctx.stroke();
   }
 
   // 5) Etiqueta — esquina con menos densidad de calor pintada ahí.
   if (etiquetas.length > 0) {
-    const tamanoFuente = Math.max(10, Math.round(15 * (anchoLienzo / 1200)));
+    const tamanoFuente = Math.max(9, Math.round(tamanoFuenteBase * (anchoLienzo / 1200)));
     const alturaLinea = Math.round(tamanoFuente * 1.4);
     const paddingX = 14, paddingY = 10, margenCaja = 16;
     ctx.font = `bold ${tamanoFuente}px Arial`;

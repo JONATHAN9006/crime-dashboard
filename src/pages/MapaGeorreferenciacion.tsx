@@ -1325,23 +1325,28 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       }
       const lineasDelito = Array.from(conteoPorDelito.entries())
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 12)
+        .slice(0, 5)
         .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
       const etiquetas = [
         `Mapa general — Total: ${puntosVisibles.length} caso${puntosVisibles.length === 1 ? '' : 's'}`,
         ...lineasDelito,
       ];
 
-      // Bordes de TODAS las capas cargadas y visibles (Comuna/CAI/Estación,
-      // lo que sea que esté encendido en "Capas cargadas") — antes esta
-      // descarga solo llevaba el mapa de calor sobre las calles, sin
-      // ningún límite administrativo, aunque el mapa en pantalla sí los
-      // mostraba. Se dibujan igual que los de una zona seleccionada
-      // (mismo mecanismo de "anillosInternos"), solo que aquí son TODAS
-      // las capas visibles en vez de las subdivisiones de una sola zona.
+      // Bordes de las capas cargadas y visibles (Comuna/CAI/Estación) que
+      // caigan dentro (o cerca) de lo que se ve en pantalla — antes esta
+      // descarga no llevaba ningún límite administrativo. Se filtra por
+      // los límites actuales del mapa (con margen) para no arrastrar
+      // polígonos de toda la ciudad/departamento cuando solo se ve una
+      // parte — eso además de verse mal, con miles de puntos de más podía
+      // hacer sentir el render trabado.
+      const margenGrados = Math.max(norte - sur, este - oeste) * 0.15;
+      const dentroDeVista = (an: [number, number][]) => an.some(
+        ([lon, lat]) => lon >= oeste - margenGrados && lon <= este + margenGrados && lat >= sur - margenGrados && lat <= norte + margenGrados,
+      );
       const anillosCapasVisibles = capas
         .filter((c) => c.visible)
-        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)));
+        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)))
+        .filter(dentroDeVista);
 
       await exportarPoligonoAislado({
         feature: featureRectangular,
@@ -1354,6 +1359,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         opacidadEtiquetas: opacidades.etiquetas / 100,
         anillosInternos: anillosCapasVisibles,
         colorBorde: '#1f2937',
+        tamanoFuenteBase: 11,
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);
