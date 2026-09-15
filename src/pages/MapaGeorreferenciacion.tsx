@@ -1402,6 +1402,26 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         geometry: { type: 'Polygon', coordinates: [[[oeste, sur], [este, sur], [este, norte], [oeste, norte], [oeste, sur]]] },
         properties: {},
       };
+
+      // La descarga debe recortarse a la FORMA REAL de las capas visibles
+      // (Comuna/CAI/Estación) — igual que ya funciona bien la descarga de
+      // un CAI individual — en vez de un simple rectángulo que arrastra
+      // todo el paisaje de alrededor (montañas, veredas, otros
+      // municipios) que no hace parte de la jurisdicción. Se arma un
+      // MultiPolygon con TODOS los anillos exteriores de las capas
+      // visibles; si no hay ninguna capa cargada, se usa el rectángulo de
+      // siempre como respaldo (para no dejar la descarga sin funcionar).
+      const anillosCapasParaRecorte = capas
+        .filter((c) => c.visible)
+        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)));
+      const featureRecorte = anillosCapasParaRecorte.length > 0
+        ? {
+            type: 'Feature',
+            geometry: { type: 'MultiPolygon', coordinates: anillosCapasParaRecorte.map((anillo) => [anillo]) },
+            properties: {},
+          }
+        : featureRectangular;
+
       const puntosVisibles = todosLosPuntosDelitosVisibles;
 
       // Un año por grupo — si los puntos visibles solo tienen un año, sigue
@@ -1438,24 +1458,8 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         return { titulo, lineas: lineasDelito };
       });
 
-      // Bordes de las capas cargadas y visibles (Comuna/CAI/Estación) que
-      // caigan dentro (o cerca) de lo que se ve en pantalla — antes esta
-      // descarga no llevaba ningún límite administrativo. Se filtra por
-      // los límites actuales del mapa (con margen) para no arrastrar
-      // polígonos de toda la ciudad/departamento cuando solo se ve una
-      // parte — eso además de verse mal, con miles de puntos de más podía
-      // hacer sentir el render trabado.
-      const margenGrados = Math.max(norte - sur, este - oeste) * 0.15;
-      const dentroDeVista = (an: [number, number][]) => an.some(
-        ([lon, lat]) => lon >= oeste - margenGrados && lon <= este + margenGrados && lat >= sur - margenGrados && lat <= norte + margenGrados,
-      );
-      const anillosCapasVisibles = capas
-        .filter((c) => c.visible)
-        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)))
-        .filter(dentroDeVista);
-
       await exportarPoligonoAislado({
-        feature: featureRectangular,
+        feature: featureRecorte,
         puntos: puntosVisibles,
         colores: mostrarCalorIrisp1 && !mostrarCalorDelitos ? ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'] : paletaCalorDelitos,
         etiquetas: [],
@@ -1464,7 +1468,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: 0,
         opacidadEtiquetas: opacidades.etiquetas / 100,
-        anillosInternos: anillosCapasVisibles,
+        anillosInternos: anillosCapasParaRecorte,
         colorBorde: '#1f2937',
         tamanoFuenteBase: 8,
       });

@@ -3,11 +3,13 @@ import { useData } from '../context/DataContext';
 import { aplicarFiltros } from '../utils/filters';
 import { Card, PageHeader } from '../components/ui/Card';
 import { KpiCard } from '../components/ui/KpiCard';
+import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { formatNumero } from '../utils/aggregations';
 import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const COLORES_PERIODO = ['#159089', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
 
 function diaSemanaDe(fechaIso: string): string {
   const [anio, mes, dia] = fechaIso.split('-').map(Number);
@@ -40,11 +42,13 @@ function registrosDelPeriodo(records: CrimeRecord[], p: PeriodoAnalisis): CrimeR
 function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) => string, limite: number) {
   const claves = new Set<string>();
   for (const recs of porPeriodo) for (const r of recs) claves.add(getter(r) || 'No reportado');
-  const filas = Array.from(claves).map((clave) => {
-    const porcada = porPeriodo.map((recs) => recs.filter((r) => (getter(r) || 'No reportado') === clave).length);
-    const total = porcada.reduce((a, b) => a + b, 0);
-    return { clave, porcada, total };
-  });
+  const filas = Array.from(claves)
+    .filter((c) => c !== 'NO REPORTADO' && c !== 'No reportado')
+    .map((clave) => {
+      const porcada = porPeriodo.map((recs) => recs.filter((r) => (getter(r) || 'No reportado') === clave).length);
+      const total = porcada.reduce((a, b) => a + b, 0);
+      return { clave, porcada, total };
+    });
   return filas.sort((a, b) => b.total - a.total).slice(0, limite);
 }
 
@@ -65,54 +69,85 @@ export function ComparativoMultifecha() {
   const totalGeneral = useMemo(() => {
     // Unión real (sin duplicar) para el KPI de total — un registro que
     // calce con dos periodos a la vez se cuenta una sola vez aquí, aunque
-    // en las tablas por periodo aparezca en ambas columnas.
+    // en las tablas/gráficos por periodo aparezca en ambas columnas.
     const vistos = new Set<string>();
     for (const recs of porPeriodo) for (const r of recs) vistos.add(r.__id);
     return vistos.size;
   }, [porPeriodo]);
 
-  const tablaDelito = useMemo(() => construirTabla(porPeriodo, (r) => r.delito, 15), [porPeriodo]);
-  const tablaEstacion = useMemo(() => construirTabla(porPeriodo, (r) => r.estacion, 15), [porPeriodo]);
+  const tablaDelito = useMemo(() => construirTabla(porPeriodo, (r) => r.delito, 12), [porPeriodo]);
+  const tablaEstacion = useMemo(() => construirTabla(porPeriodo, (r) => r.estacion, 12), [porPeriodo]);
+  const tablaBarrio = useMemo(() => construirTabla(porPeriodo, (r) => r.barrioHecho, 12), [porPeriodo]);
+  const tablaModalidad = useMemo(() => construirTabla(porPeriodo, (r) => r.modalidad, 12), [porPeriodo]);
+  const tablaArmas = useMemo(() => construirTabla(porPeriodo, (r) => r.armas, 12), [porPeriodo]);
 
   const encabezados = periodos.map((p, i) => {
     const dia = diaSemanaDe(p.fechaInicial);
     const anio = anioDe(p.fechaInicial);
-    return { id: p.id, titulo: `Periodo ${i + 1}`, subtitulo: [dia, anio].filter(Boolean).join(' ') };
+    return { id: p.id, titulo: `Periodo ${i + 1}`, subtitulo: [dia, anio].filter(Boolean).join(' '), etiquetaSerie: [dia, anio].filter(Boolean).join(' ') || `Periodo ${i + 1}` };
   });
+  const seriesKeys = encabezados.map((e) => e.etiquetaSerie);
+  const seriesColors = Object.fromEntries(encabezados.map((e, i) => [e.etiquetaSerie, COLORES_PERIODO[i % COLORES_PERIODO.length]]));
 
-  function Tabla({ titulo, filas }: { titulo: string; filas: ReturnType<typeof construirTabla> }) {
+  function datosParaGrafico(filas: ReturnType<typeof construirTabla>) {
+    return filas.map((f) => {
+      const fila: Record<string, any> = { x: f.clave };
+      encabezados.forEach((e, i) => { fila[e.etiquetaSerie] = f.porcada[i]; });
+      return fila;
+    });
+  }
+
+  // Cada sección: gráfico de barras agrupadas (una barra por periodo, lado
+  // a lado, por cada categoría) + la tabla exacta debajo, con el mismo
+  // orden y las mismas cifras — así se puede leer el número exacto o solo
+  // mirar el tamaño de la barra, sin que ninguna de las dos formas quede
+  // "coja". Esto es justo lo que faltaba: antes solo había tablas de
+  // números, sin ninguna representación visual por barras.
+  function Seccion({ titulo, columna, filas }: { titulo: string; columna: string; filas: ReturnType<typeof construirTabla> }) {
+    const datos = datosParaGrafico(filas);
     return (
-      <Card title={titulo}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-3">{titulo.includes('estación') ? 'Estación' : 'Delito'}</th>
-                {encabezados.map((e) => (
-                  <th key={e.id} className="px-2 py-2 text-center">
-                    <div>{e.titulo}</div>
-                    <div className="text-[10px] font-normal normal-case text-slate-400">{e.subtitulo}</div>
-                  </th>
-                ))}
-                <th className="px-2 py-2 text-center">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((f) => (
-                <tr key={f.clave} className="border-b border-slate-100">
-                  <td className="py-1.5 pr-3 text-slate-700">{f.clave}</td>
-                  {f.porcada.map((v, i) => (
-                    <td key={encabezados[i]?.id ?? i} className="px-2 py-1.5 text-center text-slate-600">{formatNumero(v)}</td>
+      <Card title={titulo} descargable={`multifecha-${columna.toLowerCase().replace(/\s+/g, '-')}`}>
+        {filas.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-400">Sin casos en los periodos seleccionados.</p>
+        ) : (
+          <>
+            <GroupedBarChart
+              data={datos}
+              xKey="x"
+              seriesKeys={seriesKeys}
+              seriesColors={seriesColors}
+              horizontal
+              height={Math.max(220, filas.length * 32)}
+            />
+            <div className="mt-4 overflow-x-auto border-t border-slate-100 pt-3">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="py-2 pr-3">{columna}</th>
+                    {encabezados.map((e) => (
+                      <th key={e.id} className="px-2 py-2 text-center">
+                        <div>{e.titulo}</div>
+                        <div className="text-[10px] font-normal normal-case text-slate-400">{e.subtitulo}</div>
+                      </th>
+                    ))}
+                    <th className="px-2 py-2 text-center">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr key={f.clave} className="border-b border-slate-100">
+                      <td className="py-1.5 pr-3 text-slate-700">{f.clave}</td>
+                      {f.porcada.map((v, i) => (
+                        <td key={encabezados[i]?.id ?? i} className="px-2 py-1.5 text-center text-slate-600">{formatNumero(v)}</td>
+                      ))}
+                      <td className="px-2 py-1.5 text-center font-semibold text-brand-navy">{formatNumero(f.total)}</td>
+                    </tr>
                   ))}
-                  <td className="px-2 py-1.5 text-center font-semibold text-brand-navy">{formatNumero(f.total)}</td>
-                </tr>
-              ))}
-              {filas.length === 0 && (
-                <tr><td colSpan={encabezados.length + 2} className="py-4 text-center text-slate-400">Sin casos en los periodos seleccionados.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </Card>
     );
   }
@@ -129,8 +164,11 @@ export function ComparativoMultifecha() {
         ))}
       </div>
 
-      <Tabla titulo="Delitos por periodo" filas={tablaDelito} />
-      <Tabla titulo="Casos por estación por periodo" filas={tablaEstacion} />
+      <Seccion titulo="Delitos por periodo" columna="Delito" filas={tablaDelito} />
+      <Seccion titulo="Casos por estación por periodo" columna="Estación" filas={tablaEstacion} />
+      <Seccion titulo="Barrios más afectados por periodo" columna="Barrio" filas={tablaBarrio} />
+      <Seccion titulo="Modalidad por periodo" columna="Modalidad" filas={tablaModalidad} />
+      <Seccion titulo="Armas empleadas por periodo" columna="Arma" filas={tablaArmas} />
     </div>
   );
 }

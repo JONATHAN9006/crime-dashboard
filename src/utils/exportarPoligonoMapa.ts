@@ -100,6 +100,14 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   canvas.width = anchoLienzo;
   canvas.height = alto;
   const ctx = canvas.getContext('2d')!;
+  // Fondo neutro ANTES de cualquier recorte/dibujo — sin esto, cualquier
+  // zona que quedara sin pintar (el margen del 8% agregado más arriba, o
+  // una calle que no llegó a cargar) quedaba transparente, y en algunos
+  // visores/chats eso se ve NEGRO en vez de blanco — el "fondo negro" que
+  // se reportó. Con este relleno, cualquier hueco se ve como mapa vacío
+  // normal, nunca negro.
+  ctx.fillStyle = '#e5e3df';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   function trazarAnillosComoRuta() {
     ctx.beginPath();
