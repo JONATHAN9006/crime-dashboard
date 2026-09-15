@@ -142,8 +142,23 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   if (valoresConDensidad.length === 0) return null;
 
   const maxValor = Math.max(...valoresConDensidad);
-  const ANCLAS_FRACCION = [0, 0.08, 0.22, 0.42, 0.68, 1];
-  const coloresRgb = colores.map(hexARgb);
+  // Los puntos de transición del degradado se generan según la CANTIDAD
+  // real de colores recibidos — antes estaban fijos asumiendo siempre
+  // exactamente 5 (paleta original verde→rojo). Desde que la paleta es
+  // personalizable (se pueden destildar colores y quedar con menos de 5,
+  // ej. solo amarillo/naranja/rojo), un arreglo de posiciones fijo de 6
+  // elementos se quedaba leyendo una posición que ya no existía —
+  // "undefined is not iterable" — y tumbaba el mapa apenas se abría,
+  // porque la preferencia de colores queda guardada en el navegador.
+  // Con 5 colores (el caso de siempre) se conserva EXACTAMENTE la curva
+  // original; con cualquier otra cantidad (incluido 1) se generan puntos
+  // repartidos de forma pareja, sin romperse nunca.
+  const ANCLAS_FRACCION: number[] = colores.length === 5
+    ? [0, 0.08, 0.22, 0.42, 0.68, 1]
+    : colores.length <= 1
+      ? [0, 1]
+      : [0, 0.08, ...Array.from({ length: colores.length - 1 }, (_, i) => 0.08 + 0.92 * ((i + 1) / (colores.length - 1)))];
+  const coloresRgb = (colores.length > 0 ? colores : ['#dc2626']).map(hexARgb);
   const anclasRgb = [coloresRgb[0], ...coloresRgb]; // el color "0" se repite para el ancla en fracción 0
 
   function colorInterpolado(v: number): [number, number, number] {
