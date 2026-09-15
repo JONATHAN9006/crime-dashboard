@@ -6,7 +6,14 @@ import { getDb, STORE_RECORDS, STORE_META } from './db';
 // Atención") deba invalidar los datos que un usuario ya tenga guardados en
 // su navegador. Los datos guardados con una versión distinta a esta se
 // descartan y se vuelven a calcular desde la fuente automáticamente.
-export const VERSION_TRANSFORMACION = 2;
+//
+// v3: se agregaron los campos "lat"/"lon" a CrimeRecord. Un registro
+// guardado ANTES de esto no tiene esas dos propiedades en absoluto
+// (quedan "undefined", no "null"), y una comparación como "!== null" en
+// otra parte del código los confundía con coordenadas válidas — subir la
+// versión descarta ese caché viejo para que todo se recalcule ya con el
+// campo presente y en null.
+export const VERSION_TRANSFORMACION = 3;
 
 interface StoredMeta {
   nombreArchivo: string;
@@ -32,7 +39,7 @@ function serialize(records: CrimeRecord[]) {
 }
 
 function deserialize(records: any[]): CrimeRecord[] {
-  return records.map((r) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
+  return records.map((r) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null, lat: r.lat ?? null, lon: r.lon ?? null }));
 }
 
 export async function guardarDatos(records: CrimeRecord[], nombreArchivo: string, fechaMaxParametro?: Date | null) {

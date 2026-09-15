@@ -280,7 +280,15 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
 export async function sincronizarCapaDelitosDesdeRecords(records: {
   lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null;
 }[]): Promise<void> {
-  const conCoordenadas = records.filter((r) => r.lat !== null && r.lon !== null);
+  // OJO: se usa una comprobación explícita de tipo/finitud, NO "!== null".
+  // Los registros guardados en el navegador ANTES de que existiera este
+  // campo no tienen "lat"/"lon" en absoluto (quedan como undefined, no
+  // como null) — "undefined !== null" da true, así que un simple "!==
+  // null" los trataba como si SÍ tuvieran coordenadas válidas y terminaba
+  // pasándole "undefined" a Leaflet, lo que rompía el mapa por completo al
+  // entrar (bug real, ya corregido).
+  const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
+  const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
   if (conCoordenadas.length === 0) return;
 
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({

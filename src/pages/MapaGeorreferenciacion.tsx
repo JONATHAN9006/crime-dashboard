@@ -503,13 +503,16 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // existen en los datos cargados (nunca una lista vacía ni inventada).
   const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
   const opcionesFiltroMapa = useMemo(() => {
-    // El CAI se agrupa por su forma canónica ("CAI 4") para que variantes
-    // con espacios/mayúsculas distintas del archivo histórico y de DB2 no
-    // aparezcan como CAI repetidos — ver formatoCaiCanonico más arriba.
+    // El campo CAI de los datos a veces trae, además de los CAI numerados,
+    // otros valores que no son un CAI (Zonas de Atención, Comunas, etc.) —
+    // se descartan aquí y solo se conserva lo que sigue el patrón real de
+    // un CAI ("CAI 4"), ya canonizado para agrupar variantes de espacios/
+    // mayúsculas del histórico y de DB2 — ver formatoCaiCanonico más arriba.
     const caiCanonicoPorClave = new Map<string, string>();
     for (const r of records) {
       if (!esValorReal(r.cai)) continue;
       const canonico = formatoCaiCanonico(r.cai);
+      if (!/^CAI \d+$/i.test(canonico)) continue;
       if (!caiCanonicoPorClave.has(normalizar(canonico))) caiCanonicoPorClave.set(normalizar(canonico), canonico);
     }
     const caiOrdenados = Array.from(caiCanonicoPorClave.values()).sort((a, b) => {
