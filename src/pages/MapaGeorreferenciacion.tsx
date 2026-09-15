@@ -1176,7 +1176,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       generarDataUrlPoligonoAislado({
         feature,
         puntos: puntosDeEsteCai,
-        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        colores: paletaCalorDelitos,
         etiquetas,
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
@@ -1200,7 +1200,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       await exportarPoligonoAislado({
         feature,
         puntos: puntosDeEsteCai,
-        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        colores: paletaCalorDelitos,
         etiquetas: [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`, ...lineasDelito],
         nombreArchivo: `mapa-calor-${nombreCai}`.replace(/\s+/g, '-'),
         opacidadCalor: opacidades.calor / 100,
@@ -1239,7 +1239,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       await exportarPoligonoAislado({
         feature: zonaActiva.feature,
         puntos: puntosEnZonaParaCalor,
-        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        colores: paletaCalorDelitos,
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
         opacidadCalor: opacidades.calor / 100,
@@ -1275,7 +1275,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       await exportarPoligonoAislado({
         feature: zonaActiva.feature,
         puntos: puntosEnZonaParaCalor,
-        colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        colores: paletaCalorDelitos,
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
         opacidadCalor: opacidades.calor / 100,
@@ -1332,15 +1332,28 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         ...lineasDelito,
       ];
 
+      // Bordes de TODAS las capas cargadas y visibles (Comuna/CAI/Estación,
+      // lo que sea que esté encendido en "Capas cargadas") — antes esta
+      // descarga solo llevaba el mapa de calor sobre las calles, sin
+      // ningún límite administrativo, aunque el mapa en pantalla sí los
+      // mostraba. Se dibujan igual que los de una zona seleccionada
+      // (mismo mecanismo de "anillosInternos"), solo que aquí son TODAS
+      // las capas visibles en vez de las subdivisiones de una sola zona.
+      const anillosCapasVisibles = capas
+        .filter((c) => c.visible)
+        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)));
+
       await exportarPoligonoAislado({
         feature: featureRectangular,
         puntos: puntosVisibles,
-        colores: mostrarCalorIrisp1 && !mostrarCalorDelitos ? ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'] : ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+        colores: mostrarCalorIrisp1 && !mostrarCalorDelitos ? ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'] : paletaCalorDelitos,
         etiquetas,
         nombreArchivo: 'mapa-general-mepoy',
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: 0,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        anillosInternos: anillosCapasVisibles,
+        colorBorde: '#1f2937',
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);
