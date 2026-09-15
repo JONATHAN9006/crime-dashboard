@@ -48,8 +48,9 @@ function cargarImagen(url: string, conCors: boolean): Promise<HTMLImageElement> 
 export interface OpcionesPoligonoAislado {
   feature: any;
   puntos: PuntoParaMapaCalor[];
-  colores: string[];
+  colores: (string | null)[];
   etiquetas: string[];
+  gruposEtiquetas?: { titulo: string; lineas: string[] }[]; // varias cajas separadas (ej. una por año); si se pasa, tiene prioridad sobre "etiquetas"
   opacidadPoligono?: number;
   opacidadCalor?: number;
   opacidadEtiquetas?: number;
@@ -65,7 +66,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15 } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15 } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -212,20 +213,33 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
     }
   }
 
-  // 5) Etiqueta — esquina con menos densidad de calor pintada ahí.
-  if (etiquetas.length > 0) {
+  // 5) Etiqueta(s) — esquina con menos densidad de calor pintada ahí.
+  // "gruposEtiquetas" dibuja VARIAS cajas separadas y apiladas (ej. una por
+  // año: 2023, 2024, 2025 cada una aparte) en vez de una sola caja con
+  // todo mezclado; si no se pasa, se usa "etiquetas" como una sola caja
+  // (comportamiento de siempre, para CAI/zona que no lo necesitan).
+  const grupos = gruposEtiquetas.length > 0 ? gruposEtiquetas : (etiquetas.length > 0 ? [{ titulo: '', lineas: etiquetas }] : []);
+  if (grupos.length > 0) {
     const tamanoFuente = Math.max(9, Math.round(tamanoFuenteBase * (anchoLienzo / 1200)));
+    const tamanoFuenteTitulo = Math.round(tamanoFuente * 1.05);
     const alturaLinea = Math.round(tamanoFuente * 1.4);
-    const paddingX = Math.round(tamanoFuente * 0.7), paddingY = Math.round(tamanoFuente * 0.5), margenCaja = 16;
+    const paddingX = Math.round(tamanoFuente * 0.7), paddingY = Math.round(tamanoFuente * 0.5), margenCaja = 16, espacioEntreCajas = 8;
     ctx.font = `bold ${tamanoFuente}px Arial`;
-    const anchoCaja = Math.max(...etiquetas.map((t) => ctx.measureText(t).width)) + paddingX * 2;
-    const altoCaja = paddingY * 2 + alturaLinea * etiquetas.length;
+
+    const cajas = grupos.map((g) => {
+      const lineasConTitulo = g.titulo ? [g.titulo, ...g.lineas] : g.lineas;
+      const ancho = Math.max(...lineasConTitulo.map((t) => ctx.measureText(t).width)) + paddingX * 2;
+      const alto = paddingY * 2 + alturaLinea * lineasConTitulo.length;
+      return { lineasConTitulo, ancho, alto };
+    });
+    const anchoCaja = Math.max(...cajas.map((c) => c.ancho));
+    const altoTotal = cajas.reduce((suma, c) => suma + c.alto, 0) + espacioEntreCajas * (cajas.length - 1);
 
     const candidatas = [
       { x: margenCaja, y: margenCaja },
       { x: canvas.width - anchoCaja - margenCaja, y: margenCaja },
-      { x: margenCaja, y: canvas.height - altoCaja - margenCaja },
-      { x: canvas.width - anchoCaja - margenCaja, y: canvas.height - altoCaja - margenCaja },
+      { x: margenCaja, y: canvas.height - altoTotal - margenCaja },
+      { x: canvas.width - anchoCaja - margenCaja, y: canvas.height - altoTotal - margenCaja },
     ];
 
     function densidadPromedioEn(x: number, y: number, ancho: number, alto2: number): number {
@@ -242,7 +256,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
     let mejor = candidatas[0];
     let mejorDensidad = Infinity;
     for (const c of candidatas) {
-      const d = densidadPromedioEn(c.x, c.y, anchoCaja, altoCaja);
+      const d = densidadPromedioEn(c.x, c.y, anchoCaja, altoTotal);
       if (d < mejorDensidad) {
         mejorDensidad = d;
         mejor = c;
@@ -250,13 +264,17 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
     }
 
     ctx.globalAlpha = opacidadEtiquetas;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-    ctx.fillRect(mejor.x, mejor.y, anchoCaja, altoCaja);
-    ctx.fillStyle = '#ffffff';
-    ctx.textBaseline = 'middle';
-    etiquetas.forEach((texto, i) => {
-      ctx.fillText(texto, mejor.x + paddingX, mejor.y + paddingY + alturaLinea * i + alturaLinea / 2);
-    });
+    let yActual = mejor.y;
+    for (const caja of cajas) {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillRect(mejor.x, yActual, anchoCaja, caja.alto);
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle';
+      caja.lineasConTitulo.forEach((texto, i) => {
+        ctx.fillText(texto, mejor.x + paddingX, yActual + paddingY + alturaLinea * i + alturaLinea / 2);
+      });
+      yActual += caja.alto + espacioEntreCajas;
+    }
     ctx.globalAlpha = 1;
   }
 

@@ -199,6 +199,26 @@ function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[
   return null;
 }
 
+// A diferencia de AjustarVistaAPuntos (que se re-ajusta CADA VEZ que
+// cambian los puntos — correcto para cuando se elige un barrio o una
+// zona), esto se ajusta UNA SOLA VEZ, la primera vez que hay datos que
+// mostrar. Antes el mapa siempre arrancaba con el zoom fijo de
+// CENTRO_DEFECTO (muy alejado) y había que acercar el zoom a mano cada
+// vez — ahora arranca ya encuadrado en los datos reales, y a partir de
+// ahí respeta libremente lo que el usuario haga con el mapa (zoom, pan)
+// sin volver a recentrarlo por su cuenta.
+function AjustarVistaInicial({ puntos }: { puntos: { lat: number; lon: number }[] }) {
+  const map = useMap();
+  const yaAjustado = useRef(false);
+  useEffect(() => {
+    if (yaAjustado.current || puntos.length === 0) return;
+    yaAjustado.current = true;
+    const bounds = L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  }, [puntos, map]);
+  return null;
+}
+
 // Selección por clic — a nivel de MAPA (no por capa individual). Si dos
 // polígonos se superponen en el punto donde se hizo clic (ej. el contorno
 // grande de una Estación y, adentro, un Cuadrante más pequeño), Leaflet por
@@ -426,7 +446,7 @@ function colorPorIntensidad(valor: number, max: number): string {
 }
 
 export function MapaGeorreferenciacion() {
-  const { records } = useData();
+  const { records, periodos } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
   // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
@@ -488,6 +508,16 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
     // distintas (ver opcionesFiltroMapa.cai) — comparar tal cual dejaría de
     // encontrar coincidencias reales.
     const caiSeleccionadosNorm = filtrosMapa.cai.map((c) => normalizar(formatoCaiCanonico(c)));
+    // El análisis multifecha (periodos, definido en el panel de filtros
+    // principal) se combina aquí como una restricción ADICIONAL — el mapa
+    // conserva su propio filtro de fecha de siempre (independiente del
+    // resto del dashboard), y si además hay periodos activos, el registro
+    // tiene que caer en AMBOS: su propio filtro de fecha (si lo tiene) Y
+    // en alguno de los periodos. Sin periodos activos, esto no cambia nada.
+    const ventanasPeriodos = periodos.map((p) => ({
+      inicio: (() => { const [a, m, d] = p.fechaInicial.split('-').map(Number); const [h, mi] = (p.horaInicial || '00:00').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+      fin: (() => { const [a, m, d] = p.fechaFinal.split('-').map(Number); const [h, mi] = (p.horaFinal || '23:59').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+    }));
     return records.filter((r) =>
       (filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
       (filtrosMapa.estacion.length === 0 || filtrosMapa.estacion.includes(r.estacion)) &&
@@ -495,9 +525,15 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       (filtrosMapa.cuadrante.length === 0 || filtrosMapa.cuadrante.includes(r.cuadrante)) &&
       (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
       (!filtrosMapa.fechaInicial || (r.fecha && r.fecha >= new Date(filtrosMapa.fechaInicial))) &&
-      (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))),
+      (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))) &&
+      (ventanasPeriodos.length === 0 || (() => {
+        if (!r.fecha) return false;
+        const fh = new Date(r.fecha);
+        fh.setHours(r.hora ?? 0, 0, 0, 0);
+        return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
+      })()),
     );
-  }, [records, filtrosMapa]);
+  }, [records, filtrosMapa, periodos]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).
@@ -541,17 +577,17 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // solo con amarillo/naranja/rojo. El orden de la lista (no el orden en que
   // se marcaron) define el orden del degradado, para que siempre vaya de
   // "menos" a "más" intensidad. Se exige al menos un color activo.
+  // Paleta del mapa de calor de Delitos: 5 bandas FIJAS (Muy baja...Muy
+  // alta, siempre en el mismo rango de intensidad — ver
+  // ANCLAS_FRACCION_FIJAS en kernelDensity.ts). Desmarcar una banda no
+  // "corre" a las demás para llenar el hueco — esa banda puntual queda
+  // transparente, y las otras 4 se quedan exactamente donde siempre.
   const OPCIONES_COLOR_CALOR: { id: string; etiqueta: string; hex: string }[] = [
-    { id: 'verde', etiqueta: 'Verde', hex: '#22c55e' },
-    { id: 'verde-lima', etiqueta: 'Verde lima', hex: '#a3e635' },
-    { id: 'amarillo', etiqueta: 'Amarillo', hex: '#facc15' },
-    { id: 'naranja', etiqueta: 'Naranja', hex: '#f97316' },
-    { id: 'rojo', etiqueta: 'Rojo', hex: '#dc2626' },
-    { id: 'azul-claro', etiqueta: 'Azul claro', hex: '#60a5fa' },
-    { id: 'azul', etiqueta: 'Azul', hex: '#2563eb' },
-    { id: 'morado', etiqueta: 'Morado', hex: '#7c3aed' },
-    { id: 'rosado', etiqueta: 'Rosado', hex: '#ec4899' },
-    { id: 'gris', etiqueta: 'Gris', hex: '#64748b' },
+    { id: 'verde', etiqueta: 'Verde (muy baja)', hex: '#22c55e' },
+    { id: 'verde-lima', etiqueta: 'Verde lima (baja)', hex: '#a3e635' },
+    { id: 'amarillo', etiqueta: 'Amarillo (media)', hex: '#facc15' },
+    { id: 'naranja', etiqueta: 'Naranja (alta)', hex: '#f97316' },
+    { id: 'rojo', etiqueta: 'Rojo (muy alta)', hex: '#dc2626' },
   ];
   const PALETA_CALOR_DEFECTO = ['verde', 'verde-lima', 'amarillo', 'naranja', 'rojo'];
   const [coloresSeleccionadosCalor, setColoresSeleccionadosCalor] = useState<string[]>(() => {
@@ -574,7 +610,11 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       return siguiente.length > 0 ? siguiente : prev; // no permitir dejar la paleta vacía
     });
   }
-  const paletaCalorDelitos = OPCIONES_COLOR_CALOR.filter((o) => coloresSeleccionadosCalor.includes(o.id)).map((o) => o.hex);
+  // SIEMPRE 5 posiciones, en el mismo orden fijo de OPCIONES_COLOR_CALOR —
+  // null en la posición de cualquier banda desmarcada. Esto es justo lo que
+  // hace que apagar "Verde" deje transparente ESA banda en vez de que
+  // "Amarillo" se corra a ocupar su lugar.
+  const paletaCalorDelitos: (string | null)[] = OPCIONES_COLOR_CALOR.map((o) => (coloresSeleccionadosCalor.includes(o.id) ? o.hex : null));
 
   // Delitos y Operatividad ya no necesitan pasar por "Seleccionar fuentes"
   // para activarse — su único interruptor es el checkbox de la fila de
@@ -883,6 +923,13 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // puntos que finalmente se muestran tras aplicar ese cruce + los filtros
   // propios de la capa (Estado / Estado de existencia / Dependencia).
   const capasPuntosProcesadas = useMemo(() => {
+    // Ventanas del análisis multifecha, en el mismo formato que el resto
+    // del archivo (ver filteredRecords más arriba) — se recalculan aquí
+    // porque este useMemo es independiente de aquel.
+    const ventanasPeriodos = periodos.map((p) => ({
+      inicio: (() => { const [a, m, d] = p.fechaInicial.split('-').map(Number); const [h, mi] = (p.horaInicial || '00:00').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+      fin: (() => { const [a, m, d] = p.fechaFinal.split('-').map(Number); const [h, mi] = (p.horaFinal || '23:59').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+    }));
     return capasPuntos.map((capa) => {
       // "Delitos" trae el mismo vocabulario que el DB2 (DELITO, ESTACION),
       // así que cada punto YA se tradujo a nombre corto exacto al cargar la
@@ -932,6 +979,15 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
           if (filters.fechaInicial && fechaPunto < new Date(filters.fechaInicial)) return false;
           if (filters.fechaFinal && fechaPunto > new Date(filters.fechaFinal + 'T23:59:59')) return false;
         }
+        // Análisis multifecha (periodos) — restricción ADICIONAL, igual
+        // que en filteredRecords más arriba: si hay periodos activos, el
+        // punto tiene que caer en alguno de ellos, además de cualquier
+        // otro filtro que ya tuviera. Sin periodos activos, no cambia nada.
+        if (ventanasPeriodos.length > 0) {
+          const fechaPunto = extraerFechaDePunto(p);
+          if (!fechaPunto) return false;
+          if (!ventanasPeriodos.some((v) => fechaPunto >= v.inicio && fechaPunto <= v.fin)) return false;
+        }
         return true;
       });
 
@@ -960,7 +1016,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal]);
+  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal, periodos]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -1338,19 +1394,39 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       };
       const puntosVisibles = todosLosPuntosDelitosVisibles;
 
-      const conteoPorDelito = new Map<string, number>();
-      for (const p of puntosVisibles) {
-        const nombre = p.delitoCorto ?? 'No reportado';
-        conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+      // Un año por grupo — si los puntos visibles solo tienen un año, sigue
+      // saliendo una sola caja (comportamiento de siempre); con varios años
+      // (típico en multifecha), cada año se separa en su propia caja.
+      function anioDePunto(p: (typeof puntosVisibles)[number]): number | null {
+        const f = (p as any).fila?.FECHA_HECHO;
+        if (f instanceof Date) return f.getFullYear();
+        if (typeof f === 'string') { const d = new Date(f); return isNaN(d.getTime()) ? null : d.getFullYear(); }
+        return null;
       }
-      const lineasDelito = Array.from(conteoPorDelito.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
-      const etiquetas = [
-        `Mapa general — Total: ${puntosVisibles.length} caso${puntosVisibles.length === 1 ? '' : 's'}`,
-        ...lineasDelito,
-      ];
+      const puntosPorAnio = new Map<number | null, typeof puntosVisibles>();
+      for (const p of puntosVisibles) {
+        const anio = anioDePunto(p);
+        if (!puntosPorAnio.has(anio)) puntosPorAnio.set(anio, []);
+        puntosPorAnio.get(anio)!.push(p);
+      }
+      const aniosOrdenados = Array.from(puntosPorAnio.keys()).sort((a, b) => (a ?? 0) - (b ?? 0));
+
+      const gruposEtiquetas = aniosOrdenados.map((anio) => {
+        const puntosDeEsteAnio = puntosPorAnio.get(anio)!;
+        const conteoPorDelito = new Map<string, number>();
+        for (const p of puntosDeEsteAnio) {
+          const nombre = p.delitoCorto ?? 'No reportado';
+          conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+        }
+        const lineasDelito = Array.from(conteoPorDelito.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+        const titulo = anio
+          ? `${anio} — Total: ${puntosDeEsteAnio.length} caso${puntosDeEsteAnio.length === 1 ? '' : 's'}`
+          : `Mapa general — Total: ${puntosDeEsteAnio.length} caso${puntosDeEsteAnio.length === 1 ? '' : 's'}`;
+        return { titulo, lineas: lineasDelito };
+      });
 
       // Bordes de las capas cargadas y visibles (Comuna/CAI/Estación) que
       // caigan dentro (o cerca) de lo que se ve en pantalla — antes esta
@@ -1372,7 +1448,8 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         feature: featureRectangular,
         puntos: puntosVisibles,
         colores: mostrarCalorIrisp1 && !mostrarCalorDelitos ? ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'] : paletaCalorDelitos,
-        etiquetas,
+        etiquetas: [],
+        gruposEtiquetas,
         nombreArchivo: 'mapa-general-mepoy',
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: 0,
@@ -1726,7 +1803,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             de correspondencia solo cuando "Comparar" también está activo. */}
         {modoVisualizacion === 'calor' && (mostrarCalorDelitos || mostrarCalorIrisp1 || mostrarCalorOperatividad || mostrarCalorMacri) && (
           <div className="mb-3 flex flex-wrap items-center gap-5 text-xs text-slate-600">
-            {mostrarCalorDelitos && <LeyendaGradiente titulo="Delitos" colores={paletaCalorDelitos} />}
+            {mostrarCalorDelitos && <LeyendaGradiente titulo="Delitos" colores={paletaCalorDelitos.filter((c): c is string => c !== null)} />}
             {mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
             {mostrarCalorOperatividad && <LeyendaGradiente titulo="Operatividad" colores={PALETA_CALOR_OPERATIVIDAD} />}
             {mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
@@ -1975,6 +2052,10 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             })}
 
             {/* Puntos de IRISP1 / Delitos, coloreados por delito (semaforización) */}
+            {/* Encuadre inicial — una sola vez, la primera vez que hay
+                puntos de Delitos para mostrar, así el mapa no arranca muy
+                alejado y sin necesidad de acercar el zoom a mano. */}
+            <AjustarVistaInicial puntos={todosLosPuntosDelitosVisibles} />
             {/* Encuadra el mapa en los puntos visibles cada vez que cambian
                 (por un filtro de Delito/Estación, o al cargar una capa
                 nueva) — en pantalla completa, se encuadra según lo que se

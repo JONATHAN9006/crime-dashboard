@@ -5,7 +5,7 @@ import { calcularKernelDensidad, type PuntoDensidad } from '../../utils/kernelDe
 
 export interface KernelHeatmapLayerProps {
   puntos: PuntoDensidad[];
-  colores: string[];
+  colores: (string | null)[];
   opacidad?: number;
 }
 

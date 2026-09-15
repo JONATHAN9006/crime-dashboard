@@ -24,9 +24,20 @@ export interface ResultadoKernel {
   clases: { color: string; etiqueta: string; desde: number; hasta: number }[];
 }
 
-function paletaPorDefecto(): string[] {
+function paletaPorDefecto(): (string | null)[] {
   return ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'];
 }
+
+// Los 5 puntos de corte de SIEMPRE (Muy baja/Baja/Media/Alta/Muy alta) — ya
+// NO se recalculan según cuántos colores estén activos. Antes, al
+// desactivar "Verde", los colores restantes se REPARTÍAN de nuevo en todo
+// el rango — eso hacía que "Amarillo" ocupara el lugar de "Verde" (se veía
+// como si Verde simplemente hubiera cambiado de nombre, no como si se
+// hubiera apagado). Ahora cada banda tiene su color y su rango FIJOS
+// siempre; lo único que cambia al desactivar un color es que ESA banda,
+// puntualmente, deja de pintarse (queda transparente) — las demás no se
+// mueven ni cambian.
+const ANCLAS_FRACCION_FIJAS = [0, 0.08, 0.22, 0.42, 0.68, 1];
 
 // Radio de búsqueda REAL, en metros — igual al parámetro "Radio de
 // búsqueda: 250" de la herramienta de ArcGIS.
@@ -50,7 +61,7 @@ function metrosAGradosLat(metros: number): number {
  *   soporte compacto, lo que da núcleos definidos en vez de una nube que se
  *   difumina indefinidamente).
  */
-export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[] = paletaPorDefecto()): ResultadoKernel | null {
+export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string | null)[] = paletaPorDefecto()): ResultadoKernel | null {
   if (puntos.length === 0) return null;
 
   const lats = puntos.map((p) => p.lat);
@@ -142,37 +153,28 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   if (valoresConDensidad.length === 0) return null;
 
   const maxValor = Math.max(...valoresConDensidad);
-  // Los puntos de transición del degradado se generan según la CANTIDAD
-  // real de colores recibidos — antes estaban fijos asumiendo siempre
-  // exactamente 5 (paleta original verde→rojo). Desde que la paleta es
-  // personalizable (se pueden destildar colores y quedar con menos de 5,
-  // ej. solo amarillo/naranja/rojo), un arreglo de posiciones fijo de 6
-  // elementos se quedaba leyendo una posición que ya no existía —
-  // "undefined is not iterable" — y tumbaba el mapa apenas se abría,
-  // porque la preferencia de colores queda guardada en el navegador.
-  // Con 5 colores (el caso de siempre) se conserva EXACTAMENTE la curva
-  // original; con cualquier otra cantidad (incluido 1) se generan puntos
-  // repartidos de forma pareja, sin romperse nunca.
-  const ANCLAS_FRACCION: number[] = colores.length === 5
-    ? [0, 0.08, 0.22, 0.42, 0.68, 1]
-    : colores.length <= 1
-      ? [0, 1]
-      : [0, 0.08, ...Array.from({ length: colores.length - 1 }, (_, i) => 0.08 + 0.92 * ((i + 1) / (colores.length - 1)))];
-  const coloresRgb = (colores.length > 0 ? colores : ['#dc2626']).map(hexARgb);
-  const anclasRgb = [coloresRgb[0], ...coloresRgb]; // el color "0" se repite para el ancla en fracción 0
+  // Siempre 5 bandas, siempre en el mismo rango fijo (ANCLAS_FRACCION_FIJAS)
+  // — el array "colores" recibido debe tener 5 posiciones siempre (una por
+  // banda); cada posición es su color de siempre, o null si el usuario la
+  // desmarcó. Nunca se recalculan según cuántas estén activas — eso es
+  // justo lo que causaba que apagar un color "corriera" a los demás.
+  const coloresBandas: (string | null)[] = colores.length === 5 ? colores : paletaPorDefecto();
 
-  function colorInterpolado(v: number): [number, number, number] {
+  // Bandas DISCRETAS, no interpoladas: cada valor cae en UNA banda y usa el
+  // color de esa banda tal cual (sin mezclarse con la banda vecina). Así,
+  // apagar "Amarillo" dejar transparente exactamente esa franja, sin que
+  // "Naranja" se corra para ocupar su lugar ni se mezcle con ella.
+  function colorDeBanda(v: number): [number, number, number] | null {
     const fraccion = Math.min(1, (v / maxValor - UMBRAL_MINIMO_FRACCION) / (1 - UMBRAL_MINIMO_FRACCION));
-    for (let i = 0; i < ANCLAS_FRACCION.length - 1; i++) {
-      const f0 = ANCLAS_FRACCION[i], f1 = ANCLAS_FRACCION[i + 1];
+    for (let i = 0; i < ANCLAS_FRACCION_FIJAS.length - 1; i++) {
+      const f0 = ANCLAS_FRACCION_FIJAS[i], f1 = ANCLAS_FRACCION_FIJAS[i + 1];
       if (fraccion >= f0 && fraccion <= f1) {
-        const t = f1 === f0 ? 0 : (fraccion - f0) / (f1 - f0);
-        const [r0, g0, b0] = anclasRgb[i];
-        const [r1, g1, b1] = anclasRgb[i + 1];
-        return [Math.round(r0 + (r1 - r0) * t), Math.round(g0 + (g1 - g0) * t), Math.round(b0 + (b1 - b0) * t)];
+        const hex = coloresBandas[i];
+        return hex ? hexARgb(hex) : null;
       }
     }
-    return anclasRgb[anclasRgb.length - 1];
+    const ultimo = coloresBandas[coloresBandas.length - 1];
+    return ultimo ? hexARgb(ultimo) : null;
   }
 
   // La opacidad también sube de forma continua con la fracción (no por
@@ -211,7 +213,12 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
         imgData.data[p + 3] = 0;
         continue;
       }
-      const [rr, gg, bb] = colorInterpolado(v);
+      const color = colorDeBanda(v);
+      if (!color) {
+        imgData.data[p + 3] = 0; // banda desactivada — transparente, no se repinta con la vecina
+        continue;
+      }
+      const [rr, gg, bb] = color;
       imgData.data[p] = rr;
       imgData.data[p + 1] = gg;
       imgData.data[p + 2] = bb;
@@ -233,12 +240,14 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: string[
   ctxFinal.drawImage(canvas, 0, 0, canvasFinal.width, canvasFinal.height);
 
   const etiquetasClase = ['Muy baja', 'Baja', 'Media', 'Alta', 'Muy alta'];
-  const clases = colores.map((color, i) => ({
-    color,
-    etiqueta: etiquetasClase[i],
-    desde: ANCLAS_FRACCION[i] * maxValor,
-    hasta: ANCLAS_FRACCION[i + 1] * maxValor,
-  }));
+  const clases = coloresBandas
+    .map((color, i) => ({
+      color,
+      etiqueta: etiquetasClase[i],
+      desde: ANCLAS_FRACCION_FIJAS[i] * maxValor,
+      hasta: ANCLAS_FRACCION_FIJAS[i + 1] * maxValor,
+    }))
+    .filter((c): c is { color: string; etiqueta: string; desde: number; hasta: number } => c.color !== null);
 
   return {
     dataUrl: canvasFinal.toDataURL('image/png'),
