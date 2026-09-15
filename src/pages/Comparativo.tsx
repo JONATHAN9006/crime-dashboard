@@ -8,6 +8,7 @@ import { KpiCard } from '../components/ui/KpiCard';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { VariationTable } from '../components/tables/VariationTable';
 import { formatFecha, formatNumero, formatPct } from '../utils/aggregations';
+import { ComparativoMultifecha } from './ComparativoMultifecha';
 
 const DIMENSIONES = [
   { key: 'mes', label: 'Mes' },
@@ -20,7 +21,7 @@ const DIMENSIONES = [
 // por Unidad — para garantizar que "Total 2025",
 // "Total 2026" etc. muestren siempre la misma cifra en todo el dashboard.
 export function Comparativo() {
-  const { records, filteredRecords, recordsBase, filters, meta } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, periodos } = useData();
   const [dimension, setDimension] = useState<(typeof DIMENSIONES)[number]['key']>('mes');
   const mensual = useTendenciaMensual(filteredRecords);
 
@@ -62,6 +63,15 @@ export function Comparativo() {
   const cmp = useComparativoGeneral(ventana);
   const porDelito = useComparativoCategoria(ventana, (r) => r.delito, 15);
   const porEstacion = useComparativoCategoria(ventana, (r) => r.estacion, 15);
+
+  // El comparativo homólogo (año actual vs año anterior) no tiene sentido
+  // cuando hay periodos de análisis multifecha activos — en ese caso se
+  // muestra la vista de periodos en su lugar. IMPORTANTE: esta condición
+  // va DESPUÉS de todos los hooks de arriba (nunca antes), para no violar
+  // las reglas de hooks de React al alternar entre los dos modos.
+  if (periodos.length > 0) {
+    return <ComparativoMultifecha />;
+  }
 
   if (!ventanaAutomatica.disponible) {
     return (

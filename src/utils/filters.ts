@@ -1,4 +1,4 @@
-import type { CrimeRecord, FilterState } from '../types/crime';
+import type { CrimeRecord, FilterState, PeriodoAnalisis } from '../types/crime';
 
 function matchMulti(value: string, selected: string[]): boolean {
   return selected.length === 0 || selected.includes(value);
@@ -63,4 +63,44 @@ export function contarFiltrosActivos(f: FilterState): number {
     else if (v) n += 1;
   }
   return n;
+}
+
+// Combina un registro con su hora exacta en una sola Fecha, para poder
+// compararlo contra el rango horaInicial-horaFinal de un periodo. Usa la
+// hora ya calculada del registro (r.hora, 0-23); si no existe, se asume
+// 00:00 (el registro solo se descarta por fecha, nunca por hora faltante).
+function fechaHoraDeRegistro(r: CrimeRecord): Date | null {
+  if (!r.fecha) return null;
+  const d = new Date(r.fecha);
+  d.setHours(r.hora ?? 0, 0, 0, 0);
+  return d;
+}
+
+function limiteDePeriodo(fecha: string, hora: string): Date {
+  const [anio, mes, dia] = fecha.split('-').map(Number);
+  const [h, m] = hora.split(':').map(Number);
+  return new Date(anio, mes - 1, dia, h, m, 0, 0);
+}
+
+// Aplica los filtros normales (delito, estación, CAI, etc. — TODO menos la
+// fecha) y, si hay periodos de análisis activos, exige además que la
+// fecha+hora del registro caiga dentro de AL MENOS UNO de esos periodos
+// (unión, nunca suma) — un registro que calce con dos periodos a la vez
+// solo se cuenta una vez, porque es un filtro (sí/no), no una suma por
+// periodo. Cuando no hay periodos activos, el comportamiento es IDÉNTICO
+// al de aplicarFiltros con fechaInicial/fechaFinal de siempre — el modo de
+// una sola fecha no cambia en nada.
+export function aplicarFiltrosConPeriodos(records: CrimeRecord[], f: FilterState, periodos: PeriodoAnalisis[]): CrimeRecord[] {
+  if (periodos.length === 0) return aplicarFiltros(records, f);
+
+  const sinFecha = aplicarFiltros(records, { ...f, fechaInicial: null, fechaFinal: null });
+  const ventanas = periodos.map((p) => ({
+    inicio: limiteDePeriodo(p.fechaInicial, p.horaInicial || '00:00'),
+    fin: limiteDePeriodo(p.fechaFinal, p.horaFinal || '23:59'),
+  }));
+  return sinFecha.filter((r) => {
+    const fh = fechaHoraDeRegistro(r);
+    if (!fh) return false;
+    return ventanas.some((v) => fh >= v.inicio && fh <= v.fin);
+  });
 }

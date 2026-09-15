@@ -107,6 +107,21 @@ export interface FilterState {
   fechaFinal: string | null;
 }
 
+// Un "periodo de análisis" es una ventana independiente dentro del análisis
+// multifecha (ver /docs internos — "Fiestas de Pubenza": viernes + sábado +
+// domingo, comparado contra el mismo evento de otro año). Cada periodo
+// tiene su propia fecha Y su propio horario — nunca se comparte un horario
+// global entre periodos. El año y el día de la semana se muestran para
+// referencia (se calculan a partir de fechaInicial), nunca se piden ni se
+// asumen por la posición del periodo en la lista.
+export interface PeriodoAnalisis {
+  id: string;
+  fechaInicial: string; // YYYY-MM-DD
+  fechaFinal: string; // YYYY-MM-DD
+  horaInicial: string; // HH:MM, 00:00 por defecto
+  horaFinal: string; // HH:MM, 23:59 por defecto
+}
+
 export const emptyFilterState: FilterState = {
   estacion: [],
   cai: [],

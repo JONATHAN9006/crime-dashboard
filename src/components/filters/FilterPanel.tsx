@@ -5,6 +5,7 @@ import type { CrimeRecord, FilterState } from '../../types/crime';
 import { aplicarFiltros, contarFiltrosActivos } from '../../utils/filters';
 import { uniqueSorted } from '../../utils/aggregations';
 import { MultiSelect } from './MultiSelect';
+import { SelectorMultifecha } from './SelectorMultifecha';
 import { ModalMicrogerencia } from '../microgerencia/ModalMicrogerencia';
 import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
@@ -39,7 +40,7 @@ export const CAMPOS_ADICIONALES: { key: CampoFiltro; label: string; getter: (r: 
 ];
 
 export function FilterPanel() {
-  const { records, filters, setFilters, clearFilters, filteredRecords, meta } = useData();
+  const { records, filters, setFilters, clearFilters, filteredRecords, meta, periodos } = useData();
   const [expandido, setExpandido] = useState(true);
   const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
   const modoAcceso = obtenerModoAcceso();
@@ -121,25 +122,27 @@ export function FilterPanel() {
               labels={etiquetasMeses}
             />
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Fecha inicial</label>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Fecha inicial{periodos.length > 0 && ' (reemplazada por multifecha)'}</label>
               <input
                 type="date"
                 min={minFecha}
                 max={maxFecha}
                 value={filters.fechaInicial ?? ''}
+                disabled={periodos.length > 0}
                 onChange={(e) => setFilters((prev) => ({ ...prev, fechaInicial: e.target.value || null }))}
-                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100 disabled:text-slate-400"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Fecha final</label>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Fecha final{periodos.length > 0 && ' (reemplazada por multifecha)'}</label>
               <input
                 type="date"
                 min={minFecha}
                 max={maxFecha}
                 value={filters.fechaFinal ?? ''}
+                disabled={periodos.length > 0}
                 onChange={(e) => setFilters((prev) => ({ ...prev, fechaFinal: e.target.value || null }))}
-                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100 disabled:text-slate-400"
               />
             </div>
             {CAMPOS_PRINCIPALES.map((c) => (
@@ -152,6 +155,8 @@ export function FilterPanel() {
               />
             ))}
           </div>
+
+          <SelectorMultifecha />
 
           <div className="flex items-center justify-between border-t border-slate-100 pt-3">
             <button

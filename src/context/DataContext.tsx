@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { CrimeRecord, DatasetMeta, FilterState, UpdateMode, UpdateSummary } from '../types/crime';
+import type { CrimeRecord, DatasetMeta, FilterState, PeriodoAnalisis, UpdateMode, UpdateSummary } from '../types/crime';
 import type { OperatividadRecord } from '../types/operatividad';
 import { parsearOperatividad, parsearOperatividadDesdeCsv } from '../data/operatividadParser';
 import { serializarOperatividadCsv } from '../data/operatividadSerializer';
@@ -8,7 +8,7 @@ import { parseCsvText } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas } from '../data/datasetOps';
-import { aplicarFiltros } from '../utils/filters';
+import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
 import { serializarCsv } from '../data/csvSerializer';
@@ -41,6 +41,8 @@ interface DataContextValue {
   filters: FilterState;
   setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
   clearFilters: () => void;
+  periodos: PeriodoAnalisis[];
+  setPeriodos: React.Dispatch<React.SetStateAction<PeriodoAnalisis[]>>;
   drillDown: (campo: keyof FilterState, valor: string) => void;
   loading: boolean;
   loadError: string | null;
@@ -72,6 +74,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [records, setRecords] = useState<CrimeRecord[]>([]);
   const [meta, setMeta] = useState<DatasetMeta | null>(null);
   const [filters, setFilters] = useState<FilterState>(emptyFilterState);
+  const [periodos, setPeriodos] = useState<PeriodoAnalisis[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastColumns, setLastColumns] = useState<string[]>([]);
@@ -330,7 +333,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [records],
   );
 
-  const filteredRecords = useMemo(() => aplicarFiltros(registrosVisibles, filters), [registrosVisibles, filters]);
+  // Cuando no hay periodos de análisis activos, esto es EXACTAMENTE
+  // aplicarFiltros(registrosVisibles, filters) de siempre — el modo de una
+  // sola fecha no cambia en nada (ver aplicarFiltrosConPeriodos).
+  const filteredRecords = useMemo(() => aplicarFiltrosConPeriodos(registrosVisibles, filters, periodos), [registrosVisibles, filters, periodos]);
 
   // Filtrado por todos los criterios EXCEPTO año/mes/fecha: sirve de base para
   // los comparativos homólogos (año actual vs. año anterior), que necesitan
@@ -458,6 +464,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     filters,
     setFilters,
     clearFilters,
+    periodos,
+    setPeriodos,
     drillDown,
     loading,
     loadError,

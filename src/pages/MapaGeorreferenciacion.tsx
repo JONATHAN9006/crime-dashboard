@@ -909,14 +909,13 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         ? new Set([...filters.delito, ...capa.filtroDelitoPropio])
         : null; // null = sin filtro de delito activo, se muestra todo
 
-      // Delitos excluidos de TODO el dashboard (ver utils/delitosExcluidos.ts)
-      // — la capa "Delitos" se construye desde el mismo dataset, así que
-      // NUNCA debería mostrarlos. Este filtro es una segunda barrera aquí
-      // mismo (además de aplicarse ya en el origen, en DataContext): si la
-      // capa quedó guardada en el navegador ANTES de esa corrección, se
-      // sigue viendo bien de inmediato, sin depender de que alguien vuelva
-      // a subir el archivo para que se reconstruya.
-      const DELITOS_EXCLUIDOS_MAPA = new Set(['H. CELULAR', 'H. BICICLETAS', 'H. CABLE']);
+      // Delitos excluidos de TODO el dashboard (ver utils/delitosExcluidos.ts
+      // y DataContext.tsx) — la capa "Delitos" se construye desde el mismo
+      // dataset, así que nunca debería mostrarlos. Segunda barrera aquí
+      // mismo (más allá del origen) para que un dato ya guardado con una
+      // lista de exclusión vieja se autocorrija sin depender de volver a
+      // subir el archivo.
+      const DELITOS_EXCLUIDOS_MAPA = new Set(['LESIONES AT', 'HOMICIDIO EN AT']);
 
       const puntosFiltrados = capa.puntos.filter((p) => {
         if (esExacto && DELITOS_EXCLUIDOS_MAPA.has((p.delitoCorto ?? '').toUpperCase())) return false;
