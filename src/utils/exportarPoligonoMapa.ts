@@ -111,7 +111,21 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
 
   // 1) CALLES REALES — recortadas al polígono con ctx.clip() antes de
   // dibujar nada más.
-  const zoom = Math.max(13, Math.min(18, Math.floor(Math.log2(anchoLienzo / (anchoMerc * TAMANO_TILE)))));
+  //
+  // El zoom se calcula SIEMPRE según el área real a cubrir — antes tenía
+  // un mínimo forzado de 13, pensado para zonas pequeñas (un CAI, un
+  // cuadrante). Para un área mucho más grande (el mapa general, que puede
+  // cubrir toda la ciudad), ese mínimo obligaba a pedir muchísimas más
+  // calles ("tiles") de las que en realidad hacían falta para el tamaño
+  // de la imagen — cientos, en vez de una docena — y esa sobrecarga de
+  // peticiones simultáneas terminaba dejando la mayoría sin cargar
+  // (silenciosamente, cada una queda transparente si falla), por lo que
+  // en la imagen final solo se veían los bordes de los polígonos, sin
+  // calles ni mapa de calor debajo. Ahora el zoom se ajusta al tamaño
+  // real del área — una zona pequeña sigue pidiendo el mismo detalle de
+  // siempre, y una zona grande pide menos tiles, pero más grandes, en vez
+  // de miles de tiles diminutos.
+  const zoom = Math.max(3, Math.min(18, Math.floor(Math.log2(anchoLienzo / (anchoMerc * TAMANO_TILE)))));
   const escalaMundo = Math.pow(2, zoom);
   const txMin = Math.floor(mercLoX * escalaMundo);
   const txMax = Math.floor(mercHiX * escalaMundo);
