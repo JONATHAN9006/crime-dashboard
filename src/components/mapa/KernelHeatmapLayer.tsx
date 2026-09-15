@@ -20,8 +20,15 @@ export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75 }: KernelH
   const layerRef = useRef<L.ImageOverlay | null>(null);
 
   // Firma de contenido (no de referencia) — para no recalcular el kernel si
-  // el array de puntos cambia de identidad pero no de contenido real.
+  // el array de puntos cambia de identidad pero no de contenido real. Los
+  // colores y la opacidad necesitan el mismo tratamiento: son arreglos/
+  // números que cambian de referencia en cada render, así que también se
+  // reducen a un valor comparable por CONTENIDO — antes no estaban en las
+  // dependencias del efecto, así que cambiar un color o mover el control de
+  // transparencia no volvía a dibujar nada (quedaba "congelado" con lo
+  // primero que se pintó).
   const firma = useMemo(() => puntos.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join('|'), [puntos]);
+  const firmaColores = colores.join(',');
 
   useEffect(() => {
     if (layerRef.current) {
@@ -42,7 +49,7 @@ export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75 }: KernelH
       if (layerRef.current === overlay) layerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firma, map]);
+  }, [firma, firmaColores, opacidad, map]);
 
   return null;
 }
