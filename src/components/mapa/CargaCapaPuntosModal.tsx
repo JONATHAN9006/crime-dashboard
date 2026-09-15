@@ -56,7 +56,12 @@ export function CargaCapaPuntosModal({ nombreCapa, onCerrar, onGuardar }: {
       setError('Selecciona cuál columna trae la Latitud y cuál la Longitud — son obligatorias para poder ubicar los puntos.');
       return;
     }
-    const tipo = detectarTipoCapa(columnas);
+    // Para IRISP1/Delitos, el tipo se adivina por las columnas del archivo
+    // (formatos ya conocidos). Para Operatividad/Macri todavía no hay un
+    // formato de referencia con el que comparar, así que el tipo se toma
+    // directamente del botón que el usuario usó para abrir esta ventana —
+    // más confiable que adivinar sobre un formato que nunca hemos visto.
+    const tipo = nombreCapa === 'Operatividad' ? 'operatividad' : nombreCapa === 'Macri' ? 'macri' : detectarTipoCapa(columnas);
     const puntos = construirPuntos(filas, colLat, colLon, colDelito || null, tipo, colDependencia || null);
     if (puntos.length === 0) {
       setError('Ninguna fila tiene coordenadas válidas con las columnas seleccionadas. Revisa que Latitud/Longitud sean las correctas.');

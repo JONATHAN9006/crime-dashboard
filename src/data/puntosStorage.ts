@@ -13,7 +13,7 @@ export interface PuntoGeo {
   estacionCorta: string | null;
 }
 
-export type TipoCapaPuntos = 'irisp1' | 'delitos' | 'generico';
+export type TipoCapaPuntos = 'irisp1' | 'delitos' | 'operatividad' | 'macri' | 'generico';
 
 export interface CapaPuntos {
   id: string;

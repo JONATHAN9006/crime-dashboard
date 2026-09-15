@@ -84,7 +84,21 @@ function propiedadesDisponibles(geojson: any): string[] {
 }
 
 function normalizar(v: unknown): string {
-  return String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// El nombre de un mismo CAI puede llegar con pequeñas variaciones entre el
+// archivo histórico (2003-2023) y las descargas DB2 (2025-2026) — dobles
+// espacios, mayúsculas/minúsculas distintas, o un cero a la izquierda
+// ("CAI 04" vs "CAI 4") — y sin esto cada variante aparecía como un CAI
+// "distinto" en Configuración visual, duplicando lo que en realidad es el
+// mismo CAI. Cuando el nombre sigue el patrón "CAI <número>" se reescribe
+// siempre igual ("CAI 4"); cualquier otro nombre (poco común, pero posible)
+// se deja tal cual, solo con espacios limpios.
+function formatoCaiCanonico(v: string): string {
+  const limpio = v.trim().replace(/\s+/g, ' ');
+  const m = limpio.match(/^CAI\s*-?\s*0*(\d+)$/i);
+  return m ? `CAI ${m[1]}` : limpio;
 }
 
 // Detecta SOLO, sin que el usuario tenga que configurar nada, cuál columna
@@ -468,10 +482,16 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
 }
 
   const filteredRecords = useMemo(() => {
+    // El CAI se compara normalizado (mismo criterio de formatoCaiCanonico +
+    // normalizar) porque la opción elegida es el nombre CANÓNICO, mientras
+    // que el registro puede traer una variante con espacios/mayúsculas
+    // distintas (ver opcionesFiltroMapa.cai) — comparar tal cual dejaría de
+    // encontrar coincidencias reales.
+    const caiSeleccionadosNorm = filtrosMapa.cai.map((c) => normalizar(formatoCaiCanonico(c)));
     return records.filter((r) =>
       (filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
       (filtrosMapa.estacion.length === 0 || filtrosMapa.estacion.includes(r.estacion)) &&
-      (filtrosMapa.cai.length === 0 || filtrosMapa.cai.includes(r.cai)) &&
+      (caiSeleccionadosNorm.length === 0 || caiSeleccionadosNorm.includes(normalizar(formatoCaiCanonico(r.cai)))) &&
       (filtrosMapa.cuadrante.length === 0 || filtrosMapa.cuadrante.includes(r.cuadrante)) &&
       (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
       (!filtrosMapa.fechaInicial || (r.fecha && r.fecha >= new Date(filtrosMapa.fechaInicial))) &&
@@ -482,23 +502,83 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).
   const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
-  const opcionesFiltroMapa = useMemo(() => ({
-    delito: Array.from(new Set(records.map((r) => r.delito).filter(esValorReal))).sort(),
-    estacion: Array.from(new Set(records.map((r) => r.estacion).filter(esValorReal))).sort(),
-    cai: Array.from(new Set(records.map((r) => r.cai).filter(esValorReal))).sort(),
-    cuadrante: Array.from(new Set(records.map((r) => r.cuadrante).filter(esValorReal))).sort(),
-    barrioHecho: Array.from(new Set(records.map((r) => r.barrioHecho).filter(esValorReal))).sort(),
-  }), [records]);
+  const opcionesFiltroMapa = useMemo(() => {
+    // El CAI se agrupa por su forma canónica ("CAI 4") para que variantes
+    // con espacios/mayúsculas distintas del archivo histórico y de DB2 no
+    // aparezcan como CAI repetidos — ver formatoCaiCanonico más arriba.
+    const caiCanonicoPorClave = new Map<string, string>();
+    for (const r of records) {
+      if (!esValorReal(r.cai)) continue;
+      const canonico = formatoCaiCanonico(r.cai);
+      if (!caiCanonicoPorClave.has(normalizar(canonico))) caiCanonicoPorClave.set(normalizar(canonico), canonico);
+    }
+    const caiOrdenados = Array.from(caiCanonicoPorClave.values()).sort((a, b) => {
+      const na = Number(a.match(/\d+/)?.[0]);
+      const nb = Number(b.match(/\d+/)?.[0]);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return a.localeCompare(b);
+    });
+    return {
+      delito: Array.from(new Set(records.map((r) => r.delito).filter(esValorReal))).sort(),
+      estacion: Array.from(new Set(records.map((r) => r.estacion).filter(esValorReal))).sort(),
+      cai: caiOrdenados,
+      cuadrante: Array.from(new Set(records.map((r) => r.cuadrante).filter(esValorReal))).sort(),
+      barrioHecho: Array.from(new Set(records.map((r) => r.barrioHecho).filter(esValorReal))).sort(),
+    };
+  }, [records]);
 
   const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
   const [modoVisualizacion, setModoVisualizacion] = useState<'calor' | 'puntos'>('calor');
   const [coordenadaManual, setCoordenadaManual] = useState<{ lat: number; lon: number } | null>(null);
-  const [mostrarEnConstruccion, setMostrarEnConstruccion] = useState<string | null>(null);
   const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
-  // Fuentes propias del módulo — Operatividad y Macri quedan como
-  // interruptores preparados (sin datos ni capa real detrás todavía); se
-  // activan solos en cuanto se cargue su Excel correspondiente más adelante.
-  const [fuentesActivas, setFuentesActivas] = useState({ irisp1: true, delitos: true, operatividad: false, macri: false });
+
+  // Paleta del mapa de calor de Delitos: antes era fija (verde → amarillo →
+  // naranja → rojo). Ahora es una selección manual de colores, de una lista
+  // fija de opciones — se puede, por ejemplo, destildar "Verde" y quedarse
+  // solo con amarillo/naranja/rojo. El orden de la lista (no el orden en que
+  // se marcaron) define el orden del degradado, para que siempre vaya de
+  // "menos" a "más" intensidad. Se exige al menos un color activo.
+  const OPCIONES_COLOR_CALOR: { id: string; etiqueta: string; hex: string }[] = [
+    { id: 'verde', etiqueta: 'Verde', hex: '#22c55e' },
+    { id: 'verde-lima', etiqueta: 'Verde lima', hex: '#a3e635' },
+    { id: 'amarillo', etiqueta: 'Amarillo', hex: '#facc15' },
+    { id: 'naranja', etiqueta: 'Naranja', hex: '#f97316' },
+    { id: 'rojo', etiqueta: 'Rojo', hex: '#dc2626' },
+    { id: 'azul-claro', etiqueta: 'Azul claro', hex: '#60a5fa' },
+    { id: 'azul', etiqueta: 'Azul', hex: '#2563eb' },
+    { id: 'morado', etiqueta: 'Morado', hex: '#7c3aed' },
+    { id: 'rosado', etiqueta: 'Rosado', hex: '#ec4899' },
+    { id: 'gris', etiqueta: 'Gris', hex: '#64748b' },
+  ];
+  const PALETA_CALOR_DEFECTO = ['verde', 'verde-lima', 'amarillo', 'naranja', 'rojo'];
+  const [coloresSeleccionadosCalor, setColoresSeleccionadosCalor] = useState<string[]>(() => {
+    try {
+      const guardado = localStorage.getItem('mepoy-paleta-calor-delitos');
+      if (guardado) {
+        const ids: string[] = JSON.parse(guardado);
+        if (Array.isArray(ids) && ids.length > 0 && ids.every((id) => OPCIONES_COLOR_CALOR.some((o) => o.id === id))) return ids;
+      }
+    } catch { /* si el navegador bloquea localStorage, se usa la paleta por defecto */ }
+    return PALETA_CALOR_DEFECTO;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-paleta-calor-delitos', JSON.stringify(coloresSeleccionadosCalor)); } catch { /* ver comentario arriba */ }
+  }, [coloresSeleccionadosCalor]);
+  function alternarColorCalor(id: string, activo: boolean) {
+    setColoresSeleccionadosCalor((prev) => {
+      if (activo) return OPCIONES_COLOR_CALOR.map((o) => o.id).filter((oid) => oid === id || prev.includes(oid));
+      const siguiente = prev.filter((x) => x !== id);
+      return siguiente.length > 0 ? siguiente : prev; // no permitir dejar la paleta vacía
+    });
+  }
+  const paletaCalorDelitos = OPCIONES_COLOR_CALOR.filter((o) => coloresSeleccionadosCalor.includes(o.id)).map((o) => o.hex);
+
+  // Delitos y Operatividad ya no necesitan pasar por "Seleccionar fuentes"
+  // para activarse — su único interruptor es el checkbox de la fila de
+  // arriba (junto al mapa), igual que ya funcionaba Delitos. IRISP1 y Macri
+  // sí mantienen ese segundo interruptor (ver modal "Seleccionar fuentes"),
+  // porque son fuentes externas que conviene poder desactivar aparte.
+  const [fuentesActivas, setFuentesActivas] = useState({ irisp1: true, delitos: true, operatividad: true, macri: true });
 
   // Colores por CAI — configurables a mano, se guardan en localStorage para
   // que se mantengan mientras se use el dashboard (no se pierden al
@@ -711,7 +791,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
     await persistirPuntos(capasPuntos.map((c) => (c.id === id ? { ...c, ...cambios } : c)));
   }
 
-  function alternarVisibilidadPorTipo(tipo: 'irisp1' | 'delitos', visible: boolean) {
+  function alternarVisibilidadPorTipo(tipo: 'irisp1' | 'delitos' | 'operatividad' | 'macri', visible: boolean) {
     persistirPuntos(capasPuntos.map((c) => (c.tipo === tipo ? { ...c, visible } : c)));
   }
 
@@ -1312,6 +1392,23 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // modo comparación automático (ver punto 13 de la lógica pedida).
   const mostrarCalorDelitos = fuentesActivas.delitos && (pantallaCompleta ? !!seleccionDelitos : capasPuntos.some((c) => c.tipo === 'delitos' && c.visible));
   const mostrarCalorIrisp1 = fuentesActivas.irisp1 && (pantallaCompleta ? !!seleccionIrisp1 : capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible));
+  // Operatividad y Macri son más simples que Delitos/IRISP1: no tienen modo
+  // "pantalla completa" propio ni entran en "Comparar" (esa comparación
+  // sigue siendo específicamente IRISP1 vs Delitos) — solo se encienden con
+  // su checkbox, igual que las otras dos, en cuanto exista una capa suya
+  // visible.
+  const mostrarCalorOperatividad = fuentesActivas.operatividad && capasPuntos.some((c) => c.tipo === 'operatividad' && c.visible);
+  const mostrarCalorMacri = fuentesActivas.macri && capasPuntos.some((c) => c.tipo === 'macri' && c.visible);
+  const puntosOperatividadParaMostrar = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'operatividad' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+  const puntosMacriParaMostrar = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'macri' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+  const PALETA_CALOR_OPERATIVIDAD = ['#fde68a', '#fbbf24', '#f59e0b', '#d97706', '#92400e'];
+  const PALETA_CALOR_MACRI = ['#ddd6fe', '#a78bfa', '#8b5cf6', '#7c3aed', '#5b21b6'];
 
   // Grilla de correspondencia espacial: se activa con "Comparar" (modo
   // normal) O automáticamente en pantalla completa cuando AMBAS fuentes
@@ -1393,10 +1490,20 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                   const detectado = camposUnionAutoDetectados.get(capa.id);
                   return (
                     <div key={capa.id}>
-                      <label className="flex cursor-pointer items-center gap-2 text-xs">
-                        <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
-                        <span className="truncate">{capa.nombre}</span>
-                      </label>
+                      <div className="flex items-center gap-2">
+                        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs">
+                          <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
+                          <span className="truncate">{capa.nombre}</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => quitarCapa(capa.id)}
+                          title={`Eliminar capa "${capa.nombre}"`}
+                          className="shrink-0 rounded p-1 text-slate-400 hover:bg-white/10 hover:text-red-400"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
                       {/* Si no se pudo detectar sola qué columna trae el
                           nombre (CAI/Estación/Cuadrante) — porque el
                           shapefile usa una redacción distinta a la de tus
@@ -1455,10 +1562,18 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
               >
                 <FileUp size={13} /> Delitos
               </button>
-              <button type="button" onClick={() => setMostrarEnConstruccion('Operatividad')} className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10">
+              <button
+                type="button"
+                onClick={() => setModalCapaPuntos('Operatividad')}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
+              >
                 <FileUp size={13} /> Operatividad
               </button>
-              <button type="button" onClick={() => setMostrarEnConstruccion('Macri')} className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10">
+              <button
+                type="button"
+                onClick={() => setModalCapaPuntos('Macri')}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
+              >
                 <FileUp size={13} /> Macri
               </button>
             </div>
@@ -1492,9 +1607,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             <div className="space-y-2">
               {[
                 { clave: 'irisp1' as const, etiqueta: 'IRISP1', disponible: true },
-                { clave: 'delitos' as const, etiqueta: 'Delitos', disponible: true },
-                { clave: 'operatividad' as const, etiqueta: 'Operatividad', disponible: false },
-                { clave: 'macri' as const, etiqueta: 'Macri', disponible: false },
+                { clave: 'macri' as const, etiqueta: 'Macri', disponible: true },
               ].map((f) => (
                 <label key={f.clave} className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${f.disponible ? 'border-slate-200' : 'border-slate-100 text-slate-400'}`}>
                   <span className="flex items-center gap-2">
@@ -1506,29 +1619,35 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                     />
                     {f.etiqueta}
                   </span>
-                  {!f.disponible && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">Próximamente</span>}
                 </label>
               ))}
             </div>
-            <p className="mt-3 text-[11px] text-slate-400">Operatividad y Macri quedan listas para activarse solas en cuanto se cargue su información correspondiente (capturas, incautaciones, etc.) — todavía no hay datos de esas fuentes.</p>
+            <p className="mt-3 text-[11px] text-slate-400">Delitos y Operatividad ya no pasan por aquí — se activan directamente con su checkbox junto al mapa.</p>
             <button type="button" onClick={() => setMostrarSelectorFuentes(false)} className="mt-3 w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Cerrar</button>
-          </div>
-        </div>
-      )}
-
-      {mostrarEnConstruccion && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarEnConstruccion(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-1 text-3xl">🚧</p>
-            <p className="mb-1 text-sm font-bold text-slate-700">{mostrarEnConstruccion} — En construcción</p>
-            <p className="mb-4 text-xs text-slate-500">Esta fuente todavía no tiene información cargada. En cuanto se suba el Excel correspondiente, se activa aquí mismo.</p>
-            <button type="button" onClick={() => setMostrarEnConstruccion(null)} className="w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Entendido</button>
           </div>
         </div>
       )}
 
       <Card>
         <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={capasPuntos.some((c) => c.tipo === 'delitos' && c.visible)}
+              onChange={(e) => alternarVisibilidadPorTipo('delitos', e.target.checked)}
+              disabled={!capasPuntos.some((c) => c.tipo === 'delitos')}
+            />
+            <span className="h-2 w-2 rounded-full bg-[#dc2626]" /> Delitos
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={capasPuntos.some((c) => c.tipo === 'operatividad' && c.visible)}
+              onChange={(e) => alternarVisibilidadPorTipo('operatividad', e.target.checked)}
+              disabled={!capasPuntos.some((c) => c.tipo === 'operatividad')}
+            />
+            <span className="h-2 w-2 rounded-full bg-[#d97706]" /> Operatividad
+          </label>
           <label className="flex cursor-pointer items-center gap-1.5">
             <input
               type="checkbox"
@@ -1541,11 +1660,11 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
           <label className="flex cursor-pointer items-center gap-1.5">
             <input
               type="checkbox"
-              checked={capasPuntos.some((c) => c.tipo === 'delitos' && c.visible)}
-              onChange={(e) => alternarVisibilidadPorTipo('delitos', e.target.checked)}
-              disabled={!capasPuntos.some((c) => c.tipo === 'delitos')}
+              checked={capasPuntos.some((c) => c.tipo === 'macri' && c.visible)}
+              onChange={(e) => alternarVisibilidadPorTipo('macri', e.target.checked)}
+              disabled={!capasPuntos.some((c) => c.tipo === 'macri')}
             />
-            <span className="h-2 w-2 rounded-full bg-[#dc2626]" /> Delitos
+            <span className="h-2 w-2 rounded-full bg-[#7c3aed]" /> Macri
           </label>
           <label className="flex cursor-pointer items-center gap-1.5">
             <input type="checkbox" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
@@ -1567,10 +1686,12 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         {/* La leyenda de cada escala aparece en cuanto su mapa de calor está
             encendido (sincronizado con el checkbox de esa fuente); el aviso
             de correspondencia solo cuando "Comparar" también está activo. */}
-        {modoVisualizacion === 'calor' && (mostrarCalorDelitos || mostrarCalorIrisp1) && (
+        {modoVisualizacion === 'calor' && (mostrarCalorDelitos || mostrarCalorIrisp1 || mostrarCalorOperatividad || mostrarCalorMacri) && (
           <div className="mb-3 flex flex-wrap items-center gap-5 text-xs text-slate-600">
-            {mostrarCalorDelitos && <LeyendaGradiente titulo="Delitos" colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} />}
+            {mostrarCalorDelitos && <LeyendaGradiente titulo="Delitos" colores={paletaCalorDelitos} />}
             {mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
+            {mostrarCalorOperatividad && <LeyendaGradiente titulo="Operatividad" colores={PALETA_CALOR_OPERATIVIDAD} />}
+            {mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
             {modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1 && (
               <span className="flex items-center gap-1.5">
                 <span className="h-3 w-3 rounded-full" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} />
@@ -1846,7 +1967,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             {mostrarCalorDelitos && modoVisualizacion === 'calor' && (
               <KernelHeatmapLayer
                 puntos={puntosDelitosParaMostrar}
-                colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']}
+                colores={paletaCalorDelitos}
                 opacidad={opacidades.calor / 100}
               />
             )}
@@ -1862,6 +1983,18 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
                 opacidad={opacidades.calor / 100}
               />
+            )}
+
+            {/* Mapa de calor de Operatividad y Macri: mismo mecanismo que
+                Delitos/IRISP1 (Kernel Density con su propia escala de
+                colores), pero sin modo "pantalla completa" propio ni
+                participación en "Comparar" — eso sigue siendo
+                específicamente IRISP1 vs Delitos. */}
+            {mostrarCalorOperatividad && modoVisualizacion === 'calor' && (
+              <KernelHeatmapLayer puntos={puntosOperatividadParaMostrar} colores={PALETA_CALOR_OPERATIVIDAD} opacidad={opacidades.calor / 100} />
+            )}
+            {mostrarCalorMacri && modoVisualizacion === 'calor' && (
+              <KernelHeatmapLayer puntos={puntosMacriParaMostrar} colores={PALETA_CALOR_MACRI} opacidad={opacidades.calor / 100} />
             )}
 
             {/* Modo "Puntos" — en vez de la superficie de densidad, cada
@@ -1885,6 +2018,16 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                 </CircleMarker>
               );
             })}
+            {modoVisualizacion === 'puntos' && mostrarCalorOperatividad && puntosOperatividadParaMostrar.map((p, i) => (
+              <CircleMarker key={`po-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#d97706', weight: 1, fillColor: '#d97706', fillOpacity: 0.75 }}>
+                <Popup>Operatividad</Popup>
+              </CircleMarker>
+            ))}
+            {modoVisualizacion === 'puntos' && mostrarCalorMacri && puntosMacriParaMostrar.map((p, i) => (
+              <CircleMarker key={`pm-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#7c3aed', weight: 1, fillColor: '#7c3aed', fillOpacity: 0.75 }}>
+                <Popup>Macri</Popup>
+              </CircleMarker>
+            ))}
 
             {/* Zona seleccionada con un clic sobre un polígono cargado: el
                 mapa se encuadra en ella y, si hay puntos dentro, se pinta un
@@ -1895,7 +2038,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
               <>
                 <AjustarVistaAPoligono feature={zonaActiva.feature} />
                 {puntosEnZonaParaCalor.length > 0 && (
-                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626']} opacidad={opacidades.calor / 100} />
+                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={paletaCalorDelitos} opacidad={opacidades.calor / 100} />
                 )}
               </>
             )}
@@ -2110,6 +2253,23 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         {/* ── COLUMNA DERECHA: Configuración visual ── */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 lg:sticky lg:top-4 lg:self-start">
           <p className="mb-3 text-sm font-bold text-slate-700">🎨 Configuración visual</p>
+
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Colores del mapa de calor (Delitos)</p>
+          <div className="mb-4 space-y-1">
+            {OPCIONES_COLOR_CALOR.map((o) => {
+              const activo = coloresSeleccionadosCalor.includes(o.id);
+              return (
+                <label key={o.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={activo} onChange={(e) => alternarColorCalor(o.id, e.target.checked)} />
+                  <span className="h-3 w-3 shrink-0 rounded-full border border-slate-300" style={{ background: o.hex }} />
+                  {o.etiqueta}
+                </label>
+              );
+            })}
+          </div>
+          <p className="mb-4 text-[11px] text-slate-400">
+            Desmarca un color para quitarlo del degradado — el orden de la lista (de menos a más intensidad) se mantiene siempre. Debe quedar al menos uno marcado.
+          </p>
 
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Colores de CAI</p>
           {opcionesFiltroMapa.cai.length === 0 ? (
