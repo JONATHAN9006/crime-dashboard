@@ -22,6 +22,7 @@ import { ComportamientoDelDelito } from '../components/analitica/ComportamientoD
 import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
 import { TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { ComparativoMultifecha } from './ComparativoMultifecha';
 
 const OPCIONES_TOP = [
   { label: 'Top 5', valor: 5 },
@@ -51,7 +52,7 @@ function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor:
 }
 
 export function AnalisisUnidad() {
-  const { records, filteredRecords, recordsBase, filters, meta, drillDown, filteredOperatividadRecords } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, drillDown, filteredOperatividadRecords, periodos } = useData();
   const modoAcceso = obtenerModoAcceso();
   const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
   const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
@@ -231,6 +232,14 @@ export function AnalisisUnidad() {
     ...d,
     aportePct: totalOperatividad > 0 ? (d.casos / totalOperatividad) * 100 : 0,
   }));
+
+  // Igual que en Comparativo.tsx y ResumenEjecutivo.tsx: la ventana de
+  // "vigencia actual vs anterior" no tiene sentido con periodos de
+  // análisis multifecha activos — se muestra la vista de periodos en su
+  // lugar. Va DESPUÉS de todos los hooks de arriba, nunca antes.
+  if (periodos.length > 0) {
+    return <ComparativoMultifecha />;
+  }
 
   return (
     <ProveedorRegistroPdf>

@@ -13,6 +13,7 @@ import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
+import { ComparativoMultifecha } from './ComparativoMultifecha';
 
 // Botón tipo checkbox/pill para los filtros AUMENTO (rojo) / DISMINUCIÓN
 // (verde) del encabezado de "Comparativo de delitos". Puramente visual —
@@ -46,7 +47,7 @@ function FiltroTendenciaBoton({ activo, color, icono, etiqueta, onClick }: {
 }
 
 export function ResumenEjecutivo() {
-  const { records, filteredRecords, recordsBase, filters, meta, filteredOperatividadRecords, operatividadMeta } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, filteredOperatividadRecords, operatividadMeta, periodos } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
@@ -130,6 +131,15 @@ export function ResumenEjecutivo() {
     () => agruparPor(soloVigenciaActual, (r) => r.delito).filter((d) => d.key !== 'NO REPORTADO').slice(0, 5),
     [soloVigenciaActual],
   );
+
+  // Igual que en Comparativo.tsx: la comparación "vigencia actual vs
+  // anterior" (año) no tiene sentido con periodos de análisis multifecha
+  // activos — en ese caso se muestra la vista de periodos en su lugar.
+  // Esta condición va DESPUÉS de todos los hooks de arriba, nunca antes,
+  // para no violar las reglas de hooks de React al alternar entre modos.
+  if (periodos.length > 0) {
+    return <ComparativoMultifecha />;
+  }
 
   if (filteredRecords.length === 0) {
     return (
