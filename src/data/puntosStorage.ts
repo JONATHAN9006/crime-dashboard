@@ -249,6 +249,14 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
     // a ellos (ej. capa.filtroDelitoPropio.includes(...)) revienta toda la
     // página en blanco la primera vez que se abre el mapa después de una
     // actualización. Se completan con valores por defecto seguros.
+    //
+    // También se descarta aquí cualquier punto con lat/lon inválido
+    // (undefined, NaN, texto) que haya quedado guardado de una versión
+    // anterior con errores — sin este filtro, un dato ya corrupto en el
+    // navegador sigue rompiendo el mapa para siempre, aunque el código que
+    // lo generó ya esté arreglado (el arreglo solo evita que se vuelva a
+    // corromper hacia adelante, no limpia lo que ya quedó mal guardado).
+    const coordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
     return capas.map((c) => ({
       tipo: c.tipo ?? 'generico',
       filtroDelitoPropio: c.filtroDelitoPropio ?? [],
@@ -257,11 +265,13 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
       filtroDependencia: c.filtroDependencia ?? [],
       colEstadoExistencia: c.colEstadoExistencia ?? null,
       ...c,
-      puntos: (c.puntos ?? []).map((p: any) => ({
-        delitoCorto: p.delitoCorto ?? null,
-        estacionCorta: p.estacionCorta ?? null,
-        ...p,
-      })),
+      puntos: (c.puntos ?? [])
+        .filter((p: any) => coordenadaValida(p?.lat) && coordenadaValida(p?.lon))
+        .map((p: any) => ({
+          delitoCorto: p.delitoCorto ?? null,
+          estacionCorta: p.estacionCorta ?? null,
+          ...p,
+        })),
     }));
   } catch {
     return [];
