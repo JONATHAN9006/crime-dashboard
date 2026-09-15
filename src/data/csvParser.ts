@@ -38,7 +38,29 @@ const COLUMN_MAP: Record<string, string[]> = {
   mesComponente: ['Mes'],
   mesResumidoComponente: ['Mes resumido'],
   diaMesComponente: ['Fecha Dia', 'FECHA_DIA', 'DIA_MES'],
+  // Coordenadas — opcionales; cuando el archivo las trae (ej. el histórico
+  // 2003-2023 con geocodificación agregada), alimentan automáticamente la
+  // capa "Delitos" del mapa.
+  latitud: ['Latitud', 'LATITUD', 'LAT'],
+  longitud: ['Longitud', 'LONGITUD', 'LON'],
 };
+
+// Latitud/Longitud, cuando el archivo las trae, suelen venir como texto con
+// coma decimal (formato regional, ej. "2,4316069883" / "-76,600176653").
+// Se descarta cualquier valor fuera del rango geográfico de Colombia, para
+// no dejar pasar un error de digitación como coordenada válida.
+function parseCoordenadaLocal(v: string): number | null {
+  if (!v) return null;
+  const limpio = String(v).trim().replace(',', '.');
+  const n = parseFloat(limpio);
+  if (isNaN(n)) return null;
+  return n;
+}
+function coordenadaValidaColombia(lat: number | null, lon: number | null): boolean {
+  if (lat === null || lon === null) return false;
+  return lat >= -4.5 && lat <= 13.5 && lon >= -82 && lon <= -66.5;
+}
+
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -383,6 +405,17 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
       genero: normalizeCategoria(findColumn(row, COLUMN_MAP.genero)),
       grupoEdad: normalizeCategoria(findColumn(row, COLUMN_MAP.grupoEdad)).replace(/\s+/g, ' ').trim(),
       edad,
+
+      lat: (() => {
+        const lat = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.latitud));
+        const lon = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.longitud));
+        return coordenadaValidaColombia(lat, lon) ? lat : null;
+      })(),
+      lon: (() => {
+        const lat = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.latitud));
+        const lon = parseCoordenadaLocal(findColumn(row, COLUMN_MAP.longitud));
+        return coordenadaValidaColombia(lat, lon) ? lon : null;
+      })(),
 
       raw: row,
     };

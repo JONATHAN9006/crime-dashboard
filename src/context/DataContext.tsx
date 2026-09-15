@@ -12,6 +12,7 @@ import { aplicarFiltros } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
 import { serializarCsv } from '../data/csvSerializer';
+import { sincronizarCapaDelitosDesdeRecords } from '../data/puntosStorage';
 
 export type RemoteStatus = 'sin-configurar' | 'conectando' | 'conectado' | 'error';
 
@@ -257,6 +258,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
         const columnasFinal = Array.from(new Set([...lastColumns, ...parsed.columnasDetectadas]));
         await persistirYActualizar(registrosFinales, file.name, columnasFinal, undefined, fechaMaxParametroFinal);
+
+        // Si el archivo trae Latitud/Longitud (ej. el histórico 2003-2023
+        // con geocodificación agregada), la capa "Delitos" del mapa se
+        // reconstruye sola a partir de estos registros — sin esto, seguiría
+        // dependiendo de un Excel de coordenadas subido aparte en el mapa,
+        // que es justo lo que se quería eliminar. No afecta IRISP1,
+        // Operatividad ni Macri, que siguen siendo capas independientes.
+        try { await sincronizarCapaDelitosDesdeRecords(registrosFinales); } catch { /* si falla, el mapa simplemente sigue con lo que ya tenía */ }
 
         // Si hay backend configurado, sube el dataset final (ya fusionado) para que
         // todos los que consulten el dashboard vean esta misma actualización.

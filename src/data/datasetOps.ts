@@ -7,20 +7,32 @@ export function fusionarRegistros(
   columnasNuevas: string[],
   columnasFaltantes: string[],
 ): { registros: CrimeRecord[]; resumen: UpdateSummary } {
-  const idsExistentes = new Set(existentes.map((r) => r.__id));
+  // Mapa por __id de los YA cargados, para poder actualizar uno en su
+  // lugar cuando el "duplicado" trae datos que el guardado no tenía (ej.
+  // coordenadas agregadas más tarde al mismo archivo histórico) — antes,
+  // un duplicado se descartaba siempre entero, así que resubir el mismo
+  // archivo con una columna nueva (como Latitud/Longitud) no servía de
+  // nada: la versión vieja, sin esa columna, seguía ganando.
+  const existentesPorId = new Map(existentes.map((r) => [r.__id, r]));
   const paraAgregar: CrimeRecord[] = [];
   let duplicados = 0;
+  let actualizadosConCoordenadas = 0;
 
   for (const r of nuevos) {
-    if (idsExistentes.has(r.__id)) {
+    const previo = existentesPorId.get(r.__id);
+    if (previo) {
       duplicados += 1;
+      if ((previo.lat == null || previo.lon == null) && r.lat != null && r.lon != null) {
+        existentesPorId.set(r.__id, { ...previo, lat: r.lat, lon: r.lon });
+        actualizadosConCoordenadas += 1;
+      }
     } else {
       paraAgregar.push(r);
-      idsExistentes.add(r.__id);
+      existentesPorId.set(r.__id, r);
     }
   }
 
-  const registros = [...existentes, ...paraAgregar];
+  const registros = [...existentes.map((r) => existentesPorId.get(r.__id) ?? r), ...paraAgregar];
 
   return {
     registros,
@@ -31,6 +43,7 @@ export function fusionarRegistros(
       totalFinal: registros.length,
       columnasNuevas,
       columnasFaltantes,
+      actualizadosConCoordenadas,
     },
   };
 }

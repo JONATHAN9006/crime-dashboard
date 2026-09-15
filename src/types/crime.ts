@@ -43,6 +43,13 @@ export interface CrimeRecord {
   grupoEdad: string;
   edad: number | null;
 
+  // Coordenadas — presentes solo si el archivo trae columnas de
+  // Latitud/Longitud (ej. el histórico 2003-2023 con geocodificación
+  // agregada). Cuando existen, alimentan automáticamente la capa "Delitos"
+  // del mapa — ver data/puntosStorage.ts:sincronizarCapaDelitosDesdeRecords.
+  lat: number | null;
+  lon: number | null;
+
   // Todo lo demás, sin procesar, para compatibilidad futura
   raw: Record<string, string>;
 }
@@ -136,5 +143,9 @@ export interface UpdateSummary {
   // transformó automáticamente (ver data/db2Transform.ts).
   formatoDetectado?: 'db2' | 'normalizado';
   filasConErroresDB2?: { indice: number; motivo: string }[];
+  // Registros que ya existían (contados como "duplicados") a los que se
+  // les agregó Latitud/Longitud porque el archivo recién subido sí las
+  // traía y el registro guardado todavía no las tenía.
+  actualizadosConCoordenadas?: number;
   valoresNuevosDB2?: string[];
 }

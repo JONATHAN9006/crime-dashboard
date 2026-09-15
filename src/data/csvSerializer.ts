@@ -41,7 +41,7 @@ export function serializarCsv(records: CrimeRecord[], fechaMaxParametro?: Date |
     'Año', 'Hora_24', 'Mes', 'Dia', 'Mes resumido', 'dia resumido', 'Fecha Dia', 'Semana2',
     'Delito', 'Estación Final', 'CAI Final', 'Cuadrante Final', 'Genero Final', 'Zona Final',
     'Clase Sitio Final', 'Arma Final', 'Modalidad Final', 'Causa Lesion Final',
-    'Barrio Hecho Final', 'Grupo Edad Ley Final', 'EDAD', 'CANTIDAD', 'FECHA_MAX_PARAMETRO',
+    'Barrio Hecho Final', 'Grupo Edad Ley Final', 'EDAD', 'CANTIDAD', 'Latitud', 'Longitud', 'FECHA_MAX_PARAMETRO',
   ];
 
   const fechaMaxTexto = fechaMaxParametro
@@ -76,6 +76,8 @@ export function serializarCsv(records: CrimeRecord[], fechaMaxParametro?: Date |
       r.grupoEdad || '',
       r.edad !== null && r.edad !== undefined ? String(r.edad) : '',
       String(r.cantidad ?? 1),
+      r.lat !== null && r.lat !== undefined ? String(r.lat) : '',
+      r.lon !== null && r.lon !== undefined ? String(r.lon) : '',
       fechaMaxTexto,
     ];
     lineas.push(fila.map(escapar).join(';'));

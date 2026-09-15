@@ -244,6 +244,9 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
               <p>Registros encontrados: {resultado.nuevos}</p>
               <p>Registros nuevos incorporados: {resultado.incorporados}</p>
               <p>Registros duplicados detectados (omitidos): {resultado.duplicados}</p>
+              {!!resultado.actualizadosConCoordenadas && (
+                <p>De esos duplicados, se les agregó Latitud/Longitud a: {resultado.actualizadosConCoordenadas}</p>
+              )}
               {resultado.filasConErroresDB2 !== undefined && (
                 <p>Registros con errores (omitidos): {resultado.filasConErroresDB2.length}</p>
               )}

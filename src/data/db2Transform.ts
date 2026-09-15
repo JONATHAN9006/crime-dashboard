@@ -236,6 +236,11 @@ export function transformarDatosDB2(filasDB2: Record<string, string>[], headers:
       // cuando no existe), así que un registro con CANTIDAD=3 sigue contando
       // como 3 casos y no como 1, igual que en el archivo DB2 original.
       'CANTIDAD': String(fila['CANTIDAD'] ?? '1').trim(),
+      // Si la descarga DB2 llegara a traer coordenadas (hoy no las trae,
+      // pero el histórico 2003-2023 sí las agregó), se conservan igual que
+      // CANTIDAD — el parser normalizado ya sabe leer Latitud/Longitud.
+      'Latitud': String(fila['LATITUD'] ?? fila['Latitud'] ?? fila['LAT'] ?? '').trim(),
+      'Longitud': String(fila['LONGITUD'] ?? fila['Longitud'] ?? fila['LON'] ?? '').trim(),
       // Se repite en cada fila (mismo valor) para que sobreviva el viaje de
       // ida y vuelta al servidor central: cuando otro usuario sincroniza
       // desde ahí, el archivo que recibe ya no trae las 153 columnas

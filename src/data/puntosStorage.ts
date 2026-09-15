@@ -267,3 +267,58 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
     return [];
   }
 }
+
+// --- Sincronización automática de la capa "Delitos" desde el dataset ------
+//
+// Cuando el archivo cargado en "Actualizar información" trae columnas de
+// Latitud/Longitud (ver COLUMN_MAP en csvParser.ts), esta función construye
+// — o actualiza — la capa de puntos "Delitos" DIRECTAMENTE desde esos
+// registros, sin necesidad de subir un Excel de coordenadas aparte en el
+// mapa. Se llama automáticamente después de cada actualización exitosa
+// (ver DataContext.tsx). Si el dataset no trae ningún registro con
+// coordenadas, no hace nada (deja lo que ya hubiera, sea lo que sea).
+export async function sincronizarCapaDelitosDesdeRecords(records: {
+  lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null;
+}[]): Promise<void> {
+  const conCoordenadas = records.filter((r) => r.lat !== null && r.lon !== null);
+  if (conCoordenadas.length === 0) return;
+
+  const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
+    lat: r.lat as number,
+    lon: r.lon as number,
+    // Campos mínimos para que extraerFechaDePunto (filtro de fecha) y los
+    // paneles de detalle tengan algo coherente que mostrar — el filtrado
+    // por delito/estación de esta capa usa delitoCorto/estacionCorta
+    // directamente (ver capasPuntosProcesadas en MapaGeorreferenciacion),
+    // nunca "fila", así que no hace falta más que esto.
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion },
+    delitoCorto: r.delito,
+    estacionCorta: r.estacion,
+  }));
+
+  const capas = await cargarCapasPuntos();
+  const previa = capas.find((c) => c.tipo === 'delitos');
+  const nueva: CapaPuntos = {
+    id: previa?.id ?? `delitos-auto-${Date.now()}`,
+    nombre: 'Delitos',
+    tipo: 'delitos',
+    archivoNombre: 'Actualizar información (automático)',
+    cargadoPor: previa?.cargadoPor ?? 'Sistema',
+    fechaCarga: new Date().toISOString(),
+    columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO'],
+    colLat: 'lat',
+    colLon: 'lon',
+    colDelito: 'DELITO',
+    colEstado: null,
+    colEstadoExistencia: null,
+    colDependencia: 'ESTACION',
+    puntos,
+    visible: previa?.visible ?? true,
+    filtroEstado: previa?.filtroEstado ?? [],
+    filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+    filtroDependencia: previa?.filtroDependencia ?? [],
+    filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+  };
+  await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'delitos'), nueva]);
+}
+
