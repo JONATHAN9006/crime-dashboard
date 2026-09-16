@@ -1,15 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { aplicarFiltros } from '../utils/filters';
 import { Card, PageHeader } from '../components/ui/Card';
 import { KpiCard } from '../components/ui/KpiCard';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
-import { formatNumero } from '../utils/aggregations';
+import { formatNumero, formatDecimal } from '../utils/aggregations';
 import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const COLORES_PERIODO = ['#159089', '#64748b', '#0f766e', '#94a3b8', '#134e4a', '#cbd5e1'];
+const OPCIONES_TOP = [{ label: 'Top 5', valor: 5 }, { label: 'Top 10', valor: 10 }, { label: 'Todos', valor: undefined as number | undefined }];
 
 function diaSemanaDe(fechaIso: string): string {
   const [anio, mes, dia] = fechaIso.split('-').map(Number);
@@ -39,17 +40,23 @@ function registrosDelPeriodo(records: CrimeRecord[], p: PeriodoAnalisis): CrimeR
   });
 }
 
-function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) => string, limite: number) {
+// "limite" undefined = Todos, sin recortar. El aporte % se calcula sobre lo
+// que efectivamente queda mostrado (igual criterio que ya usa Delictividad
+// por Unidad) — cambia si se pasa de "Top 5" a "Todos", a propósito.
+function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) => string, limite: number | undefined) {
   const claves = new Set<string>();
   for (const recs of porPeriodo) for (const r of recs) claves.add(getter(r) || 'No reportado');
-  const filas = Array.from(claves)
+  const todas = Array.from(claves)
     .filter((c) => c !== 'NO REPORTADO' && c !== 'No reportado')
     .map((clave) => {
       const porcada = porPeriodo.map((recs) => recs.filter((r) => (getter(r) || 'No reportado') === clave).length);
       const total = porcada.reduce((a, b) => a + b, 0);
       return { clave, porcada, total };
-    });
-  return filas.sort((a, b) => b.total - a.total).slice(0, limite);
+    })
+    .sort((a, b) => b.total - a.total);
+  const filas = limite ? todas.slice(0, limite) : todas;
+  const totalMostrado = filas.reduce((a, f) => a + f.total, 0);
+  return filas.map((f) => ({ ...f, aportePct: totalMostrado > 0 ? (f.total / totalMostrado) * 100 : 0 }));
 }
 
 // Se muestra en vez del Comparativo homólogo (año actual vs año anterior)
@@ -58,6 +65,7 @@ function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) =>
 // Comparativo.tsx).
 export function ComparativoMultifecha() {
   const { filters, records, periodos } = useData();
+  const [topN, setTopN] = useState<number | undefined>(5);
 
   // Los filtros normales (delito, estación, CAI, etc. — TODO menos la
   // fecha) se aplican primero, igual que en el resto del dashboard; cada
@@ -75,11 +83,11 @@ export function ComparativoMultifecha() {
     return vistos.size;
   }, [porPeriodo]);
 
-  const tablaDelito = useMemo(() => construirTabla(porPeriodo, (r) => r.delito, 12), [porPeriodo]);
-  const tablaEstacion = useMemo(() => construirTabla(porPeriodo, (r) => r.estacion, 12), [porPeriodo]);
-  const tablaBarrio = useMemo(() => construirTabla(porPeriodo, (r) => r.barrioHecho, 12), [porPeriodo]);
-  const tablaModalidad = useMemo(() => construirTabla(porPeriodo, (r) => r.modalidad, 12), [porPeriodo]);
-  const tablaArmas = useMemo(() => construirTabla(porPeriodo, (r) => r.armas, 12), [porPeriodo]);
+  const tablaDelito = useMemo(() => construirTabla(porPeriodo, (r) => r.delito, topN), [porPeriodo, topN]);
+  const tablaEstacion = useMemo(() => construirTabla(porPeriodo, (r) => r.estacion, topN), [porPeriodo, topN]);
+  const tablaBarrio = useMemo(() => construirTabla(porPeriodo, (r) => r.barrioHecho, topN), [porPeriodo, topN]);
+  const tablaModalidad = useMemo(() => construirTabla(porPeriodo, (r) => r.modalidad, topN), [porPeriodo, topN]);
+  const tablaArmas = useMemo(() => construirTabla(porPeriodo, (r) => r.armas, topN), [porPeriodo, topN]);
 
   const encabezados = periodos.map((p, i) => {
     const dia = diaSemanaDe(p.fechaInicial);
@@ -131,6 +139,7 @@ export function ComparativoMultifecha() {
                       </th>
                     ))}
                     <th className="px-2 py-2 text-center">Total</th>
+                    <th className="px-2 py-2 text-center">Aporte %</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -141,6 +150,7 @@ export function ComparativoMultifecha() {
                         <td key={encabezados[i]?.id ?? i} className="px-2 py-1.5 text-center text-slate-600">{formatNumero(v)}</td>
                       ))}
                       <td className="px-2 py-1.5 text-center font-semibold text-brand-navy">{formatNumero(f.total)}</td>
+                      <td className="px-2 py-1.5 text-center text-slate-500">{formatDecimal(f.aportePct, 1)}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -154,7 +164,20 @@ export function ComparativoMultifecha() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Comparativo multifecha" subtitle="Análisis de eventos/jornadas comparables — cada periodo es una ventana independiente." />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PageHeader title="Comparativo multifecha" subtitle="Análisis de eventos/jornadas comparables — cada periodo es una ventana independiente." />
+        <div className="flex gap-1.5 rounded-lg border border-slate-200 p-1">
+          {OPCIONES_TOP.map((o) => (
+            <button
+              key={o.label}
+              onClick={() => setTopN(o.valor)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${topN === o.valor ? 'bg-brand-navy text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <IndicadorMultifecha />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
