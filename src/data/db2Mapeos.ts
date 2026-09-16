@@ -10,6 +10,7 @@ export const MAPA_DELITO: Record<string, string> = {
   'HURTO A BICICLETAS': 'H. Bicicletas',
   'HURTO RESIDENCIAS': 'H. Residencias',
   'HOMICIDIOS AT': 'Homicidio en AT',
+  'HOMICIDIOS EN AT': 'Homicidio en AT',
   'HURTO PERSONAS': 'H. Personas',
   'HOMICIDIO': 'Homicidio',
   'LESIONES PERSONALES': 'L. Personales',
@@ -42,6 +43,7 @@ export const MAPA_DELITO: Record<string, string> = {
   // por eso aparecían como una fila aparte ("duplicada") en vez de sumarse
   // a "H. Pirateria".
   'HOMICIDIO DOLOSO': 'Homicidio',
+  'HOMICIDIO DOLOSO O INTENCIONAL': 'Homicidio',
   'HURTO A PIRATERIA': 'H. Pirateria',
   'HURTO PIRATERIA': 'H. Pirateria',
   'PIRATERIA': 'H. Pirateria',

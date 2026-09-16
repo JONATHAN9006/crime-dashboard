@@ -80,9 +80,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const { backendUrl } = obtenerConfig();
 
+  // Re-normaliza el delito de CUALQUIER registro (nuevo o ya guardado)
+  // contra la misma tabla de traducción de siempre — no solo al parsear un
+  // archivo nuevo. Sin esto, un registro que ya estaba guardado con un
+  // nombre crudo (ej. "HOMICIDIOS EN AT" en vez de "Homicidio en AT") se
+  // quedaba así para siempre, aunque la tabla ya tuviera la traducción
+  // correcta — y al no coincidir con el nombre exacto que usa la lista de
+  // exclusión, se colaba como si fuera un delito distinto y sin excluir.
+  // Es idempotente: un delito que ya viene en forma corta ("Homicidio") no
+  // coincide con ninguna clave de la tabla (crudas, en mayúsculas) y se
+  // deja tal cual.
+  function renormalizarDelitos(records: CrimeRecord[]): CrimeRecord[] {
+    return records.map((r) => {
+      const canonico = MAPA_DELITO[r.delito.toUpperCase()];
+      return canonico && canonico !== r.delito ? { ...r, delito: canonico } : r;
+    });
+  }
+
   const persistirYActualizar = useCallback(
     async (nuevosRegistrosCrudos: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
-      const sinExcluidos = excluirDelitosOmitidos(nuevosRegistrosCrudos);
+      const conDelitosCorregidos = renormalizarDelitos(nuevosRegistrosCrudos);
+      const sinExcluidos = excluirDelitosOmitidos(conDelitosCorregidos);
       // El CAI se completa por Cuadrante ANTES de guardar — así, tanto
       // "records" como la capa "Delitos" del mapa (que se sincroniza justo
       // debajo) ya ven el CAI derivado, sin depender de que cada pantalla

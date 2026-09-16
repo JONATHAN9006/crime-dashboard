@@ -1282,7 +1282,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
     const puntosDeEsteCai = todosLosPuntosDelitosVisibles.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
     const conteoPorDelito = new Map<string, number>();
     for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
-    const lineasDelito = Array.from(conteoPorDelito.entries()).sort((a, b) => b[1] - a[1]).map(([d, c]) => `${d}: ${c} caso${c === 1 ? '' : 's'}`);
+    const lineasDelito = Array.from(conteoPorDelito.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, c]) => `${d}: ${c} caso${c === 1 ? '' : 's'}`);
     try {
       await exportarPoligonoAislado({
         feature,
@@ -1318,6 +1318,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       }
       const lineasDelito = Array.from(conteoPorDelito.entries())
         .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
         .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
       const etiquetas = [
         `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
@@ -1354,6 +1355,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       }
       const lineasDelito = Array.from(conteoPorDelito.entries())
         .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
         .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
       const etiquetas = [
         `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,

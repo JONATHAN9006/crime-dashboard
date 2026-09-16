@@ -109,7 +109,7 @@ function mesANumero(nombre: string): number | null {
 function clean(v: unknown): string {
   if (v === null || v === undefined) return '';
   const s = String(v).trim();
-  if (s === '' || /^null$/i.test(s) || s === '-' || s === '#N/A') return '';
+  if (s === '' || /^null$/i.test(s) || s === '-' || s === '#N/A' || /^<nulo>$/i.test(s)) return '';
   return s;
 }
 
