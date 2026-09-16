@@ -205,14 +205,26 @@ function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[
 // zona), esto se ajusta UNA SOLA VEZ, la primera vez que hay datos que
 // mostrar. Antes el mapa siempre arrancaba con el zoom fijo de
 // CENTRO_DEFECTO (muy alejado) y había que acercar el zoom a mano cada
-// vez — ahora arranca ya encuadrado en los datos reales, y a partir de
-// ahí respeta libremente lo que el usuario haga con el mapa (zoom, pan)
-// sin volver a recentrarlo por su cuenta.
-function AjustarVistaInicial({ puntos }: { puntos: { lat: number; lon: number }[] }) {
+// vez — ahora arranca ya encuadrado.
+//
+// Prioriza "poligono" (el contorno real de Estación Norte+Sur, el área
+// urbana) sobre "puntos" (todos los casos de Delitos) — MEPOY también
+// tiene casos rurales lejanos (Timbío, Sotará, La Vega...), así que
+// encuadrar por TODOS los puntos terminaba mostrando medio departamento
+// en vez de la ciudad. Si no hay polígono de estaciones cargado, cae de
+// respaldo a los puntos, para no dejar el mapa sin encuadrar.
+function AjustarVistaInicial({ puntos, poligono }: { puntos: { lat: number; lon: number }[]; poligono?: [number, number][] }) {
   const map = useMap();
   const yaAjustado = useRef(false);
   useEffect(() => {
-    if (yaAjustado.current || puntos.length === 0) return;
+    if (yaAjustado.current) return;
+    if (poligono && poligono.length > 0) {
+      yaAjustado.current = true;
+      const bounds = L.latLngBounds(poligono.map(([lon, lat]) => [lat, lon] as [number, number]));
+      map.fitBounds(bounds, { padding: [30, 30] });
+      return;
+    }
+    if (puntos.length === 0) return;
     yaAjustado.current = true;
     const bounds = L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
@@ -226,7 +238,7 @@ function AjustarVistaInicial({ puntos }: { puntos: { lat: number; lon: number }[
     setTimeout(() => {
       if (map.getZoom() < 11) map.setZoom(11);
     }, 0);
-  }, [puntos, map]);
+  }, [puntos, poligono, map]);
   return null;
 }
 
@@ -613,6 +625,21 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
     { id: 'rojo', etiqueta: 'Rojo (muy alta)', hex: '#dc2626' },
   ];
   const PALETA_CALOR_DEFECTO = ['verde', 'verde-lima', 'amarillo', 'naranja', 'rojo'];
+  // Colorear cada polígono de CAI con su propio color (ver "Colores de
+  // CAI" en Configuración visual) — antes esto estaba SIEMPRE encendido,
+  // sin ningún interruptor, para cualquier capa cuyo campo se pareciera a
+  // nombres de CAI. Encimado con el mapa de calor, eso es justo lo que
+  // hacía ver el mapa "sucio"/con muchos colores mezclados incluso sin
+  // ningún filtro puesto. Ahora empieza APAGADO — una vista limpia
+  // (calles + calor) es lo normal; colorear las zonas por CAI queda como
+  // algo que se activa a propósito, no un extra que nadie pidió ver.
+  const [colorearZonasPorCai, setColorearZonasPorCai] = useState(() => {
+    try { return localStorage.getItem('mepoy-colorear-zonas-cai') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-colorear-zonas-cai', colorearZonasPorCai ? '1' : '0'); } catch { /* ver comentario arriba */ }
+  }, [colorearZonasPorCai]);
+
   const [coloresSeleccionadosCalor, setColoresSeleccionadosCalor] = useState<string[]>(() => {
     try {
       const guardado = localStorage.getItem('mepoy-paleta-calor-delitos');
@@ -945,6 +972,30 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // Delito activo en el filtro general (cruce por palabra clave), y los
   // puntos que finalmente se muestran tras aplicar ese cruce + los filtros
   // propios de la capa (Estado / Estado de existencia / Dependencia).
+  // Contorno del área urbana (Estación Norte + Sur) — para encuadrar el
+  // mapa ahí al abrir, en vez de en TODOS los puntos de Delitos (que
+  // incluyen zonas rurales lejanas como Timbío, Sotará, La Vega...).
+  // Busca, entre las capas cargadas, alguna cuyos valores coincidan con
+  // nombres de Estación conocidos (igual criterio que ya usa el PDF de
+  // Microgerencia en microgerenciaMapas.ts).
+  const anillosNorteSur = useMemo((): [number, number][] => {
+    for (const capa of capas) {
+      const feats = extraerFeatures(capa.geojson);
+      if (feats.length === 0) continue;
+      const columnas = Object.keys(feats[0]?.properties ?? {});
+      for (const columna of columnas) {
+        const coincidencias = feats.filter((f) => {
+          const v = normalizar(f?.properties?.[columna]);
+          return v === normalizar('E-Norte') || v === normalizar('E-Sur') || v === normalizar('ESTACION NORTE') || v === normalizar('ESTACION SUR');
+        });
+        if (coincidencias.length > 0) {
+          return coincidencias.flatMap((f) => extraerAnillosDeFeature(f)).flat();
+        }
+      }
+    }
+    return [];
+  }, [capas]);
+
   const capasPuntosProcesadas = useMemo(() => {
     // Ventanas del análisis multifecha, en el mismo formato que el resto
     // del archivo (ver filteredRecords más arriba) — se recalculan aquí
@@ -2064,8 +2115,12 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                 }
                 // Capas de CAI (dimensión sin "colorear por casos" activo):
                 // usan el color propio configurable de cada CAI en vez del
-                // verde institucional genérico, para diferenciarlos entre sí.
-                if (campoEfectivo && opcionesFiltroMapa.cai.length > 0) {
+                // verde institucional genérico, para diferenciarlos entre sí
+                // — SOLO si el interruptor "Colorear zonas por CAI" está
+                // encendido (ver Configuración visual). Apagado por
+                // defecto, para que la vista de siempre sea calles + calor,
+                // sin el mosaico de colores que nadie pidió ver.
+                if (colorearZonasPorCai && campoEfectivo && opcionesFiltroMapa.cai.length > 0) {
                   const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
                   const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
                   if (coincideCai) {
@@ -2092,7 +2147,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}`}
+                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}`}
                   data={capa.geojson as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
@@ -2104,7 +2159,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             {/* Encuadre inicial — una sola vez, la primera vez que hay
                 puntos de Delitos para mostrar, así el mapa no arranca muy
                 alejado y sin necesidad de acercar el zoom a mano. */}
-            <AjustarVistaInicial puntos={todosLosPuntosDelitosVisibles} />
+            <AjustarVistaInicial puntos={todosLosPuntosDelitosVisibles} poligono={anillosNorteSur} />
             {/* Encuadra el mapa en los puntos visibles cada vez que cambian
                 (por un filtro de Delito/Estación, o al cargar una capa
                 nueva) — en pantalla completa, se encuadra según lo que se
@@ -2415,6 +2470,15 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         {/* ── COLUMNA DERECHA: Configuración visual ── */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 lg:sticky lg:top-4 lg:self-start">
           <p className="mb-3 text-sm font-bold text-slate-700">🎨 Configuración visual</p>
+
+          <label className="mb-4 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600">
+            <input type="checkbox" checked={colorearZonasPorCai} onChange={(e) => setColorearZonasPorCai(e.target.checked)} className="mt-0.5" />
+            <span>
+              <span className="font-semibold text-slate-700">Colorear zonas por CAI</span>
+              <br />
+              Pinta cada polígono de CAI con su propio color (ver "Colores de CAI" abajo). Apagado por defecto para una vista limpia — actívalo solo si necesitas distinguir los CAI visualmente en el mapa.
+            </span>
+          </label>
 
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Colores del mapa de calor (Delitos)</p>
           <div className="mb-4 space-y-1">
