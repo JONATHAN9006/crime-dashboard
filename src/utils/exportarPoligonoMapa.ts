@@ -100,14 +100,6 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   canvas.width = anchoLienzo;
   canvas.height = alto;
   const ctx = canvas.getContext('2d')!;
-  // Fondo neutro ANTES de cualquier recorte/dibujo — sin esto, cualquier
-  // zona que quedara sin pintar (el margen del 8% agregado más arriba, o
-  // una calle que no llegó a cargar) quedaba transparente, y en algunos
-  // visores/chats eso se ve NEGRO en vez de blanco — el "fondo negro" que
-  // se reportó. Con este relleno, cualquier hueco se ve como mapa vacío
-  // normal, nunca negro.
-  ctx.fillStyle = '#e5e3df';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   function trazarAnillosComoRuta() {
     ctx.beginPath();
@@ -118,6 +110,20 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       ctx.closePath();
     }
   }
+
+  // Fondo neutro — SOLO dentro del polígono (recortado, igual que las
+  // calles de abajo), para el caso de que una calle puntual no llegara a
+  // cargar. Antes se pintaba en TODO el lienzo, sin recortar — así,
+  // cualquier hueco entre el polígono y el borde del lienzo (o entre dos
+  // polígonos separados, si la capa incluye territorios lejanos) se veía
+  // como un bloque beige sólido en vez de transparente. Ahora, fuera del
+  // polígono, el lienzo queda genuinamente transparente.
+  ctx.save();
+  trazarAnillosComoRuta();
+  ctx.clip();
+  ctx.fillStyle = '#e5e3df';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
 
   // 1) CALLES REALES — recortadas al polígono con ctx.clip() antes de
   // dibujar nada más.

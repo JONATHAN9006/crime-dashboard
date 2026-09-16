@@ -8,11 +8,14 @@ export function fusionarRegistros(
   columnasFaltantes: string[],
 ): { registros: CrimeRecord[]; resumen: UpdateSummary } {
   // Mapa por __id de los YA cargados, para poder actualizar uno en su
-  // lugar cuando el "duplicado" trae datos que el guardado no tenía (ej.
-  // coordenadas agregadas más tarde al mismo archivo histórico) — antes,
-  // un duplicado se descartaba siempre entero, así que resubir el mismo
-  // archivo con una columna nueva (como Latitud/Longitud) no servía de
-  // nada: la versión vieja, sin esa columna, seguía ganando.
+  // lugar cuando el "duplicado" trae datos que el guardado no tenía —
+  // antes, un duplicado se descartaba siempre entero, así que resubir el
+  // mismo archivo con una columna nueva (coordenadas, o un campo que
+  // antes no se reconocía, ej. "ARMA_MEDIOS") no servía de nada: la
+  // versión vieja, sin ese dato, seguía ganando. Se revisan los campos de
+  // texto que normalmente vienen "NO REPORTADO" cuando faltan, más
+  // lat/lon (que usan null en vez de ese texto).
+  const CAMPOS_TEXTO_RELLENABLES = ['armas', 'causaLesion', 'barrioHecho', 'turno', 'modalidad', 'claseSitio', 'grupoEdad'] as const;
   const existentesPorId = new Map(existentes.map((r) => [r.__id, r]));
   const paraAgregar: CrimeRecord[] = [];
   let duplicados = 0;
@@ -22,10 +25,19 @@ export function fusionarRegistros(
     const previo = existentesPorId.get(r.__id);
     if (previo) {
       duplicados += 1;
+      let cambios: Partial<CrimeRecord> = {};
       if ((previo.lat == null || previo.lon == null) && r.lat != null && r.lon != null) {
-        existentesPorId.set(r.__id, { ...previo, lat: r.lat, lon: r.lon });
+        cambios = { ...cambios, lat: r.lat, lon: r.lon };
         actualizadosConCoordenadas += 1;
       }
+      for (const campo of CAMPOS_TEXTO_RELLENABLES) {
+        const valorPrevio = previo[campo];
+        const valorNuevo = r[campo];
+        if ((!valorPrevio || valorPrevio === 'NO REPORTADO') && valorNuevo && valorNuevo !== 'NO REPORTADO') {
+          cambios = { ...cambios, [campo]: valorNuevo };
+        }
+      }
+      if (Object.keys(cambios).length > 0) existentesPorId.set(r.__id, { ...previo, ...cambios });
     } else {
       paraAgregar.push(r);
       existentesPorId.set(r.__id, r);

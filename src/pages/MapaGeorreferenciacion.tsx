@@ -1407,13 +1407,24 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       // (Comuna/CAI/Estación) — igual que ya funciona bien la descarga de
       // un CAI individual — en vez de un simple rectángulo que arrastra
       // todo el paisaje de alrededor (montañas, veredas, otros
-      // municipios) que no hace parte de la jurisdicción. Se arma un
-      // MultiPolygon con TODOS los anillos exteriores de las capas
-      // visibles; si no hay ninguna capa cargada, se usa el rectángulo de
-      // siempre como respaldo (para no dejar la descarga sin funcionar).
+      // municipios) que no hace parte de la jurisdicción.
+      //
+      // OJO: una capa como "Jurisdicción Estaciones" puede incluir
+      // territorios MUY lejanos entre sí (ej. Timbío, Sotará, además de
+      // Norte/Sur) — combinarlos todos sin filtrar dejaba "islas" sueltas,
+      // sin calles ni mapa de calor, regadas por toda la imagen. Por eso
+      // solo se conservan los anillos que caen dentro (o cerca) de lo que
+      // se ve actualmente en el mapa — si Norte y Sur son lo que tienes en
+      // pantalla al descargar, son los que se incluyen; los territorios
+      // lejanos que no estás viendo en ese momento quedan afuera.
+      const margenRecorte = Math.max(norte - sur, este - oeste) * 0.25;
+      const dentroDeVistaRecorte = (an: [number, number][]) => an.some(
+        ([lon, lat]) => lon >= oeste - margenRecorte && lon <= este + margenRecorte && lat >= sur - margenRecorte && lat <= norte + margenRecorte,
+      );
       const anillosCapasParaRecorte = capas
         .filter((c) => c.visible)
-        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)));
+        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)))
+        .filter(dentroDeVistaRecorte);
       const featureRecorte = anillosCapasParaRecorte.length > 0
         ? {
             type: 'Feature',

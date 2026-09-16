@@ -9,7 +9,7 @@ import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const COLORES_PERIODO = ['#159089', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
+const COLORES_PERIODO = ['#159089', '#64748b', '#0f766e', '#94a3b8', '#134e4a', '#cbd5e1'];
 
 function diaSemanaDe(fechaIso: string): string {
   const [anio, mes, dia] = fechaIso.split('-').map(Number);
