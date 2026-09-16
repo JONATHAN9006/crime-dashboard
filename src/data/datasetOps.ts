@@ -1,5 +1,5 @@
 import type { CrimeRecord, DatasetMeta, DataQuality, UpdateSummary } from '../types/crime';
-import { COLUMNAS_REQUERIDAS } from './csvParser';
+import { COLUMNAS_REQUERIDAS, buildRecordId } from './csvParser';
 
 export function fusionarRegistros(
   existentes: CrimeRecord[],
@@ -157,6 +157,35 @@ export function construirMeta(
 }
 
 export { COLUMNAS_REQUERIDAS };
+
+// Limpieza de los duplicados que YA quedaron guardados por el bug real de
+// buildRecordId (antes usaba delito/cuadrante ya traducidos — cada mejora
+// a esas traducciones hacía que resubir el mismo archivo se viera como
+// "todo nuevo" y lo duplicara entero). Recalcula la identidad de cada
+// registro con la lógica NUEVA (basada en texto crudo, ver
+// csvParser.ts:buildRecordId) y, si dos registros ya guardados coinciden
+// en esa identidad, se quedan con el más completo (con coordenadas y CAI,
+// si alguno los tiene) en vez de sumar los dos. Es idempotente: si ya no
+// hay duplicados, no cambia nada.
+export function eliminarDuplicadosPorIdentidadCruda(records: CrimeRecord[]): { registros: CrimeRecord[]; eliminados: number } {
+  const porIdentidad = new Map<string, CrimeRecord>();
+  for (const r of records) {
+    const id = buildRecordId(r, 0);
+    const previo = porIdentidad.get(id);
+    if (!previo) {
+      porIdentidad.set(id, r);
+      continue;
+    }
+    // Se queda el más "completo": con coordenadas antes que sin ellas, y
+    // con CAI real antes que sin él — nunca se descarta información,
+    // siempre se prefiere quien más tiene.
+    const previoCompleto = (previo.lat != null && previo.lon != null ? 2 : 0) + (previo.cai && previo.cai !== 'NO REPORTADO' ? 1 : 0);
+    const actualCompleto = (r.lat != null && r.lon != null ? 2 : 0) + (r.cai && r.cai !== 'NO REPORTADO' ? 1 : 0);
+    porIdentidad.set(id, actualCompleto > previoCompleto ? r : previo);
+  }
+  const registros = Array.from(porIdentidad.values());
+  return { registros, eliminados: records.length - registros.length };
+}
 
 // Deriva el CAI a partir del Cuadrante para registros que traen uno pero no
 // el otro (ej. los archivos COR_DELITOS_2024/2025, que sí traen Cuadrante

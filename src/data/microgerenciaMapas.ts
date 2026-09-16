@@ -261,6 +261,21 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
       const nombre = normalizar(nombreEstacionDeFeature(f, localizada.columna));
       return nombre === normalizar('E-Norte') || nombre === normalizar('E-Sur');
     });
+    if (featuresNorteSur.length === 0) {
+      // Diagnóstico para cuando SÍ se encontró una capa/columna de
+      // Estación, pero ninguno de sus valores coincidió con Norte/Sur —
+      // se listan los valores CRUDOS reales (antes y después de pasar por
+      // MAPA_ESTACION) para saber exactamente qué está trayendo la capa,
+      // sin necesidad de compartir el shapefile completo: basta con abrir
+      // la consola del navegador (F12 → pestaña "Console"), generar el
+      // PDF de nuevo, y copiar este mensaje.
+      const valoresCrudos = [...new Set(localizada.features.map((f) => String(f?.properties?.[localizada.columna] ?? '')))];
+      console.warn(
+        `[Microgerencia→Mapa] Se detectó la capa "${localizada.capa.nombre}" (columna "${localizada.columna}") como la de Estación, pero NINGÚN valor coincidió con Norte/Sur — se está usando TODA la capa como respaldo.\n` +
+        `Valores encontrados en esa columna: ${JSON.stringify(valoresCrudos)}\n` +
+        `Traducidos por MAPA_ESTACION: ${JSON.stringify(valoresCrudos.map((v) => MAPA_ESTACION[v.toUpperCase()] ?? `(sin traducción: "${v}")`))}`,
+      );
+    }
     const featuresParaMapa = featuresNorteSur.length > 0 ? featuresNorteSur : localizada.features;
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado);
     if (puntos.length === 0) {
@@ -293,7 +308,11 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     }
     const feature = localizada.features.find((f) => normalizar(nombreEstacionDeFeature(f, localizada.columna)) === normalizar(nombreEstacionCorta));
     if (!feature) {
-      console.warn(`[Microgerencia→Mapa] La capa de Estación no tiene ningún polígono que coincida con "${nombreEstacionCorta}" en la columna "${localizada.columna}".`);
+      const valoresCrudos = [...new Set(localizada.features.map((f) => String(f?.properties?.[localizada.columna] ?? '')))];
+      console.warn(
+        `[Microgerencia→Mapa] La capa de Estación no tiene ningún polígono que coincida con "${nombreEstacionCorta}" en la columna "${localizada.columna}".\n` +
+        `Valores encontrados en esa columna: ${JSON.stringify(valoresCrudos)}`,
+      );
       return undefined;
     }
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado, nombreEstacionCorta);

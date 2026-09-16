@@ -36,9 +36,9 @@ function colorPorDif(dif: number): [number, number, number] {
   return dif > 0 ? COLOR_ROJO : dif < 0 ? COLOR_VERDE_TEXTO : COLOR_MUTED;
 }
 
-async function cargarEscudoBase64(): Promise<string | null> {
+async function cargarImagenBase64(ruta: string): Promise<string | null> {
   try {
-    const resp = await fetch('/assets/escudo-policia.png');
+    const resp = await fetch(ruta);
     const blob = await resp.blob();
     return await new Promise((resolve, reject) => {
       const lector = new FileReader();
@@ -81,34 +81,81 @@ function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
 }
 
 export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
-  const escudoBase64 = await cargarEscudoBase64();
+  const [escudoBase64, popayanBase64, iconosFooterBase64] = await Promise.all([
+    cargarImagenBase64('/assets/escudo-policia.png'),
+    cargarImagenBase64('/assets/popayan-territorio-seguro.png'),
+    cargarImagenBase64('/assets/mepoy-footer-iconos.png'),
+  ]);
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   let y = 0;
 
+  // Colores muestreados directo de la plantilla institucional nueva
+  // (banner "Microgerencia — Popayán Territorio Seguro").
+  const VERDE_OSCURO_BANNER: [number, number, number] = [2, 90, 70];
+  const VERDE_MAS_OSCURO_BANNER: [number, number, number] = [4, 50, 40];
+  const LIMA_BANNER: [number, number, number] = [178, 241, 7];
+  const ALTO_HEADER = 26;
+  const ALTO_FOOTER = 13;
+
   function dibujarEncabezadoPagina() {
-    pdf.setFillColor(...COLOR_GREEN);
-    pdf.rect(0, 0, MM_ANCHO, 24, 'F');
+    // Degradado simple de dos tonos (izquierda más clara, derecha más
+    // oscura) + una franja lima diagonal, para acercarse al banner real
+    // sin depender de gradientes reales (jsPDF no los soporta nativo).
+    pdf.setFillColor(...VERDE_MAS_OSCURO_BANNER);
+    pdf.rect(0, 0, MM_ANCHO, ALTO_HEADER, 'F');
+    pdf.setFillColor(...VERDE_OSCURO_BANNER);
+    pdf.rect(0, 0, MM_ANCHO * 0.62, ALTO_HEADER, 'F');
+    pdf.setFillColor(...LIMA_BANNER);
+    pdf.triangle(MM_ANCHO * 0.58, 0, MM_ANCHO * 0.64, 0, MM_ANCHO * 0.60, ALTO_HEADER, 'F');
+
     if (escudoBase64) {
-      try { pdf.addImage(escudoBase64, 'PNG', MARGEN, 3, 17, 17); } catch { /* sin escudo si falla */ }
+      try { pdf.addImage(escudoBase64, 'PNG', MARGEN, 3, 19, 19); } catch { /* sin escudo si falla */ }
     }
-    const xTexto = escudoBase64 ? MARGEN + 21 : MARGEN;
+    const xTexto = escudoBase64 ? MARGEN + 22 : MARGEN;
     pdf.setTextColor(255, 255, 255);
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(14);
-    pdf.text('Microgerencia y Proyección Delictiva MEPOY', xTexto, 9);
-    pdf.setFontSize(9);
+    pdf.setFontSize(12.5);
+    pdf.text('POLICÍA NACIONAL', xTexto, 8);
+    pdf.text('METROPOLITANA DE POPAYÁN', xTexto, 12.5);
+    pdf.setFontSize(7.5);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('Centro de Información Estratégica Policial del Servicio (CIEPS)', xTexto, 15);
-    pdf.setFontSize(8);
-    pdf.text(tituloVista, xTexto, 20.5);
-    y = 30;
+    pdf.text('Centro de Información Estratégica', xTexto, 17.5);
+    pdf.text('Policial del Servicio (CIEPS)', xTexto, 21);
+
+    // Título de la vista (nodo actual), centrado en el tramo verde claro.
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(13);
+    pdf.text(tituloVista.length > 42 ? tituloVista.slice(0, 42) + '…' : tituloVista, MM_ANCHO * 0.60 + 11, ALTO_HEADER / 2 + 1.5);
+
+    if (popayanBase64) {
+      try { pdf.addImage(popayanBase64, 'PNG', MM_ANCHO - MARGEN - 22, 2, 22, 22 * (190 / 215)); } catch { /* sin logo si falla */ }
+    }
+    y = ALTO_HEADER + 4;
+  }
+
+  function dibujarPiePagina() {
+    const yFooter = MM_ALTO - ALTO_FOOTER;
+    pdf.setFillColor(...VERDE_MAS_OSCURO_BANNER);
+    pdf.rect(0, yFooter, MM_ANCHO, ALTO_FOOTER, 'F');
+    pdf.setFillColor(...LIMA_BANNER);
+    pdf.rect(0, yFooter, MM_ANCHO, 0.6, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bolditalic');
+    pdf.setFontSize(9);
+    pdf.text('"Un servicio de policía focalizado', MARGEN, yFooter + 5.5);
+    pdf.text('para una Popayán más segura".', MARGEN, yFooter + 9.5);
+    if (iconosFooterBase64) {
+      // Proporción real del recorte (575x125) para no deformar los íconos.
+      const anchoIconos = 95;
+      try { pdf.addImage(iconosFooterBase64, 'PNG', MM_ANCHO - MARGEN - anchoIconos, yFooter + 1, anchoIconos, anchoIconos * (125 / 575)); } catch { /* sin íconos si falla */ }
+    }
   }
 
   function altoDeTarjeta(nodo: NodoMicrogerencia): number {
     return ALTO_TITULO_TARJETA + ALTO_FILA_METRICAS + altoBandaTresColumnas(nodo) + PADDING_TARJETA * 3;
   }
 
-  const Y_TOPE_PAGINA_FRESCA = 30; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
+  const Y_TOPE_PAGINA_FRESCA = ALTO_HEADER + 4; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
 
   function nuevaPaginaSiNoCabe(altoNecesario: number) {
     // Si ya estamos arriba de todo en una página recién empezada, NUNCA
@@ -117,7 +164,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // sería exactamente el mismo en la página siguiente). Se deja dibujar
     // aquí mismo, aunque se pase un poco del margen inferior.
     if (y <= Y_TOPE_PAGINA_FRESCA) return;
-    if (y + altoNecesario > MM_ALTO - MARGEN) {
+    if (y + altoNecesario > MM_ALTO - MARGEN - ALTO_FOOTER) {
       pdf.addPage();
       dibujarEncabezadoPagina();
     }
@@ -397,13 +444,17 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   dibujarEncabezadoPagina();
   for (const nodo of nodos) dibujarTarjetaNodo(nodo, imagenesPorNodo?.get(nodo.nombre));
 
-  const totalPaginas = (pdf as any).internal.getNumberOfPages();
+  // El pie de página (banda institucional + fecha de generación) se
+  // dibuja al final, sobre TODAS las páginas ya generadas — más simple
+  // que ir intercalándolo mientras se agrega contenido dinámico.
+  const totalPaginas = pdf.getNumberOfPages();
   for (let p = 1; p <= totalPaginas; p++) {
     pdf.setPage(p);
+    dibujarPiePagina();
     pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(7);
-    pdf.setTextColor(...COLOR_MUTED);
-    pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, MM_ALTO - 5);
+    pdf.setFontSize(6.5);
+    pdf.setTextColor(255, 255, 255);
+    pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, MM_ALTO - 1.5);
   }
 
   pdf.save('microgerencia-mepoy.pdf');

@@ -187,6 +187,21 @@ function parseFecha(txt: string): Date | null {
   // la celda de fecha no conservó su formato), se convierte en vez de dejarlo
   // pasar como texto (lo que antes contaminaba el campo "Año" con series como 45658).
   if (esSerieExcelPlausible(t)) return convertirSerieExcelAFecha(t);
+  // Otra forma en la que Excel puede "arruinar" una fecha: si la celda
+  // originalmente traía un timestamp de milisegundos (época Unix, ej. de
+  // un sistema que exporta así) y Excel la mostró con formato numérico
+  // genérico, queda como notación científica ("1.73949E+12") en vez de
+  // una fecha. Sin esto, TODAS las fechas de ese archivo quedaban nulas
+  // (bug real, confirmado con COR_DELITOS_2025.xlsx: 7.023 registros, los
+  // 7.023 con fecha nula, por esto exacto).
+  if (/^\d+(\.\d+)?E\+\d+$/i.test(t)) {
+    const ms = parseFloat(t);
+    if (isFinite(ms)) {
+      const fecha = new Date(ms);
+      const anio = fecha.getFullYear();
+      if (!isNaN(fecha.getTime()) && anio >= 2000 && anio <= 2035) return fecha;
+    }
+  }
   const iso = new Date(t);
   return isNaN(iso.getTime()) ? null : iso;
 }
@@ -487,16 +502,29 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
 
 // Genera un identificador único "de negocio" para poder deduplicar cuando se agregan
 // nuevos archivos. Combina los campos que en conjunto identifican un hecho.
+// El identificador de cada registro se construye a partir de valores
+// CRUDOS (los que trae el archivo, antes de traducir delito/cuadrante/
+// estación a su nombre corto) — nunca de los ya traducidos. Motivo real:
+// antes usaba los campos YA traducidos (rec.delito, rec.cuadrante), y cada
+// vez que se mejoraba una tabla de traducción (ej. agregar "JURIS_
+// DEPENDENCIAS" como columna de cuadrante, o una nueva entrada en
+// MAPA_DELITO), el identificador de TODOS los registros afectados
+// cambiaba de un día para otro. Resultado: volver a subir el MISMO
+// archivo para que la mejora tomara efecto ya no se reconocía como "los
+// mismos registros de antes" — se duplicaban enteros. Usando el texto
+// crudo (que nunca cambia, sin importar cuánto mejoren las tablas de
+// traducción), resubir el mismo archivo siempre se reconoce como
+// duplicado, para siempre.
 export function buildRecordId(rec: CrimeRecord, fallbackIndex: number): string {
   const parts = [
     rec.fechaTexto,
     rec.hora ?? '',
-    rec.delito,
-    rec.estacion,
-    rec.cuadrante,
+    findColumn(rec.raw, COLUMN_MAP.delito),
+    findColumn(rec.raw, COLUMN_MAP.estacion),
+    findColumn(rec.raw, COLUMN_MAP.cuadrante),
     rec.cantidad,
-    rec.barrioHecho,
-    rec.genero,
+    findColumn(rec.raw, COLUMN_MAP.barrioHecho),
+    findColumn(rec.raw, COLUMN_MAP.genero),
   ];
   const base = parts.join('|').toUpperCase();
   if (base.replace(/\|/g, '').trim().length === 0) {

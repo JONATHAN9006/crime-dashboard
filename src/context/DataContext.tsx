@@ -7,7 +7,7 @@ import { emptyFilterState } from '../types/crime';
 import { parseCsvText } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
-import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante } from '../data/datasetOps';
+import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda } from '../data/datasetOps';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
@@ -113,7 +113,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // "records" como la capa "Delitos" del mapa (que se sincroniza justo
       // debajo) ya ven el CAI derivado, sin depender de que cada pantalla
       // haga su propia reparación por su cuenta.
-      const nuevosRegistros = derivarCaiDesdeCuadrante(sinExcluidos);
+      const conCaiDerivado = derivarCaiDesdeCuadrante(sinExcluidos);
+      // Limpieza de duplicados reales que ya hubieran quedado guardados por
+      // el bug de identidad (ver datasetOps.ts) — se aplica SIEMPRE, no
+      // solo al subir un archivo nuevo, para que la corrección tome efecto
+      // de inmediato con lo que ya está guardado, sin depender de que se
+      // vuelva a subir nada.
+      const { registros: nuevosRegistros, eliminados: duplicadosLimpiados } = eliminarDuplicadosPorIdentidadCruda(conCaiDerivado);
+      if (duplicadosLimpiados > 0) {
+        console.info(`[persistirYActualizar] Se fusionaron ${duplicadosLimpiados} registro(s) duplicado(s) detectado(s) con la identidad corregida.`);
+      }
       setRecords(nuevosRegistros);
       const ahora = fechaRef ?? new Date();
       setMeta(construirMeta(nuevosRegistros, archivo, ahora, columnas, fechaMaxParametro ?? null));
