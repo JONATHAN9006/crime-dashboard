@@ -93,7 +93,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   function renormalizarDelitos(records: CrimeRecord[]): CrimeRecord[] {
     return records.map((r) => {
       const canonico = MAPA_DELITO[r.delito.toUpperCase()];
-      return canonico && canonico !== r.delito ? { ...r, delito: canonico } : r;
+      if (canonico) return canonico !== r.delito ? { ...r, delito: canonico } : r;
+      // Sin traducción en la tabla: si quedó en mayúsculas de corrido
+      // (ej. "ACOSO SEXUAL"), se le da formato de Título para que no se
+      // vea gritando al lado de los que sí están bien formateados.
+      if (r.delito !== 'NO REPORTADO' && r.delito === r.delito.toUpperCase()) {
+        const formateado = r.delito.toLowerCase().replace(/(^|\s)([a-záéíóúñ])/g, (_, sep: string, letra: string) => sep + letra.toUpperCase());
+        return formateado !== r.delito ? { ...r, delito: formateado } : r;
+      }
+      return r;
     });
   }
 

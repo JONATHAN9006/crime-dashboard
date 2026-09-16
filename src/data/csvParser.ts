@@ -121,6 +121,15 @@ function normalizeCategoria(v: string): string {
   return c;
 }
 
+// Para un delito que NO tiene traducción a nombre corto en MAPA_DELITO
+// (ej. "ACOSO SEXUAL", que llega en mayúsculas de corrido) — se le da
+// formato de Título en vez de dejarlo gritando en mayúsculas junto a
+// delitos que sí están bien formateados ("H. Personas", "Homicidio").
+// Nunca cambia el significado, solo la presentación.
+function formatoTitulo(v: string): string {
+  return v.toLowerCase().replace(/(^|\s)([a-záéíóúñ])/g, (_, sep, letra) => sep + letra.toUpperCase());
+}
+
 // Normaliza las llaves de una fila (recorta espacios en los encabezados, algo
 // frecuente en archivos exportados desde Excel/Tableau, ej. "Mes resumido ").
 function normalizarFila(row: Record<string, string>): Record<string, string> {
@@ -401,9 +410,11 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
         // nombre largo del delito ("HURTO PERSONAS") en vez de la forma
         // corta que ya usa el resto del dashboard ("H. Personas") — se
         // traduce con la misma tabla del formato DB2 para que no queden
-        // como si fueran delitos distintos. Si ya viene en forma corta (o
-        // no está en la tabla), se deja tal cual.
-        return MAPA_DELITO[bruto.toUpperCase()] ?? bruto;
+        // como si fueran delitos distintos. Si no está en la tabla, se le
+        // da formato de Título (no se deja gritando en mayúsculas).
+        const canonico = MAPA_DELITO[bruto.toUpperCase()];
+        if (canonico) return canonico;
+        return bruto === 'NO REPORTADO' ? bruto : formatoTitulo(bruto);
       })(),
       armas: normalizeCategoria(findColumn(row, COLUMN_MAP.armas)),
       modalidad: normalizeCategoria(findColumn(row, COLUMN_MAP.modalidad)),

@@ -457,7 +457,7 @@ function colorPorIntensidad(valor: number, max: number): string {
 }
 
 export function MapaGeorreferenciacion() {
-  const { records, periodos } = useData();
+  const { records, periodos, filters: filtrosPrincipales } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
   // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
@@ -473,6 +473,16 @@ export function MapaGeorreferenciacion() {
     fechaFinal: '' as string,
   });
   const filters = filtrosMapa; // alias interno — así el resto del archivo, que ya usa "filters.delito" etc., no hay que reescribirlo entero.
+
+  // Fecha inicial/final del filtro PRINCIPAL (arriba del dashboard) — a
+  // pedido explícito, ahora SÍ alimenta el mapa (antes eran dos filtros de
+  // fecha totalmente aislados: el de arriba nunca tocaba el mapa, ni
+  // siquiera parcialmente, porque "filters" en este archivo apuntaba solo
+  // al filtro propio del mapa — ver alias arriba). Se combina como
+  // restricción ADICIONAL: un registro tiene que pasar el filtro propio
+  // del mapa (si tiene fecha puesta) Y el filtro principal (si lo tiene).
+  const fechaInicialGlobal = filtrosPrincipales.fechaInicial;
+  const fechaFinalGlobal = filtrosPrincipales.fechaFinal;
 
   // Registros filtrados SOLO con los filtros propios del mapa — reemplaza
   // al "filteredRecords" global (que aquí no aplica) para lo poco que se
@@ -537,6 +547,8 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
       (!filtrosMapa.fechaInicial || (r.fecha && r.fecha >= new Date(filtrosMapa.fechaInicial))) &&
       (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))) &&
+      (!fechaInicialGlobal || (r.fecha && r.fecha >= new Date(fechaInicialGlobal))) &&
+      (!fechaFinalGlobal || (r.fecha && r.fecha <= new Date(fechaFinalGlobal + 'T23:59:59'))) &&
       (ventanasPeriodos.length === 0 || (() => {
         if (!r.fecha) return false;
         const fh = new Date(r.fecha);
@@ -544,7 +556,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
       })()),
     );
-  }, [records, filtrosMapa, periodos]);
+  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).
@@ -990,6 +1002,15 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
           if (filters.fechaInicial && fechaPunto < new Date(filters.fechaInicial)) return false;
           if (filters.fechaFinal && fechaPunto > new Date(filters.fechaFinal + 'T23:59:59')) return false;
         }
+        // Fecha del filtro PRINCIPAL (arriba del dashboard) — restricción
+        // ADICIONAL a la fecha propia del mapa (si la tuviera). A pedido
+        // explícito: antes el filtro de arriba nunca llegaba hasta aquí.
+        if (fechaInicialGlobal || fechaFinalGlobal) {
+          const fechaPunto = extraerFechaDePunto(p);
+          if (!fechaPunto) return false;
+          if (fechaInicialGlobal && fechaPunto < new Date(fechaInicialGlobal)) return false;
+          if (fechaFinalGlobal && fechaPunto > new Date(fechaFinalGlobal + 'T23:59:59')) return false;
+        }
         // Análisis multifecha (periodos) — restricción ADICIONAL, igual
         // que en filteredRecords más arriba: si hay periodos activos, el
         // punto tiene que caer en alguno de ellos, además de cualquier
@@ -1027,7 +1048,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal, periodos]);
+  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
