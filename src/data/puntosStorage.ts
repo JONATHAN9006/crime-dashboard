@@ -11,6 +11,10 @@ export interface PuntoGeo {
   // tiene que volver a decidir "a qué corresponde esto".
   delitoCorto: string | null;
   estacionCorta: string | null;
+  // Igual que delitoCorto/estacionCorta, pero para CAI — necesario para
+  // poder generar el mapa dinámico de un CAI específico (ej. en el PDF de
+  // Microgerencia), sin tener que volver a mirar la fila completa.
+  caiCorto: string | null;
 }
 
 export type TipoCapaPuntos = 'irisp1' | 'delitos' | 'operatividad' | 'macri' | 'generico';
@@ -175,6 +179,7 @@ export function construirPuntos(
       lat, lon, fila,
       delitoCorto: colDelito ? delitoCorto(delitoCrudo, tipo) : null,
       estacionCorta: colDependencia ? estacionCorta(dependenciaCruda, tipo) : null,
+      caiCorto: null,
     });
   }
   return puntos;
@@ -270,6 +275,7 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
         .map((p: any) => ({
           delitoCorto: p.delitoCorto ?? null,
           estacionCorta: p.estacionCorta ?? null,
+          caiCorto: p.caiCorto ?? null,
           ...p,
         })),
     }));
@@ -288,7 +294,7 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
 // (ver DataContext.tsx). Si el dataset no trae ningún registro con
 // coordenadas, no hace nada (deja lo que ya hubiera, sea lo que sea).
 export async function sincronizarCapaDelitosDesdeRecords(records: {
-  lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null;
+  lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null; cai: string;
 }[]): Promise<void> {
   // OJO: se usa una comprobación explícita de tipo/finitud, NO "!== null".
   // Los registros guardados en el navegador ANTES de que existiera este
@@ -309,9 +315,10 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
     // por delito/estación de esta capa usa delitoCorto/estacionCorta
     // directamente (ver capasPuntosProcesadas en MapaGeorreferenciacion),
     // nunca "fila", así que no hace falta más que esto.
-    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion },
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai },
     delitoCorto: r.delito,
     estacionCorta: r.estacion,
+    caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,
   }));
 
   const capas = await cargarCapasPuntos();

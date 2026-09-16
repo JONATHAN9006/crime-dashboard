@@ -8,7 +8,7 @@
 import { cargarCapas } from './geoStorage';
 import { cargarCapasPuntos } from './puntosStorage';
 import { generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
-import { MAPA_ESTACION } from './db2Mapeos';
+import { MAPA_ESTACION, MAPA_CAI } from './db2Mapeos';
 
 function normalizar(v: unknown): string {
   return String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -22,6 +22,15 @@ function extraerFeatures(geojson: any): any[] {
 // "E-Norte") — se arma a partir de los VALORES de la misma tabla que
 // traduce el dataset principal, para no duplicar la lista a mano.
 export const NOMBRES_ESTACION_CORTOS = new Set(Object.values(MAPA_ESTACION));
+
+// Los nombres de CAI varían más que los de Estación (numerados "CAI 4" en
+// los datos nuevos, o "CAI Comuna Cuatro" en el histórico) — en vez de una
+// lista cerrada, se reconoce cualquier nodo que EMPIECE con "CAI", que es
+// el patrón real de todos los nombres de CAI que usa el dashboard.
+export const NOMBRES_CAI_CORTOS = new Set(Object.values(MAPA_CAI));
+export function esNombreDeCai(nombre: string): boolean {
+  return /^CAI\b/i.test(nombre.trim());
+}
 
 // Busca, entre todas las capas cargadas, la que trae los polígonos de
 // Estación — probando cada columna de una muestra de features hasta
@@ -108,7 +117,61 @@ function nombreEstacionDeFeature(feature: any, columna: string): string {
   return MAPA_ESTACION[crudo.toUpperCase()] ?? crudo;
 }
 
-async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string) {
+// Igual que localizarCapaDeEstaciones, pero para la capa de CAI. Es una
+// capa DISTINTA (más granular) — se reconoce por nombres que EMPIECEN con
+// "CAI" en vez de comparar contra una lista cerrada, ya que el nombre
+// exacto varía entre el histórico ("CAI Comuna Cuatro") y los datos nuevos
+// ("CAI 4").
+async function localizarCapaDeCai() {
+  let capas = await cargarCapas();
+  if (capas.length === 0) {
+    await new Promise((r) => setTimeout(r, 400));
+    capas = await cargarCapas();
+  }
+  if (capas.length === 0) return null;
+  for (const capa of capas) {
+    const feats = extraerFeatures(capa.geojson).slice(0, 200);
+    if (feats.length === 0) continue;
+
+    if ((capa as any).campoUnion) {
+      const columna = (capa as any).campoUnion as string;
+      if (feats.some((f) => esNombreDeCai(String(f?.properties?.[columna] ?? '')))) {
+        return { capa, columna, features: extraerFeatures(capa.geojson) };
+      }
+    }
+
+    const columnas = Object.keys(feats[0]?.properties ?? {});
+    for (const columna of columnas) {
+      const coincidencias = feats.filter((f) => esNombreDeCai(String(f?.properties?.[columna] ?? '')));
+      if (coincidencias.length >= Math.min(2, feats.length)) return { capa, columna, features: extraerFeatures(capa.geojson) };
+    }
+
+    if (/CAI/i.test(capa.nombre)) {
+      const todosLosFeatures = extraerFeatures(capa.geojson);
+      let mejorColumna: string | null = null;
+      let menosValores = Infinity;
+      for (const columna of columnas) {
+        const valores = todosLosFeatures.map((f) => String(f?.properties?.[columna] ?? '').trim());
+        if (valores.some((v) => /^\d+$/.test(v))) continue;
+        const unicos = new Set(valores.filter(Boolean));
+        if (unicos.size >= 2 && unicos.size < menosValores) {
+          menosValores = unicos.size;
+          mejorColumna = columna;
+        }
+      }
+      if (mejorColumna) return { capa, columna: mejorColumna, features: todosLosFeatures };
+    }
+  }
+  console.warn('[Microgerencia→Mapa] Ninguna capa cargada parece tener polígonos de CAI (ningún valor de columna empieza con "CAI").');
+  return null;
+}
+
+function nombreCaiDeFeature(feature: any, columna: string): string {
+  const crudo = String(feature?.properties?.[columna] ?? '');
+  return MAPA_CAI[crudo.toUpperCase()] ?? crudo;
+}
+
+async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string, caiCorto?: string) {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
@@ -118,7 +181,8 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
     .filter((c) => c.visible)
     .flatMap((c) => c.puntos)
     .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
-    .filter((p) => !estacionCorta || p.estacionCorta === estacionCorta);
+    .filter((p) => !estacionCorta || p.estacionCorta === estacionCorta)
+    .filter((p) => !caiCorto || p.caiCorto === caiCorto);
 
   if (resultado.length === 0) {
     console.warn('[Microgerencia→Mapa] Detalle de capas de puntos:', capasPuntos.map((c) => ({
@@ -248,6 +312,39 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     });
   } catch (err) {
     console.error(`[Microgerencia→Mapa] Falló generando el mapa de "${nombreEstacionCorta}":`, err);
+    return undefined;
+  }
+}
+
+/** Imagen de UN CAI específico (ej. "CAI 4") — recortada solo a su propio polígono. */
+export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null): Promise<string | undefined> {
+  try {
+    const localizada = await localizarCapaDeCai();
+    if (!localizada) {
+      console.warn(`[Microgerencia→Mapa] No se encontró la capa de CAI (para "${nombreCai}").`);
+      return undefined;
+    }
+    const feature = localizada.features.find((f) => normalizar(nombreCaiDeFeature(f, localizada.columna)) === normalizar(nombreCai));
+    if (!feature) {
+      console.warn(`[Microgerencia→Mapa] La capa de CAI no tiene ningún polígono que coincida con "${nombreCai}" en la columna "${localizada.columna}".`);
+      return undefined;
+    }
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, nombreCai);
+    if (puntos.length === 0) {
+      console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreCai}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
+      return undefined;
+    }
+    const anillosInternos = await obtenerAnillosInternos(feature, localizada.capa.id);
+    return await generarDataUrlPoligonoAislado({
+      feature,
+      puntos,
+      colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+      etiquetas: [],
+      anchoLienzo: 700,
+      anillosInternos,
+    });
+  } catch (err) {
+    console.error(`[Microgerencia→Mapa] Falló generando el mapa de "${nombreCai}":`, err);
     return undefined;
   }
 }

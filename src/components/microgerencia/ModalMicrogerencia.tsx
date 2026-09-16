@@ -4,7 +4,7 @@ import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia } from '../../data/pdfMicrogerencia';
-import { generarImagenMapaGeneral, generarImagenMapaEstacion, NOMBRES_ESTACION_CORTOS } from '../../data/microgerenciaMapas';
+import { generarImagenMapaGeneral, generarImagenMapaEstacion, generarImagenMapaCai, NOMBRES_ESTACION_CORTOS, esNombreDeCai } from '../../data/microgerenciaMapas';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 
 function formatearPct(n: number | null): string {
@@ -224,12 +224,11 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
   const raizVistaActual = vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : vista === 'distrito2' ? datos.distrito2 : null;
 
-  // Genera el mapa real (calles + mapa de calor) SOLO para los nodos donde
-  // tiene sentido — "MEPOY General" (todo Popayán) y los nodos cuyo nombre
-  // sea exactamente una estación conocida (ej. "E-Norte"). El resto de los
-  // nodos (Distrito, CAI, Cuadrante, Delito) se quedan con la lista de
-  // delitos de siempre — generar un mapa por cada uno sería demasiado
-  // lento y no aporta tanto en esos niveles.
+  // Genera el mapa real (calles + mapa de calor) para "MEPOY General"
+  // (todo Popayán), las estaciones (ej. "E-Norte") y, a pedido explícito,
+  // también cada CAI — antes se omitía a propósito por rendimiento
+  // (podían ser 10+ mapas más por PDF); ahora si el usuario lo pide, se
+  // genera igual, solo tarda un poco más en construirse.
   async function generarImagenesParaNodos(nodos: NodoMicrogerencia[], delitoFiltrado: string | null): Promise<Map<string, string>> {
     const mapa = new Map<string, string>();
     for (const nodo of nodos) {
@@ -238,6 +237,9 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
         if (img) mapa.set(nodo.nombre, img);
       } else if (NOMBRES_ESTACION_CORTOS.has(nodo.nombre)) {
         const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado);
+        if (img) mapa.set(nodo.nombre, img);
+      } else if (esNombreDeCai(nodo.nombre)) {
+        const img = await generarImagenMapaCai(nodo.nombre, delitoFiltrado);
         if (img) mapa.set(nodo.nombre, img);
       }
     }
