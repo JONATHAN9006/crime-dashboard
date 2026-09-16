@@ -157,3 +157,44 @@ export function construirMeta(
 }
 
 export { COLUMNAS_REQUERIDAS };
+
+// Deriva el CAI a partir del Cuadrante para registros que traen uno pero no
+// el otro (ej. los archivos COR_DELITOS_2024/2025, que sí traen Cuadrante
+// pero no CAI en absoluto). La asignación Cuadrante -> CAI NO se inventa:
+// se aprende directamente de los registros que YA tienen ambos campos bien
+// diligenciados (el DB2 y el histórico sí traen los dos), asumiendo que esa
+// asignación geográfica es estable — un cuadrante siempre pertenece al
+// mismo CAI. Si un cuadrante nunca apareció junto a un CAI real en ningún
+// registro cargado, se deja tal cual (NO REPORTADO) — nunca se adivina.
+export function derivarCaiDesdeCuadrante(records: CrimeRecord[]): CrimeRecord[] {
+  // El cuadrante "vacío" puede venir como "NO REPORTADO" (mayúsculas) o
+  // como "No Reportado" (con mayúscula/minúscula mixta — así lo devuelve
+  // mapearCuadrante en algunos casos, ver db2Transform.ts). Sin esta
+  // comparación insensible a mayúsculas, esos registros "sin cuadrante
+  // real" se colaban como si fueran un cuadrante válido, y terminaban
+  // asignando un CAI cualquiera a TODO lo que no tenía cuadrante — se
+  // detectó justo así, verificando con datos reales antes de entregarlo.
+  const esCuadranteReal = (v: string) => !!v && v.toUpperCase() !== 'NO REPORTADO';
+  const esCaiReal = (v: string) => !!v && v.toUpperCase() !== 'NO REPORTADO';
+
+  const cuadranteACai = new Map<string, string>();
+  for (const r of records) {
+    if (esCuadranteReal(r.cuadrante) && esCaiReal(r.cai)) {
+      if (!cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
+    }
+  }
+  if (cuadranteACai.size === 0) return records;
+
+  let actualizados = 0;
+  const resultado = records.map((r) => {
+    if (!esCaiReal(r.cai) && esCuadranteReal(r.cuadrante) && cuadranteACai.has(r.cuadrante)) {
+      actualizados += 1;
+      return { ...r, cai: cuadranteACai.get(r.cuadrante)! };
+    }
+    return r;
+  });
+  if (actualizados > 0) {
+    console.info(`[derivarCaiDesdeCuadrante] CAI completado por cuadrante en ${actualizados} registro(s).`);
+  }
+  return resultado;
+}

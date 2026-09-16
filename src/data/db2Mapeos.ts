@@ -34,6 +34,20 @@ export const MAPA_DELITO: Record<string, string> = {
   'EXTORSION': 'Extorsion',
   'HURTO A SEMOVIENTES': 'H. Semovientes',
   'SECUESTRO EXTORSIVO': 'Secuestro Extorsivo',
+
+  // Alias verificados contra "COR_DELITOS_2024/2025.xlsx" (formato ArcGIS,
+  // columna DELITO): usa nombres completos distintos a los de arriba para
+  // las mismas categorías. "HURTO A PIRATERIA"/variantes con o sin "A"
+  // quedaban SIN mapear porque solo existía la clave corta "PIRATERÍA" —
+  // por eso aparecían como una fila aparte ("duplicada") en vez de sumarse
+  // a "H. Pirateria".
+  'HOMICIDIO DOLOSO': 'Homicidio',
+  'HURTO A PIRATERIA': 'H. Pirateria',
+  'HURTO PIRATERIA': 'H. Pirateria',
+  'PIRATERIA': 'H. Pirateria',
+  'HOMICIDIO EN ACCIDENTE DE TRANSITO': 'Homicidio en AT',
+  'LESIONES EN ACCIDENTE DE TRANSITO': 'Lesiones AT',
+  'HURTO A CELULAR': 'H. Celular',
 };
 
 export const MAPA_ESTACION: Record<string, string> = {

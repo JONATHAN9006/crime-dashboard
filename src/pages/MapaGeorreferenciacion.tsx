@@ -18,6 +18,7 @@ import { MAPA_ESTACION } from '../data/db2Mapeos';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { useData } from '../context/DataContext';
+import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
 import type { CrimeRecord } from '../types/crime';
 import { esModoConsulta } from '../utils/modoConsulta';
@@ -972,7 +973,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       // mismo (más allá del origen) para que un dato ya guardado con una
       // lista de exclusión vieja se autocorrija sin depender de volver a
       // subir el archivo.
-      const DELITOS_EXCLUIDOS_MAPA = new Set(['LESIONES AT', 'HOMICIDIO EN AT']);
+      const DELITOS_EXCLUIDOS_MAPA = new Set(DELITOS_EXCLUIDOS_CANONICOS.map((d) => d.toUpperCase()));
 
       const puntosFiltrados = capa.puntos.filter((p) => {
         if (esExacto && DELITOS_EXCLUIDOS_MAPA.has((p.delitoCorto ?? '').toUpperCase())) return false;

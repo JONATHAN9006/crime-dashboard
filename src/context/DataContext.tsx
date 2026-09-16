@@ -7,32 +7,26 @@ import { emptyFilterState } from '../types/crime';
 import { parseCsvText } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
-import { fusionarRegistros, construirMeta, calcularColumnasNuevas } from '../data/datasetOps';
+import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante } from '../data/datasetOps';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
 import { serializarCsv } from '../data/csvSerializer';
 import { sincronizarCapaDelitosDesdeRecords } from '../data/puntosStorage';
+import { MAPA_DELITO } from '../data/db2Mapeos';
 
 export type RemoteStatus = 'sin-configurar' | 'conectando' | 'conectado' | 'error';
 
 const INTERVALO_SONDEO_MS = 45_000; // cada 45 segundos, sin recargar la página
 
 // Delitos excluidos de TODO el dashboard (conteos, filtros, tablas, gráficos,
-// mapas) — a pedido, porque generan duplicación con otro delito ya
-// existente en la fuente de datos. No se modifica ni se elimina el registro
-// original en ningún lado (ni en el backend, ni en la caché local): solo se
-// excluyen de lo que la aplicación muestra y cuenta.
-// Delitos excluidos de TODO el dashboard (conteos, filtros, tablas, gráficos,
-// mapas) — a pedido, porque generan duplicación con otro delito ya
-// existente en la fuente de datos. No se modifica ni se elimina el registro
-// original en ningún lado (ni en el backend, ni en la caché local): solo se
-// excluyen de lo que la aplicación muestra y cuenta.
-// H. Bicicletas, H. Celular y H. Cable se RETIRARON de esta lista a pedido
-// explícito posterior: sí se están midiendo correctamente y deben estar
-// disponibles en filtros/tablas/gráficos — solo Lesiones AT y Homicidio en
-// AT siguen excluidos.
-const DELITOS_EXCLUIDOS_GLOBAL = new Set(['Lesiones AT', 'Homicidio en AT']);
+// mapas) — porque no se miden / reportan oficialmente, a pedido explícito, o
+// porque generan duplicación con otro delito ya existente en la fuente de
+// datos. No se modifica ni se elimina el registro original en ningún lado
+// (ni en el backend, ni en la caché local): solo se excluyen de lo que la
+// aplicación muestra y cuenta. Lista canónica en utils/delitosExcluidos.ts —
+// no mantener una copia propia aquí (ya se desincronizó dos veces).
+const DELITOS_EXCLUIDOS_GLOBAL = new Set(DELITOS_EXCLUIDOS_CANONICOS);
 
 interface DataContextValue {
   records: CrimeRecord[];
@@ -66,7 +60,7 @@ interface DataContextValue {
   cargarArchivoOperatividad: (file: File, token?: string, usuario?: string) => Promise<{ registros: number } | { error: string }>;
 }
 
-import { excluirDelitosOmitidos } from '../utils/delitosExcluidos';
+import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 
 const DataContext = createContext<DataContextValue | null>(null);
 
@@ -88,7 +82,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const persistirYActualizar = useCallback(
     async (nuevosRegistrosCrudos: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
-      const nuevosRegistros = excluirDelitosOmitidos(nuevosRegistrosCrudos);
+      const sinExcluidos = excluirDelitosOmitidos(nuevosRegistrosCrudos);
+      // El CAI se completa por Cuadrante ANTES de guardar — así, tanto
+      // "records" como la capa "Delitos" del mapa (que se sincroniza justo
+      // debajo) ya ven el CAI derivado, sin depender de que cada pantalla
+      // haga su propia reparación por su cuenta.
+      const nuevosRegistros = derivarCaiDesdeCuadrante(sinExcluidos);
       setRecords(nuevosRegistros);
       const ahora = fechaRef ?? new Date();
       setMeta(construirMeta(nuevosRegistros, archivo, ahora, columnas, fechaMaxParametro ?? null));

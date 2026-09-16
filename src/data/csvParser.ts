@@ -23,7 +23,7 @@ const COLUMN_MAP: Record<string, string[]> = {
   causaLesion: ['CAUSA_LESION', 'Causa Lesion Final', 'CAUSA_LESION_MUERTE'],
   estacion: ['ESTACION', 'Estación Final'],
   cai: ['CAI', 'CAI Final'],
-  cuadrante: ['CUADRANTE', 'Cuadrante Final'],
+  cuadrante: ['CUADRANTE', 'Cuadrante Final', 'JURIS_DEPENDENCIAS'],
   barrioHecho: ['BARRIOS_HECHO', 'BARRIO-CIUDAD', 'Barrio Hecho Final', 'BARRIO_HECHO'],
   zona: ['ZONA', 'ZONA2', 'Zona Final'],
   claseSitio: ['CLASE_SITIO', 'Clase Sitio Final'],
