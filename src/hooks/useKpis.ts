@@ -4,6 +4,7 @@ import {
   agruparPor, minMaxDiario, participacionPct, promedioDiario, promedioMensual,
   totalCasos, totalRegistros,
 } from '../utils/aggregations';
+import { esValorPendiente } from '../utils/valoresPendientes';
 
 export interface KpiResumen {
   totalRegistros: number;
@@ -49,7 +50,7 @@ export function useAniosComparables(records: CrimeRecord[], limitarADosMasRecien
 // aplicados (incluida la fecha), como corresponde a un "resumen de lo filtrado".
 export function useKpis(records: CrimeRecord[]): KpiResumen {
   return useMemo(() => {
-    const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'PENDIENTE POR ASIGNAR', 'PENDIENTE', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
+    const esValorReal = (v: string) => !esValorPendiente(v);
     const porDelito = agruparPor(records, (r) => r.delito);
     const porEstacion = agruparPor(records, (r) => r.estacion).filter((d) => esValorReal(d.key));
     const porBarrio = agruparPor(records, (r) => r.barrioHecho).filter((d) => esValorReal(d.key));

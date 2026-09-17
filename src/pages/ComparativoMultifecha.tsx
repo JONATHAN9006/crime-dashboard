@@ -7,6 +7,7 @@ import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { formatNumero, formatDecimal } from '../utils/aggregations';
 import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
+import { esValorPendiente } from '../utils/valoresPendientes';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const COLORES_PERIODO = ['#159089', '#64748b', '#0f766e', '#94a3b8', '#134e4a', '#cbd5e1'];
@@ -47,7 +48,7 @@ function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) =>
   const claves = new Set<string>();
   for (const recs of porPeriodo) for (const r of recs) claves.add(getter(r) || 'No reportado');
   const todas = Array.from(claves)
-    .filter((c) => c !== 'NO REPORTADO' && c !== 'No reportado')
+    .filter((c) => !esValorPendiente(c))
     .map((clave) => {
       const porcada = porPeriodo.map((recs) => recs.filter((r) => (getter(r) || 'No reportado') === clave).length);
       const total = porcada.reduce((a, b) => a + b, 0);

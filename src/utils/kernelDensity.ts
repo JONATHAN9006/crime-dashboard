@@ -88,11 +88,18 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
 
   // Tamaño de celda: se ajusta según el radio de búsqueda (ArcGIS sugiere,
   // por defecto, un tamaño de celda bastante más fino que el radio — aquí
-  // se usa radio/12, similar en espíritu a su valor por defecto) — con un
-  // límite de columnas para no generar grillas gigantes.
-  const metrosPorCelda = Math.max(RADIO_BUSQUEDA_METROS / 12, 4);
-  const COLS = Math.min(500, Math.max(60, Math.round(anchoMetros / metrosPorCelda)));
-  const ROWS = Math.min(500, Math.max(40, Math.round(altoMetros / metrosPorCelda)));
+  // se usa radio/20 en vez de radio/12 de antes) — con un límite de
+  // columnas más alto para no generar grillas gigantes. Antes, con celdas
+  // más gruesas, el kernel (que sí es una convolución suave) terminaba
+  // viéndose "a cuadros" en el mapa: cada celda ocupaba un área real
+  // grande, así que su borde recto se notaba a simple vista. Con celdas
+  // más finas, esa misma curva suave se representa con muchos más
+  // escalones pequeños — se ve continua sin necesidad de difuminar
+  // colores entre bandas (que fue justo lo que se quitó para que el mapa
+  // se viera denso y no "lavado").
+  const metrosPorCelda = Math.max(RADIO_BUSQUEDA_METROS / 20, 3);
+  const COLS = Math.min(900, Math.max(60, Math.round(anchoMetros / metrosPorCelda)));
+  const ROWS = Math.min(900, Math.max(40, Math.round(altoMetros / metrosPorCelda)));
 
   const metrosPorCeldaX = anchoMetros / COLS;
   const metrosPorCeldaY = altoMetros / ROWS;
@@ -143,12 +150,12 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
     }
   }
 
-  // 3) Color CONTINUO por interpolación — nunca "banding" de 5 bloques
-  // fijos. Los mismos puntos de corte de siempre (0%, 8%, 22%, 42%, 68%,
-  // 100% del máximo real) se usan como anclas de color, y CUALQUIER valor
-  // intermedio se interpola linealmente entre las dos anclas más cercanas
-  // — así la transición entre verde, amarillo, naranja y rojo es
-  // genuinamente continua, no un salto brusco de un bloque a otro.
+  // 3) Color por BANDAS FIJAS (ver ANCLAS_FRACCION_FIJAS más abajo) — a
+  // propósito, para que el mapa se vea denso y sólido en vez de un
+  // degradado "lavado". Los mismos puntos de corte de siempre (0%, 8%,
+  // 22%, 42%, 68%, 100% del máximo real) definen 5 bandas; cada celda
+  // toma el color de la banda a la que pertenece, sin mezclarse con la
+  // vecina.
   const valoresConDensidad = Array.from(densidad).filter((v) => v > 1e-9);
   if (valoresConDensidad.length === 0) return null;
 
@@ -227,19 +234,23 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   }
   ctx.putImageData(imgData, 0, 0);
 
-  // Antes se reescalaba con suavizado bicúbico para que el degradado
-  // CONTINUO se viera parejo. Ahora los colores son bandas FIJAS y
-  // discretas (ver ANCLAS_FRACCION_FIJAS más arriba) — ese mismo suavizado
-  // difuminaba el borde justo entre una banda y la siguiente, dando el
-  // aspecto "lavado"/degradado que se reportó como problema. Sin
-  // suavizado, cada banda queda sólida y definida — más denso, con los
-  // límites de intensidad realmente visibles, en vez de una transición
-  // borrosa entre colores.
+  // Los colores siguen siendo bandas FIJAS y discretas (no se mezclan
+  // entre sí — ver ANCLAS_FRACCION_FIJAS más arriba, eso es lo que
+  // mantiene el mapa "denso" y con colores sólidos, a pedido explícito).
+  // Pero antes se reescalaba SIN suavizado (nearest-neighbor), y eso
+  // dejaba ver el borde de cada celda de la cuadrícula como un cuadrito
+  // individual al acercar el zoom — "pixelado", también a pedido
+  // explícito de corregirlo. Con el suavizado de nuevo activado, los
+  // bordes de cada celda se difuminan un poco entre sí (unos pocos
+  // píxeles), lo suficiente para que no se vea la cuadrícula, sin que
+  // el color dominante dentro de cada zona se aguade ni se mezcle con
+  // el de una banda distinta.
   const canvasFinal = document.createElement('canvas');
   canvasFinal.width = COLS * 3;
   canvasFinal.height = ROWS * 3;
   const ctxFinal = canvasFinal.getContext('2d')!;
-  ctxFinal.imageSmoothingEnabled = false;
+  ctxFinal.imageSmoothingEnabled = true;
+  ctxFinal.imageSmoothingQuality = 'high';
   ctxFinal.drawImage(canvas, 0, 0, canvasFinal.width, canvasFinal.height);
 
   const etiquetasClase = ['Muy baja', 'Baja', 'Media', 'Alta', 'Muy alta'];

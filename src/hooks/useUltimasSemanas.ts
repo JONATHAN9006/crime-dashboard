@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, participacionPct, totalCasos, semanaIso } from '../utils/aggregations';
+import { sinValoresPendientes } from '../utils/valoresPendientes';
 
 const MS_DIA = 86400000;
 
@@ -106,13 +107,13 @@ export function useUltimasSemanas(records: CrimeRecord[]): UltimasSemanasResumen
     const totalS4 = semanas[3].total;
     const variacionTotalPct = totalS1 > 0 ? ((totalS4 - totalS1) / totalS1) * 100 : null;
 
-    const porEstacion = agruparPor(registrosVentana, (r) => r.estacion).filter((e) => !['NO REPORTADO','PENDIENTE POR ASIGNAR','SIN ASIGNAR'].includes(e.key.toUpperCase()));
+    const porEstacion = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.estacion));
     const porArma = agruparPor(registrosVentana, (r) => r.armas).filter((a) => a.key !== 'NO REPORTADO');
     const porHora = agruparPor(registrosVentana, (r) => (r.hora !== null ? `${String(r.hora).padStart(2, '0')}:00` : 'NO REPORTADO'));
     const porCuadrante = agruparPor(registrosVentana, (r) => r.cuadrante).filter((c) => c.key !== 'NO REPORTADO');
     const porCausaLesion = agruparPor(registrosVentana, (r) => r.causaLesion).filter((c) => c.key !== 'NO REPORTADO');
     const porClaseSitio = agruparPor(registrosVentana, (r) => r.claseSitio).filter((c) => c.key !== 'NO REPORTADO');
-    const porBarrio = agruparPor(registrosVentana, (r) => r.barrioHecho).filter((b) => !['NO REPORTADO','PENDIENTE POR ASIGNAR','SIN ASIGNAR'].includes(b.key.toUpperCase()));
+    const porBarrio = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.barrioHecho));
     // Horario más afectado: por franja (Madrugada/Mañana/Tarde/Noche), no por hora exacta.
     const porFranja = agruparPor(registrosVentana, (r) => r.franjaHoraria).filter((f) => f.key !== 'NO REPORTADO');
     const totalVentanaParaPct = totalCasos(registrosVentana);

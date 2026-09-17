@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, participacionPct, totalCasos, semanaIso } from '../utils/aggregations';
+import { sinValoresPendientes } from '../utils/valoresPendientes';
 
 export interface PeriodoDef {
   etiqueta: string;
@@ -92,13 +93,13 @@ export function useAnalisisPeriodos(records: CrimeRecord[], periodosDef: Periodo
     const totalUltimo = periodos[periodos.length - 1]?.total ?? 0;
     const variacionTotalPct = totalPrimero > 0 ? ((totalUltimo - totalPrimero) / totalPrimero) * 100 : null;
 
-    const porEstacion = agruparPor(registrosVentana, (r) => r.estacion).filter((e) => !['NO REPORTADO','PENDIENTE POR ASIGNAR','SIN ASIGNAR'].includes(e.key.toUpperCase()));
+    const porEstacion = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.estacion));
     const porArma = agruparPor(registrosVentana, (r) => r.armas).filter((a) => a.key !== 'NO REPORTADO');
     const porHora = agruparPor(registrosVentana, (r) => (r.hora !== null ? `${String(r.hora).padStart(2, '0')}:00` : 'NO REPORTADO'));
     const porCuadrante = agruparPor(registrosVentana, (r) => r.cuadrante).filter((c) => c.key !== 'NO REPORTADO');
     const porCausaLesion = agruparPor(registrosVentana, (r) => r.causaLesion).filter((c) => c.key !== 'NO REPORTADO');
     const porClaseSitio = agruparPor(registrosVentana, (r) => r.claseSitio).filter((c) => c.key !== 'NO REPORTADO');
-    const porBarrio = agruparPor(registrosVentana, (r) => r.barrioHecho).filter((b) => !['NO REPORTADO','PENDIENTE POR ASIGNAR','SIN ASIGNAR'].includes(b.key.toUpperCase()));
+    const porBarrio = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.barrioHecho));
     const porFranja = agruparPor(registrosVentana, (r) => r.franjaHoraria).filter((f) => f.key !== 'NO REPORTADO');
     const totalParaPct = totalCasos(registrosVentana);
 
