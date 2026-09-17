@@ -3,6 +3,7 @@ import type { CrimeRecord, FilterState } from '../types/crime';
 import { agruparPor, participacionPct, totalCasos } from '../utils/aggregations';
 import { useTendenciaDiaSemana, useDistribucionHoraria } from './useTemporalAnalysis';
 import { useVentanaComparativa, useComparativoGeneral, useComparativoCategoria } from './useComparativoHomologo';
+import { esValorPendiente, sinValoresPendientes } from '../utils/valoresPendientes';
 
 export interface Insight {
   tipo: 'info' | 'alerta' | 'positivo';
@@ -42,10 +43,10 @@ export function useHallazgosPrincipales(
     if (registrosVigenciaActual.length === 0) return insights;
 
     const total = totalCasos(registrosVigenciaActual);
-    const porDelito = agruparPor(registrosVigenciaActual, (r) => r.delito);
-    const porEstacion = agruparPor(registrosVigenciaActual, (r) => r.estacion);
-    const porBarrio = agruparPor(registrosVigenciaActual, (r) => r.barrioHecho);
-    const porModalidad = agruparPor(registrosVigenciaActual, (r) => r.modalidad);
+    const porDelito = sinValoresPendientes(agruparPor(registrosVigenciaActual, (r) => r.delito));
+    const porEstacion = sinValoresPendientes(agruparPor(registrosVigenciaActual, (r) => r.estacion));
+    const porBarrio = sinValoresPendientes(agruparPor(registrosVigenciaActual, (r) => r.barrioHecho));
+    const porModalidad = sinValoresPendientes(agruparPor(registrosVigenciaActual, (r) => r.modalidad));
 
     if (porDelito[0]) {
       insights.push({ tipo: 'info', texto: `El delito con mayor incidencia es "${porDelito[0].key}", con ${porDelito[0].casos} casos (${participacionPct(porDelito[0].casos, total).toFixed(1)}% del total).` });
@@ -108,7 +109,7 @@ export function useBarriosCriticos(records: CrimeRecord[], limite = 5) {
   return useMemo(() => {
     const total = totalCasos(records);
     return agruparPor(records, (r) => r.barrioHecho)
-      .filter((c) => c.key && c.key !== 'NO REPORTADO')
+      .filter((c) => !esValorPendiente(c.key))
       .slice(0, limite)
       .map((c) => ({ ...c, participacion: participacionPct(c.casos, total) }));
   }, [records, limite]);

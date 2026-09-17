@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Flame, X } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useHeatmap, type VistaHeatmap } from '../hooks/useHeatmap';
@@ -9,9 +9,28 @@ import { Heatmap } from '../components/charts/Heatmap';
 import { formatNumero } from '../utils/aggregations';
 
 export function MatrizCalor() {
-  const { filteredRecords, filters, setFilters } = useData();
+  const { filteredRecords, filters, setFilters, meta } = useData();
   const [vista, setVista] = useState<VistaHeatmap>('hora');
-  const data = useHeatmap(filteredRecords, vista);
+
+  // Sin ningún filtro de año/mes/fecha activo, por defecto se analiza SOLO
+  // la vigencia más reciente — no los 23 años de histórico mezclados. Con
+  // cualquiera de esos filtros puesto, se respeta tal cual (el usuario ya
+  // decidió qué periodo quiere ver). El año de referencia es el mismo que
+  // usa el resto del dashboard para "vigencia actual" (FECHA_MAX_PARAMETRO
+  // si el archivo lo trae, o si no, el dato más reciente disponible).
+  const hayFiltroTemporal = filters.anio.length > 0 || filters.mes.length > 0 || !!filters.fechaInicial || !!filters.fechaFinal;
+  const recordsParaMatriz = useMemo(() => {
+    if (hayFiltroTemporal) return filteredRecords;
+    const conFecha = filteredRecords.filter((r) => r.fecha);
+    if (conFecha.length === 0) return filteredRecords;
+    const maxTs = meta?.fechaMaxParametro
+      ? meta.fechaMaxParametro.getTime()
+      : Math.max(...conFecha.map((r) => r.fecha!.getTime()));
+    const anioReferencia = new Date(maxTs).getFullYear();
+    return conFecha.filter((r) => r.fecha!.getFullYear() === anioReferencia);
+  }, [filteredRecords, hayFiltroTemporal, meta?.fechaMaxParametro]);
+
+  const data = useHeatmap(recordsParaMatriz, vista);
 
   const filtroActivoPorClic = filters.diaSemana.length > 0 || filters.horaExacta.length > 0 || filters.franjaHoraria.length > 0;
 
@@ -32,6 +51,12 @@ export function MatrizCalor() {
   return (
     <div className="space-y-5">
       <PageHeader title="Matriz de Calor" subtitle="Día de la semana × horario. Identifica de forma dinámica los momentos críticos según los casos filtrados." />
+
+      {!hayFiltroTemporal && recordsParaMatriz.length > 0 && recordsParaMatriz[0].fecha && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Sin un año, mes o fecha seleccionados, se muestra solo la vigencia {recordsParaMatriz[0].fecha!.getFullYear()} (la más reciente) — no todo el histórico. Selecciona un año en el filtro principal para ver otra vigencia, o varios años para compararlos.
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
