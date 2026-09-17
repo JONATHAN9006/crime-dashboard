@@ -108,7 +108,15 @@ function mesANumero(nombre: string): number | null {
 
 function clean(v: unknown): string {
   if (v === null || v === undefined) return '';
-  const s = String(v).trim();
+  // .trim() solo quita espacios al inicio/final — no corrige espacios
+  // DOBLES o TRIPLES en medio del texto. La DB2 (exportada desde Tableau)
+  // trae varios delitos así ("Hurto        Personas" en vez de "Hurto
+  // Personas"), y una comparación exacta contra la tabla de traducción
+  // (que sí tiene un solo espacio) nunca coincidía, aunque la categoría
+  // ya existiera — se veían como delitos "nuevos" sin parametrizar. Se
+  // corrige aquí, de una vez para cualquier campo de texto (no solo
+  // delito), colapsando cualquier secuencia de espacios en uno solo.
+  const s = String(v).trim().replace(/\s+/g, ' ');
   if (s === '' || /^null$/i.test(s) || s === '-' || s === '#N/A' || /^<nulo>$/i.test(s)) return '';
   return s;
 }
@@ -181,12 +189,23 @@ function findColumn(row: Record<string, string>, candidates: string[]): string {
 // categoría YA existiera. Se corrige de raíz (para estos dos casos y
 // cualquier otro con el mismo problema), no solo agregando las 2 claves
 // puntuales que se detectaron.
+//
+// TAMBIÉN se auto-indexa cada valor CANÓNICO contra sí mismo (ej.
+// "HOMICIDIO EN AT" -> "Homicidio en AT"). Motivo real: los archivos DB2
+// pasan primero por su propia traducción (db2Transform.ts, que sí produce
+// "Homicidio en AT" correctamente) y ese resultado ya traducido vuelve a
+// pasar por ESTA MISMA función — sin este auto-índice, "HOMICIDIO EN AT"
+// (el valor ya traducido, en mayúsculas) no coincidía con ninguna clave
+// CRUDA de la tabla, y terminaba re-formateado como "Homicidio En At" en
+// vez de conservar "Homicidio en AT". Con el auto-índice, re-procesar un
+// valor ya canónico es inofensivo (siempre se devuelve a sí mismo).
 function quitarTildes(v: string): string {
   return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
-const MAPA_DELITO_SIN_TILDES: Record<string, string> = Object.fromEntries(
-  Object.entries(MAPA_DELITO).map(([clave, valor]) => [quitarTildes(clave), valor]),
-);
+const MAPA_DELITO_SIN_TILDES: Record<string, string> = Object.fromEntries([
+  ...Object.entries(MAPA_DELITO).map(([clave, valor]) => [quitarTildes(clave), valor]),
+  ...Object.values(MAPA_DELITO).map((valor) => [quitarTildes(valor.toUpperCase()), valor]),
+]);
 
 function parseFecha(txt: string): Date | null {
   const t = clean(txt);
