@@ -123,9 +123,21 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.text('Policial del Servicio (CIEPS)', xTexto, 21);
 
     // Título de la vista (nodo actual), centrado en el tramo verde claro.
+    // Se recorta según el ANCHO REAL del texto (no una cantidad fija de
+    // caracteres) — un conteo de caracteres no es buen indicador del
+    // ancho real (varía con el contenido y la fuente en negrita), y con
+    // textos largos como "Selección personalizada (2 elementos)" se
+    // encimaba con el logo de Popayán a la derecha.
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(13);
-    pdf.text(tituloVista.length > 42 ? tituloVista.slice(0, 42) + '…' : tituloVista, MM_ANCHO * 0.60 + 11, ALTO_HEADER / 2 + 1.5);
+    const xTitulo = MM_ANCHO * 0.60 + 11;
+    const anchoMaximoTitulo = MM_ANCHO - MARGEN - 24 - xTitulo; // hasta justo antes del logo
+    let tituloMostrado = tituloVista;
+    while (pdf.getTextWidth(tituloMostrado) > anchoMaximoTitulo && tituloMostrado.length > 1) {
+      tituloMostrado = tituloMostrado.slice(0, -1);
+    }
+    if (tituloMostrado !== tituloVista) tituloMostrado = tituloMostrado.replace(/\s*$/, '') + '…';
+    pdf.text(tituloMostrado, xTitulo, ALTO_HEADER / 2 + 1.5);
 
     if (popayanBase64) {
       try { pdf.addImage(popayanBase64, 'PNG', MM_ANCHO - MARGEN - 22, 2, 22, 22 * (190 / 215)); } catch { /* sin logo si falla */ }
@@ -457,5 +469,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, MM_ALTO - 1.5);
   }
 
+  if ((globalThis as any).__TEST_OUTPUT_PATH__) {
+    const fs = await import('fs');
+    fs.writeFileSync((globalThis as any).__TEST_OUTPUT_PATH__, Buffer.from(pdf.output('arraybuffer')));
+    return;
+  }
   pdf.save('microgerencia-mepoy.pdf');
 }

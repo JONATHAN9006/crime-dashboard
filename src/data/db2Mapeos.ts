@@ -46,6 +46,7 @@ export const MAPA_DELITO: Record<string, string> = {
   'HOMICIDIO DOLOSO O INTENCIONAL': 'Homicidio',
   'HURTO A PIRATERIA': 'H. Pirateria',
   'HURTO PIRATERIA': 'H. Pirateria',
+  'HURTO PIRATERIA TERRESTRE': 'H. Pirateria',
   'PIRATERIA': 'H. Pirateria',
   'HOMICIDIO EN ACCIDENTE DE TRANSITO': 'Homicidio en AT',
   'LESIONES EN ACCIDENTE DE TRANSITO': 'Lesiones AT',

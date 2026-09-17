@@ -6,11 +6,6 @@ import type { CrimeRecord } from '../types/crime';
 // "records" llegue a cualquier otro componente. Para volver a incluir un
 // delito, basta con quitarlo de esta lista — no hace falta tocar nada más.
 //
-// Debe coincidir SIEMPRE con DELITOS_EXCLUIDOS_GLOBAL en DataContext.tsx —
-// son dos filtros redundantes por diseño (uno al cargar, otro al mostrar),
-// pero si dicen cosas distintas, uno de los dos actúa "a escondidas" sin
-// que se note. Ya pasó dos veces: quedaron desincronizadas después de un
-// cambio en una sola de las dos listas.
 // Debe coincidir SIEMPRE con DELITOS_EXCLUIDOS_GLOBAL en DataContext.tsx y
 // con DELITOS_EXCLUIDOS_MAPA en MapaGeorreferenciacion.tsx — son tres
 // filtros redundantes por diseño (uno al cargar, uno al mostrar en el
@@ -21,7 +16,33 @@ import type { CrimeRecord } from '../types/crime';
 // "delito" (ej. "H. Celular", no "H. CELULAR") para que los otros dos
 // archivos puedan importarla directamente — una sola fuente de verdad
 // real, no solo de palabra.
-export const DELITOS_EXCLUIDOS_CANONICOS = ['H. Celular', 'H. Bicicletas', 'H. Cable', 'Lesiones AT', 'Homicidio en AT'];
+//
+// Las 13 categorías de delitos sexuales / Abigeato / Lesiones con
+// agravación de abajo se agregaron a pedido explícito: el histórico
+// 2003-2023 sí las trae, pero MEPOY no las mide todavía — quedan ocultas
+// (nunca cuentan ni aparecen) sin borrar el dato original, por si algún
+// día se necesita habilitarlas. El texto debe coincidir EXACTO con lo que
+// produce formatoTitulo() en csvParser.ts para un delito sin traducción
+// en MAPA_DELITO (mayúscula solo la primera letra de cada palabra) — si
+// alguna vez se le agrega traducción propia a alguna de estas en
+// MAPA_DELITO, hay que quitarla de aquí también, o quedaría excluida con
+// el nombre viejo mientras el nuevo nombre corto sigue sin excluirse.
+export const DELITOS_EXCLUIDOS_CANONICOS = [
+  'H. Celular', 'H. Bicicletas', 'H. Cable', 'Lesiones AT', 'Homicidio en AT',
+  'Abigeato',
+  'Lesiones En Persona Protegida',
+  'Lesiones Personales ( Circunstancias De Agravación)',
+  'Actos Sexuales Con Menor De 14 Años',
+  'Acoso Sexual',
+  'Acceso Carnal Abusivo Con Menor De 14 Años',
+  'Acceso Carnal Violento',
+  'Acto Sexual Violento',
+  'Pornografía Con Menores',
+  'Acceso Carnal O Acto Sexual Abusivo Con Incapaz De Resistir',
+  'Acceso Carnal O Acto Sexual En Persona Puesta En Incapacidad De Resistir',
+  'Inducción A La Prostitución',
+  'Proxenetismo Con Menor De Edad',
+];
 const DELITOS_EXCLUIDOS = new Set(DELITOS_EXCLUIDOS_CANONICOS.map((d) => d.toUpperCase()));
 
 export function excluirDelitosOmitidos(records: CrimeRecord[]): CrimeRecord[] {

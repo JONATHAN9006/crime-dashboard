@@ -20,7 +20,7 @@ const COLUMN_MAP: Record<string, string[]> = {
   delito: ['DELITOS', 'Delito', 'DELITO', 'TEMATICA'],
   modalidad: ['MODALIDAD', 'Modalidad Final'],
   armas: ['ARMAS', 'Arma Final', 'ARMA_MEDIOS'],
-  causaLesion: ['CAUSA_LESION', 'Causa Lesion Final', 'CAUSA_LESION_MUERTE'],
+  causaLesion: ['CAUSA_LESION', 'Causa Lesion Final', 'CAUSA_LESION_MUERTE', 'CAUSA LESION'],
   estacion: ['ESTACION', 'Estación Final'],
   cai: ['CAI', 'CAI Final'],
   cuadrante: ['CUADRANTE', 'Cuadrante Final', 'JURIS_DEPENDENCIAS'],
@@ -174,6 +174,20 @@ function findColumn(row: Record<string, string>, candidates: string[]): string {
 }
 
 // Parsea fechas en formato dd/mm/yyyy (o d/m/yyyy), formato del origen histórico.
+// Índice de MAPA_DELITO sin tildes — construido UNA sola vez. El archivo
+// histórico 2003-2023 trae algunos delitos con tilde ("EXTORSIÓN", "HURTO
+// PIRATERÍA TERRESTRE") que no coincidían con las claves de la tabla (sin
+// tilde: "EXTORSION", "HURTO PIRATERIA") — quedaban sin traducir aunque la
+// categoría YA existiera. Se corrige de raíz (para estos dos casos y
+// cualquier otro con el mismo problema), no solo agregando las 2 claves
+// puntuales que se detectaron.
+function quitarTildes(v: string): string {
+  return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+const MAPA_DELITO_SIN_TILDES: Record<string, string> = Object.fromEntries(
+  Object.entries(MAPA_DELITO).map(([clave, valor]) => [quitarTildes(clave), valor]),
+);
+
 function parseFecha(txt: string): Date | null {
   const t = clean(txt);
   if (!t) return null;
@@ -425,9 +439,11 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
         // nombre largo del delito ("HURTO PERSONAS") en vez de la forma
         // corta que ya usa el resto del dashboard ("H. Personas") — se
         // traduce con la misma tabla del formato DB2 para que no queden
-        // como si fueran delitos distintos. Si no está en la tabla, se le
-        // da formato de Título (no se deja gritando en mayúsculas).
-        const canonico = MAPA_DELITO[bruto.toUpperCase()];
+        // como si fueran delitos distintos. La comparación ignora tildes
+        // (ver MAPA_DELITO_SIN_TILDES arriba). Si no está en la tabla, se
+        // le da formato de Título (no se deja gritando en mayúsculas).
+        const claveBusqueda = quitarTildes(bruto.toUpperCase());
+        const canonico = MAPA_DELITO[bruto.toUpperCase()] ?? MAPA_DELITO_SIN_TILDES[claveBusqueda];
         if (canonico) return canonico;
         return bruto === 'NO REPORTADO' ? bruto : formatoTitulo(bruto);
       })(),
