@@ -67,7 +67,6 @@ export function AnalisisUnidad() {
 
   // ── Migrado de la antigua página "Indicadores" (fusionada aquí) ──────
   const kpis = useKpis(filteredRecords);
-  const diaSemana = useTendenciaDiaSemana(filteredRecords);
 
   // Comparativo homólogo (año anterior "a la fecha" vs. año actual) para TODOS
   // los componentes de esta página, incluida la estación — así se evita que
@@ -75,6 +74,14 @@ export function AnalisisUnidad() {
   // dashboard (un solo cálculo, una sola fuente de verdad).
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
   const cmpGeneral = useComparativoGeneral(ventana);
+
+  // EXCLUSIVAMENTE la vigencia actual (ventana.recsActual) — igual que Top
+  // delitos/CAI/Turno más abajo en esta misma página. Antes usaba
+  // filteredRecords directo, que sin ningún año/fecha filtrado mezclaba
+  // los 23 años de histórico en una sola gráfica de "día de la semana"
+  // (bug real, confirmado: los totales por día sumaban ~103.000 casos en
+  // vez de los ~10.000 esperados para un solo año).
+  const diaSemana = useTendenciaDiaSemana(ventana.recsActual);
 
   // Incluye TAMBIÉN el año anterior (no solo el actual) — necesario para
   // poder comparar, día a día, el mismo periodo contra el año pasado dentro
@@ -114,7 +121,9 @@ export function AnalisisUnidad() {
   const urbanoRural = useUrbanoRural(ventana.recsActual);
   const porGenero = useRanking(ventana.recsActual, (r) => r.genero, 10);
   const porGrupoEdad = useRanking(ventana.recsActual, (r) => r.grupoEdad, 10);
-  const porHora = useDistribucionHoraria(filteredRecords);
+  // Igual razón que diaSemana arriba: EXCLUSIVAMENTE la vigencia actual,
+  // no filteredRecords directo (que mezclaba los 23 años sin filtro).
+  const porHora = useDistribucionHoraria(ventana.recsActual);
   const [topHorasUnidad, setTopHorasUnidad] = useState<number | undefined>(undefined);
   const porHoraFiltrada = useMemo(() => {
     if (!topHorasUnidad) return porHora;

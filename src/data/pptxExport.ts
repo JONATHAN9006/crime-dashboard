@@ -33,15 +33,21 @@ export function useDatosExportacionPptx(filteredRecords: CrimeRecord[], recordsB
     [recordsBase, ventana.anioAnterior],
   );
 
-  const porEstacion = useRanking(filteredRecords, (r) => r.estacion, 10);
-  const porZona = useUrbanoRural(filteredRecords);
-  const porGenero = useRanking(filteredRecords, (r) => r.genero, 6);
-  const porGrupoEdad = useRanking(filteredRecords, (r) => r.grupoEdad, 6);
-  const porFranja = useRanking(filteredRecords, (r) => r.franjaHoraria, 4);
+  // EXCLUSIVAMENTE la vigencia actual (ventana.recsActual) — antes usaban
+  // filteredRecords directo, que sin ningún año/fecha filtrado mezclaba
+  // los 23 años de histórico (mismo bug real encontrado y corregido en
+  // AnalisisUnidad.tsx; se corrige aquí también para que el PowerPoint
+  // exportado coincida con lo que se ve en pantalla, no con una versión
+  // vieja de las mismas gráficas).
+  const porEstacion = useRanking(ventana.recsActual, (r) => r.estacion, 10);
+  const porZona = useUrbanoRural(ventana.recsActual);
+  const porGenero = useRanking(ventana.recsActual, (r) => r.genero, 6);
+  const porGrupoEdad = useRanking(ventana.recsActual, (r) => r.grupoEdad, 6);
+  const porFranja = useRanking(ventana.recsActual, (r) => r.franjaHoraria, 4);
 
   const tendenciaMensual = useTendenciaMensual(filteredRecords);
-  const diaSemana = useTendenciaDiaSemana(filteredRecords);
-  const horaria = useDistribucionHoraria(filteredRecords);
+  const diaSemana = useTendenciaDiaSemana(ventana.recsActual);
+  const horaria = useDistribucionHoraria(ventana.recsActual);
 
   const cmpCuadrante = useComparativoCategoria(ventana, (r) => r.cuadrante, 10);
   const cmpBarrio = useComparativoCategoria(ventana, (r) => r.barrioHecho, 10);
