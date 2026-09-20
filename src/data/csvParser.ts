@@ -1,7 +1,7 @@
 import Papa from 'papaparse';
 import type { CrimeRecord } from '../types/crime';
 import { esSerieExcelPlausible, convertirSerieExcelAFecha } from './excelSerial';
-import { MAPA_DELITO, MAPA_ESTACION } from './db2Mapeos';
+import { MAPA_DELITO, MAPA_ESTACION, MAPA_CAI, MAPA_BARRIO, MAPA_ARMAS, MAPA_MODALIDAD, MAPA_CLASE_SITIO, MAPA_CAUSA_LESION } from './db2Mapeos';
 import { mapearCuadrante } from './db2Transform';
 
 // Columnas mínimas para poder procesar un archivo. Se acepta CUALQUIERA de los
@@ -202,10 +202,51 @@ function findColumn(row: Record<string, string>, candidates: string[]): string {
 function quitarTildes(v: string): string {
   return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
-const MAPA_DELITO_SIN_TILDES: Record<string, string> = Object.fromEntries([
-  ...Object.entries(MAPA_DELITO).map(([clave, valor]) => [quitarTildes(clave), valor]),
-  ...Object.values(MAPA_DELITO).map((valor) => [quitarTildes(valor.toUpperCase()), valor]),
-]);
+function construirIndiceSinTildes(mapa: Record<string, string>): Record<string, string> {
+  return Object.fromEntries([
+    ...Object.entries(mapa).map(([clave, valor]) => [quitarTildes(clave), valor]),
+    ...Object.values(mapa).map((valor) => [quitarTildes(valor.toUpperCase()), valor]),
+  ]);
+}
+const MAPA_DELITO_SIN_TILDES: Record<string, string> = construirIndiceSinTildes(MAPA_DELITO);
+
+// Lo mismo que ya existía SOLO para "delito" — CAI, barrio, armas,
+// modalidad, clase de sitio y causa de lesión se estaban guardando tal
+// cual venían del archivo (normalmente TODO EN MAYÚSCULAS, ej. "CAI
+// COMUNA CUATRO", "BOLIVAR", "CONTUNDENTES"), sin pasar por NINGUNA
+// traducción ni formato — aunque las tablas de traducción para todos
+// estos campos YA EXISTÍAN en db2Mapeos.ts (se usaban en el formato DB2,
+// pero nunca se conectaron aquí, en el formato general/legado). Una
+// misma función genérica para los 6 campos: intenta la tabla
+// correspondiente (ignorando tildes, e ignorando si el valor ya viene
+// canónico); si no hay traducción, da formato de Título en vez de dejarlo
+// gritando en mayúsculas.
+function canonizarConTabla(bruto: string, mapa: Record<string, string>, indiceSinTildes: Record<string, string>): string {
+  if (bruto === 'NO REPORTADO') return bruto;
+  const directo = mapa[bruto.toUpperCase()];
+  if (directo) return directo;
+  const sinTildes = indiceSinTildes[quitarTildes(bruto.toUpperCase())];
+  if (sinTildes) return sinTildes;
+  return formatoTitulo(bruto);
+}
+const MAPA_CAI_SIN_TILDES = construirIndiceSinTildes(MAPA_CAI);
+const MAPA_BARRIO_SIN_TILDES = construirIndiceSinTildes(MAPA_BARRIO);
+const MAPA_ARMAS_SIN_TILDES = construirIndiceSinTildes(MAPA_ARMAS);
+const MAPA_MODALIDAD_SIN_TILDES = construirIndiceSinTildes(MAPA_MODALIDAD);
+const MAPA_CLASE_SITIO_SIN_TILDES = construirIndiceSinTildes(MAPA_CLASE_SITIO);
+const MAPA_CAUSA_LESION_SIN_TILDES = construirIndiceSinTildes(MAPA_CAUSA_LESION);
+
+// Abreviación de nombres de barrio LARGOS, a pedido explícito — se aplica
+// DESPUÉS de MAPA_BARRIO (que solo pone Mayúscula Inicial, ej. "Bello
+// Horizonte"), así que la clave aquí ya está en esa forma. Son
+// específicamente los que se pidieron por nombre; si aparece otro barrio
+// largo que también deba abreviarse, se agrega aquí — nunca se inventa
+// una abreviación para uno que no se haya pedido.
+const ABREVIACION_BARRIO: Record<string, string> = {
+  'Bello Horizonte': 'B. Horizonte',
+  'Lomas De Granada': 'L. de Granada',
+  'Jose Maria Obando': 'J. M. Obando',
+};
 
 function parseFecha(txt: string): Date | null {
   const t = clean(txt);
@@ -466,23 +507,26 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
         if (canonico) return canonico;
         return bruto === 'NO REPORTADO' ? bruto : formatoTitulo(bruto);
       })(),
-      armas: normalizeCategoria(findColumn(row, COLUMN_MAP.armas)),
-      modalidad: normalizeCategoria(findColumn(row, COLUMN_MAP.modalidad)),
-      causaLesion: normalizeCategoria(findColumn(row, COLUMN_MAP.causaLesion)),
+      armas: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.armas)), MAPA_ARMAS, MAPA_ARMAS_SIN_TILDES),
+      modalidad: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.modalidad)), MAPA_MODALIDAD, MAPA_MODALIDAD_SIN_TILDES),
+      causaLesion: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.causaLesion)), MAPA_CAUSA_LESION, MAPA_CAUSA_LESION_SIN_TILDES),
 
       estacion: (() => {
         const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.estacion));
         return MAPA_ESTACION[bruto.toUpperCase()] ?? bruto;
       })(),
-      cai: normalizeCategoria(findColumn(row, COLUMN_MAP.cai)),
+      cai: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.cai)), MAPA_CAI, MAPA_CAI_SIN_TILDES),
       cuadrante: sanearCuadrante((() => {
         const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.cuadrante));
         const traducido = mapearCuadrante(bruto, new Set());
         return (traducido && traducido !== 'NO REPORTADO') ? traducido : bruto;
       })(), estacionesConocidas),
-      barrioHecho: normalizeCategoria(findColumn(row, COLUMN_MAP.barrioHecho)),
+      barrioHecho: (() => {
+        const canonico = canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.barrioHecho)), MAPA_BARRIO, MAPA_BARRIO_SIN_TILDES);
+        return ABREVIACION_BARRIO[canonico] ?? canonico;
+      })(),
       zona: normalizeCategoria(findColumn(row, COLUMN_MAP.zona)).toUpperCase() || 'NO REPORTADO',
-      claseSitio: normalizeCategoria(findColumn(row, COLUMN_MAP.claseSitio)),
+      claseSitio: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.claseSitio)), MAPA_CLASE_SITIO, MAPA_CLASE_SITIO_SIN_TILDES),
 
       genero: normalizeCategoria(findColumn(row, COLUMN_MAP.genero)),
       grupoEdad: normalizeCategoria(findColumn(row, COLUMN_MAP.grupoEdad)).replace(/\s+/g, ' ').trim(),
@@ -576,4 +620,31 @@ function hashString(str: string): string {
     hash |= 0;
   }
   return `R${Math.abs(hash)}-${str.length}`;
+}
+
+// Re-normaliza CAI, Barrio, Armas, Modalidad, Clase de Sitio y Causa de
+// Lesión de CUALQUIER registro ya guardado — no solo al parsear un
+// archivo nuevo. Estos 6 campos nunca pasaron por su tabla de traducción
+// en el formato general (bug real: las tablas ya existían para el
+// formato DB2, pero nunca se conectaron aquí) — sin esto, lo que ya
+// estaba guardado se quedaría para siempre como "CAI COMUNA CUATRO" en
+// vez de "CAI 4", aunque el parser ya esté corregido para lo nuevo. Es
+// idempotente: un valor que ya viene canónico ("CAI 4", "B. Horizonte")
+// no coincide con ninguna clave cruda de las tablas y se deja tal cual
+// (salvo la abreviación de barrio, que si aplica de nuevo sobre sí misma
+// tampoco cambia nada).
+export function renormalizarCamposParametrizados(records: CrimeRecord[]): CrimeRecord[] {
+  return records.map((r) => {
+    const cai = canonizarConTabla(r.cai, MAPA_CAI, MAPA_CAI_SIN_TILDES);
+    const barrioCanonico = canonizarConTabla(r.barrioHecho, MAPA_BARRIO, MAPA_BARRIO_SIN_TILDES);
+    const barrioHecho = ABREVIACION_BARRIO[barrioCanonico] ?? barrioCanonico;
+    const armas = canonizarConTabla(r.armas, MAPA_ARMAS, MAPA_ARMAS_SIN_TILDES);
+    const modalidad = canonizarConTabla(r.modalidad, MAPA_MODALIDAD, MAPA_MODALIDAD_SIN_TILDES);
+    const claseSitio = canonizarConTabla(r.claseSitio, MAPA_CLASE_SITIO, MAPA_CLASE_SITIO_SIN_TILDES);
+    const causaLesion = canonizarConTabla(r.causaLesion, MAPA_CAUSA_LESION, MAPA_CAUSA_LESION_SIN_TILDES);
+    if (cai === r.cai && barrioHecho === r.barrioHecho && armas === r.armas && modalidad === r.modalidad && claseSitio === r.claseSitio && causaLesion === r.causaLesion) {
+      return r;
+    }
+    return { ...r, cai, barrioHecho, armas, modalidad, claseSitio, causaLesion };
+  });
 }

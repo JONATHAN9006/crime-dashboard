@@ -4,7 +4,7 @@ import type { OperatividadRecord } from '../types/operatividad';
 import { parsearOperatividad, parsearOperatividadDesdeCsv } from '../data/operatividadParser';
 import { serializarOperatividadCsv } from '../data/operatividadSerializer';
 import { emptyFilterState } from '../types/crime';
-import { parseCsvText } from '../data/csvParser';
+import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda } from '../data/datasetOps';
@@ -107,7 +107,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const persistirYActualizar = useCallback(
     async (nuevosRegistrosCrudos: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
-      const conDelitosCorregidos = renormalizarDelitos(nuevosRegistrosCrudos);
+      const conDelitosCorregidos = renormalizarCamposParametrizados(renormalizarDelitos(nuevosRegistrosCrudos));
       const sinExcluidos = excluirDelitosOmitidos(conDelitosCorregidos);
       // El CAI se completa por Cuadrante ANTES de guardar — así, tanto
       // "records" como la capa "Delitos" del mapa (que se sincroniza justo
