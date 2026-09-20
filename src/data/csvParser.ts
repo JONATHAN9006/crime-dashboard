@@ -43,6 +43,12 @@ const COLUMN_MAP: Record<string, string[]> = {
   // capa "Delitos" del mapa.
   latitud: ['Latitud', 'LATITUD', 'LAT'],
   longitud: ['Longitud', 'LONGITUD', 'LON'],
+  // Identificador único real del sistema de origen (ArcGIS/GIS) — cuando el
+  // archivo lo trae, es MUCHO más confiable que armar la identidad
+  // combinando texto (ver buildRecordId): dos exportaciones distintas del
+  // mismo caso real pueden traer el barrio, la hora o el cuadrante escritos
+  // ligeramente distinto, pero el OBJECTID del mismo caso no cambia.
+  objectId: ['OBJECTID', 'OBJECTID *', 'OBJECTID*'],
 };
 
 // Latitud/Longitud, cuando el archivo las trae, suelen venir como texto con
@@ -595,6 +601,19 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
 // traducción), resubir el mismo archivo siempre se reconoce como
 // duplicado, para siempre.
 export function buildRecordId(rec: CrimeRecord, fallbackIndex: number): string {
+  // Cuando el archivo trae OBJECTID (formato ArcGIS/COR_DELITOS), se usa
+  // DIRECTAMENTE como identidad — es un ID real asignado por el sistema de
+  // origen, no un número de fila. A diferencia del hash por texto (abajo),
+  // sobrevive a que una re-exportación del MISMO caso real escriba el
+  // barrio, la hora o el cuadrante con una letra distinta — que es
+  // justamente lo que ha estado causando duplicados reales al volver a
+  // subir una versión más nueva del mismo periodo (confirmado: 0% de
+  // coincidencia entre dos exportaciones de la práctica el mismo 2026).
+  const objectId = findColumn(rec.raw, COLUMN_MAP.objectId);
+  if (objectId && objectId.trim() !== '') {
+    return hashString(`OBJECTID:${objectId.trim().toUpperCase()}`);
+  }
+
   const parts = [
     rec.fechaTexto,
     rec.hora ?? '',
