@@ -343,15 +343,9 @@ export function AnalisisUnidad() {
 
       {ventana.disponible && (
         <>
-          {/* items-start: cada tarjeta usa solo el alto que necesita su propio
-              contenido, en vez de estirarse para igualar a la más alta del grupo
-              (eso era lo que dejaba espacio en blanco de sobra en la más corta).
-              Columnas con ancho explícito (no 1fr 1fr 1fr parejo): "Casos por
-              estación" necesita más espacio para sus 6 columnas (Estación,
-              2025, 2026, DIF, %, Aporte %) sin verse comprimida; "Proyección
-              de delitos" le cede ese espacio ya que su contenido es más
-              vertical/compacto; "Top por cantidad" cierra la fila. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.55fr_0.95fr_1.15fr]">
+          {/* FILA 1: Casos por estación / Proyección de delitos / Meta del 5% —
+              cada una en su propia tarjeta, alineadas en una sola fila. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
             <Card title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion">
               <ComparativoCategoriaTable data={cmpEstacion} etiqueta="Estación" anioActual={ventana.anioActual} anioAnterior={ventana.anioAnterior} onRowClick={(key) => drillDown('estacion', key)} limite={10} />
             </Card>
@@ -389,25 +383,6 @@ export function AnalisisUnidad() {
                   </div>
                   <p className="text-[10px] text-slate-400">Proyección = (casos ÷ días transcurridos) × {proyeccion.diasEnAnio} días. Comparado contra el total REAL de {ventana.anioAnterior} completo ({formatNumero(totalAnioAnteriorCompleto)} casos) — no contra el mismo corte de fecha.</p>
 
-                  {/* 5) y 6) META — 95% del total real de 2025, y comparación proyección vs. meta */}
-                  <div className={`rounded-lg border p-2.5 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Meta de reducción del 5% (base: {ventana.anioAnterior} completo)</p>
-                    <p className="text-[11px] text-slate-500">{formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95</p>
-                    <p className={`text-lg font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos</p>
-                    <p className={`text-xs font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {coincideConMeta
-                        ? 'La proyección coincide con la meta establecida.'
-                        : cumpleMeta
-                          ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
-                          : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
-                    </p>
-                    <p className="mt-1.5 border-t border-slate-200/60 pt-1.5 text-xs text-slate-600">
-                      {casosPermitidosRestantes >= 0
-                        ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
-                        : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año — cumplirla exactamente ya no es posible; cada caso adicional aumenta la brecha.`}
-                    </p>
-                  </div>
-
                   {/* 7) Interpretación dinámica — une los cuatro conceptos en una sola frase, generada de los mismos números de arriba */}
                   <p className="border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-600">{textoInterpretacion}</p>
                 </div>
@@ -415,18 +390,31 @@ export function AnalisisUnidad() {
                 <p className="text-sm text-slate-400">Sin datos suficientes para proyectar.</p>
               )}
             </Card>
-            <Card
-              title="Análisis de delitos — Top por cantidad"
-              descargable="top-delitos"
-              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
-              actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}
-            >
-              <AporteBarList data={porDelitoVigenciaActual} onBarClick={(key) => drillDown('delito', key)} />
-            </Card>
+            {proyeccion.disponible && (
+              <Card title="Meta de reducción del 5%" subtitle={`Base: ${ventana.anioAnterior} completo`} descargable="meta-reduccion">
+                <div className={`h-full space-y-2 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
+                  <p className="text-[11px] text-slate-500">{formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95</p>
+                  <p className={`text-xl font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos</p>
+                  <p className={`text-xs font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {coincideConMeta
+                      ? 'La proyección coincide con la meta establecida.'
+                      : cumpleMeta
+                        ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
+                        : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
+                  </p>
+                  <p className="border-t border-slate-200/60 pt-2 text-xs text-slate-600">
+                    {casosPermitidosRestantes >= 0
+                      ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
+                      : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año — cumplirla exactamente ya no es posible; cada caso adicional aumenta la brecha.`}
+                  </p>
+                </div>
+              </Card>
+            )}
           </div>
 
-          {/* CAI más afectados / Turno de Vigilancia — misma vigencia actual que "Top delitos". */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* FILA 2: CAI más afectados / Turno de Vigilancia / Top delitos —
+              misma vigencia actual, alineadas en una sola fila. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
             <Card
               title="CAI más afectados"
               descargable="cai-mas-afectados"
@@ -445,6 +433,14 @@ export function AnalisisUnidad() {
               ) : (
                 <p className="py-6 text-center text-sm text-slate-400">Sin datos de turno para el filtro actual.</p>
               )}
+            </Card>
+            <Card
+              title="Análisis de delitos — Top por cantidad"
+              descargable="top-delitos"
+              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
+              actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}
+            >
+              <AporteBarList data={porDelitoVigenciaActual} onBarClick={(key) => drillDown('delito', key)} />
             </Card>
           </div>
 
