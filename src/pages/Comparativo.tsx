@@ -9,6 +9,7 @@ import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { VariationTable } from '../components/tables/VariationTable';
 import { formatFecha, formatNumero, formatPct } from '../utils/aggregations';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
+import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
 
 const DIMENSIONES = [
   { key: 'mes', label: 'Mes' },
@@ -94,6 +95,7 @@ export function Comparativo() {
         title="Comparativo de Vigencias"
         subtitle={`Comparación homóloga entre ${anterior} y ${actual}, detectada automáticamente a partir de los datos.`}
       />
+      <IndicadorVigencia ventana={ventana} />
 
       {aniosDisponibles.length > 2 && (
         <Card>

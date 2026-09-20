@@ -469,7 +469,7 @@ function colorPorIntensidad(valor: number, max: number): string {
 }
 
 export function MapaGeorreferenciacion() {
-  const { records, periodos, filters: filtrosPrincipales } = useData();
+  const { records, periodos, filters: filtrosPrincipales, meta } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
   // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
@@ -495,6 +495,28 @@ export function MapaGeorreferenciacion() {
   // del mapa (si tiene fecha puesta) Y el filtro principal (si lo tiene).
   const fechaInicialGlobal = filtrosPrincipales.fechaInicial;
   const fechaFinalGlobal = filtrosPrincipales.fechaFinal;
+
+  // Sin NINGÚN filtro temporal activo (ni el propio del mapa, ni el
+  // principal, ni año/mes, ni periodos de multifecha), el mapa por
+  // defecto debe mostrar solo la vigencia actual — igual que ya se hizo
+  // en Matriz de Calor, Delictividad por Unidad y el resto del
+  // dashboard. Antes el mapa mezclaba los 23 años de histórico por
+  // defecto (bug real, parte de la misma auditoría). La "fecha de corte"
+  // es la fecha más reciente que traigan los datos (FECHA_MAX_PARAMETRO
+  // si el archivo la trae, o si no, la fecha más reciente encontrada) —
+  // nunca una fecha fija en el código.
+  const hayFiltroTemporalMapa = !!filtrosMapa.fechaInicial || !!filtrosMapa.fechaFinal
+    || !!fechaInicialGlobal || !!fechaFinalGlobal
+    || filtrosPrincipales.anio.length > 0 || filtrosPrincipales.mes.length > 0
+    || periodos.length > 0;
+  const limiteVigenciaActual = useMemo(() => {
+    if (hayFiltroTemporalMapa) return null;
+    const conFecha = records.filter((r) => r.fecha);
+    if (conFecha.length === 0) return null;
+    const maxTs = meta?.fechaMaxParametro ? meta.fechaMaxParametro.getTime() : Math.max(...conFecha.map((r) => r.fecha!.getTime()));
+    const anioReferencia = new Date(maxTs).getFullYear();
+    return { inicio: new Date(anioReferencia, 0, 1), fin: new Date(maxTs) };
+  }, [records, hayFiltroTemporalMapa, meta?.fechaMaxParametro]);
 
   // Registros filtrados SOLO con los filtros propios del mapa — reemplaza
   // al "filteredRecords" global (que aquí no aplica) para lo poco que se
@@ -561,6 +583,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
       (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))) &&
       (!fechaInicialGlobal || (r.fecha && r.fecha >= new Date(fechaInicialGlobal))) &&
       (!fechaFinalGlobal || (r.fecha && r.fecha <= new Date(fechaFinalGlobal + 'T23:59:59'))) &&
+      (!limiteVigenciaActual || (r.fecha && r.fecha >= limiteVigenciaActual.inicio && r.fecha <= limiteVigenciaActual.fin)) &&
       (ventanasPeriodos.length === 0 || (() => {
         if (!r.fecha) return false;
         const fh = new Date(r.fecha);
@@ -568,7 +591,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
       })()),
     );
-  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal]);
+  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).
@@ -1062,6 +1085,12 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
           if (fechaInicialGlobal && fechaPunto < new Date(fechaInicialGlobal)) return false;
           if (fechaFinalGlobal && fechaPunto > new Date(fechaFinalGlobal + 'T23:59:59')) return false;
         }
+        // Sin ningún filtro temporal activo, por defecto solo la vigencia
+        // actual — igual razón que arriba en filteredRecords.
+        if (limiteVigenciaActual) {
+          const fechaPunto = extraerFechaDePunto(p);
+          if (!fechaPunto || fechaPunto < limiteVigenciaActual.inicio || fechaPunto > limiteVigenciaActual.fin) return false;
+        }
         // Análisis multifecha (periodos) — restricción ADICIONAL, igual
         // que en filteredRecords más arriba: si hay periodos activos, el
         // punto tiene que caer en alguno de ellos, además de cualquier
@@ -1099,7 +1128,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal]);
+  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -1652,6 +1681,12 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   return (
     <div className="space-y-5">
       <PageHeader title="Mapa / Georreferenciación" subtitle="Visualiza y compara varias capas geográficas (Shapefile o GeoJSON) sobre el territorio." />
+
+      {limiteVigenciaActual && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Sin un año, mes o fecha seleccionados, el mapa muestra solo la vigencia {limiteVigenciaActual.inicio.getFullYear()} (hasta {limiteVigenciaActual.fin.toLocaleDateString('es-CO')}, la fecha de corte más reciente) — no todo el histórico. Selecciona un año, mes o fecha en el filtro principal para ver otra vigencia.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_260px]">
         {/* ── COLUMNA IZQUIERDA: Filtros de visualización ── */}

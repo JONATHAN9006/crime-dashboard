@@ -23,6 +23,7 @@ import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart'
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
 import { TrendingUp, TrendingDown, Info } from 'lucide-react';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
+import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
 
 const OPCIONES_TOP = [
   { label: 'Top 5', valor: 5 },
@@ -258,6 +259,7 @@ export function AnalisisUnidad() {
           subtitle="Lectura integral: estaciones, cuadrantes, barrios, zonas, población, arma, modalidad, sitio, causa de lesión y horario."
           acciones={<BotonGenerarPdf nombreArchivo="MEPOY_Analisis_Unidad" />}
         />
+        <IndicadorVigencia ventana={ventana} />
 
       {ventana.disponible && (
         <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">

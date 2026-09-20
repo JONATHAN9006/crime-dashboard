@@ -14,6 +14,7 @@ import { ComparativoCategoriaTable } from '../components/tables/ComparativoCateg
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
+import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
 
 // Botón tipo checkbox/pill para los filtros AUMENTO (rojo) / DISMINUCIÓN
 // (verde) del encabezado de "Comparativo de delitos". Puramente visual —
@@ -145,6 +146,7 @@ export function ResumenEjecutivo() {
     return (
       <div>
         <PageHeader title="Dashboard de Análisis Delictivo" subtitle="Resumen" />
+        <IndicadorVigencia ventana={ventana} />
         <EmptyState mensaje="No hay registros que coincidan con los filtros actuales." />
       </div>
     );
