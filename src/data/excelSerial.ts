@@ -19,6 +19,22 @@ export function esSerieExcelPlausible(valor: string): boolean {
 export function convertirSerieExcelAFecha(valor: string): Date | null {
   const n = Number(valor.trim());
   if (isNaN(n)) return null;
-  const fecha = new Date(EPOCA_EXCEL_MS + n * UN_DIA_MS);
+  // OJO: no construir el Date directo desde el timestamp UTC crudo
+  // (EPOCA_EXCEL_MS + n * UN_DIA_MS) — eso da SIEMPRE medianoche UTC, y
+  // .getFullYear()/.getMonth()/.getDate() (que se usan en TODO el
+  // dashboard) leen la hora LOCAL del navegador, no la UTC. En cualquier
+  // zona horaria detrás de UTC (ej. Colombia, UTC-5), medianoche UTC del
+  // 1 de enero se lee como 31 de diciembre a las 7pm — el registro entero
+  // se corría un día atrás, y para fechas que caen justo el día 1 de un
+  // mes o de un año, eso significa caer en el mes o el año ANTERIOR (bug
+  // real, confirmado: 2 homicidios del 1/01/2025 se contaban como de
+  // 2024). Se corrige extrayendo el año/mes/día en UTC (que es como debe
+  // leerse un número de serie de Excel, sin hora asociada) y reconstruyendo
+  // la fecha con el constructor LOCAL — así el calendario que ve el
+  // usuario es siempre el mismo, sin importar en qué zona horaria esté su
+  // navegador.
+  const utc = new Date(EPOCA_EXCEL_MS + n * UN_DIA_MS);
+  if (isNaN(utc.getTime())) return null;
+  const fecha = new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
   return isNaN(fecha.getTime()) ? null : fecha;
 }
