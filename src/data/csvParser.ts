@@ -263,6 +263,21 @@ function parseFecha(txt: string): Date | null {
     const date = new Date(Number(y), Number(mo) - 1, Number(d));
     return isNaN(date.getTime()) ? null : date;
   }
+  // Fecha en formato ISO "solo fecha" (YYYY-MM-DD, sin hora) — algunos
+  // archivos (ej. exportaciones ArcGIS más nuevas) traen la fecha así en
+  // vez de DD/MM/AAAA. OJO: "new Date('2026-01-01')" (el respaldo genérico
+  // más abajo) la interpreta como MEDIANOCHE UTC según el estándar de
+  // JavaScript — en Colombia (UTC-5) eso se lee como 31/12/2025 a las
+  // 7pm, un día atrás. Para una fecha SIN hora asociada no hay "UTC" que
+  // valga: se arma directo con el constructor local, igual que arriba.
+  // Bug real, confirmado: un homicidio del 1/01/2026 se contaba como de
+  // 2025.
+  const mIso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]|$)/);
+  if (mIso) {
+    const [, y, mo, d] = mIso;
+    const date = new Date(Number(y), Number(mo) - 1, Number(d));
+    return isNaN(date.getTime()) ? null : date;
+  }
   // Salvaguarda: si llega un número de serie de Excel crudo (ej. archivos donde
   // la celda de fecha no conservó su formato), se convierte en vez de dejarlo
   // pasar como texto (lo que antes contaminaba el campo "Año" con series como 45658).
