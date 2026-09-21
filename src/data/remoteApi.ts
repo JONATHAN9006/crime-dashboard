@@ -22,11 +22,40 @@ export type DatasetRemoto = 'delictividad' | 'operatividad';
 // debajo del límite real de Apps Script (que la base ya alcanzó con
 // ~2,8 MB de respuesta cortada) para dejar margen de sobra, incluso si la
 // base sigue creciendo.
-const TAMANO_TROZO = 1_500_000;
+const TAMANO_TROZO = 2_000_000;
 // Salvaguarda: nunca más de esta cantidad de pedazos, para no quedar en un
 // bucle infinito si el backend respondiera algo inesperado (ej. nunca
 // marca "esUltimo").
 const MAX_TROZOS = 500;
+// Cuántas veces reintentar UN pedazo puntual antes de rendirse — con la
+// descarga completa en un solo pedido, un solo fallo de red tumbaba toda
+// la descarga; ahora que se necesitan varios pedidos seguidos para armar
+// el archivo completo, una demora puntual en cualquiera de ellos (o un
+// límite momentáneo de Google) es más probable, así que cada pedazo se
+// reintenta antes de darlo por perdido.
+const REINTENTOS_POR_TROZO = 3;
+const ESPERA_ENTRE_REINTENTOS_MS = 800;
+
+function esperar(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pedirTrozoConReintentos(url: string): Promise<{ contenido: string; esUltimo: boolean }> {
+  let ultimoError: unknown = null;
+  for (let intento = 1; intento <= REINTENTOS_POR_TROZO; intento++) {
+    try {
+      const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+      if (!resp.ok) throw new Error(`El backend respondió con error ${resp.status}.`);
+      const datos = await resp.json();
+      if (!datos.ok) throw new Error(datos.error || 'El backend no pudo entregar la información en pedazos.');
+      return { contenido: datos.contenido ?? '', esUltimo: !!datos.esUltimo || (datos.contenido ?? '').length === 0 };
+    } catch (err) {
+      ultimoError = err;
+      if (intento < REINTENTOS_POR_TROZO) await esperar(ESPERA_ENTRE_REINTENTOS_MS * intento);
+    }
+  }
+  throw ultimoError instanceof Error ? ultimoError : new Error('No fue posible descargar un pedazo del archivo central.');
+}
 
 export async function descargarCsvRemoto(backendUrl: string, dataset?: DatasetRemoto): Promise<string> {
   // Se pide el archivo POR PARTES (ver Code.gs, acción "chunk") y se unen
@@ -42,13 +71,10 @@ export async function descargarCsvRemoto(backendUrl: string, dataset?: DatasetRe
   let partes: string[] = [];
   for (let i = 0; i < MAX_TROZOS; i++) {
     const url = `${backendUrl}?action=chunk&offset=${offset}&length=${TAMANO_TROZO}&_=${Date.now()}${parametroDataset}`;
-    const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
-    if (!resp.ok) throw new Error(`El backend respondió con error ${resp.status} al pedir el pedazo en la posición ${offset}.`);
-    const datos = await resp.json();
-    if (!datos.ok) throw new Error(datos.error || 'El backend no pudo entregar la información en pedazos.');
-    partes.push(datos.contenido ?? '');
-    offset += (datos.contenido ?? '').length;
-    if (datos.esUltimo || (datos.contenido ?? '').length === 0) break;
+    const { contenido, esUltimo } = await pedirTrozoConReintentos(url);
+    partes.push(contenido);
+    offset += contenido.length;
+    if (esUltimo) break;
   }
   return partes.join('');
 }
