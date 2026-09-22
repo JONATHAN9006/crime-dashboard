@@ -284,10 +284,23 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
       // la consola del navegador (F12 → pestaña "Console"), generar el
       // PDF de nuevo, y copiar este mensaje.
       const valoresCrudos = [...new Set(localizada.features.map((f) => String(f?.properties?.[localizada.columna] ?? '')))];
+      const todasLasCapas = await cargarCapas();
+      const resumenTodasLasCapas = todasLasCapas.map((capa) => {
+        const feats = extraerFeatures(capa.geojson);
+        if (feats.length === 0) return `  Capa "${capa.nombre}": (sin features)`;
+        const columnas = Object.keys(feats[0]?.properties ?? {});
+        const lineas = columnas.map((c) => {
+          const valores = feats.map((f) => String(f?.properties?.[c] ?? '').trim()).filter(Boolean);
+          const unicos = [...new Set(valores)];
+          return `      · "${c}": ${unicos.length} valor(es) distinto(s) — ejemplo(s): ${JSON.stringify(unicos.slice(0, 6))}`;
+        }).join('\n');
+        return `  Capa "${capa.nombre}" (${feats.length} elementos):\n${lineas}`;
+      }).join('\n');
       console.warn(
         `[Microgerencia→Mapa] Se detectó la capa "${localizada.capa.nombre}" (columna "${localizada.columna}") como la de Estación, pero NINGÚN valor coincidió con Norte/Sur — se está usando TODA la capa como respaldo.\n` +
         `Valores encontrados en esa columna: ${JSON.stringify(valoresCrudos)}\n` +
-        `Traducidos por MAPA_ESTACION: ${JSON.stringify(valoresCrudos.map((v) => MAPA_ESTACION[v.toUpperCase()] ?? `(sin traducción: "${v}")`))}`,
+        `Traducidos por MAPA_ESTACION: ${JSON.stringify(valoresCrudos.map((v) => MAPA_ESTACION[v.toUpperCase()] ?? `(sin traducción: "${v}")`))}\n\n` +
+        `Por si la división Norte/Sur está en OTRA capa cargada (ej. por cuadrante), aquí están TODAS las capas con sus columnas:\n${resumenTodasLasCapas}`,
       );
     }
     const featuresParaMapa = featuresNorteSur.length > 0 ? featuresNorteSur : localizada.features;
