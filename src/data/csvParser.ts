@@ -617,16 +617,29 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
 // duplicado, para siempre.
 export function buildRecordId(rec: CrimeRecord, fallbackIndex: number): string {
   // Cuando el archivo trae OBJECTID (formato ArcGIS/COR_DELITOS), se usa
-  // DIRECTAMENTE como identidad — es un ID real asignado por el sistema de
+  // como base de la identidad — es un ID real asignado por el sistema de
   // origen, no un número de fila. A diferencia del hash por texto (abajo),
   // sobrevive a que una re-exportación del MISMO caso real escriba el
   // barrio, la hora o el cuadrante con una letra distinta — que es
   // justamente lo que ha estado causando duplicados reales al volver a
   // subir una versión más nueva del mismo periodo (confirmado: 0% de
   // coincidencia entre dos exportaciones de la práctica el mismo 2026).
+  //
+  // CORRECCIÓN IMPORTANTE: el OBJECTID solo es único DENTRO de una misma
+  // exportación — normalmente reinicia desde 1 en cada archivo/año nuevo.
+  // Usarlo SOLO (como se hacía antes) hacía que un caso del año pasado y
+  // uno de este año, sin ninguna relación entre sí, coincidieran en
+  // número por pura casualidad y uno de los dos se descartara como si
+  // fuera "el mismo hecho" — así se perdían casos reales sin ningún aviso
+  // (confirmado: exactamente este patrón en los datos de Homicidio 2025,
+  // el total quedaba por debajo del real). Se agrega la fecha cruda a la
+  // clave para separar esos dos casos SIN romper la garantía original:
+  // volver a subir el MISMO archivo sigue trayendo el mismo OBJECTID *y*
+  // la misma fecha para cada registro, así que se sigue reconociendo como
+  // duplicado igual que antes.
   const objectId = findColumn(rec.raw, COLUMN_MAP.objectId);
   if (objectId && objectId.trim() !== '') {
-    return hashString(`OBJECTID:${objectId.trim().toUpperCase()}`);
+    return hashString(`OBJECTID:${objectId.trim().toUpperCase()}|FECHA:${rec.fechaTexto}`);
   }
 
   const parts = [

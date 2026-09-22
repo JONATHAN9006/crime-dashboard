@@ -25,6 +25,18 @@ export function fusionarRegistros(
     const previo = existentesPorId.get(r.__id);
     if (previo) {
       duplicados += 1;
+      // Mismo diagnóstico que en eliminarDuplicadosPorIdentidadCruda: si
+      // "coinciden en identidad" pero el delito es distinto, es casi
+      // seguro una colisión falsa (dos hechos reales sin relación, no un
+      // duplicado) — se avisa en la consola en vez de perder el registro
+      // nuevo en silencio.
+      if (previo.delito !== r.delito) {
+        console.warn(
+          `[Fusión de registros] El registro nuevo coincide en identidad con uno ya guardado, pero el delito es distinto — se conserva el ya guardado, revisa si es una colisión falsa:\n` +
+          `  · Ya guardado: "${previo.delito}" (fecha ${previo.fechaTexto ?? previo.fecha})\n` +
+          `  · Nuevo:       "${r.delito}" (fecha ${r.fechaTexto ?? r.fecha})`,
+        );
+      }
       let cambios: Partial<CrimeRecord> = {};
       if ((previo.lat == null || previo.lon == null) && r.lat != null && r.lon != null) {
         cambios = { ...cambios, lat: r.lat, lon: r.lon };
@@ -175,6 +187,19 @@ export function eliminarDuplicadosPorIdentidadCruda(records: CrimeRecord[]): { r
     if (!previo) {
       porIdentidad.set(id, r);
       continue;
+    }
+    // Diagnóstico: si dos registros "coinciden en identidad" pero tienen
+    // un DELITO distinto, casi seguro es una colisión falsa (dos hechos
+    // reales distintos que por coincidencia comparten OBJECTID+fecha) y
+    // no un duplicado real — antes esto pasaba en silencio, sin dejar
+    // ningún rastro; ahora al menos queda avisado en la consola para
+    // poder revisarlo, en vez de perder el registro sin enterarse.
+    if (previo.delito !== r.delito) {
+      console.warn(
+        `[Deduplicación] Dos registros con la misma identidad pero delito distinto — se conserva solo uno, revisa si es una colisión falsa:\n` +
+        `  · Delito "${previo.delito}" (fecha ${previo.fechaTexto ?? previo.fecha})\n` +
+        `  · Delito "${r.delito}" (fecha ${r.fechaTexto ?? r.fecha})`,
+      );
     }
     // Se queda el más "completo": con coordenadas antes que sin ellas, y
     // con CAI real antes que sin él — nunca se descarta información,
