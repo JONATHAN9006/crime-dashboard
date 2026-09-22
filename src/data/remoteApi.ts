@@ -10,6 +10,13 @@ export interface RemotePushResult {
   mensaje?: string;
   fecha?: string;
   error?: string;
+  // Presentes solo cuando el backend rechazó la subida por traer MENOS
+  // registros que los ya guardados (ver "SEGURO CONTRA CARRERAS" en
+  // apps-script/Code.gs) — permiten mostrarle al usuario los dos números
+  // y, si de verdad quiere reemplazar igual, reintentar con forzar=true.
+  totalFilasActual?: number;
+  totalFilasNuevo?: number;
+  requiereConfirmacion?: boolean;
 }
 
 // "dataset" es OPCIONAL en las 3 funciones — si no se pasa, el backend
@@ -100,11 +107,11 @@ export async function consultarMetaRemota(backendUrl: string, dataset?: DatasetR
 // Content-Type: application/json cuando se envían encabezados custom, así
 // que enviamos el cuerpo como texto plano (evita el preflight) y el propio
 // script lo interpreta como JSON.
-export async function subirCsvRemoto(backendUrl: string, token: string, csv: string, usuario: string, dataset?: DatasetRemoto): Promise<RemotePushResult> {
+export async function subirCsvRemoto(backendUrl: string, token: string, csv: string, usuario: string, dataset?: DatasetRemoto, forzar?: boolean): Promise<RemotePushResult> {
   const resp = await fetch(backendUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ token, csv, usuario, dataset }),
+    body: JSON.stringify({ token, csv, usuario, dataset, forzar }),
   });
   if (!resp.ok) throw new Error(`El backend respondió con error ${resp.status}`);
   return resp.json();

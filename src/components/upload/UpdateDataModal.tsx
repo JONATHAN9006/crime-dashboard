@@ -5,7 +5,7 @@ import type { UpdateMode, UpdateSummary } from '../../types/crime';
 import { formatFechaHora } from '../../utils/aggregations';
 import { obtenerConfig } from '../../config';
 
-type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string }) | { error: string };
+type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number }) | { error: string };
 
 export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) {
   const { cargarArchivo, limpiarTodo, meta, records, backendUrl, cargarArchivoOperatividad, operatividadMeta } = useData();
@@ -285,7 +285,30 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
           {backendUrl && resultado.sincronizado === false && (
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <p>{resultado.errorSincronizacion || 'No se pudo sincronizar con el servidor central.'} Los datos quedaron guardados solo en este navegador.</p>
+              <div>
+                <p>{resultado.errorSincronizacion || 'No se pudo sincronizar con el servidor central.'} Los datos quedaron guardados solo en este navegador.</p>
+                {resultado.requiereConfirmacion && (
+                  <>
+                    <p className="mt-2 text-xs text-amber-700">
+                      Guardado ahora: {resultado.totalFilasActual?.toLocaleString('es-CO')} registros · Lo que intentaste subir: {resultado.totalFilasNuevo?.toLocaleString('es-CO')} registros.
+                      Antes de forzarlo, te recomendamos volver a descargar los datos más recientes y fusionar tu información sobre eso.
+                    </p>
+                    <button
+                      onClick={async () => {
+                        if (!archivo) return;
+                        setProcesando(true);
+                        const res = await cargarArchivo(archivo, modo, token || undefined, usuario, true);
+                        setResultado(res);
+                        setProcesando(false);
+                      }}
+                      disabled={procesando}
+                      className="mt-2 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      Entiendo el riesgo — reemplazar de todas formas
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

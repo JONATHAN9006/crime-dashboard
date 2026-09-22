@@ -6,7 +6,7 @@ export function fusionarRegistros(
   nuevos: CrimeRecord[],
   columnasNuevas: string[],
   columnasFaltantes: string[],
-): { registros: CrimeRecord[]; resumen: UpdateSummary } {
+): { registros: CrimeRecord[]; registrosParaSincronizar: CrimeRecord[]; resumen: UpdateSummary } {
   // Mapa por __id de los YA cargados, para poder actualizar uno en su
   // lugar cuando el "duplicado" trae datos que el guardado no tenía —
   // antes, un duplicado se descartaba siempre entero, así que resubir el
@@ -18,6 +18,7 @@ export function fusionarRegistros(
   const CAMPOS_TEXTO_RELLENABLES = ['armas', 'causaLesion', 'barrioHecho', 'turno', 'modalidad', 'claseSitio', 'grupoEdad'] as const;
   const existentesPorId = new Map(existentes.map((r) => [r.__id, r]));
   const paraAgregar: CrimeRecord[] = [];
+  const paraActualizar: CrimeRecord[] = [];
   let duplicados = 0;
   let actualizadosConCoordenadas = 0;
 
@@ -49,7 +50,11 @@ export function fusionarRegistros(
           cambios = { ...cambios, [campo]: valorNuevo };
         }
       }
-      if (Object.keys(cambios).length > 0) existentesPorId.set(r.__id, { ...previo, ...cambios });
+      if (Object.keys(cambios).length > 0) {
+        const actualizado = { ...previo, ...cambios };
+        existentesPorId.set(r.__id, actualizado);
+        paraActualizar.push(actualizado);
+      }
     } else {
       paraAgregar.push(r);
       existentesPorId.set(r.__id, r);
@@ -60,6 +65,12 @@ export function fusionarRegistros(
 
   return {
     registros,
+    // Solo los registros NUEVOS o MODIFICADOS por esta fusión — pensado
+    // para el backend de Supabase (ver subirRegistrosSupabase): en vez de
+    // reenviar el dataset COMPLETO en cada actualización (como se hacía
+    // con el CSV completo a Google Drive), solo hace falta guardar estos.
+    // Los registros ya existentes sin cambios ni se tocan.
+    registrosParaSincronizar: [...paraAgregar, ...paraActualizar],
     resumen: {
       nuevos: nuevos.length,
       duplicados,

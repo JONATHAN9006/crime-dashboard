@@ -118,6 +118,30 @@ function doPost(e) {
     const config = DATASETS[dataset];
 
     const archivo = obtenerArchivo_(config);
+
+    // SEGURO CONTRA "CARRERAS" ENTRE DOS PERSONAS ACTUALIZANDO CASI AL
+    // MISMO TIEMPO: antes, quien subiera de ÚLTIMO ganaba siempre, sin
+    // ningún aviso — si dos personas actualizaban con poca diferencia de
+    // tiempo, la segunda subida (aunque fuera una versión más VIEJA o
+    // incompleta, ej. de un navegador que no había hecho la última
+    // corrección) borraba silenciosamente el trabajo de la primera. Se
+    // detectó justo así: una carga correcta (con más registros) fue
+    // reemplazada momentos después por una con menos. Ahora, si el
+    // archivo nuevo trae MENOS filas que el que ya está guardado, se
+    // rechaza — a menos que se mande "forzar: true" explícitamente (para
+    // el caso legítimo de una limpieza que sí reduce el total a propósito).
+    const totalFilasActual = contarFilasCsv_(archivo.getBlob().getDataAsString('UTF-8'));
+    const totalFilasNuevo = contarFilasCsv_(datos.csv);
+    if (!datos.forzar && totalFilasActual > 0 && totalFilasNuevo < totalFilasActual) {
+      return respuestaJson_({
+        ok: false,
+        error: 'La versión que intentas subir tiene ' + totalFilasNuevo + ' registros, menos que los ' + totalFilasActual + ' que ya están guardados en el servidor central — probablemente alguien más actualizó justo antes que tú. Vuelve a descargar los datos más recientes y fusiona tu información sobre eso antes de reintentar.',
+        totalFilasActual: totalFilasActual,
+        totalFilasNuevo: totalFilasNuevo,
+        requiereConfirmacion: true,
+      });
+    }
+
     archivo.setContent(datos.csv);
 
     const props = PropertiesService.getScriptProperties();
@@ -134,6 +158,16 @@ function doPost(e) {
   } catch (err) {
     return respuestaJson_({ ok: false, error: 'Error procesando la actualización: ' + String(err) });
   }
+}
+
+// Cuenta filas de datos en un CSV (sin contar el encabezado ni líneas
+// vacías) — solo se usa como número aproximado para el seguro contra
+// carreras de arriba, no necesita ser perfecto, solo consistente entre
+// una llamada y otra.
+function contarFilasCsv_(csv) {
+  if (!csv) return 0;
+  const lineas = csv.split('\n').filter(function (l) { return l.trim().length > 0; });
+  return Math.max(0, lineas.length - 1);
 }
 
 // Devuelve SIEMPRE el mismo objeto de archivo para este dataset — primero

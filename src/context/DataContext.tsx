@@ -10,6 +10,9 @@ import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storag
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda } from '../data/datasetOps';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
+import { descargarRegistrosSupabase, consultarMetaSupabase, subirRegistrosSupabase } from '../data/supabaseApi';
+// Operatividad sigue en el backend de Apps Script/Drive de siempre — no se
+// migró a Supabase todavía (ver operatividadBackendUrl en config.ts).
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
 import { serializarCsv } from '../data/csvSerializer';
 import { sincronizarCapaDelitosDesdeRecords } from '../data/puntosStorage';
@@ -44,7 +47,7 @@ interface DataContextValue {
   drillDown: (campo: keyof FilterState, valor: string) => void;
   loading: boolean;
   loadError: string | null;
-  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string }) | { error: string }>;
+  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number }) | { error: string }>;
   limpiarTodo: () => Promise<void>;
   lastColumns: string[];
   backendUrl: string;
@@ -82,7 +85,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
   const ultimaCargaRef = useRef<string | null>(null);
 
-  const { backendUrl } = obtenerConfig();
+  // "backendUrl" es la URL del proyecto de Supabase (ver src/config.ts —
+  // se conserva el nombre para no tener que tocar Header.tsx/UpdateDataModal.tsx,
+  // que solo lo usan como "¿hay servidor central configurado?").
+  const { backendUrl, supabaseAnonKey, operatividadBackendUrl } = obtenerConfig();
+  // Ruta de la función de Netlify que hace las escrituras (ver
+  // netlify/functions/subirRegistros.ts) — siempre la misma, relativa al
+  // propio sitio (mismo origen, sin necesidad de configurarla aparte).
+  const FUNCION_SUBIR_REGISTROS = '/.netlify/functions/subirRegistros';
 
   // Re-normaliza el delito de CUALQUIER registro (nuevo o ya guardado)
   // contra la misma tabla de traducción de siempre — no solo al parsear un
@@ -157,24 +167,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     descargaEnCursoRef.current = true;
     setRemoteStatus('conectando');
     try {
-      const [texto, metaRemota] = await Promise.all([
-        descargarCsvRemoto(backendUrl),
-        consultarMetaRemota(backendUrl).catch(() => null),
+      const [registrosRemotos, metaRemota] = await Promise.all([
+        descargarRegistrosSupabase(backendUrl, supabaseAnonKey),
+        consultarMetaSupabase(backendUrl, supabaseAnonKey).catch(() => null),
       ]);
-      if (!texto || texto.trim().length === 0) {
-        // El backend existe pero aún no tiene archivo cargado; no es un error.
+      if (!registrosRemotos || registrosRemotos.length === 0) {
+        // El backend existe pero aún no tiene datos cargados; no es un error.
         setRemoteStatus('conectado');
         setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
         return false;
       }
-      const parsed = parseCsvText(texto);
-      if (parsed.columnasFaltantes.length > 0) {
-        setRemoteStatus('error');
-        setRemoteError(`El archivo central no tiene las columnas requeridas: ${parsed.columnasFaltantes.join(', ')}.`);
-        return false;
-      }
+      // A diferencia del CSV (que traía las columnas crudas y había que
+      // volver a interpretar), cada fila de Supabase YA es un CrimeRecord
+      // completo y procesado (así se guardó al subirlo) — no hace falta
+      // volver a parsear nada aquí, ni validar columnas requeridas.
+      const columnasDetectadas = registrosRemotos[0] ? Object.keys(registrosRemotos[0].raw || {}) : [];
       const fechaRef = metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion) : new Date();
-      await persistirYActualizar(parsed.registros, 'Delitos.csv (central)', parsed.columnasDetectadas, fechaRef, parsed.fechaMaxParametro);
+      await persistirYActualizar(registrosRemotos, 'Delitos (Supabase, central)', columnasDetectadas, fechaRef, null);
       setRemoteStatus('conectado');
       setRemoteError(null);
       setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
@@ -184,10 +193,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       // Antes este error se perdía por completo — el banner solo decía
       // "no fue posible conectar", sin forma de saber SI era un problema
-      // de red, un error del backend (Apps Script) o un CORS bloqueado.
-      // Ahora queda en la consola con el mensaje real, para poder
-      // diagnosticar sin tener que adivinar (F12 → Console, buscar
-      // "[Backend central]").
+      // de red, un error del backend, o un CORS bloqueado. Ahora queda en
+      // la consola con el mensaje real, para poder diagnosticar sin tener
+      // que adivinar (F12 → Console, buscar "[Backend central]").
       console.error('[Backend central] Falló la descarga:', e);
       setRemoteStatus('error');
       setRemoteError('No fue posible conectar con el backend central. Se muestran los últimos datos disponibles en este navegador.');
@@ -195,7 +203,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } finally {
       descargaEnCursoRef.current = false;
     }
-  }, [backendUrl, persistirYActualizar]);
+  }, [backendUrl, supabaseAnonKey, persistirYActualizar]);
 
   // Carga inicial: si hay backend configurado, intenta traer de ahí primero.
   // Si no hay backend o falla, usa lo guardado localmente; si tampoco hay nada, usa el archivo por defecto.
@@ -280,7 +288,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [backendUrl, cargarDesdeBackend]);
 
   const cargarArchivo = useCallback(
-    async (file: File, modo: UpdateMode, token?: string, usuario?: string) => {
+    async (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => {
       try {
         const parsed = await parseArchivo(file);
         if (parsed.columnasFaltantes.length > 0) {
@@ -289,10 +297,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const columnasNuevas = calcularColumnasNuevas(lastColumns, parsed.columnasDetectadas);
 
         let registrosFinales: CrimeRecord[];
+        let registrosParaSincronizar: CrimeRecord[];
         let resumen: UpdateSummary;
 
         if (modo === 'reemplazar' || records.length === 0) {
           registrosFinales = parsed.registros;
+          registrosParaSincronizar = parsed.registros;
           resumen = {
             nuevos: parsed.registros.length,
             duplicados: 0,
@@ -304,6 +314,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         } else {
           const fusion = fusionarRegistros(records, parsed.registros, columnasNuevas, []);
           registrosFinales = fusion.registros;
+          registrosParaSincronizar = fusion.registrosParaSincronizar;
           resumen = fusion.resumen;
         }
 
@@ -326,19 +337,37 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const columnasFinal = Array.from(new Set([...lastColumns, ...parsed.columnasDetectadas]));
         await persistirYActualizar(registrosFinales, file.name, columnasFinal, undefined, fechaMaxParametroFinal);
 
-        // Si hay backend configurado, sube el dataset final (ya fusionado) para que
-        // todos los que consulten el dashboard vean esta misma actualización.
+        // Si hay backend configurado, sube solo los registros NUEVOS o
+        // MODIFICADOS de esta fusión (ver registrosParaSincronizar en
+        // fusionarRegistros) — a diferencia del CSV completo que se subía
+        // antes a Google Drive, aquí cada registro se guarda por separado
+        // (upsert por su propio id), así que nunca hace falta reenviar el
+        // dataset entero para agregar unos pocos registros nuevos.
         if (backendUrl) {
           if (!token) {
             return { ...resumen, sincronizado: false, errorSincronizacion: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
           }
           try {
-            const csvCompleto = serializarCsv(registrosFinales, fechaMaxParametroFinal);
-            const res = await subirCsvRemoto(backendUrl, token, csvCompleto, usuario || 'No identificado');
+            const res = await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, registrosParaSincronizar, usuario || 'No identificado', undefined, forzar);
             if (!res.ok) {
+              // Nota: con Supabase (upsert por registro individual) ya no
+              // existe la carrera de "quién sube de último pisa todo el
+              // archivo" que sí existía con el CSV en Drive — esta rama
+              // queda por compatibilidad de tipos, pero el backend nuevo
+              // normalmente no la produce.
+              if (res.requiereConfirmacion) {
+                return {
+                  ...resumen,
+                  sincronizado: false,
+                  errorSincronizacion: res.error || 'El servidor central tiene una versión con más registros que la tuya.',
+                  requiereConfirmacion: true,
+                  totalFilasActual: res.totalFilasActual,
+                  totalFilasNuevo: res.totalFilasNuevo,
+                };
+              }
               return { ...resumen, sincronizado: false, errorSincronizacion: res.error || 'El servidor central rechazó la actualización.' };
             }
-            await consultarMetaRemota(backendUrl).then((m) => {
+            await consultarMetaSupabase(backendUrl, supabaseAnonKey).then((m) => {
               setRemoteMeta({ ultimaActualizacion: m.ultimaActualizacion, ultimoUsuario: m.ultimoUsuario });
               ultimaCargaRef.current = m.ultimaActualizacion;
             }).catch(() => {});
@@ -437,10 +466,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // 1) Si hay backend, intenta traer la versión central primero — las
       // dos llamadas van UNA DESPUÉS DE LA OTRA (no en paralelo), para no
       // sumarle más carga simultánea al mismo backend compartido.
-      if (backendUrl) {
+      // Nota: Operatividad sigue en el backend de Apps Script/Drive de
+      // siempre (operatividadBackendUrl) — no se migró a Supabase todavía.
+      if (operatividadBackendUrl) {
         try {
-          const csv = await descargarCsvRemoto(backendUrl, 'operatividad');
-          const metaRemota = await consultarMetaRemota(backendUrl, 'operatividad').catch(() => null);
+          const csv = await descargarCsvRemoto(operatividadBackendUrl, 'operatividad');
+          const metaRemota = await consultarMetaRemota(operatividadBackendUrl, 'operatividad').catch(() => null);
           if (cancelado) return;
           const registros = parsearOperatividadDesdeCsv(csv);
           if (registros.length > 0) {
@@ -466,7 +497,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     })();
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backendUrl, loading]);
+  }, [operatividadBackendUrl, loading]);
 
   const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string): Promise<{ registros: number } | { error: string }> => {
     try {
@@ -475,11 +506,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       const ahora = new Date();
 
-      if (backendUrl) {
+      if (operatividadBackendUrl) {
         if (!token) return { error: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
         try {
           const csv = serializarOperatividadCsv(registros);
-          const res = await subirCsvRemoto(backendUrl, token, csv, usuario || 'No identificado', 'operatividad');
+          const res = await subirCsvRemoto(operatividadBackendUrl, token, csv, usuario || 'No identificado', 'operatividad');
           if (!res.ok) return { error: res.error || 'El servidor central rechazó la actualización de Operatividad.' };
         } catch {
           return { error: 'No fue posible conectar con el servidor central para sincronizar Operatividad.' };
@@ -493,7 +524,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'No fue posible leer el archivo de Operatividad.' };
     }
-  }, [backendUrl]);
+  }, [operatividadBackendUrl]);
 
   // Se filtra con los MISMOS filtros generales del dashboard, usando el
   // campo equivalente de cada uno (Delito ↔ delitoAsociado, Estación,
