@@ -91,7 +91,21 @@ async function localizarCapaDeEstaciones() {
         }
       }
       if (mejorColumna) {
-        console.warn(`[Microgerencia→Mapa] "${capa.nombre}" — se detectó por nombre de capa (no por valor); columna elegida por respaldo: "${mejorColumna}" (${menosValores} valores distintos).`);
+        // Se listan TODAS las columnas disponibles (no solo la elegida) —
+        // el heurístico de respaldo pudo haber escogido una columna que
+        // por casualidad tiene pocos valores únicos (ej. el municipio)
+        // sin que esa sea en realidad la columna correcta de Estación; con
+        // el listado completo se puede confirmar si existe otra columna
+        // más apropiada que el heurístico pasó por alto.
+        const resumenColumnas = columnas.map((c) => {
+          const valores = todosLosFeatures.map((f) => String(f?.properties?.[c] ?? '').trim()).filter(Boolean);
+          const unicos = [...new Set(valores)];
+          return `  · "${c}": ${unicos.length} valor(es) distinto(s) — ejemplo(s): ${JSON.stringify(unicos.slice(0, 6))}`;
+        }).join('\n');
+        console.warn(
+          `[Microgerencia→Mapa] "${capa.nombre}" — se detectó por nombre de capa (no por valor); columna elegida por respaldo: "${mejorColumna}" (${menosValores} valores distintos).\n` +
+          `Todas las columnas disponibles en esta capa, por si alguna otra es la correcta:\n${resumenColumnas}`,
+        );
         return { capa, columna: mejorColumna, features: todosLosFeatures };
       }
     }
