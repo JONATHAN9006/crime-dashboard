@@ -51,6 +51,52 @@ async function cargarImagenBase64(ruta: string): Promise<string | null> {
   }
 }
 
+// El mapa (tercera columna de cada tarjeta) llegaba con SU PROPIA
+// proporción (la del div del mapa en pantalla, normalmente más ancho que
+// alto) y se dibujaba "contain" — completo, sin recortar, centrado — así
+// que cuando esa proporción no coincidía con la del recuadro (casi nunca
+// coincidía) quedaba una franja en blanco arriba/abajo o a los lados: el
+// mapa "no se ajustaba". Esta función lo recorta al estilo "cover" —
+// como el object-fit: cover de CSS — a la proporción EXACTA del recuadro
+// de destino, así después se puede estirar para llenarlo por completo
+// sin dejar ningún espacio vacío (se sacrifica un poco de borde del mapa,
+// nunca el centro, que es donde está lo importante).
+function recortarImagenParaCobertura(dataUrl: string, anchoDestMm: number, altoDestMm: number): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      if (!img.width || !img.height || anchoDestMm <= 0 || altoDestMm <= 0) {
+        resolve(dataUrl);
+        return;
+      }
+      const aspectoDestino = anchoDestMm / altoDestMm;
+      const aspectoOrigen = img.width / img.height;
+      let sx = 0, sy = 0, sw = img.width, sh = img.height;
+      if (aspectoOrigen > aspectoDestino) {
+        // La imagen original es más ANCHA de lo necesario — se recortan
+        // los costados (izquierda/derecha), se conserva el centro.
+        sw = img.height * aspectoDestino;
+        sx = (img.width - sw) / 2;
+      } else {
+        // La imagen original es más ALTA de lo necesario — se recorta
+        // arriba/abajo, se conserva el centro.
+        sh = img.width / aspectoDestino;
+        sy = (img.height - sh) / 2;
+      }
+      const canvas = document.createElement('canvas');
+      const anchoSalidaPx = 1000;
+      canvas.width = anchoSalidaPx;
+      canvas.height = Math.round(anchoSalidaPx / aspectoDestino);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve(dataUrl); return; }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(dataUrl); // si falla, se usa la original tal cual — mejor eso que romper el PDF
+    img.src = dataUrl;
+  });
+}
+
 // Tamaños grandes, pensados para que se lean bien impresos. Son los
 // tamaños BASE (escala 1) — cuando una tarjeta no cabe completa en una
 // página (ver ESCALA más abajo), todos se multiplican por un mismo factor
@@ -125,13 +171,20 @@ function altoDeTarjeta(nodo: NodoMicrogerencia, dim: Dimensiones): number {
 }
 
 export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
-  // El encabezado y el pie de página ahora son las imágenes REALES que
+  // El encabezado y el pie de página son las imágenes REALES que
   // proporcionó el usuario (public/assets/microgerencia-header.png y
-  // microgerencia-footer.png) — se estampan tal cual, a todo el ancho de
-  // la página, en vez de reconstruir el diseño con formas y texto por
-  // separado (que nunca terminaba de verse idéntico: tono de verde,
-  // tipografía, proporciones). Se preserva la proporción real de cada
-  // imagen (646×122 el encabezado, 652×71 el pie) para no deformarlas.
+  // microgerencia-footer.png). A su proporción NATURAL (646×122 y
+  // 652×71) ocupaban 56mm y 32mm de una hoja de apenas 210mm de alto —
+  // casi la mitad de la página solo en encabezado+pie, dejando muy poco
+  // espacio (y letra muy chica) para los datos. Por pedido explícito se
+  // dibujan más pequeñas: como ninguna de las dos imágenes tiene margen
+  // de sobra recortable (se probó — el contenido llega hasta el borde),
+  // achicar la altura sin tocar el ancho implica una leve compresión
+  // vertical de la imagen (~25%), un compromiso consciente a cambio de
+  // un encabezado/pie menos protagonista y bastante más espacio (y letra
+  // más grande) para la información. Si más adelante hay una versión de
+  // estos banners en un formato más "panorámico" (más ancha en
+  // proporción a su alto), se puede volver a estirar sin comprimir nada.
   const [encabezadoBase64, pieBase64] = await Promise.all([
     cargarImagenBase64('/assets/microgerencia-header.png'),
     cargarImagenBase64('/assets/microgerencia-footer.png'),
@@ -139,8 +192,8 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   let y = 0;
 
-  const ALTO_HEADER = MM_ANCHO * (122 / 646);
-  const ALTO_FOOTER = MM_ANCHO * (71 / 652);
+  const ALTO_HEADER = 42; // antes: MM_ANCHO * (122/646) ≈ 56mm
+  const ALTO_FOOTER = 24; // antes: MM_ANCHO * (71/652) ≈ 32mm
 
   function dibujarEncabezadoPagina() {
     if (encabezadoBase64) {
@@ -339,19 +392,11 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.setDrawColor(203, 213, 225);
     pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'FD');
     try {
-      // Se calcula el tamaño respetando la proporción real de la imagen
-      // para que no se vea estirada — se centra dentro del recuadro.
-      const propsImg = (pdf as any).getImageProperties(imagenDataUrl);
-      const proporcion = propsImg.width / propsImg.height;
-      let anchoImg = ancho - 4;
-      let altoImg = anchoImg / proporcion;
-      if (altoImg > alto - 4) {
-        altoImg = alto - 4;
-        anchoImg = altoImg * proporcion;
-      }
-      const xImg = x0 + (ancho - anchoImg) / 2;
-      const yImg = y + (alto - altoImg) / 2;
-      pdf.addImage(imagenDataUrl, 'PNG', xImg, yImg, anchoImg, altoImg);
+      // La imagen ya llega recortada (ver recortarImagenParaCobertura,
+      // llamado antes de dibujar las tarjetas) a la proporción EXACTA de
+      // este recuadro — por eso ahora simplemente se estira para llenarlo
+      // por completo, sin dejar franjas en blanco ni deformar nada.
+      pdf.addImage(imagenDataUrl, 'PNG', x0 + 2, y + 2, ancho - 4, alto - 4);
     } catch {
       // Si la imagen viene corrupta o en un formato que jsPDF no acepta,
       // no se rompe el PDF entero — simplemente se deja el recuadro vacío.
@@ -422,7 +467,22 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   }
 
   dibujarEncabezadoPagina();
-  for (const nodo of nodos) dibujarTarjetaNodo(nodo, imagenesPorNodo?.get(nodo.nombre));
+  // Antes de dibujar, se recorta cada imagen de mapa a la proporción
+  // EXACTA del recuadro donde va a caer en SU tarjeta (que varía un poco
+  // según cuántos delitos tenga el nodo y la escala que le toque) — así
+  // dibujarImagenMapaONodo ya no tiene que decidir entre dejar franjas en
+  // blanco o deformar la imagen, porque llega lista para llenar el
+  // recuadro por completo.
+  const imagenesAjustadas = new Map<string, string>();
+  for (const nodo of nodos) {
+    const original = imagenesPorNodo?.get(nodo.nombre);
+    if (!original) continue;
+    const dim = crearDimensiones(calcularEscalaTarjeta(nodo));
+    const anchoTercera = ANCHO_UTIL * 0.42;
+    const altoBanda = altoBandaTresColumnas(nodo, dim);
+    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 4, altoBanda - 4));
+  }
+  for (const nodo of nodos) dibujarTarjetaNodo(nodo, imagenesAjustadas.get(nodo.nombre));
 
   // El pie de página (banda institucional + fecha de generación) se
   // dibuja al final, sobre TODAS las páginas ya generadas — más simple
