@@ -17,7 +17,11 @@ import { MAPA_DELITO } from '../data/db2Mapeos';
 
 export type RemoteStatus = 'sin-configurar' | 'conectando' | 'conectado' | 'error';
 
-const INTERVALO_SONDEO_MS = 45_000; // cada 45 segundos, sin recargar la página
+const INTERVALO_SONDEO_MS = 90_000; // cada 90 segundos (antes 45) — con la
+// base ya en ~24 MB, cada sondeo puede implicar varias peticiones seguidas
+// al backend (ver descargarCsvRemoto); espaciarlas reduce cuántas veces al
+// día se puede topar con una demora puntual de Google, sin perder la idea
+// de "se actualiza solo, sin recargar la página".
 
 // Delitos excluidos de TODO el dashboard (conteos, filtros, tablas, gráficos,
 // mapas) — porque no se miden / reportan oficialmente, a pedido explícito, o

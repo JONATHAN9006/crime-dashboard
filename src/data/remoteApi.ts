@@ -82,9 +82,18 @@ export async function descargarCsvRemoto(backendUrl: string, dataset?: DatasetRe
 export async function consultarMetaRemota(backendUrl: string, dataset?: DatasetRemoto): Promise<RemoteMeta> {
   const parametroDataset = dataset ? `&dataset=${dataset}` : '';
   const url = `${backendUrl}?action=meta&_=${Date.now()}${parametroDataset}`;
-  const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
-  if (!resp.ok) throw new Error(`El backend respondió con error ${resp.status}`);
-  return resp.json();
+  let ultimoError: unknown = null;
+  for (let intento = 1; intento <= REINTENTOS_POR_TROZO; intento++) {
+    try {
+      const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+      if (!resp.ok) throw new Error(`El backend respondió con error ${resp.status}`);
+      return await resp.json();
+    } catch (err) {
+      ultimoError = err;
+      if (intento < REINTENTOS_POR_TROZO) await esperar(ESPERA_ENTRE_REINTENTOS_MS * intento);
+    }
+  }
+  throw ultimoError instanceof Error ? ultimoError : new Error('No fue posible consultar el estado del backend.');
 }
 
 // Nota: Apps Script Web Apps no manejan bien preflight CORS con
