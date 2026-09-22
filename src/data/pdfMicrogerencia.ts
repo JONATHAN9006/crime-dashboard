@@ -128,16 +128,16 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // ancho real (varía con el contenido y la fuente en negrita), y con
     // textos largos como "Selección personalizada (2 elementos)" se
     // encimaba con el logo de Popayán a la derecha.
+    // El texto de esta banda es SIEMPRE la palabra fija "Microgerencia" —
+    // el nombre del nodo/vista específico (ej. "MEPOY General —
+    // Consolidado") ya aparece una sola vez, como título grande debajo del
+    // banner (ver dibujarEncabezadoPagina / la sección de cada tarjeta).
+    // Antes se repetía aquí también, con el nombre dinámico completo, lo
+    // que además se podía encimar con el logo de Popayán en textos largos.
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(13);
     const xTitulo = MM_ANCHO * 0.60 + 11;
-    const anchoMaximoTitulo = MM_ANCHO - MARGEN - 24 - xTitulo; // hasta justo antes del logo
-    let tituloMostrado = tituloVista;
-    while (pdf.getTextWidth(tituloMostrado) > anchoMaximoTitulo && tituloMostrado.length > 1) {
-      tituloMostrado = tituloMostrado.slice(0, -1);
-    }
-    if (tituloMostrado !== tituloVista) tituloMostrado = tituloMostrado.replace(/\s*$/, '') + '…';
-    pdf.text(tituloMostrado, xTitulo, ALTO_HEADER / 2 + 1.5);
+    pdf.text('Microgerencia', xTitulo, ALTO_HEADER / 2 + 1.5);
 
     if (popayanBase64) {
       try { pdf.addImage(popayanBase64, 'PNG', MM_ANCHO - MARGEN - 22, 2, 22, 22 * (190 / 215)); } catch { /* sin logo si falla */ }
