@@ -143,8 +143,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const descargaEnCursoRef = useRef(false);
   const cargarDesdeBackend = useCallback(async (): Promise<boolean> => {
     if (!backendUrl) return false;
+    // Con una base grande, la descarga completa (varios pedazos seguidos)
+    // puede tardar más de un minuto — más que el intervalo del sondeo
+    // automático. Sin este seguro, el sondeo podía arrancar una SEGUNDA
+    // descarga completa mientras la primera todavía estaba en curso: las
+    // dos compitiendo por la misma conexión, pisándose entre sí, daban
+    // exactamente el síntoma de "conecta y se desconecta a cada rato" que
+    // se venía reportando — no era un error real del servidor.
+    if (descargaEnCursoRef.current) return false;
+    descargaEnCursoRef.current = true;
     setRemoteStatus('conectando');
     try {
       const [texto, metaRemota] = await Promise.all([
@@ -175,6 +185,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setRemoteStatus('error');
       setRemoteError('No fue posible conectar con el backend central. Se muestran los últimos datos disponibles en este navegador.');
       return false;
+    } finally {
+      descargaEnCursoRef.current = false;
     }
   }, [backendUrl, persistirYActualizar]);
 

@@ -22,7 +22,7 @@ export type DatasetRemoto = 'delictividad' | 'operatividad';
 // debajo del límite real de Apps Script (que la base ya alcanzó con
 // ~2,8 MB de respuesta cortada) para dejar margen de sobra, incluso si la
 // base sigue creciendo.
-const TAMANO_TROZO = 2_000_000;
+const TAMANO_TROZO = 3_000_000;
 // Salvaguarda: nunca más de esta cantidad de pedazos, para no quedar en un
 // bucle infinito si el backend respondiera algo inesperado (ej. nunca
 // marca "esUltimo").
