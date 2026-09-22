@@ -172,19 +172,19 @@ function altoDeTarjeta(nodo: NodoMicrogerencia, dim: Dimensiones): number {
 
 export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
   // El encabezado y el pie de página son las imágenes REALES que
-  // proporcionó el usuario (public/assets/microgerencia-header.png y
-  // microgerencia-footer.png). A su proporción NATURAL (646×122 y
-  // 652×71) ocupaban 56mm y 32mm de una hoja de apenas 210mm de alto —
-  // casi la mitad de la página solo en encabezado+pie, dejando muy poco
-  // espacio (y letra muy chica) para los datos. Por pedido explícito se
-  // dibujan más pequeñas: como ninguna de las dos imágenes tiene margen
-  // de sobra recortable (se probó — el contenido llega hasta el borde),
-  // achicar la altura sin tocar el ancho implica una leve compresión
-  // vertical de la imagen (~25%), un compromiso consciente a cambio de
-  // un encabezado/pie menos protagonista y bastante más espacio (y letra
-  // más grande) para la información. Si más adelante hay una versión de
-  // estos banners en un formato más "panorámico" (más ancha en
-  // proporción a su alto), se puede volver a estirar sin comprimir nada.
+  // proporcionó el usuario. A su tamaño original (646×122 y 652×71)
+  // ocupaban 56mm + 32mm = 88mm de una hoja de apenas 210mm de alto —
+  // casi la mitad de la página — dejando muy poco para los datos.
+  // Intentar "encogerlas" estirando menos la misma imagen (como se hizo
+  // antes) las deforma (se ve el escudo ovalado, feo). La solución
+  // correcta era otra: las dos imágenes tienen una franja de fondo
+  // decorativo (el degradado verde) por ARRIBA y por ABAJO del
+  // contenido real (escudo/texto/iconos) que no aporta nada — esa franja
+  // se recortó de una vez en el archivo (ver public/assets/), así que
+  // ahora la imagen en sí ya es más "panorámica" (más ancha en
+  // proporción a su alto) y se puede seguir estirando a todo el ancho de
+  // la página SIN deformar nada, y aun así queda más pequeña: encabezado
+  // ~41mm (antes 56mm) y pie ~22mm (antes 32mm).
   const [encabezadoBase64, pieBase64] = await Promise.all([
     cargarImagenBase64('/assets/microgerencia-header.png'),
     cargarImagenBase64('/assets/microgerencia-footer.png'),
@@ -192,14 +192,18 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   let y = 0;
 
-  const ALTO_HEADER = 42; // antes: MM_ANCHO * (122/646) ≈ 56mm
-  const ALTO_FOOTER = 24; // antes: MM_ANCHO * (71/652) ≈ 32mm
+  // Proporción REAL de cada imagen ya recortada (ver comentario arriba) —
+  // se sigue calculando a partir del tamaño real del archivo (no un
+  // número fijo "a ojo") para que, si el encabezado/pie se vuelve a
+  // actualizar más adelante, esto se ajuste solo sin tocar código.
+  const ALTO_HEADER = MM_ANCHO * (270 / 1938);
+  const ALTO_FOOTER = MM_ANCHO * (144 / 1956);
 
   function dibujarEncabezadoPagina() {
     if (encabezadoBase64) {
       try { pdf.addImage(encabezadoBase64, 'PNG', 0, 0, MM_ANCHO, ALTO_HEADER); } catch { /* sin encabezado si falla */ }
     }
-    y = ALTO_HEADER + 4;
+    y = ALTO_HEADER + 2;
   }
 
   function dibujarPiePagina() {
@@ -209,13 +213,16 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     }
   }
 
-  const Y_TOPE_PAGINA_FRESCA = ALTO_HEADER + 4; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
+  const Y_TOPE_PAGINA_FRESCA = ALTO_HEADER + 2; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
   // Alto máximo que puede ocupar una tarjeta en CUALQUIER página (recién
   // empezada o no) sin invadir el pie de página. Si una tarjeta no cabe
   // aquí a tamaño normal, se achica proporcionalmente (ver
-  // calcularEscalaTarjeta) en vez de cortarse — ese recorte era justo el
-  // problema reportado (la tabla de meses se cortaba antes de diciembre).
-  const ALTO_MAXIMO_TARJETA = MM_ALTO - MARGEN - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
+  // calcularEscalaTarjeta) en vez de cortarse. Se deja un colchón chico
+  // (6mm, no los 14mm del margen general de la página) entre el final de
+  // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
+  // espacio de más que le haría falta a la letra.
+  const COLCHON_ANTES_DEL_PIE = 6;
+  const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
 
   function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
     const alturaNatural = altoDeTarjeta(nodo, crearDimensiones(1));
@@ -233,7 +240,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // saltar a una página nueva por falta de espacio EN LO QUE QUEDA de la
     // actual (no por falta de espacio en general).
     if (y <= Y_TOPE_PAGINA_FRESCA) return;
-    if (y + altoNecesario > MM_ALTO - MARGEN - ALTO_FOOTER) {
+    if (y + altoNecesario > MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER) {
       pdf.addPage();
       dibujarEncabezadoPagina();
     }
@@ -491,6 +498,13 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   for (let p = 1; p <= totalPaginas; p++) {
     pdf.setPage(p);
     dibujarPiePagina();
+    // Franjita oscura propia (no parte de la imagen) detrás de la fecha
+    // de generación — así el texto blanco SIEMPRE tiene contraste
+    // garantizado, sin depender de qué color quedó justo ahí en la
+    // imagen del pie (que puede variar si el pie se recorta o se
+    // reemplaza más adelante).
+    pdf.setFillColor(6, 30, 24);
+    pdf.rect(0, MM_ALTO - 4, MM_ANCHO, 4, 'F');
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(6.5);
     pdf.setTextColor(255, 255, 255);
