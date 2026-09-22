@@ -81,85 +81,34 @@ function altoBandaTresColumnas(nodo: NodoMicrogerencia): number {
 }
 
 export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
-  const [escudoBase64, popayanBase64, iconosFooterBase64] = await Promise.all([
-    cargarImagenBase64('/assets/escudo-policia.png'),
-    cargarImagenBase64('/assets/popayan-territorio-seguro.png'),
-    cargarImagenBase64('/assets/mepoy-footer-iconos.png'),
+  // El encabezado y el pie de página ahora son las imágenes REALES que
+  // proporcionó el usuario (public/assets/microgerencia-header.png y
+  // microgerencia-footer.png) — se estampan tal cual, a todo el ancho de
+  // la página, en vez de reconstruir el diseño con formas y texto por
+  // separado (que nunca terminaba de verse idéntico: tono de verde,
+  // tipografía, proporciones). Se preserva la proporción real de cada
+  // imagen (646×122 el encabezado, 652×71 el pie) para no deformarlas.
+  const [encabezadoBase64, pieBase64] = await Promise.all([
+    cargarImagenBase64('/assets/microgerencia-header.png'),
+    cargarImagenBase64('/assets/microgerencia-footer.png'),
   ]);
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   let y = 0;
 
-  // Colores muestreados directo de la plantilla institucional nueva
-  // (banner "Microgerencia — Popayán Territorio Seguro").
-  const VERDE_OSCURO_BANNER: [number, number, number] = [2, 90, 70];
-  const VERDE_MAS_OSCURO_BANNER: [number, number, number] = [4, 50, 40];
-  const LIMA_BANNER: [number, number, number] = [178, 241, 7];
-  const ALTO_HEADER = 26;
-  const ALTO_FOOTER = 13;
+  const ALTO_HEADER = MM_ANCHO * (122 / 646);
+  const ALTO_FOOTER = MM_ANCHO * (71 / 652);
 
   function dibujarEncabezadoPagina() {
-    // Degradado simple de dos tonos (izquierda más clara, derecha más
-    // oscura) + una franja lima diagonal, para acercarse al banner real
-    // sin depender de gradientes reales (jsPDF no los soporta nativo).
-    pdf.setFillColor(...VERDE_MAS_OSCURO_BANNER);
-    pdf.rect(0, 0, MM_ANCHO, ALTO_HEADER, 'F');
-    pdf.setFillColor(...VERDE_OSCURO_BANNER);
-    pdf.rect(0, 0, MM_ANCHO * 0.62, ALTO_HEADER, 'F');
-    pdf.setFillColor(...LIMA_BANNER);
-    pdf.triangle(MM_ANCHO * 0.58, 0, MM_ANCHO * 0.64, 0, MM_ANCHO * 0.60, ALTO_HEADER, 'F');
-
-    if (escudoBase64) {
-      try { pdf.addImage(escudoBase64, 'PNG', MARGEN, 3, 19, 19); } catch { /* sin escudo si falla */ }
-    }
-    const xTexto = escudoBase64 ? MARGEN + 22 : MARGEN;
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(12.5);
-    pdf.text('POLICÍA NACIONAL', xTexto, 8);
-    pdf.text('METROPOLITANA DE POPAYÁN', xTexto, 12.5);
-    pdf.setFontSize(7.5);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('Centro de Información Estratégica', xTexto, 17.5);
-    pdf.text('Policial del Servicio (CIEPS)', xTexto, 21);
-
-    // Título de la vista (nodo actual), centrado en el tramo verde claro.
-    // Se recorta según el ANCHO REAL del texto (no una cantidad fija de
-    // caracteres) — un conteo de caracteres no es buen indicador del
-    // ancho real (varía con el contenido y la fuente en negrita), y con
-    // textos largos como "Selección personalizada (2 elementos)" se
-    // encimaba con el logo de Popayán a la derecha.
-    // El texto de esta banda es SIEMPRE la palabra fija "Microgerencia" —
-    // el nombre del nodo/vista específico (ej. "MEPOY General —
-    // Consolidado") ya aparece una sola vez, como título grande debajo del
-    // banner (ver dibujarEncabezadoPagina / la sección de cada tarjeta).
-    // Antes se repetía aquí también, con el nombre dinámico completo, lo
-    // que además se podía encimar con el logo de Popayán en textos largos.
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(13);
-    const xTitulo = MM_ANCHO * 0.60 + 11;
-    pdf.text('Microgerencia', xTitulo, ALTO_HEADER / 2 + 1.5);
-
-    if (popayanBase64) {
-      try { pdf.addImage(popayanBase64, 'PNG', MM_ANCHO - MARGEN - 22, 2, 22, 22 * (190 / 215)); } catch { /* sin logo si falla */ }
+    if (encabezadoBase64) {
+      try { pdf.addImage(encabezadoBase64, 'PNG', 0, 0, MM_ANCHO, ALTO_HEADER); } catch { /* sin encabezado si falla */ }
     }
     y = ALTO_HEADER + 4;
   }
 
   function dibujarPiePagina() {
     const yFooter = MM_ALTO - ALTO_FOOTER;
-    pdf.setFillColor(...VERDE_MAS_OSCURO_BANNER);
-    pdf.rect(0, yFooter, MM_ANCHO, ALTO_FOOTER, 'F');
-    pdf.setFillColor(...LIMA_BANNER);
-    pdf.rect(0, yFooter, MM_ANCHO, 0.6, 'F');
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFont('helvetica', 'bolditalic');
-    pdf.setFontSize(9);
-    pdf.text('"Un servicio de policía focalizado', MARGEN, yFooter + 5.5);
-    pdf.text('para una Popayán más segura".', MARGEN, yFooter + 9.5);
-    if (iconosFooterBase64) {
-      // Proporción real del recorte (575x125) para no deformar los íconos.
-      const anchoIconos = 95;
-      try { pdf.addImage(iconosFooterBase64, 'PNG', MM_ANCHO - MARGEN - anchoIconos, yFooter + 1, anchoIconos, anchoIconos * (125 / 575)); } catch { /* sin íconos si falla */ }
+    if (pieBase64) {
+      try { pdf.addImage(pieBase64, 'PNG', 0, yFooter, MM_ANCHO, ALTO_FOOTER); } catch { /* sin pie si falla */ }
     }
   }
 
