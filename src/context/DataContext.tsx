@@ -182,6 +182,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setActualizacionDisponible(false);
       return true;
     } catch (e) {
+      // Antes este error se perdía por completo — el banner solo decía
+      // "no fue posible conectar", sin forma de saber SI era un problema
+      // de red, un error del backend (Apps Script) o un CORS bloqueado.
+      // Ahora queda en la consola con el mensaje real, para poder
+      // diagnosticar sin tener que adivinar (F12 → Console, buscar
+      // "[Backend central]").
+      console.error('[Backend central] Falló la descarga:', e);
       setRemoteStatus('error');
       setRemoteError('No fue posible conectar con el backend central. Se muestran los últimos datos disponibles en este navegador.');
       return false;
