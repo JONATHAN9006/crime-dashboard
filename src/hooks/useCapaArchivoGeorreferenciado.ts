@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { leerArchivoGenerico } from '../utils/archivoGenericoParser';
+import { leerArchivoGenerico, descargarRegistrosCorregidos } from '../utils/archivoGenericoParser';
 import { detectarColumnasCandidatas, parsearCoordenada, coordenadaEnRangoValido, detectarColumnasInvertidas } from '../utils/coordenadasParser';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import type { CapaGeografica } from '../data/geoStorage';
 
-export const PALETA_AZUL_ARCHIVO = ['#dbeafe', '#93c5fd', '#3b82f6', '#1d4ed8', '#1e3a8a']; // claro → intenso
+// Misma escala que usa Delitos (verde oscuro → verde → amarillo → naranja →
+// rojo), a pedido explícito — reemplaza la escala azul independiente que
+// tenía antes.
+export const PALETA_ARCHIVO_CARGADO = ['#166534', '#84cc16', '#facc15', '#f97316', '#dc2626'];
 export const ETIQUETAS_BANDA_ARCHIVO = ['Muy baja', 'Baja', 'Media', 'Alta', 'Muy alta'];
 
 export interface RegistroArchivoGeo {
@@ -52,11 +55,16 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
   const [avisoInvertidas, setAvisoInvertidas] = useState<string | null>(null);
 
   const [modoVisualizacion, setModoVisualizacion] = useState<'puntos' | 'calor'>('calor');
-  const [coloresActivos, setColoresActivos] = useState<(string | null)[]>(PALETA_AZUL_ARCHIVO);
+  const [coloresActivos, setColoresActivos] = useState<(string | null)[]>(PALETA_ARCHIVO_CARGADO);
   const [opacidad, setOpacidad] = useState(70);
 
   const [filtroDelito, setFiltroDelito] = useState('Todos');
   const [filtroCai, setFiltroCai] = useState('Todos');
+
+  // Descarga del archivo corregido (punto "nivel dios" del pedido) — dos
+  // elecciones independientes: formato de archivo y separador decimal.
+  const [formatoDescarga, setFormatoDescarga] = useState<'excel' | 'csv'>('excel');
+  const [formatoDecimal, setFormatoDecimal] = useState<'punto' | 'coma'>('punto');
 
   async function manejarArchivo(file: File) {
     setError(null);
@@ -167,12 +175,20 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
     return Array.from(conteo.entries()).map(([cai, casos]) => ({ cai, casos, aportePct: (casos / total) * 100 })).sort((a, b) => b.casos - a.casos);
   }, [registrosFiltrados]);
 
+  function descargarCorregido() {
+    // Se descargan TODOS los registros (válidos e inválidos) — los
+    // inválidos quedan marcados como tales en la columna "Estado" en vez
+    // de excluirse, para que quede claro cuáles hay que revisar a mano.
+    descargarRegistrosCorregidos(registros, formatoDescarga, formatoDecimal);
+  }
+
   return {
     archivo, cargando, error, manejarArchivo, limpiarTodo,
     encabezados, colLat, setColLat, colLon, setColLon, pidiendoColumnas, setPidiendoColumnas,
     invertidasConfirmadas, setInvertidasConfirmadas, avisoInvertidas, setAvisoInvertidas,
     modoVisualizacion, setModoVisualizacion, coloresActivos, setColoresActivos, opacidad, setOpacidad,
     filtroDelito, setFiltroDelito, filtroCai, setFiltroCai,
+    formatoDescarga, setFormatoDescarga, formatoDecimal, setFormatoDecimal, descargarCorregido,
     registros, registrosValidos, registrosInvalidos, registrosFiltrados,
     opcionesDelito, opcionesCai, concentracionPorCai, colDelitoDetectada,
   };

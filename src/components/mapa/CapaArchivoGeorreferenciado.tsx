@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Upload, X, Eye, AlertTriangle, Trash2 } from 'lucide-react';
+import { Upload, X, Eye, AlertTriangle, Trash2, Download } from 'lucide-react';
 import { calcularKernelDensidad, type PuntoDensidad } from '../../utils/kernelDensity';
-import { PALETA_AZUL_ARCHIVO, ETIQUETAS_BANDA_ARCHIVO, type CapaArchivoGeorreferenciadoState } from '../../hooks/useCapaArchivoGeorreferenciado';
+import { PALETA_ARCHIVO_CARGADO, ETIQUETAS_BANDA_ARCHIVO, type CapaArchivoGeorreferenciadoState } from '../../hooks/useCapaArchivoGeorreferenciado';
 
 // ---------------------------------------------------------------------------
 // Capa TEMPORAL de análisis (ver el hook useCapaArchivoGeorreferenciado para
@@ -33,6 +33,7 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
     invertidasConfirmadas, setInvertidasConfirmadas, avisoInvertidas, setAvisoInvertidas,
     modoVisualizacion, setModoVisualizacion, coloresActivos, setColoresActivos, opacidad, setOpacidad,
     filtroDelito, setFiltroDelito, filtroCai, setFiltroCai,
+    formatoDescarga, setFormatoDescarga, formatoDecimal, setFormatoDecimal, descargarCorregido,
     registros, registrosValidos, registrosInvalidos,
     opcionesDelito, opcionesCai, concentracionPorCai,
   } = estado;
@@ -147,7 +148,7 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
 
               {modoVisualizacion === 'calor' && (
                 <div className="space-y-1 text-xs text-slate-600">
-                  {PALETA_AZUL_ARCHIVO.map((color, i) => (
+                  {PALETA_ARCHIVO_CARGADO.map((color, i) => (
                     <label key={color} className="flex items-center gap-2">
                       <input type="checkbox" checked={coloresActivos[i] !== null} onChange={(e) => setColoresActivos((prev) => prev.map((c, j) => (j === i ? (e.target.checked ? color : null) : c)))} />
                       <span className="inline-block h-3 w-3 rounded-full" style={{ background: color }} />
@@ -196,6 +197,29 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
                   </ol>
                 </div>
               )}
+
+              {/* Descarga del archivo corregido — Latitud/Longitud ya
+                  normalizadas a decimal, listas para reutilizar. */}
+              <div className="rounded border border-slate-200 bg-white p-2 text-xs">
+                <p className="mb-1.5 font-semibold text-slate-700">Descargar coordenadas corregidas</p>
+                <div className="mb-2">
+                  <p className="mb-1 text-slate-500">Descargar en:</p>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-1.5 text-slate-600"><input type="checkbox" checked={formatoDescarga === 'excel'} onChange={() => setFormatoDescarga('excel')} /> Excel</label>
+                    <label className="flex items-center gap-1.5 text-slate-600"><input type="checkbox" checked={formatoDescarga === 'csv'} onChange={() => setFormatoDescarga('csv')} /> CSV</label>
+                  </div>
+                </div>
+                <div className="mb-2">
+                  <p className="mb-1 text-slate-500">Descargar coordenadas en:</p>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-1.5 text-slate-600"><input type="checkbox" checked={formatoDecimal === 'punto'} onChange={() => setFormatoDecimal('punto')} /> Decimales con punto</label>
+                    <label className="flex items-center gap-1.5 text-slate-600"><input type="checkbox" checked={formatoDecimal === 'coma'} onChange={() => setFormatoDecimal('coma')} /> Decimales con coma</label>
+                  </div>
+                </div>
+                <button onClick={descargarCorregido} className="flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500">
+                  <Download size={14} /> Descargar {registros.length.toLocaleString('es-CO')} registros corregidos
+                </button>
+              </div>
             </>
           )}
         </div>
