@@ -141,26 +141,28 @@ function normalizeCategoria(v: string): string {
 // delitos que sí están bien formateados ("H. Personas", "Homicidio").
 // Nunca cambia el significado, solo la presentación.
 // Deriva el CAI real a partir del número de Zona de Atención (ej. "Z.
-// Atención 5 Norte" → "CAI La Paz") cuando el archivo no trae el campo CAI
+// Atención 5 Norte" → "CAI 2") cuando el archivo no trae el campo CAI
 // directamente — construido a partir de la división oficial de cuadrantes
 // por CAI de cada Estación (fuente: directorios de la Policía Metropolitana
-// de Popayán, Estación Norte y Estación Sur). Se usa SOLO como respaldo:
-// si el archivo ya trae un CAI real, ese se respeta siempre; esto nunca lo
+// de Popayán, Estación Norte y Estación Sur) y numerado tal como ya se usa
+// en el resto del dashboard (CAI 1 a CAI 10 — Norte 1-4, Sur 5-10, en el
+// mismo orden de los directorios). Se usa SOLO como respaldo: si el
+// archivo ya trae un CAI real, ese se respeta siempre; esto nunca lo
 // reemplaza, solo llena el vacío cuando no hay nada.
 const RANGOS_CAI_POR_ESTACION: Record<'NORTE' | 'SUR', { hasta: number; cai: string }[]> = {
   NORTE: [
-    { hasta: 2, cai: 'CAI Antonio Nariño' },
-    { hasta: 8, cai: 'CAI La Paz' },
-    { hasta: 12, cai: 'CAI La Estancia' },
-    { hasta: 18, cai: 'CAI Benito Juárez' },
+    { hasta: 2, cai: 'CAI 1' }, // Antonio Nariño
+    { hasta: 8, cai: 'CAI 2' }, // La Paz
+    { hasta: 12, cai: 'CAI 3' }, // La Estancia
+    { hasta: 18, cai: 'CAI 4' }, // Benito Juárez
   ],
   SUR: [
-    { hasta: 3, cai: 'CAI La Floresta' },
-    { hasta: 8, cai: 'CAI Alfonso López' },
-    { hasta: 15, cai: 'CAI El Mirador' },
-    { hasta: 19, cai: 'CAI Parque Informático' },
-    { hasta: 21, cai: 'CAI María Occidente' },
-    { hasta: 23, cai: 'CAI Lomas de Granada' },
+    { hasta: 3, cai: 'CAI 5' }, // La Floresta
+    { hasta: 8, cai: 'CAI 6' }, // Alfonso López
+    { hasta: 15, cai: 'CAI 7' }, // El Mirador
+    { hasta: 19, cai: 'CAI 8' }, // Parque Informático
+    { hasta: 21, cai: 'CAI 9' }, // María Occidente
+    { hasta: 23, cai: 'CAI 10' }, // Lomas de Granada
   ],
 };
 
