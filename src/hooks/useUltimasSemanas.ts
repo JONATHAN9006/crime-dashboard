@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, participacionPct, totalCasos, semanaIso } from '../utils/aggregations';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
+import { maxDe } from '../utils/mathSeguro';
 
 const MS_DIA = 86400000;
 
@@ -50,7 +51,7 @@ export function useUltimasSemanas(records: CrimeRecord[]): UltimasSemanasResumen
       };
     }
 
-    const maxTs = Math.max(...conFecha.map((r) => r.fecha!.getTime()));
+    const maxTs = maxDe(conFecha.map((r) => r.fecha!.getTime()));
     const maxFecha = new Date(maxTs);
     const diaFin = new Date(maxFecha.getFullYear(), maxFecha.getMonth(), maxFecha.getDate());
 

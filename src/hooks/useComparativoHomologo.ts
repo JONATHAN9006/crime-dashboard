@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { CrimeRecord, FilterState } from '../types/crime';
 import { agruparPor, totalCasos, variacion, participacionPct } from '../utils/aggregations';
 import { esValorPendiente } from '../utils/valoresPendientes';
+import { maxDe, minDe } from '../utils/mathSeguro';
 
 export interface VentanaComparativa {
   disponible: boolean;
@@ -95,7 +96,7 @@ export function useVentanaComparativa(
       fechaMaxDatos = new Date(fechaMaxParametro);
     } else {
       const baseParaFecha = (todosLosRegistros ?? recordsBase).filter((r) => r.fecha);
-      const maxTs = Math.max(...baseParaFecha.map((r) => r.fecha!.getTime()));
+      const maxTs = maxDe(baseParaFecha.map((r) => r.fecha!.getTime()));
       fechaMaxDatos = new Date(maxTs);
     }
     fechaMaxDatos.setHours(23, 59, 59, 999);

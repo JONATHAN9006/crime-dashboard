@@ -13,6 +13,7 @@ import {
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
+import { maxDe } from '../utils/mathSeguro';
 import { mapearCuadrante } from '../data/db2Transform';
 import { MAPA_ESTACION } from '../data/db2Mapeos';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
@@ -513,7 +514,7 @@ export function MapaGeorreferenciacion() {
     if (hayFiltroTemporalMapa) return null;
     const conFecha = records.filter((r) => r.fecha);
     if (conFecha.length === 0) return null;
-    const maxTs = meta?.fechaMaxParametro ? meta.fechaMaxParametro.getTime() : Math.max(...conFecha.map((r) => r.fecha!.getTime()));
+    const maxTs = meta?.fechaMaxParametro ? meta.fechaMaxParametro.getTime() : maxDe(conFecha.map((r) => r.fecha!.getTime()));
     const anioReferencia = new Date(maxTs).getFullYear();
     return { inicio: new Date(anioReferencia, 0, 1), fin: new Date(maxTs) };
   }, [records, hayFiltroTemporalMapa, meta?.fechaMaxParametro]);
@@ -842,7 +843,8 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // Todos los polígonos, de CUALQUIER capa visible, que coincidan con el
   // CAI/Estación/Cuadrante filtrados arriba — se recalcula solo cuando
   // cambian los filtros o las capas cargadas.
-  const featuresPorFiltroActivo = useMemo(() => {
+  const LIMITE_FEATURES_POR_FILTRO = 20;
+  const resultadoFiltroActivo = useMemo(() => {
     const resultado: any[] = [];
     for (const capa of capas) {
       if (!capa.visible) continue;
@@ -852,9 +854,23 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         if (coincideConFiltrosActivos(f?.properties?.[campo])) resultado.push(f);
       }
     }
-    return resultado;
+    // Seguro: una Estación/CAI/Cuadrante real coincide con un puñado de
+    // polígonos (unos pocos cuadrantes, o un solo contorno) — si de
+    // repente coincide con MUCHOS (confirmado en producción: pasaba
+    // cuando el filtro caía por error sobre una capa de municipios sin
+    // relación real, con geometrías enormes y muy detalladas), intentar
+    // dibujarlos igual arriesga tumbar la página entera (se vio un
+    // "Maximum call stack size exceeded" real con esto). Mejor avisar y
+    // no intentarlo, que sea el usuario quien revise cuál capa está
+    // causando la coincidencia de más.
+    if (resultado.length > LIMITE_FEATURES_POR_FILTRO) {
+      return { features: [] as any[], demasiadoAmplio: true };
+    }
+    return { features: resultado, demasiadoAmplio: false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capas, camposUnionAutoDetectados, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes, jerarquiaCai]);
+  const featuresPorFiltroActivo = resultadoFiltroActivo.features;
+  const filtroDemasiadoAmplio = resultadoFiltroActivo.demasiadoAmplio;
 
   // "Zona activa" = lo que se haya seleccionado con un clic puntual, o —
   // si no hay ningún clic— TODOS los polígonos que ya coincidan con el
@@ -2137,7 +2153,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
             />
             {capas.filter((c) => c.visible).map((capa) => {
               const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
-              const maxCasos = conteos ? Math.max(...Array.from(conteos.values()), 0) : 0;
+              const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
 
               function estiloFeature(feature: any) {
                 const esSeleccionadaPorClic = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
@@ -2409,6 +2425,16 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
               sobre cualquier polígono de una capa cargada (ej. el CAI 5).
               El botón de descarga usa exactamente el mismo motor de
               exportación de imágenes que el resto del dashboard. */}
+          {filtroDemasiadoAmplio && (
+            <div className="absolute right-3 top-3 z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
+              <p className="text-sm font-semibold text-amber-800">Este filtro coincide con demasiados polígonos</p>
+              <p className="mt-1 text-xs text-amber-700">
+                Probablemente hay una capa cargada (revisa "JURIS_ESTACIONES_2026") cuyos valores no corresponden
+                de verdad a esta Estación/CAI/Cuadrante — por seguridad, no se intenta dibujar. Quita esa capa o
+                revisa cuál es la correcta.
+              </p>
+            </div>
+          )}
           {zonaActiva && (
             <div className="absolute right-3 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
               <div className="mb-2 flex items-start justify-between gap-2">

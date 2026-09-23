@@ -7,6 +7,7 @@ import { Card, PageHeader } from '../components/ui/Card';
 import { KpiCard } from '../components/ui/KpiCard';
 import { Heatmap } from '../components/charts/Heatmap';
 import { formatNumero } from '../utils/aggregations';
+import { maxDe } from '../utils/mathSeguro';
 
 export function MatrizCalor() {
   const { filteredRecords, filters, setFilters, meta } = useData();
@@ -25,7 +26,7 @@ export function MatrizCalor() {
     if (conFecha.length === 0) return filteredRecords;
     const maxTs = meta?.fechaMaxParametro
       ? meta.fechaMaxParametro.getTime()
-      : Math.max(...conFecha.map((r) => r.fecha!.getTime()));
+      : maxDe(conFecha.map((r) => r.fecha!.getTime()));
     const anioReferencia = new Date(maxTs).getFullYear();
     return conFecha.filter((r) => r.fecha!.getFullYear() === anioReferencia);
   }, [filteredRecords, hayFiltroTemporal, meta?.fechaMaxParametro]);

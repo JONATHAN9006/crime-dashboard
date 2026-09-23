@@ -18,6 +18,8 @@ export interface PuntoDensidad {
   lon: number;
 }
 
+import { maxDe, minDe } from './mathSeguro';
+
 export interface ResultadoKernel {
   dataUrl: string; // PNG en base64, listo para L.imageOverlay
   bounds: [[number, number], [number, number]]; // [[latSur, lonOeste], [latNorte, lonEste]]

@@ -6,6 +6,7 @@
 // misma posición — no una proyección aproximada distinta a la de las
 // tiles.
 import { calcularKernelDensidad, type PuntoDensidad } from './kernelDensity';
+import { maxDe, minDe } from './mathSeguro';
 
 export interface PuntoParaMapaCalor {
   lat: number;
@@ -81,10 +82,10 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
 
   const todosLosPuntosAnillo = anillos.flat();
-  const minLon = Math.min(...todosLosPuntosAnillo.map((p) => p[0]));
-  const maxLon = Math.max(...todosLosPuntosAnillo.map((p) => p[0]));
-  const minLat = Math.min(...todosLosPuntosAnillo.map((p) => p[1]));
-  const maxLat = Math.max(...todosLosPuntosAnillo.map((p) => p[1]));
+  const minLon = minDe(todosLosPuntosAnillo.map((p) => p[0]));
+  const maxLon = maxDe(todosLosPuntosAnillo.map((p) => p[0]));
+  const minLat = minDe(todosLosPuntosAnillo.map((p) => p[1]));
+  const maxLat = maxDe(todosLosPuntosAnillo.map((p) => p[1]));
 
   const margenLon = (maxLon - minLon) * 0.08 || 0.001;
   const margenLat = (maxLat - minLat) * 0.08 || 0.001;
@@ -255,11 +256,11 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
 
     const cajas = grupos.map((g) => {
       const lineasConTitulo = g.titulo ? [g.titulo, ...g.lineas] : g.lineas;
-      const ancho = Math.max(...lineasConTitulo.map((t) => ctx.measureText(t).width)) + paddingX * 2;
+      const ancho = maxDe(lineasConTitulo.map((t) => ctx.measureText(t).width)) + paddingX * 2;
       const alto = paddingY * 2 + alturaLinea * lineasConTitulo.length;
       return { lineasConTitulo, ancho, alto };
     });
-    const anchoCaja = Math.max(...cajas.map((c) => c.ancho));
+    const anchoCaja = maxDe(cajas.map((c) => c.ancho));
     const altoTotal = cajas.reduce((suma, c) => suma + c.alto, 0) + espacioEntreCajas * (cajas.length - 1);
 
     const candidatas = [

@@ -5,6 +5,7 @@ import {
   useAnalisisPeriodos, useSemanasDisponibles, useMesesDisponibles, dividirEnSemanas, type PeriodoDef,
 } from '../hooks/useAnalisisPeriodos';
 import { semanaIso } from '../utils/aggregations';
+import { maxDe } from '../utils/mathSeguro';
 import { Card, EmptyState, PageHeader } from '../components/ui/Card';
 import { KpiCard } from '../components/ui/KpiCard';
 import { MultiSelect } from '../components/filters/MultiSelect';
@@ -37,7 +38,7 @@ export function UltimasSemanas() {
       return dividirEnSemanas(mes.inicio, mes.fin);
     }
     // ultimas4 (por defecto): últimas 4 semanas de 7 días terminando en el dato más reciente.
-    const maxTs = Math.max(...conFecha.map((r) => r.fecha!.getTime()));
+    const maxTs = maxDe(conFecha.map((r) => r.fecha!.getTime()));
     const diaFin = new Date(maxTs);
     diaFin.setHours(0, 0, 0, 0);
     const MS_DIA = 86400000;

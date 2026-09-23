@@ -1,5 +1,6 @@
 import type { CrimeRecord, DatasetMeta, DataQuality, UpdateSummary } from '../types/crime';
 import { COLUMNAS_REQUERIDAS, buildRecordId } from './csvParser';
+import { maxDe, minDe } from '../utils/mathSeguro';
 
 export function fusionarRegistros(
   existentes: CrimeRecord[],
@@ -139,8 +140,8 @@ export function construirMeta(
   fechaMaxParametro: Date | null = null,
 ): DatasetMeta {
   const fechas = records.filter((r) => r.fecha).map((r) => r.fecha!.getTime());
-  const fechaMin = fechas.length ? new Date(Math.min(...fechas)) : null;
-  const fechaMax = fechas.length ? new Date(Math.max(...fechas)) : null;
+  const fechaMin = fechas.length ? new Date(minDe(fechas)) : null;
+  const fechaMax = fechas.length ? new Date(maxDe(fechas)) : null;
 
   const aniosDisponibles = Array.from(new Set(records.filter((r) => r.anio).map((r) => r.anio!))).sort((a, b) => a - b);
   const estacionesDisponibles = Array.from(new Set(records.map((r) => r.estacion).filter(Boolean))).sort();
