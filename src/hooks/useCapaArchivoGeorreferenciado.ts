@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { leerArchivoGenerico, descargarRegistrosCorregidos } from '../utils/archivoGenericoParser';
-import { detectarColumnasCandidatas, parsearCoordenada, coordenadaEnRangoValido, detectarColumnasInvertidas } from '../utils/coordenadasParser';
+import { detectarColumnasCandidatas, parsearCoordenada, coordenadaEnRangoValido, detectarColumnasInvertidas, inferirSignoParaCauca } from '../utils/coordenadasParser';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import type { CapaGeografica } from '../data/geoStorage';
 
@@ -118,6 +118,20 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
       let lat = parsearCoordenada(fila[colLat]);
       let lon = parsearCoordenada(fila[colLon]);
       if (usarInvertido && lat != null && lon != null) [lat, lon] = [lon, lat];
+      if (lat != null && lon != null) {
+        // Muchos archivos de campo (típicamente convertidos a mano desde
+        // grados/minutos/segundos) omiten el signo negativo o la letra
+        // cardinal en la longitud — se sobreentiende porque "obviamente
+        // estamos en Colombia". Confirmado en producción: un archivo real
+        // traía "76°35'54.98"" (sin signo ni W) para una longitud que debía
+        // ser -76.599 — sin este ajuste, quedaba fuera de rango y se
+        // descartaba un archivo completo que en realidad estaba bien.
+        // Ver inferirSignoParaCauca: SOLO actúa cuando el valor, en su
+        // signo opuesto, cae en el rango típico de Popayán/Cauca — nunca
+        // adivina si ya viene con signo correcto o fuera de ese rango.
+        lat = inferirSignoParaCauca(lat, 'lat');
+        lon = inferirSignoParaCauca(lon, 'lon');
+      }
       if (lat == null || lon == null) {
         return { lat: 0, lon: 0, valido: false, motivoInvalido: 'No se pudo interpretar la coordenada', fila, caiAsignado: null, estacionAsignada: null, zonaAsignada: null };
       }

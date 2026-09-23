@@ -82,6 +82,23 @@ export function coordenadaEnRangoValido(lat: number, lon: number): boolean {
   return lat >= LAT_MIN && lat <= LAT_MAX && lon >= LON_MIN && lon <= LON_MAX;
 }
 
+/**
+ * Corrige el signo de UN eje (latitud o longitud) cuando el valor tal cual
+ * viene queda fuera del rango de Popayán/Cauca, pero su signo OPUESTO sí
+ * cae dentro — típico de archivos de campo que omiten el "-" o la letra
+ * cardinal en la longitud porque "se sobreentiende" que es Colombia (ej.
+ * "76°35'54.98"" en vez de "-76.599" o "76°35'54.98"W"). Nunca actúa si el
+ * valor ya es válido tal cual, ni si ninguno de los dos signos cae en rango
+ * (ahí sí es un dato genuinamente inválido, no un signo faltante).
+ */
+export function inferirSignoParaCauca(valor: number, eje: 'lat' | 'lon'): number {
+  const [min, max] = eje === 'lat' ? [LAT_MIN, LAT_MAX] : [LON_MIN, LON_MAX];
+  if (valor >= min && valor <= max) return valor; // ya válido, no se toca
+  const opuesto = -valor;
+  if (opuesto >= min && opuesto <= max) return opuesto;
+  return valor; // ninguno de los dos signos sirve — se deja igual, que la validación normal lo marque inválido
+}
+
 export interface ResultadoDeteccionInvertida {
   invertidas: boolean;
   motivo: string;
