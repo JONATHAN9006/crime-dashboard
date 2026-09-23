@@ -209,7 +209,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     if (encabezadoBase64) {
       try { pdf.addImage(encabezadoBase64, 'PNG', 0, 0, MM_ANCHO, ALTO_HEADER); } catch { /* sin encabezado si falla */ }
     }
-    y = ALTO_HEADER + 2;
+    y = ALTO_HEADER + 5;
   }
 
   function dibujarPiePagina() {
@@ -219,7 +219,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     }
   }
 
-  const Y_TOPE_PAGINA_FRESCA = ALTO_HEADER + 2; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
+  const Y_TOPE_PAGINA_FRESCA = ALTO_HEADER + 5; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
   // Alto máximo que puede ocupar una tarjeta en CUALQUIER página (recién
   // empezada o no) sin invadir el pie de página. Si una tarjeta no cabe
   // aquí a tamaño normal, se achica proporcionalmente (ver
@@ -227,7 +227,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // (6mm, no los 14mm del margen general de la página) entre el final de
   // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
   // espacio de más que le haría falta a la letra.
-  const COLCHON_ANTES_DEL_PIE = 6;
+  const COLCHON_ANTES_DEL_PIE = 10;
   const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
 
   function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
@@ -449,9 +449,11 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // Columna 1: Trimestres arriba, Top 10 delitos debajo. Columna 2:
     // Distribución por mes. Columna 3: mapa + mapa de calor del nodo (si
     // se pudo generar) — o, si no hay imagen disponible, la lista
-    // completa de delitos como respaldo.
-    const anchoTrimestres = ANCHO_UTIL * 0.25;
-    const anchoTercera = ANCHO_UTIL * 0.42;
+    // completa de delitos como respaldo. El mapa se redujo un poco (era
+    // 0.42) y Trimestres/Delitos ganaron ese espacio (era 0.25) — a
+    // pedido explícito: en vertical se veían muy pegados/angostos.
+    const anchoTrimestres = ANCHO_UTIL * 0.28;
+    const anchoTercera = ANCHO_UTIL * 0.34;
     const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoTercera - dim.paddingTarjeta * 2;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
 
@@ -491,7 +493,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     const original = imagenesPorNodo?.get(nodo.nombre);
     if (!original) continue;
     const dim = crearDimensiones(calcularEscalaTarjeta(nodo));
-    const anchoTercera = ANCHO_UTIL * 0.42;
+    const anchoTercera = ANCHO_UTIL * 0.34;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
     imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 4, altoBanda - 4));
   }
