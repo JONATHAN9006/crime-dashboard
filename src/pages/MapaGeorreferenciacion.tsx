@@ -597,16 +597,23 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
   // existen en los datos cargados (nunca una lista vacía ni inventada).
   const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
   const opcionesFiltroMapa = useMemo(() => {
-    // El campo CAI de los datos a veces trae, además de los CAI numerados,
+    // El campo CAI de los datos a veces trae, además de los CAI reales,
     // otros valores que no son un CAI (Zonas de Atención, Comunas, etc.) —
-    // se descartan aquí y solo se conserva lo que sigue el patrón real de
-    // un CAI ("CAI 4"), ya canonizado para agrupar variantes de espacios/
-    // mayúsculas del histórico y de DB2 — ver formatoCaiCanonico más arriba.
+    // se descartan aquí y solo se conserva lo que empieza con "CAI " —
+    // sea NUMERADO ("CAI 4", el formato de los datos más nuevos) o CON
+    // NOMBRE PROPIO ("CAI Villa del Norte", "CAI La Paz" — el formato
+    // real de varias jurisdicciones). Antes solo se aceptaba el numérico
+    // (con dígito obligatorio al final), así que cualquier CAI con nombre
+    // se descartaba entero — la lista de CAI quedaba vacía aunque los
+    // datos SÍ trajeran CAI reales, y con ella toda la tarjeta de
+    // "CAI de Estación X" (que depende de esta misma lista) dejaba de
+    // aparecer. Ya canonizado por formatoCaiCanonico más arriba (agrupa
+    // variantes de espacios/mayúsculas del histórico y de DB2).
     const caiCanonicoPorClave = new Map<string, string>();
     for (const r of records) {
       if (!esValorReal(r.cai)) continue;
       const canonico = formatoCaiCanonico(r.cai);
-      if (!/^CAI \d+$/i.test(canonico)) continue;
+      if (!/^CAI\s+\S/i.test(canonico)) continue;
       if (!caiCanonicoPorClave.has(normalizar(canonico))) caiCanonicoPorClave.set(normalizar(canonico), canonico);
     }
     const caiOrdenados = Array.from(caiCanonicoPorClave.values()).sort((a, b) => {
