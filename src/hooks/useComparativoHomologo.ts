@@ -136,8 +136,8 @@ export function useVentanaComparativa(
     } else if (mesesSeleccionados.length > 0) {
       // 2) Mes(es) seleccionados dentro del año de referencia (el más
       // reciente de la base, o el que se haya filtrado explícitamente).
-      const mesMin = Math.min(...mesesSeleccionados);
-      const mesMax = Math.max(...mesesSeleccionados);
+      const mesMin = minDe(mesesSeleccionados);
+      const mesMax = maxDe(mesesSeleccionados);
       actualInicio = new Date(anioReferencia, mesMin - 1, 1);
       actualFin = new Date(anioReferencia, mesMax, 0, 23, 59, 59, 999);
       if (actualFin > fechaMaxDatos) actualFin = fechaMaxDatos;

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, participacionPct, totalCasos, semanaIso } from '../utils/aggregations';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
+import { maxDe, minDe } from '../utils/mathSeguro';
 
 export interface PeriodoDef {
   etiqueta: string;
@@ -60,8 +61,8 @@ export function useAnalisisPeriodos(records: CrimeRecord[], periodosDef: Periodo
     const conFecha = records.filter((r) => r.fecha);
     if (conFecha.length === 0) return RESUMEN_VACIO;
 
-    const inicioVentana = new Date(Math.min(...periodosDef.map((p) => p.inicio.getTime())));
-    const finVentana = new Date(Math.max(...periodosDef.map((p) => p.fin.getTime())));
+    const inicioVentana = new Date(minDe(periodosDef.map((p) => p.inicio.getTime())));
+    const finVentana = new Date(maxDe(periodosDef.map((p) => p.fin.getTime())));
     const registrosVentana = conFecha.filter((r) => r.fecha! >= inicioVentana && r.fecha! <= finVentana);
 
     const periodos: PeriodoConTotal[] = periodosDef.map((p) => ({
@@ -150,9 +151,9 @@ export function useSemanasDisponibles(records: CrimeRecord[]): SemanaDisponible[
     }
     return Array.from(mapa.values())
       .map(({ anio, semana, fechas }) => {
-        const inicio = new Date(Math.min(...fechas.map((f) => f.getTime())));
+        const inicio = new Date(minDe(fechas.map((f) => f.getTime())));
         inicio.setHours(0, 0, 0, 0);
-        const fin = new Date(Math.max(...fechas.map((f) => f.getTime())));
+        const fin = new Date(maxDe(fechas.map((f) => f.getTime())));
         fin.setHours(23, 59, 59, 999);
         return { anio, semana, inicio, fin, etiqueta: `Semana ${semana} (${anio})` };
       })
@@ -180,9 +181,9 @@ export function useMesesDisponibles(records: CrimeRecord[]): MesDisponible[] {
     return Array.from(mapa.entries())
       .map(([anioMes, fechas]) => {
         const [anioStr, mesStr] = anioMes.split('-');
-        const inicio = new Date(Math.min(...fechas.map((f) => f.getTime())));
+        const inicio = new Date(minDe(fechas.map((f) => f.getTime())));
         inicio.setHours(0, 0, 0, 0);
-        const fin = new Date(Math.max(...fechas.map((f) => f.getTime())));
+        const fin = new Date(maxDe(fechas.map((f) => f.getTime())));
         fin.setHours(23, 59, 59, 999);
         return { anioMes, etiqueta: `${NOMBRES_MES[Number(mesStr) - 1]} ${anioStr}`, inicio, fin };
       })

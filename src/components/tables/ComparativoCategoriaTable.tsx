@@ -1,5 +1,6 @@
 import type { FilaComparativaCategoria } from '../../hooks/useComparativoHomologo';
 import { formatDecimal, formatNumero } from '../../utils/aggregations';
+import { maxDe } from '../../utils/mathSeguro';
 
 // Tabla comparativa con el mismo formato de los reportes de referencia:
 // [Categoría | TOTAL año anterior | Año anterior A LA FECHA | Año actual A
@@ -26,7 +27,7 @@ export function ComparativoCategoriaTable({
   const totalDif = totalActual - totalAnterior;
   const totalPct = totalAnterior > 0 ? (totalDif / totalAnterior) * 100 : null;
   const totalAnioAnteriorCompletoGeneral = filas.reduce((a, f) => a + f.totalAnioAnteriorCompleto, 0);
-  const maxAporte = Math.max(...filas.map((f) => f.aportePct), 1);
+  const maxAporte = maxDe([...filas.map((f) => f.aportePct), 1]);
 
   function colorCelda(valor: number | null) {
     if (valor === null) return 'bg-slate-100 text-slate-500';

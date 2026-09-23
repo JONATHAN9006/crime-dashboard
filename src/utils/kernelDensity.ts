@@ -68,10 +68,10 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
 
   const lats = puntos.map((p) => p.lat);
   const lons = puntos.map((p) => p.lon);
-  const latMin0 = Math.min(...lats);
-  const latMax0 = Math.max(...lats);
-  const lonMin0 = Math.min(...lons);
-  const lonMax0 = Math.max(...lons);
+  const latMin0 = minDe(lats);
+  const latMax0 = maxDe(lats);
+  const lonMin0 = minDe(lons);
+  const lonMax0 = maxDe(lons);
   const latitudRef = (latMin0 + latMax0) / 2;
   const correccionLon = Math.cos((latitudRef * Math.PI) / 180); // "método geodésico": 1° de longitud pesa distinto según la latitud
 
@@ -161,7 +161,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   const valoresConDensidad = Array.from(densidad).filter((v) => v > 1e-9);
   if (valoresConDensidad.length === 0) return null;
 
-  const maxValor = Math.max(...valoresConDensidad);
+  const maxValor = maxDe(valoresConDensidad);
   // Siempre 5 bandas, siempre en el mismo rango fijo (ANCLAS_FRACCION_FIJAS)
   // — el array "colores" recibido debe tener 5 posiciones siempre (una por
   // banda); cada posición es su color de siempre, o null si el usuario la

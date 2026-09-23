@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { PuntoDensidad } from '../../utils/kernelDensity';
+import { maxDe } from '../../utils/mathSeguro';
 
 export interface GridHeatmapLayerProps {
   puntos: PuntoDensidad[];
@@ -49,7 +50,7 @@ export function GridHeatmapLayer({ puntos, colores, ladoCeldaMetros = 250, opaci
     }
 
     const celdas = Array.from(conteoPorCelda.values());
-    const maxCasos = Math.max(...celdas.map((c) => c.casos), 1);
+    const maxCasos = maxDe([...celdas.map((c) => c.casos), 1]);
 
     // Clasificación en 5 clases por intervalos iguales sobre el máximo real
     // de la cuadrícula actual (se recalcula solo con cada cambio real de

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis, useXAxisScale, useYAxisScale } from 'recharts';
 import { formatNumero } from '../../utils/aggregations';
+import { maxDe } from '../../utils/mathSeguro';
 
 export interface PuntoDiario {
   fecha: string; // "2026-08-24"
@@ -127,7 +128,7 @@ export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
   // exclusivamente como línea de comparación (ver más abajo), nunca como
   // una opción más para elegir directamente, para no duplicar meses en el
   // selector.
-  const anioMasReciente = data.length > 0 ? Math.max(...data.map((p) => p.anio)) : null;
+  const anioMasReciente = data.length > 0 ? maxDe(data.map((p) => p.anio)) : null;
   const mesesDisponibles = useMemo(() => {
     const mapa = new Map<string, { clave: string; anio: number; mes: number; mesNombre: string }>();
     for (const p of data) {

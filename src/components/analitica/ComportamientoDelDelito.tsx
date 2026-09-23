@@ -4,6 +4,7 @@ import { TrendChart } from '../charts/TrendChart';
 import { useAnalisisMensual } from '../../hooks/useAnalisisMensual';
 import { useData } from '../../context/DataContext';
 import type { BloqueAnalisis } from '../../utils/analisisTendencia';
+import { minDe } from '../../utils/mathSeguro';
 
 // Color del encabezado de cada bloque según su emoji — mismo código de
 // colores que ya usa el resto del dashboard para "favorable/desfavorable/
@@ -120,7 +121,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
     ? `${prefijoTitulo} — ${sufijoDelito} — ${tituloSufijoPeriodo}`
     : `${prefijoTitulo} — ${sufijoDelito}`;
   const subtituloMostrado = esDiaria
-    ? `Comparación día a día contra el mismo periodo de ${todos.length > 0 ? Math.min(...todos) : ''}`
+    ? `Comparación día a día contra el mismo periodo de ${todos.length > 0 ? minDe(todos) : ''}`
     : subtitulo;
 
   const seriesKeys = todos.map(String);
@@ -182,7 +183,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
             data={datosGrafica}
             xKey="mes"
             seriesKeys={seriesKeysVisibles}
-            seriesColors={{ [String(Math.min(...todos))]: '#7c3aed' }}
+            seriesColors={{ [String(minDe(todos))]: '#7c3aed' }}
             mostrarLineaTendencia={mostrarTendencia && seriesKeysVisibles.length === seriesKeys.length}
             mostrarValorMensualAlPie={esAcumulado}
             height={height}

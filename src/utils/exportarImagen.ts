@@ -1,3 +1,5 @@
+import { maxDe } from './mathSeguro';
+
 // Tailwind v4 genera sus colores en formato oklch(), que html2canvas no sabe
 // interpretar. Se probaron dos trucos "gratis" del navegador para
 // convertirlo a rgb() (leer canvas.fillStyle de vuelta, y getComputedStyle)
@@ -919,7 +921,7 @@ export async function exportarMapaComoImagen(
       const paddingX = 14;
       const paddingY = 10;
       ctx.font = `bold ${tamanoFuente}px Arial`;
-      const anchoMaximoTexto = Math.max(...etiquetas.map((t) => ctx.measureText(t).width));
+      const anchoMaximoTexto = maxDe(etiquetas.map((t) => ctx.measureText(t).width));
       const anchoCaja = anchoMaximoTexto + paddingX * 2;
       const altoCaja = paddingY * 2 + alturaLinea * etiquetas.length;
       const margen = 10;

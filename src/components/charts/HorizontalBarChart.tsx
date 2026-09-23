@@ -1,5 +1,6 @@
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { formatNumero } from '../../utils/aggregations';
+import { maxDe } from '../../utils/mathSeguro';
 
 interface Item {
   key: string;
@@ -59,7 +60,7 @@ export function HorizontalBarChart({ data, height, color, onBarClick, alturaFila
   formatoValor?: (v: number) => string;
 }) {
   const alto = height ?? Math.max(160, data.length * alturaFila);
-  const maxCasos = data.length ? Math.max(...data.map((d) => d.casos)) : 0;
+  const maxCasos = data.length ? maxDe(data.map((d) => d.casos)) : 0;
   const formatear = formatoValor ?? formatNumero;
   return (
     <ResponsiveContainer width="100%" height={alto}>

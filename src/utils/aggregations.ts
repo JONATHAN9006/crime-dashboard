@@ -1,4 +1,5 @@
 import type { CrimeRecord } from '../types/crime';
+import { maxDe, minDe } from './mathSeguro';
 
 export interface CountItem {
   key: string;
@@ -63,7 +64,7 @@ export function minMaxDiario(records: CrimeRecord[]): { min: number; max: number
   }
   const valores = Array.from(porDia.values());
   if (valores.length === 0) return { min: 0, max: 0 };
-  return { min: Math.min(...valores), max: Math.max(...valores) };
+  return { min: minDe(valores), max: maxDe(valores) };
 }
 
 export function formatNumero(n: number): string {
