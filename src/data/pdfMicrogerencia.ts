@@ -269,14 +269,24 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     columnas.forEach((c, i) => {
       const x = MARGEN + i * anchoColumna + dim.paddingTarjeta;
       const anchoDisponible = anchoColumna - dim.paddingTarjeta;
+      const tamanoEtiqueta = BASE_FS.etiquetaMetrica * dim.escala;
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(BASE_FS.etiquetaMetrica * dim.escala);
+      pdf.setFontSize(tamanoEtiqueta);
       pdf.setTextColor(...COLOR_MUTED);
-      pdf.text(c.etiqueta, x, y, { maxWidth: anchoDisponible });
+      // Etiquetas largas (ej. "TOTAL PROYECTADO 2026") no caben en una
+      // columna tan angosta y se parten solas en 2 líneas — antes el
+      // número de abajo se dibujaba siempre a la misma altura fija, así
+      // que en esos casos quedaba encima de la segunda línea de la
+      // etiqueta en vez de debajo. Ahora se mide cuántas líneas ocupa
+      // REALMENTE cada etiqueta (pdf.splitTextToSize) y el número baja lo
+      // que haga falta para nunca chocar.
+      const lineasEtiqueta: string[] = pdf.splitTextToSize(c.etiqueta, anchoDisponible);
+      pdf.text(lineasEtiqueta, x, y, { maxWidth: anchoDisponible });
+      const altoLineaEtiqueta = tamanoEtiqueta * 0.4; // aprox. alto de línea en mm para este tamaño de fuente
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(BASE_FS.valorMetrica * dim.escala);
       pdf.setTextColor(...c.color);
-      pdf.text(c.valor, x, y + 8 * dim.escala, { maxWidth: anchoDisponible });
+      pdf.text(c.valor, x, y + lineasEtiqueta.length * altoLineaEtiqueta + 5 * dim.escala, { maxWidth: anchoDisponible });
     });
     y += dim.altoFilaMetricas;
   }
@@ -404,15 +414,31 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
     pdf.setDrawColor(203, 213, 225);
     pdf.roundedRect(x0, y, ancho, alto, 2, 2, 'FD');
+    pdf.saveGraphicsState();
     try {
       // La imagen ya llega recortada (ver recortarImagenParaCobertura,
       // llamado antes de dibujar las tarjetas) a la proporción EXACTA de
       // este recuadro — por eso ahora simplemente se estira para llenarlo
       // por completo, sin dejar franjas en blanco ni deformar nada.
+      //
+      // Recortada al mismo contorno REDONDEADO del recuadro (antes se
+      // pegaba como un rectángulo derecho encima de un fondo con esquinas
+      // redondeadas — sus propias esquinas cuadradas sobresalían un poco
+      // por fuera de la curva, dando la sensación de que "se salía" del
+      // recuadro).
+      pdf.roundedRect(x0, y, ancho, alto, 2, 2);
+      pdf.clip();
+      pdf.discardPath();
       pdf.addImage(imagenDataUrl, 'PNG', x0 + 2, y + 2, ancho - 4, alto - 4);
     } catch {
       // Si la imagen viene corrupta o en un formato que jsPDF no acepta,
       // no se rompe el PDF entero — simplemente se deja el recuadro vacío.
+    } finally {
+      // SIEMPRE se restaura, incluso si addImage falló — de lo contrario
+      // el recorte redondeado se quedaría activo para todo lo que se
+      // dibuje después en la página (el resto de la tarjeta, la
+      // siguiente tarjeta, etc.), cortándolo también a este mismo cuadro.
+      pdf.restoreGraphicsState();
     }
   }
 
