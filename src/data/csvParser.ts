@@ -140,6 +140,39 @@ function normalizeCategoria(v: string): string {
 // formato de Título en vez de dejarlo gritando en mayúsculas junto a
 // delitos que sí están bien formateados ("H. Personas", "Homicidio").
 // Nunca cambia el significado, solo la presentación.
+// Deriva el CAI real a partir del número de Zona de Atención (ej. "Z.
+// Atención 5 Norte" → "CAI La Paz") cuando el archivo no trae el campo CAI
+// directamente — construido a partir de la división oficial de cuadrantes
+// por CAI de cada Estación (fuente: directorios de la Policía Metropolitana
+// de Popayán, Estación Norte y Estación Sur). Se usa SOLO como respaldo:
+// si el archivo ya trae un CAI real, ese se respeta siempre; esto nunca lo
+// reemplaza, solo llena el vacío cuando no hay nada.
+const RANGOS_CAI_POR_ESTACION: Record<'NORTE' | 'SUR', { hasta: number; cai: string }[]> = {
+  NORTE: [
+    { hasta: 2, cai: 'CAI Antonio Nariño' },
+    { hasta: 8, cai: 'CAI La Paz' },
+    { hasta: 12, cai: 'CAI La Estancia' },
+    { hasta: 18, cai: 'CAI Benito Juárez' },
+  ],
+  SUR: [
+    { hasta: 3, cai: 'CAI La Floresta' },
+    { hasta: 8, cai: 'CAI Alfonso López' },
+    { hasta: 15, cai: 'CAI El Mirador' },
+    { hasta: 19, cai: 'CAI Parque Informático' },
+    { hasta: 21, cai: 'CAI María Occidente' },
+    { hasta: 23, cai: 'CAI Lomas de Granada' },
+  ],
+};
+
+function derivarCaiDesdeZona(zonaTexto: string): string {
+  const m = zonaTexto.match(/(\d+)\s*(NORTE|SUR)/i);
+  if (!m) return 'NO REPORTADO';
+  const numero = Number(m[1]);
+  const estacion = m[2].toUpperCase() as 'NORTE' | 'SUR';
+  const rango = RANGOS_CAI_POR_ESTACION[estacion]?.find((r) => numero <= r.hasta);
+  return rango ? rango.cai : 'NO REPORTADO';
+}
+
 // Exportada para que otros parsers (ej. operatividadParser.ts) formateen
 // su propio texto libre exactamente igual — un solo lugar con la regla de
 // "Primera Mayúscula, resto minúscula", en vez de reglas repetidas o
@@ -540,7 +573,19 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
         const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.estacion));
         return MAPA_ESTACION[bruto.toUpperCase()] ?? bruto;
       })(),
-      cai: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.cai)), MAPA_CAI, MAPA_CAI_SIN_TILDES),
+      cai: (() => {
+        const directo = canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.cai)), MAPA_CAI, MAPA_CAI_SIN_TILDES);
+        if (directo && directo !== 'NO REPORTADO') return directo;
+        // Respaldo: el archivo no trae CAI directamente (columna vacía o
+        // ausente) — se deriva del número de Zona de Atención, que sí
+        // suele venir poblado (ver derivarCaiDesdeZona más arriba). Usa el
+        // valor de Zona de Atención tal como viene en la columna cruda,
+        // antes de traducir — el traductor de cuadrante ya normaliza el
+        // formato "Z. Atención N Norte/Sur" que esta función espera.
+        const zonaCruda = normalizeCategoria(findColumn(row, COLUMN_MAP.cuadrante));
+        const zonaTraducida = mapearCuadrante(zonaCruda, new Set());
+        return derivarCaiDesdeZona(zonaTraducida !== 'NO REPORTADO' ? zonaTraducida : zonaCruda);
+      })(),
       cuadrante: sanearCuadrante((() => {
         const bruto = normalizeCategoria(findColumn(row, COLUMN_MAP.cuadrante));
         const traducido = mapearCuadrante(bruto, new Set());
