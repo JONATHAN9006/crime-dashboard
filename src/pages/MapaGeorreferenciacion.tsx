@@ -18,6 +18,8 @@ import { mapearCuadrante } from '../data/db2Transform';
 import { MAPA_ESTACION } from '../data/db2Mapeos';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
+import { useCapaArchivoGeorreferenciado } from '../hooks/useCapaArchivoGeorreferenciado';
+import { PanelArchivoGeorreferenciado, CapaLeafletArchivoGeorreferenciado } from '../components/mapa/CapaArchivoGeorreferenciado';
 import { useData } from '../context/DataContext';
 import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
@@ -832,6 +834,7 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
     return mapa;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capas, valoresConocidos]);
+  const capaArchivoGeorreferenciado = useCapaArchivoGeorreferenciado(capas, camposUnionAutoDetectados);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [capasPuntos, setCapasPuntos] = useState<CapaPuntos[]>([]);
@@ -1956,6 +1959,16 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
           <IrACoordenadas onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
         </div>
 
+        {/* Capa TEMPORAL de análisis — carga de un CSV/XLS/XLSX propio con
+            coordenadas (ver useCapaArchivoGeorreferenciado.ts y
+            CapaArchivoGeorreferenciado.tsx). Completamente aislada: no toca
+            Delitos, IRISP1, los filtros existentes, ni la base
+            institucional — solo lee las capas ya cargadas (para el cruce
+            espacial con CAI/Estación/Zona) y dibuja su propia capa en este
+            mismo mapa (la parte que se dibuja en Leaflet va más abajo,
+            dentro de <MapContainer>, porque necesita useMap()). */}
+        <PanelArchivoGeorreferenciado {...capaArchivoGeorreferenciado} />
+
         {/* La leyenda de cada escala aparece en cuanto su mapa de calor está
             encendido (sincronizado con el checkbox de esa fuente); el aviso
             de correspondencia solo cuando "Comparar" también está activo. */}
@@ -2419,6 +2432,12 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
                 );
               })
             ))}
+            <CapaLeafletArchivoGeorreferenciado
+              registrosFiltrados={capaArchivoGeorreferenciado.registrosFiltrados}
+              modoVisualizacion={capaArchivoGeorreferenciado.modoVisualizacion}
+              coloresActivos={capaArchivoGeorreferenciado.coloresActivos}
+              opacidad={capaArchivoGeorreferenciado.opacidad}
+            />
           </MapContainer>
 
           {/* Panel flotante de la zona seleccionada — aparece con un clic
