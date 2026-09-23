@@ -79,6 +79,31 @@ export const MAPA_CAI: Record<string, string> = {
   'MEPOYMNVCCD02E01000000001': 'Z. Atención 1 E-Timbio',
   'CUADRANTE PENDIENTE POR ASIGNAR': 'Pendiente Por Asignar',
   'MEPOYMNVCCD02E03000000001': 'Z. Atención 1 E-Sotara',
+  // CAI con nombre propio (los que de verdad usa la Policía Metropolitana
+  // de Popayán, según sus directorios de Estación Norte/Sur) — el archivo
+  // trae el nombre tal cual, sin el prefijo "CAI" ni el número; se traduce
+  // aquí al mismo formato numérico que ya usa el resto del dashboard
+  // (confirmado con el usuario: Norte 1-4, Sur 5-10, en este orden).
+  'ANTONIO NARIÑO': 'CAI 1',
+  'CAI ANTONIO NARIÑO': 'CAI 1',
+  'LA PAZ': 'CAI 2',
+  'CAI LA PAZ': 'CAI 2',
+  'LA ESTANCIA': 'CAI 3',
+  'CAI LA ESTANCIA': 'CAI 3',
+  'BENITO JUAREZ': 'CAI 4',
+  'CAI BENITO JUAREZ': 'CAI 4',
+  'LA FLORESTA': 'CAI 5',
+  'CAI LA FLORESTA': 'CAI 5',
+  'ALFONSO LOPEZ': 'CAI 6',
+  'CAI ALFONSO LOPEZ': 'CAI 6',
+  'EL MIRADOR': 'CAI 7',
+  'CAI EL MIRADOR': 'CAI 7',
+  'PARQUE INFORMATICO': 'CAI 8',
+  'CAI PARQUE INFORMATICO': 'CAI 8',
+  'MARIA OCCIDENTE': 'CAI 9',
+  'CAI MARIA OCCIDENTE': 'CAI 9',
+  'LOMAS DE GRANADA': 'CAI 10',
+  'CAI LOMAS DE GRANADA': 'CAI 10',
 };
 
 export const MAPA_CUADRANTE: Record<string, string> = {
