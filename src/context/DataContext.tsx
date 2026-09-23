@@ -272,7 +272,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (!backendUrl) return;
     const intervalo = setInterval(async () => {
       try {
-        const metaRemota = await consultarMetaRemota(backendUrl);
+        const metaRemota = await consultarMetaSupabase(backendUrl, supabaseAnonKey);
         if (metaRemota.ultimaActualizacion && metaRemota.ultimaActualizacion !== ultimaCargaRef.current) {
           const ok = await cargarDesdeBackend();
           if (ok) {
@@ -285,7 +285,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
     }, INTERVALO_SONDEO_MS);
     return () => clearInterval(intervalo);
-  }, [backendUrl, cargarDesdeBackend]);
+  }, [backendUrl, supabaseAnonKey, cargarDesdeBackend]);
 
   const cargarArchivo = useCallback(
     async (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => {
