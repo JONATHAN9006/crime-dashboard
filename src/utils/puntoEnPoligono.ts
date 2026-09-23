@@ -28,14 +28,29 @@ function puntoEnPoligonoSimple(lon: number, lat: number, anillos: Anillo[]): boo
  * feature: un GeoJSON Feature (Polygon/MultiPolygon) — o, para verificar
  * pertenencia a VARIAS zonas a la vez (ej. todos los cuadrantes de un CAI
  * filtrado), una FeatureCollection con varios de esos features.
+ *
+ * Escrita de forma ITERATIVA (una pila propia) a propósito, no recursiva —
+ * confirmado en producción: con ciertas capas (una FeatureCollection cuyos
+ * "features" resultan ser, a su vez, más FeatureCollections anidadas —
+ * pasó justo con una capa de municipios cargada como respaldo de
+ * Estación), la versión recursiva original llegaba a "Maximum call stack
+ * size exceeded" y tumbaba toda la página. Con una pila explícita, sin
+ * importar qué tan anidada venga la geometría, nunca se desborda la pila
+ * de llamadas de JavaScript.
  */
 export function puntoEnFeatureGeoJSON(lon: number, lat: number, feature: any): boolean {
-  if (feature?.type === 'FeatureCollection') {
-    return (feature.features || []).some((f: any) => puntoEnFeatureGeoJSON(lon, lat, f));
+  const pendientes: any[] = [feature];
+  while (pendientes.length > 0) {
+    const actual = pendientes.pop();
+    if (!actual) continue;
+    if (actual.type === 'FeatureCollection') {
+      for (const f of actual.features || []) pendientes.push(f);
+      continue;
+    }
+    const geom = actual.geometry;
+    if (!geom) continue;
+    if (geom.type === 'Polygon' && puntoEnPoligonoSimple(lon, lat, geom.coordinates)) return true;
+    if (geom.type === 'MultiPolygon' && geom.coordinates.some((poligono: Anillo[]) => puntoEnPoligonoSimple(lon, lat, poligono))) return true;
   }
-  const geom = feature?.geometry;
-  if (!geom) return false;
-  if (geom.type === 'Polygon') return puntoEnPoligonoSimple(lon, lat, geom.coordinates);
-  if (geom.type === 'MultiPolygon') return geom.coordinates.some((poligono: Anillo[]) => puntoEnPoligonoSimple(lon, lat, poligono));
   return false;
 }
