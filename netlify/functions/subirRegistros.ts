@@ -37,6 +37,13 @@ interface CuerpoSolicitud {
   usuario?: string;
   dataset?: 'delictividad' | 'operatividad';
   registros: Array<Record<string, unknown> & { __id: string; fecha?: string | null; anio?: number | null; delito?: string }>;
+  // true SOLO en el último lote de una subida (ver TAMANO_LOTE_SUBIDA en
+  // supabaseApi.ts) — evita que "última actualización" quede cambiando
+  // sin parar mientras dura una subida larga con muchos lotes, lo cual
+  // hacía que el sondeo de fondo del dashboard (que revisa esa fecha para
+  // saber si debe refrescar) descargara el dataset A MEDIAS y le pisara a
+  // quien está subiendo su propia vista local, completa, con una parcial.
+  esUltimoLote?: boolean;
 }
 
 export const handler: Handler = async (event) => {
@@ -65,7 +72,14 @@ export const handler: Handler = async (event) => {
   }
 
   const dataset = cuerpo.dataset === 'operatividad' ? 'operatividad' : 'delictividad';
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  // El header "apikey" se fuerza explícitamente (además de pasar la llave
+  // como segundo argumento) — de puro seguro: así no depende de que esta
+  // versión puntual de la librería arme sola el encabezado a partir de la
+  // llave nueva de Supabase (sb_secret_...), evita el error "No API key
+  // found in request" si esa parte llegara a fallar en silencio.
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    global: { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } },
+  });
 
   try {
     const filas = cuerpo.registros.map((r) => ({
@@ -84,14 +98,20 @@ export const handler: Handler = async (event) => {
       if (error) throw new Error(error.message);
     }
 
-    const { error: errorMeta } = await supabase
-      .from('dataset_meta')
-      .upsert(
-        { dataset, ultima_actualizacion: new Date().toISOString(), ultimo_usuario: cuerpo.usuario || 'No identificado' },
-        { onConflict: 'dataset' },
-      );
-    if (errorMeta) throw new Error(errorMeta.message);
-
+    // Solo se actualiza "última actualización" en el ÚLTIMO lote de una
+    // subida (ver comentario en la interfaz CuerpoSolicitud) — así el
+    // sondeo de fondo del dashboard no ve la fecha "cambiando" en cada uno
+    // de los cientos de lotes de una subida grande, y no dispara una
+    // descarga a mitad de camino con el dataset todavía incompleto.
+    if (cuerpo.esUltimoLote !== false) {
+      const { error: errorMeta } = await supabase
+        .from('dataset_meta')
+        .upsert(
+          { dataset, ultima_actualizacion: new Date().toISOString(), ultimo_usuario: cuerpo.usuario || 'No identificado' },
+          { onConflict: 'dataset' },
+        );
+      if (errorMeta) throw new Error(errorMeta.message);
+    }
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -101,6 +121,11 @@ export const handler: Handler = async (event) => {
       }),
     };
   } catch (err) {
+    // Antes este error solo quedaba en la respuesta al navegador — ahora
+    // también queda en los logs de la función en Netlify (Functions →
+    // subirRegistros → Function log), completo, para poder diagnosticar
+    // sin depender de que el usuario copie bien el mensaje.
+    console.error('[subirRegistros] Error guardando en Supabase:', err);
     return { statusCode: 200, body: JSON.stringify({ ok: false, error: 'Error guardando en la base de datos: ' + String(err instanceof Error ? err.message : err) }) };
   }
 };

@@ -140,7 +140,11 @@ function normalizeCategoria(v: string): string {
 // formato de Título en vez de dejarlo gritando en mayúsculas junto a
 // delitos que sí están bien formateados ("H. Personas", "Homicidio").
 // Nunca cambia el significado, solo la presentación.
-function formatoTitulo(v: string): string {
+// Exportada para que otros parsers (ej. operatividadParser.ts) formateen
+// su propio texto libre exactamente igual — un solo lugar con la regla de
+// "Primera Mayúscula, resto minúscula", en vez de reglas repetidas o
+// inconsistentes entre datasets.
+export function formatoTitulo(v: string): string {
   return v.toLowerCase().replace(/(^|\s)([a-záéíóúñ])/g, (_, sep, letra) => sep + letra.toUpperCase());
 }
 

@@ -6,9 +6,15 @@
 import { jsPDF } from 'jspdf';
 import type { NodoMicrogerencia } from './microgerencia';
 
-const MM_ANCHO = 297; // A4 horizontal
-const MM_ALTO = 210;
-const MARGEN = 14;
+// Vertical (Carta/A4 en pie) en vez de horizontal — a pedido explícito:
+// el contenido de esta tarjeta es naturalmente "alto" (meses apilados,
+// delitos apilados) más que "ancho", así que una hoja vertical le da más
+// alto disponible (297mm en vez de 210mm) justo donde hace falta, sin
+// necesidad de achicar la letra — y de paso dejó de forzar el
+// encabezado/pie a estirarse sobre un ancho tan grande.
+const MM_ANCHO = 210; // A4 vertical
+const MM_ALTO = 297;
+const MARGEN = 10;
 const ANCHO_UTIL = MM_ANCHO - MARGEN * 2;
 
 const COLOR_GREEN: [number, number, number] = [17, 103, 98];
@@ -189,7 +195,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     cargarImagenBase64('/assets/microgerencia-header.png'),
     cargarImagenBase64('/assets/microgerencia-footer.png'),
   ]);
-  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   let y = 0;
 
   // Proporción REAL de cada imagen ya recortada (ver comentario arriba) —

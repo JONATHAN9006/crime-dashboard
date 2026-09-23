@@ -92,10 +92,11 @@ export async function subirRegistrosSupabase(
   }
   for (let i = 0; i < registros.length; i += TAMANO_LOTE_SUBIDA) {
     const lote = registros.slice(i, i + TAMANO_LOTE_SUBIDA);
+    const esUltimoLote = i + TAMANO_LOTE_SUBIDA >= registros.length;
     const resp = await fetch(functionUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, registros: lote, usuario, dataset, forzar }),
+      body: JSON.stringify({ token, registros: lote, usuario, dataset, forzar, esUltimoLote }),
     });
     const cuerpo = await resp.json().catch(() => null);
     if (!resp.ok || !cuerpo || !cuerpo.ok) {

@@ -2,12 +2,24 @@ import * as XLSX from 'xlsx';
 import type { OperatividadRecord } from '../types/operatividad';
 import { MAPA_DELITO, MAPA_ESTACION } from './db2Mapeos';
 import { mapearCuadrante } from './db2Transform';
+import { formatoTitulo } from './csvParser';
 
 const NOMBRES_MES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 function limpiar(v: unknown): string {
   const s = String(v ?? '').trim();
   return s === '<Nulo>' || s.toUpperCase() === 'NULL' ? '' : s;
+}
+
+// Igual que `limpiar`, pero además aplica "Primera Mayúscula, resto
+// minúscula" — para el texto libre que llega directo del Excel en
+// MAYÚSCULA SOSTENIDA (ej. "HURTO DE CELULAR EN VÍA PÚBLICA") y se
+// muestra tal cual en la interfaz, sin pasar por ninguna tabla de
+// traducción. Antes esos campos se dejaban gritando en mayúsculas,
+// inconsistentes con el resto del dashboard (que sí usa este formato).
+function limpiarYFormatear(v: unknown): string {
+  const s = limpiar(v);
+  return s ? formatoTitulo(s) : s;
 }
 
 function numeroONull(v: unknown): number | null {
@@ -26,7 +38,7 @@ function numeroONull(v: unknown): number | null {
 function traducirDelito(valorCrudo: string): string {
   const sinArticulo = valorCrudo.replace(/^ART[IÍ]CULO\s+\d+[A-Z]?\.\s*/i, '').trim();
   const clave = sinArticulo.toUpperCase();
-  return MAPA_DELITO[clave] ?? sinArticulo;
+  return MAPA_DELITO[clave] ?? formatoTitulo(sinArticulo);
 }
 
 // La Estación llega como "ESTACION NORTE", etc. — se traduce con la misma
@@ -36,7 +48,7 @@ function traducirDelito(valorCrudo: string): string {
 // "Estación" como tal, así que se dejan con su nombre propio — nunca van a
 // coincidir con el filtro de Estación, lo cual es correcto.
 function traducirEstacion(valorCrudo: string): string {
-  return MAPA_ESTACION[valorCrudo.toUpperCase()] ?? valorCrudo;
+  return MAPA_ESTACION[valorCrudo.toUpperCase()] ?? formatoTitulo(valorCrudo);
 }
 
 // PERTE_CUADRANTE viene siempre vacío en este archivo — la subdivisión real
@@ -85,26 +97,26 @@ function mapearFilas(filas: Record<string, unknown>[]): OperatividadRecord[] {
 
     const rec: OperatividadRecord = {
       __id: limpiar(fila['OBJECTID']) || `op-${indice}`,
-      categoria: limpiar(fila['OPERATIVIDAD']),
+      categoria: limpiarYFormatear(fila['OPERATIVIDAD']),
       fecha,
       anio,
       mes,
-      nombreMes: mes ? NOMBRES_MES[mes - 1] : limpiar(fila['MESES']),
-      diaSemana: limpiar(fila['DIA']),
-      turno: limpiar(fila['TURNO']),
+      nombreMes: mes ? NOMBRES_MES[mes - 1] : limpiarYFormatear(fila['MESES']),
+      diaSemana: limpiarYFormatear(fila['DIA']),
+      turno: limpiarYFormatear(fila['TURNO']),
       cantidad: numeroONull(fila['CANTIDAD']) ?? 1,
       delitoAsociado: traducirDelito(limpiar(fila['DELITO_ASOCIADO'])),
       estacion: traducirEstacion(limpiar(fila['ESTACION'])),
       cuadrante: traducirDependenciaAZona(limpiar(fila['PERTE_DEPENDENCIA']) || limpiar(fila['PERTE_CUADRANTE'])),
-      barrioHecho: limpiar(fila['BARRIO_HECHO']),
-      zona: limpiar(fila['ZONA']),
-      unidad: limpiar(fila['UNIDAD']),
-      dependencia: limpiar(fila['PERTE_DEPENDENCIA']),
-      tipoBien: limpiar(fila['TIPO_BIEN']),
-      claseBien: limpiar(fila['CLASE_BIEN']),
-      marca: limpiar(fila['MARCA']),
-      circunstanciaCaptura: limpiar(fila['CIRCUSNTANCIA_CAPTURA']),
-      situacionJuridica: limpiar(fila['SITUACION_JURIDICA']),
+      barrioHecho: limpiarYFormatear(fila['BARRIO_HECHO']),
+      zona: limpiarYFormatear(fila['ZONA']),
+      unidad: limpiarYFormatear(fila['UNIDAD']),
+      dependencia: limpiarYFormatear(fila['PERTE_DEPENDENCIA']),
+      tipoBien: limpiarYFormatear(fila['TIPO_BIEN']),
+      claseBien: limpiarYFormatear(fila['CLASE_BIEN']),
+      marca: limpiarYFormatear(fila['MARCA']),
+      circunstanciaCaptura: limpiarYFormatear(fila['CIRCUSNTANCIA_CAPTURA']),
+      situacionJuridica: limpiarYFormatear(fila['SITUACION_JURIDICA']),
       valor: numeroONull(fila['VALOR']),
       raw,
     };

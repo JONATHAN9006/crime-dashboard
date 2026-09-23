@@ -332,7 +332,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         // trae uno propio, en vez de sobrescribirlo siempre con el del
         // último archivo (que en modo "agregar" puede no ser el más
         // completo de los dos).
-        const fechaMaxParametroFinal = parsed.fechaMaxParametro ?? meta?.fechaMaxParametro ?? null;
+        //
+        // PERO: ese valor heredado solo tiene sentido mientras siga siendo
+        // MÁS RECIENTE que la fecha real de los datos ya cargados — si no,
+        // significa que se subió información más nueva sin su propio
+        // parámetro DB2, y seguir usando el corte viejo dejaría la "fecha
+        // de corte" apuntando a un pasado que ya quedó atrás (confirmado:
+        // quedaba pegada en una carga de hace días aunque se subiera
+        // información más reciente). En ese caso se descarta — el
+        // indicador de vigencia cae solo a calcular el corte desde el dato
+        // más reciente real (ver useVentanaComparativa).
+        const fechaMasRecienteCargada = registrosFinales.reduce<number>((max, r) => (r.fecha && r.fecha.getTime() > max ? r.fecha.getTime() : max), 0);
+        const metaHeredadoVigente = meta?.fechaMaxParametro && new Date(meta.fechaMaxParametro).getTime() >= fechaMasRecienteCargada ? meta.fechaMaxParametro : null;
+        const fechaMaxParametroFinal = parsed.fechaMaxParametro ?? metaHeredadoVigente ?? null;
 
         const columnasFinal = Array.from(new Set([...lastColumns, ...parsed.columnasDetectadas]));
         await persistirYActualizar(registrosFinales, file.name, columnasFinal, undefined, fechaMaxParametroFinal);
