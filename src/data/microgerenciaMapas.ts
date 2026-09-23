@@ -318,6 +318,11 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
       etiquetas: [],
       anchoLienzo: 700,
       anillosInternos,
+      // Solo el contorno de Estación Norte+Sur + el mapa de calor — sin
+      // calles ni terreno de fondo (a pedido explícito: a la escala de
+      // toda la jurisdicción, las calles reales solo metían ruido visual
+      // — nombres de veredas, ríos, vías — sin aportar nada al indicador).
+      mostrarCalles: false,
     });
   } catch (err) {
     console.error('[Microgerencia→Mapa] Falló generando el mapa general:', err);

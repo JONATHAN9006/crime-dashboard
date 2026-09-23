@@ -59,6 +59,15 @@ export interface OpcionesPoligonoAislado {
   anchoLienzo?: number; // más chico = más rápido (ideal para miniaturas de vista previa)
   tamanoFuenteBase?: number; // tamaño de referencia a 1200px de ancho (por defecto 15)
   margen?: number; // margen alrededor del polígono, como fracción de su ancho/alto (por defecto 0.08); 0 = recorte exacto, sin nada sobresaliendo
+  // false = sin calles/terreno de fondo (solo el contorno + el mapa de
+  // calor) — pensado para el mapa GENERAL de Microgerencia, que cubre
+  // toda la jurisdicción: a esa escala tan grande, las calles reales solo
+  // añaden ruido visual (nombres de veredas, ríos, vías) sin aportar nada
+  // útil al indicador, además de ser mucho más lento (cientos de tiles) y
+  // más pesado en el PDF. Por defecto en `true` — no cambia nada para
+  // quien ya usa esto a nivel de Estación o CAI, donde sí ayuda ver las
+  // calles reales.
+  mostrarCalles?: boolean;
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -66,7 +75,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15 } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -126,7 +135,9 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   ctx.restore();
 
   // 1) CALLES REALES — recortadas al polígono con ctx.clip() antes de
-  // dibujar nada más.
+  // dibujar nada más. Se salta por completo si mostrarCalles=false (ver
+  // comentario en OpcionesPoligonoAislado) — el fondo neutro de arriba
+  // queda tal cual, como único "terreno".
   //
   // El zoom se calcula SIEMPRE según el área real a cubrir — antes tenía
   // un mínimo forzado de 13, pensado para zonas pequeñas (un CAI, un
@@ -141,6 +152,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   // real del área — una zona pequeña sigue pidiendo el mismo detalle de
   // siempre, y una zona grande pide menos tiles, pero más grandes, en vez
   // de miles de tiles diminutos.
+  if (mostrarCalles) {
   const zoom = Math.max(3, Math.min(18, Math.floor(Math.log2(anchoLienzo / (anchoMerc * TAMANO_TILE)))));
   const escalaMundo = Math.pow(2, zoom);
   const txMin = Math.floor(mercLoX * escalaMundo);
@@ -173,6 +185,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
     await Promise.all(tareasTiles);
   } finally {
     ctx.restore();
+  }
   }
 
   // 2) Relleno MUY tenue adicional, encima de las calles.
