@@ -483,7 +483,7 @@ export function exportarSvgComoImagen(svgOriginal: SVGElement, titulo: string | 
       const canvas = document.createElement('canvas');
       canvas.width = (ancho + relleno * 2) * escala;
       canvas.height = (alto + altoTitulo + relleno * 2) * escala;
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       ctx.scale(escala, escala);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, ancho + relleno * 2, alto + altoTitulo + relleno * 2);
@@ -749,7 +749,7 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   const ESPACIO_PUNTO_TEXTO = 7 * ESCALA;
   const ESPACIO_ENTRE_ITEMS = 26 * ESCALA;
   const ALTO_POR_LINEA = 24 * ESCALA;
-  const ctxMedicion = document.createElement('canvas').getContext('2d')!;
+  const ctxMedicion = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
   ctxMedicion.font = FUENTE_LEYENDA;
   const itemsConAncho = especificacionLeyenda.map((it) => ({
     ...it,
@@ -774,7 +774,7 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   const canvasFinal = document.createElement('canvas');
   canvasFinal.width = canvasContenido.width + relleno * 2;
   canvasFinal.height = canvasContenido.height + altoTitulo + relleno * 2 + altoLeyenda;
-  const ctx = canvasFinal.getContext('2d')!;
+  const ctx = canvasFinal.getContext('2d', { willReadFrequently: true })!;
   // Sin fillRect: el canvas queda transparente donde no se dibuje nada
   // encima (fondo transparente real, a pedido explícito) — el título y el
   // contenido capturado sí se pintan normalmente encima.
@@ -856,7 +856,7 @@ export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: stri
 // Nunca asume ningún tamaño de antemano: revisa directamente los píxeles
 // que sí se dibujaron.
 function recortarFranjaInferiorVacia(canvas: HTMLCanvasElement): HTMLCanvasElement {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx || canvas.width === 0 || canvas.height === 0) return canvas;
   const datos = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
@@ -881,7 +881,7 @@ function recortarFranjaInferiorVacia(canvas: HTMLCanvasElement): HTMLCanvasEleme
   const recortado = document.createElement('canvas');
   recortado.width = canvas.width;
   recortado.height = Math.max(1, nuevoAlto);
-  recortado.getContext('2d')!.drawImage(canvas, 0, 0);
+  recortado.getContext('2d', { willReadFrequently: true })!.drawImage(canvas, 0, 0);
   return recortado;
 }
 
@@ -914,7 +914,7 @@ export async function exportarMapaComoImagen(
   // el lienzo ya capturado — quedan grabadas en el PNG final, no son un
   // elemento HTML aparte que se pueda perder.
   if (etiquetas && etiquetas.length > 0) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (ctx) {
       const tamanoFuente = 13;
       const alturaLinea = 19;

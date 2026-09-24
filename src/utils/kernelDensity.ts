@@ -198,7 +198,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   const canvas = document.createElement('canvas');
   canvas.width = COLS;
   canvas.height = ROWS;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const imgData = ctx.createImageData(COLS, ROWS);
 
   // UMBRAL MÍNIMO — antes se pintaba CUALQUIER rastro de densidad (por
@@ -250,7 +250,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   const canvasFinal = document.createElement('canvas');
   canvasFinal.width = COLS * 3;
   canvasFinal.height = ROWS * 3;
-  const ctxFinal = canvasFinal.getContext('2d')!;
+  const ctxFinal = canvasFinal.getContext('2d', { willReadFrequently: true })!;
   ctxFinal.imageSmoothingEnabled = true;
   ctxFinal.imageSmoothingQuality = 'high';
   ctxFinal.drawImage(canvas, 0, 0, canvasFinal.width, canvasFinal.height);

@@ -667,41 +667,44 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
 // traducción), resubir el mismo archivo siempre se reconoce como
 // duplicado, para siempre.
 export function buildRecordId(rec: CrimeRecord, fallbackIndex: number): string {
-  // Cuando el archivo trae OBJECTID (formato ArcGIS/COR_DELITOS), se usa
-  // como base de la identidad — es un ID real asignado por el sistema de
-  // origen, no un número de fila. A diferencia del hash por texto (abajo),
-  // sobrevive a que una re-exportación del MISMO caso real escriba el
-  // barrio, la hora o el cuadrante con una letra distinta — que es
-  // justamente lo que ha estado causando duplicados reales al volver a
-  // subir una versión más nueva del mismo periodo (confirmado: 0% de
-  // coincidencia entre dos exportaciones de la práctica el mismo 2026).
+  // NUNCA usar OBJECTID como identidad — confirmado con dos exportaciones
+  // reales de este sistema de origen, la del 22/09 y la del 24/09/2026: el
+  // MISMO caso exacto (misma fecha, delito y coordenadas hasta el quinto
+  // decimal — 2.53239 / -76.5569, un homicidio en AT del 2 de enero) tenía
+  // OBJECTID 61777028 en un archivo y 62958424 en el otro. El sistema de
+  // origen vuelve a numerar TODO en cada exportación — usar el OBJECTID
+  // para identidad (con o sin la fecha pegada, como se intentó antes) hace
+  // que CADA vez que se sube una nueva exportación, absolutamente TODOS
+  // los casos que ya estaban cargados se vuelvan a agregar como si fueran
+  // nuevos — duplicando por completo el conteo acumulado (confirmado: un
+  // delito subió +133% de una carga a la siguiente, solo por esto).
   //
-  // CORRECCIÓN IMPORTANTE: el OBJECTID solo es único DENTRO de una misma
-  // exportación — normalmente reinicia desde 1 en cada archivo/año nuevo.
-  // Usarlo SOLO (como se hacía antes) hacía que un caso del año pasado y
-  // uno de este año, sin ninguna relación entre sí, coincidieran en
-  // número por pura casualidad y uno de los dos se descartara como si
-  // fuera "el mismo hecho" — así se perdían casos reales sin ningún aviso
-  // (confirmado: exactamente este patrón en los datos de Homicidio 2025,
-  // el total quedaba por debajo del real). Se agrega la fecha cruda a la
-  // clave para separar esos dos casos SIN romper la garantía original:
-  // volver a subir el MISMO archivo sigue trayendo el mismo OBJECTID *y*
-  // la misma fecha para cada registro, así que se sigue reconociendo como
-  // duplicado igual que antes.
-  const objectId = findColumn(rec.raw, COLUMN_MAP.objectId);
-  if (objectId && objectId.trim() !== '') {
-    return hashString(`OBJECTID:${objectId.trim().toUpperCase()}|FECHA:${rec.fechaTexto}`);
-  }
-
+  // La identidad se arma en cambio con los datos del CASO EN SÍ — fecha,
+  // hora, delito y coordenadas (hasta 5 decimales, ~1 metro de precisión)
+  // — que sí describen el hecho real y por eso se mantienen iguales entre
+  // exportaciones, a diferencia de un número de fila interno que el
+  // sistema de origen reasigna cada vez. Se completa con barrio/estación/
+  // cuadrante/género como respaldo para cuando no hay coordenadas.
+  //
+  // La EDAD se agrega a propósito — confirmado con datos reales: sin ella,
+  // dos VÍCTIMAS DISTINTAS del mismo hecho (ej. una balacera con varios
+  // heridos u homicidios, misma fecha/hora/lugar exacto) comparten
+  // exactamente los mismos demás campos y se fusionaban en un solo
+  // registro, perdiendo a la otra víctima (confirmado: bajaba el total de
+  // homicidios reales de un archivo). La edad casi siempre distingue a una
+  // persona de otra en el mismo hecho.
   const parts = [
     rec.fechaTexto,
     rec.hora ?? '',
     findColumn(rec.raw, COLUMN_MAP.delito),
+    rec.lat != null ? rec.lat.toFixed(5) : '',
+    rec.lon != null ? rec.lon.toFixed(5) : '',
     findColumn(rec.raw, COLUMN_MAP.estacion),
     findColumn(rec.raw, COLUMN_MAP.cuadrante),
     rec.cantidad,
     findColumn(rec.raw, COLUMN_MAP.barrioHecho),
     findColumn(rec.raw, COLUMN_MAP.genero),
+    rec.edad ?? '',
   ];
   const base = parts.join('|').toUpperCase();
   if (base.replace(/\|/g, '').trim().length === 0) {

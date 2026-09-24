@@ -109,7 +109,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   const canvas = document.createElement('canvas');
   canvas.width = anchoLienzo;
   canvas.height = alto;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
 
   function trazarAnillosComoRuta() {
     ctx.beginPath();
