@@ -531,7 +531,20 @@ export function MapaGeorreferenciacion() {
 // un año dentro de un rango razonable (1990-2035) — así funciona sin
 // importar cómo se llame exactamente la columna en cada archivo.
 function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
-  const clavesFecha = Object.keys(p.fila).filter((k) => /FECHA/i.test(k));
+  // Prioriza columnas que suenan a la fecha REAL del hecho/actividad (ej.
+  // "Fecha Inicio Actividad") sobre columnas administrativas que casi
+  // siempre son recientes sin importar cuándo pasó el hecho de verdad (ej.
+  // "Última fecha de actualización", "Fecha creación", "Fecha Asignación
+  // ...", "Fecha Respuesta ..."). Confirmado en producción: sin esta
+  // prioridad, un archivo con varias columnas "FECHA" (típico de IRISP1)
+  // terminaba usando siempre la de "última actualización" — como casi
+  // todos los registros se tocan por última vez en fechas recientes, CUALQUIER
+  // filtro por un rango pasado (ej. enero-abril) daba 0 puntos, aunque la
+  // fecha real del hecho sí estuviera ahí, en otra columna.
+  const esAdministrativa = (k: string) => /actualiz|creaci[oó]n|asignaci[oó]n|respuesta|modificaci[oó]n|registro/i.test(k);
+  const clavesFecha = Object.keys(p.fila)
+    .filter((k) => /FECHA/i.test(k))
+    .sort((a, b) => Number(esAdministrativa(a)) - Number(esAdministrativa(b)));
   for (const clave of clavesFecha) {
     const valor = p.fila[clave];
     if (valor instanceof Date && !isNaN(valor.getTime())) {
