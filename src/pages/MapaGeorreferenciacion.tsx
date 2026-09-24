@@ -1147,6 +1147,15 @@ function extraerFechaDePunto(p: { fila: Record<string, any> }): Date | null {
         const columnasConFecha = columnasEjemplo.filter((k) => /FECHA/i.test(k));
         console.warn(`[Mapa: filtro de fecha] La capa "${capa.nombre}" quedó en 0 puntos al filtrar por fecha. Columnas con "FECHA" en el nombre: ${JSON.stringify(columnasConFecha)}. Valor de ejemplo: ${JSON.stringify(columnasConFecha.map((c) => capa.puntos[0].fila[c]))}`);
       }
+      // Diagnóstico COMPLEMENTARIO al de arriba: cubre el caso contrario —
+      // el filtro de fecha está activo pero el número de puntos NO cambia
+      // en absoluto (ni a 0, ni a un número distinto), lo cual señala que
+      // el filtro simplemente no se está aplicando para esta capa en vez
+      // de que sí se aplique y no encuentre nada.
+      if ((filters.fechaInicial || filters.fechaFinal) && capa.puntos.length > 0 && puntosFiltrados.length === capa.puntos.length) {
+        const fechasExtraidas = capa.puntos.slice(0, 5).map((p) => extraerFechaDePunto(p)?.toISOString() ?? 'null');
+        console.warn(`[Mapa: filtro de fecha] La capa "${capa.nombre}" tiene el filtro de fecha activo pero el conteo de puntos NO cambió (siguen siendo los ${capa.puntos.length} de siempre) — el filtro no está afectando esta capa. Fechas extraídas de los primeros 5 puntos: ${JSON.stringify(fechasExtraidas)}`);
+      }
 
       // Todos los delitos distintos que trae la capa (nombre corto), para el
       // selector propio "manipulables" — incluye los que YA coinciden con el
