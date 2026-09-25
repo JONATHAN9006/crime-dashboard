@@ -361,6 +361,10 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
     const featureCollection = { type: 'FeatureCollection', features: featuresParaMapa };
     const anillosInternos = await obtenerAnillosInternos(featureCollection, capaContornoId);
     return await generarDataUrlPoligonoAislado({
+      // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
+      // veía "cortado", pegado a los bordes del recuadro; con más aire
+      // alrededor se ve completo y mejor ubicado dentro del marco.
+      margen: 0.16,
       feature: featureCollection,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
@@ -430,6 +434,10 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     }
     const anillosInternos = await obtenerAnillosInternos(feature, capaContornoId);
     return await generarDataUrlPoligonoAislado({
+      // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
+      // veía "cortado", pegado a los bordes del recuadro; con más aire
+      // alrededor se ve completo y mejor ubicado dentro del marco.
+      margen: 0.16,
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
@@ -463,6 +471,10 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
     }
     const anillosInternos = await obtenerAnillosInternos(feature, localizada.capa.id);
     return await generarDataUrlPoligonoAislado({
+      // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
+      // veía "cortado", pegado a los bordes del recuadro; con más aire
+      // alrededor se ve completo y mejor ubicado dentro del marco.
+      margen: 0.16,
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],

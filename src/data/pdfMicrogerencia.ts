@@ -43,7 +43,13 @@ function formatearNumero(n: number): string {
 }
 function formatearPct(n: number | null): string {
   if (n === null) return 'N/A';
-  return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
+  // Sin decimales (antes 1) — a pedido explícito: con delitos de poco
+  // volumen, un solo caso de diferencia da porcentajes enormes (+5440.0%,
+  // +4667.0%) que, sumados a la columna "Dif" justo al lado, no cabían y
+  // se encimaban visualmente. Redondear a entero libera el espacio que
+  // hacía falta, sin tocar el cálculo real (sigue siendo el mismo
+  // porcentaje, solo se muestra sin la parte decimal).
+  return `${n >= 0 ? '+' : ''}${Math.round(n)}%`;
 }
 function colorPorDif(dif: number): [number, number, number] {
   return dif > 0 ? COLOR_ROJO : dif < 0 ? COLOR_VERDE_TEXTO : COLOR_MUTED;
@@ -132,7 +138,7 @@ const BASE_FS = {
   encabezadoColumna: 7.5,
   filaTrimMes: 8.5,
   encabezadoDelitos: 6.5,
-  filaDelitos: 7.8,
+  filaDelitos: 7.2,
   mapaNoDisponible: 8.5,
 };
 
@@ -234,7 +240,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // (6mm, no los 14mm del margen general de la página) entre el final de
   // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
   // espacio de más que le haría falta a la letra.
-  const COLCHON_ANTES_DEL_PIE = 24;
+  const COLCHON_ANTES_DEL_PIE = 54;
   const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
 
   function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
@@ -364,10 +370,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // cerca uno del otro, el texto quedaba encimado y parecía un solo
     // número sin sentido (ej. "+4667.0%"). El nombre del delito cede un
     // poco de su ancho máximo (era 0.48) para que alcance el espacio.
-    const colTotal2025 = x0 + ancho * 0.50;
-    const col2025 = x0 + ancho * 0.62;
-    const col2026 = x0 + ancho * 0.74;
-    const colDif = x0 + ancho * 0.88;
+    const colTotal2025 = x0 + ancho * 0.48;
+    const col2025 = x0 + ancho * 0.60;
+    const col2026 = x0 + ancho * 0.72;
+    const colDif = x0 + ancho * 0.85;
     const colPct = x0 + ancho * 1.0;
     let fy = y + dim.altoEncabezadoBloque + 2 * dim.escala;
 
@@ -388,7 +394,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(BASE_FS.filaDelitos * dim.escala);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.40 });
+      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.36 });
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(91, 33, 182);
       pdf.text(formatearNumero(d.total2025), colTotal2025, fy, { align: 'right' });
