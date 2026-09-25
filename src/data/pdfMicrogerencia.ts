@@ -227,7 +227,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // (6mm, no los 14mm del margen general de la página) entre el final de
   // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
   // espacio de más que le haría falta a la letra.
-  const COLCHON_ANTES_DEL_PIE = 10;
+  const COLCHON_ANTES_DEL_PIE = 14;
   const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
 
   function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
@@ -352,11 +352,16 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     if (nodo.delitos.length === 0) return;
 
     const colDelito = x0 + dim.paddingTarjeta;
-    const colTotal2025 = x0 + ancho * 0.52;
-    const col2025 = x0 + ancho * 0.64;
-    const col2026 = x0 + ancho * 0.75;
-    const colDif = x0 + ancho * 0.86;
-    const colPct = x0 + ancho * 0.96;
+    // Se le dio más separación a Dif/% (antes 0.86/0.96, casi pegadas) — a
+    // pedido explícito: con números como "+466" seguido de "+17.0%" tan
+    // cerca uno del otro, el texto quedaba encimado y parecía un solo
+    // número sin sentido (ej. "+4667.0%"). El nombre del delito cede un
+    // poco de su ancho máximo (era 0.48) para que alcance el espacio.
+    const colTotal2025 = x0 + ancho * 0.50;
+    const col2025 = x0 + ancho * 0.62;
+    const col2026 = x0 + ancho * 0.74;
+    const colDif = x0 + ancho * 0.88;
+    const colPct = x0 + ancho * 1.0;
     let fy = y + dim.altoEncabezadoBloque + 2 * dim.escala;
 
     pdf.setFont('helvetica', 'bold');
@@ -376,7 +381,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(BASE_FS.filaDelitos * dim.escala);
       pdf.setTextColor(...COLOR_TEXTO);
-      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.48 });
+      pdf.text(d.nombre, colDelito, fy, { maxWidth: ancho * 0.40 });
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(91, 33, 182);
       pdf.text(formatearNumero(d.total2025), colTotal2025, fy, { align: 'right' });
@@ -456,12 +461,12 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
 
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
     pdf.setDrawColor(226, 232, 240);
-    pdf.roundedRect(MARGEN - 3, y - 3, ANCHO_UTIL + 6, altoTarjeta - dim.paddingTarjeta + 3, 2.5, 2.5, 'FD');
+    pdf.roundedRect(MARGEN - 8, y - 3, ANCHO_UTIL + 16, altoTarjeta - dim.paddingTarjeta + 3, 2.5, 2.5, 'FD');
 
     pdf.setFillColor(...COLOR_GREEN_CLARO);
-    pdf.roundedRect(MARGEN - 3, y - 3, ANCHO_UTIL + 6, dim.altoTituloTarjeta, 2.5, 2.5, 'F');
+    pdf.roundedRect(MARGEN - 8, y - 3, ANCHO_UTIL + 16, dim.altoTituloTarjeta, 2.5, 2.5, 'F');
     pdf.setFillColor(...COLOR_GREEN_CLARO);
-    pdf.rect(MARGEN - 3, y + dim.altoTituloTarjeta - 6, ANCHO_UTIL + 6, 3, 'F');
+    pdf.rect(MARGEN - 8, y + dim.altoTituloTarjeta - 6, ANCHO_UTIL + 16, 3, 'F');
 
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(BASE_FS.tituloTarjeta * dim.escala);
@@ -509,7 +514,16 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoMesesPropio, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14], dim);
     dibujarImagenMapaONodo(nodo, imagenMapaDataUrl, xTercera, anchoTercera, altoBanda, dim);
 
-    y += altoBanda + ESPACIO_ENTRE_TARJETAS;
+    y += altoBanda;
+    // Fuente/atribución, a pedido explícito — chica y discreta, debajo de
+    // cada tarjeta (el espacio ya está reservado en COLCHON_ANTES_DEL_PIE,
+    // así nunca invade el pie de página real).
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(6.5 * dim.escala);
+    pdf.setTextColor(...COLOR_MUTED);
+    pdf.text('Fuente: Aplicativo Los Andes. La información está sujeta a variación.', MARGEN, y + 4 * dim.escala);
+
+    y += ESPACIO_ENTRE_TARJETAS;
   }
 
   dibujarEncabezadoPagina();
