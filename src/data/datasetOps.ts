@@ -194,7 +194,16 @@ export { COLUMNAS_REQUERIDAS };
 export function eliminarDuplicadosPorIdentidadCruda(records: CrimeRecord[]): { registros: CrimeRecord[]; eliminados: number } {
   const porIdentidad = new Map<string, CrimeRecord>();
   for (const r of records) {
-    const id = buildRecordId(r, 0);
+    // Se usa el __id YA calculado (asignado al momento de leer el
+    // archivo — ver csvParser.ts), NUNCA se recalcula aquí con
+    // buildRecordId(r, 0). ¿Por qué importa? csvParser.ts, al leer un
+    // archivo, ya resuelve ahí mismo el caso de varios registros con
+    // identidad de contenido idéntica (ej. varias víctimas de una misma
+    // edad y género en el mismo hecho) agregándoles un sufijo de
+    // posición para no perder a ninguna — si esta función recalculara la
+    // identidad desde cero, ese sufijo desaparecería y esas víctimas
+    // volverían a chocar entre sí justo aquí, deshaciendo esa corrección.
+    const id = r.__id || buildRecordId(r, 0);
     const previo = porIdentidad.get(id);
     if (!previo) {
       porIdentidad.set(id, r);

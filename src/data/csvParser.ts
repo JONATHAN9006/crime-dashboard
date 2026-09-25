@@ -624,6 +624,24 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
     return rec;
   });
 
+  // Desempate DENTRO de este mismo archivo — cuando varios registros
+  // comparten exactamente la misma identidad de contenido (confirmado en
+  // producción: un ataque con varias víctimas de la MISMA edad y género,
+  // mismo lugar/hora — nada más en el archivo las distingue, ni un nombre
+  // ni un número de caso), en vez de perder a las demás como si fueran
+  // "duplicados", se les agrega un sufijo de posición para que cada una
+  // quede como un registro aparte. Esto SOLO pasa dentro de un mismo
+  // archivo recién leído — nunca se usa el OBJECTID (que ya se sabe que no
+  // es estable entre archivos) para esto, así que no se reabre el
+  // problema de duplicar todo al volver a subir un archivo más nuevo del
+  // mismo periodo.
+  const vecesVistoPorId = new Map<string, number>();
+  for (const rec of registros) {
+    const veces = (vecesVistoPorId.get(rec.__id) || 0) + 1;
+    vecesVistoPorId.set(rec.__id, veces);
+    if (veces > 1) rec.__id = `${rec.__id}-rep${veces}`;
+  }
+
   // "FECHA_MAX_PARAMETRO" viaja repetida en cada fila (ver db2Transform.ts) —
   // basta con leerla de la primera fila que la traiga. Si el archivo no la
   // trae (formato antiguo, o Matriz Base cargada directamente sin pasar por
