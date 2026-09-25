@@ -14,7 +14,14 @@ import type { NodoMicrogerencia } from './microgerencia';
 // encabezado/pie a estirarse sobre un ancho tan grande.
 const MM_ANCHO = 210; // A4 vertical
 const MM_ALTO = 297;
-const MARGEN = 10;
+// Margen del CONTENIDO (métricas, trimestres, delitos, meses, mapa) — se
+// redujo (era 10) a pedido explícito: con el recuadro de fondo ya
+// ensanchado (ver más abajo), el contenido seguía midiéndose con este
+// margen más angosto, así que quedaba un espacio en blanco entre el borde
+// del recuadro y donde de verdad arrancaba cada bloque. Como ANCHO_UTIL se
+// calcula A PARTIR de este margen, achicarlo ensancha automáticamente
+// TODOS los bloques por igual, sin tener que ajustar cada uno por separado.
+const MARGEN = 7;
 const ANCHO_UTIL = MM_ANCHO - MARGEN * 2;
 
 const COLOR_GREEN: [number, number, number] = [17, 103, 98];
@@ -227,7 +234,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // (6mm, no los 14mm del margen general de la página) entre el final de
   // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
   // espacio de más que le haría falta a la letra.
-  const COLCHON_ANTES_DEL_PIE = 14;
+  const COLCHON_ANTES_DEL_PIE = 24;
   const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
 
   function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
@@ -257,12 +264,12 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     const pctProyeccion = nodo.total2025 > 0 ? (difProyeccion / nodo.total2025) * 100 : null;
     const columnas: { etiqueta: string; valor: string; color: [number, number, number] }[] = [
       { etiqueta: 'TOTAL 2025', valor: formatearNumero(nodo.total2025), color: COLOR_TEXTO },
-      { etiqueta: '2025 (A LA FECHA)', valor: formatearNumero(nodo.fecha2025), color: COLOR_TEXTO },
-      { etiqueta: '2026 (A LA FECHA)', valor: formatearNumero(nodo.fecha2026), color: COLOR_GREEN },
+      { etiqueta: '2025', valor: formatearNumero(nodo.fecha2025), color: COLOR_TEXTO },
+      { etiqueta: '2026', valor: formatearNumero(nodo.fecha2026), color: COLOR_GREEN },
       { etiqueta: 'DIF', valor: `${nodo.dif >= 0 ? '+' : ''}${formatearNumero(nodo.dif)}`, color: colorPorDif(nodo.dif) },
       { etiqueta: '%', valor: formatearPct(nodo.pct), color: colorPorDif(nodo.dif) },
       { etiqueta: 'APORTE %', valor: `${nodo.aportePct.toFixed(1)}%`, color: COLOR_TEXTO },
-      { etiqueta: 'TOTAL PROYECTADO 2026', valor: formatearNumero(nodo.terminaAnio), color: COLOR_TEXTO },
+      { etiqueta: 'PROYECTADO 2026', valor: formatearNumero(nodo.terminaAnio), color: COLOR_TEXTO },
       { etiqueta: 'PROY. VS 2025', valor: `${difProyeccion >= 0 ? '+' : ''}${formatearNumero(difProyeccion)} (${pctProyeccion === null ? 'N/A' : `${pctProyeccion >= 0 ? '+' : ''}${pctProyeccion.toFixed(1)}%`})`, color: colorPorDif(difProyeccion) },
     ];
     const anchoColumna = ANCHO_UTIL / columnas.length;
@@ -434,7 +441,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.roundedRect(x0, y, ancho, alto, 2, 2);
       pdf.clip();
       pdf.discardPath();
-      pdf.addImage(imagenDataUrl, 'PNG', x0 + 2, y + 2, ancho - 4, alto - 4);
+      // Margen interno más grande (era 2mm) — a pedido explícito: pegada
+      // borde a borde se sentía "recortada"; con más aire alrededor se ve
+      // como una imagen completa dentro de su marco, no como un recorte.
+      pdf.addImage(imagenDataUrl, 'PNG', x0 + 6, y + 6, ancho - 12, alto - 12);
     } catch {
       // Si la imagen viene corrupta o en un formato que jsPDF no acepta,
       // no se rompe el PDF entero — simplemente se deja el recuadro vacío.
@@ -461,12 +471,12 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
 
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
     pdf.setDrawColor(226, 232, 240);
-    pdf.roundedRect(MARGEN - 8, y - 3, ANCHO_UTIL + 16, altoTarjeta - dim.paddingTarjeta + 3, 2.5, 2.5, 'FD');
+    pdf.roundedRect(MARGEN - 5, y - 3, ANCHO_UTIL + 10, altoTarjeta - dim.paddingTarjeta + 3, 2.5, 2.5, 'FD');
 
     pdf.setFillColor(...COLOR_GREEN_CLARO);
-    pdf.roundedRect(MARGEN - 8, y - 3, ANCHO_UTIL + 16, dim.altoTituloTarjeta, 2.5, 2.5, 'F');
+    pdf.roundedRect(MARGEN - 5, y - 3, ANCHO_UTIL + 10, dim.altoTituloTarjeta, 2.5, 2.5, 'F');
     pdf.setFillColor(...COLOR_GREEN_CLARO);
-    pdf.rect(MARGEN - 8, y + dim.altoTituloTarjeta - 6, ANCHO_UTIL + 16, 3, 'F');
+    pdf.rect(MARGEN - 5, y + dim.altoTituloTarjeta - 6, ANCHO_UTIL + 10, 3, 'F');
 
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(BASE_FS.tituloTarjeta * dim.escala);
@@ -540,7 +550,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     const dim = crearDimensiones(calcularEscalaTarjeta(nodo));
     const anchoTercera = ANCHO_UTIL * 0.34;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
-    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 4, altoBanda - 4));
+    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 12, altoBanda - 12));
   }
   for (const nodo of nodos) dibujarTarjetaNodo(nodo, imagenesAjustadas.get(nodo.nombre));
 

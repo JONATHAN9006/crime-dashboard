@@ -4,7 +4,7 @@ import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia } from '../../data/pdfMicrogerencia';
-import { generarImagenMapaGeneral, generarImagenMapaEstacion, generarImagenMapaCai, NOMBRES_ESTACION_CORTOS, esNombreDeCai } from '../../data/microgerenciaMapas';
+import { generarImagenMapaGeneral, generarImagenMapaEstacion, generarImagenMapaCai, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 
 function formatearPct(n: number | null): string {
@@ -240,7 +240,7 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
       if (nodo.nombre === 'MEPOY General — Consolidado') {
         const img = await generarImagenMapaGeneral(delitoFiltrado, actualInicio, actualFin);
         if (img) mapa.set(nodo.nombre, img);
-      } else if (NOMBRES_ESTACION_CORTOS.has(nodo.nombre)) {
+      } else if (esNombreDeEstacion(nodo.nombre)) {
         const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
         if (img) mapa.set(nodo.nombre, img);
       } else if (esNombreDeCai(nodo.nombre)) {

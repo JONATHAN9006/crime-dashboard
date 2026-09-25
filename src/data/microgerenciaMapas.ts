@@ -24,6 +24,20 @@ function extraerFeatures(geojson: any): any[] {
 // traduce el dataset principal, para no duplicar la lista a mano.
 export const NOMBRES_ESTACION_CORTOS = new Set(Object.values(MAPA_ESTACION));
 
+// Microgerencia nombra sus propios nodos con la forma LARGA ("Estación
+// Norte", ver NOMBRES_ESTACION en useMicrogerencia.ts) — no con la corta
+// ("E-Norte") que usa el resto del dashboard. Confirmado en producción:
+// por esta diferencia de nombre, el chequeo "¿esto es un nodo de
+// Estación?" en ModalMicrogerencia.tsx nunca coincidía, así que la imagen
+// del mapa JAMÁS se generaba para Estación Norte/Sur — no era un límite
+// de los datos ni de las capas, era una comparación de texto que nunca
+// iba a coincidir. Esta función reconoce CUALQUIERA de las dos formas.
+const NOMBRES_ESTACION_LARGOS = new Set(Object.values(MAPA_ESTACION).map((corto) => `ESTACION ${normalizar(corto).replace(/^E-/, '')}`));
+export function esNombreDeEstacion(nombre: string): boolean {
+  const norm = normalizar(nombre);
+  return NOMBRES_ESTACION_CORTOS.has(nombre) || NOMBRES_ESTACION_LARGOS.has(norm);
+}
+
 // Los nombres de CAI varían más que los de Estación (numerados "CAI 4" en
 // los datos nuevos, o "CAI Comuna Cuatro" en el histórico) — en vez de una
 // lista cerrada, se reconoce cualquier nodo que EMPIECE con "CAI", que es
@@ -372,7 +386,12 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     // contorno de la Estación uniendo sus propios CAI (Norte = CAI 1-4,
     // Sur = CAI 5-10) — confiable y ya cargado — antes de recurrir a una
     // capa de Estación aparte.
-    const claveEstacion = normalizar(nombreEstacionCorta) === normalizar('E-Norte') ? 'NORTE' : normalizar(nombreEstacionCorta) === normalizar('E-Sur') ? 'SUR' : null;
+    // Reconoce tanto la forma corta ("E-Norte", la que usa el resto del
+    // dashboard) como la larga ("Estación Norte", la que usa Microgerencia
+    // para nombrar sus propios nodos) — ver esNombreDeEstacion más arriba.
+    const nombreNorm = normalizar(nombreEstacionCorta);
+    const claveEstacion = (nombreNorm === normalizar('E-Norte') || nombreNorm === normalizar('Estacion Norte')) ? 'NORTE'
+      : (nombreNorm === normalizar('E-Sur') || nombreNorm === normalizar('Estacion Sur')) ? 'SUR' : null;
     const desdeCai = claveEstacion ? await construirEstacionDesdeCai(claveEstacion) : null;
 
     let feature: any;
@@ -400,7 +419,11 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       capaContornoId = localizada.capa.id;
     }
 
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, nombreEstacionCorta, undefined, fechaInicial, fechaFinal);
+    // Los puntos guardan la estación en forma CORTA ("E-Norte") — si al
+    // nodo le llegó la forma larga ("Estación Norte"), se traduce antes de
+    // filtrar, o el filtro nunca encontraría ningún punto.
+    const estacionCortaParaFiltro = claveEstacion === 'NORTE' ? 'E-Norte' : claveEstacion === 'SUR' ? 'E-Sur' : nombreEstacionCorta;
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estacionCortaParaFiltro, undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
