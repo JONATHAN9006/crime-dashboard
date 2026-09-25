@@ -194,16 +194,28 @@ export { COLUMNAS_REQUERIDAS };
 export function eliminarDuplicadosPorIdentidadCruda(records: CrimeRecord[]): { registros: CrimeRecord[]; eliminados: number } {
   const porIdentidad = new Map<string, CrimeRecord>();
   for (const r of records) {
-    // Se usa el __id YA calculado (asignado al momento de leer el
-    // archivo — ver csvParser.ts), NUNCA se recalcula aquí con
-    // buildRecordId(r, 0). ¿Por qué importa? csvParser.ts, al leer un
-    // archivo, ya resuelve ahí mismo el caso de varios registros con
-    // identidad de contenido idéntica (ej. varias víctimas de una misma
-    // edad y género en el mismo hecho) agregándoles un sufijo de
-    // posición para no perder a ninguna — si esta función recalculara la
-    // identidad desde cero, ese sufijo desaparecería y esas víctimas
-    // volverían a chocar entre sí justo aquí, deshaciendo esa corrección.
-    const id = r.__id || buildRecordId(r, 0);
+    // Se recalcula la identidad BASE con el esquema ACTUAL (fecha+hora+
+    // delito+coordenadas+edad+género — ver buildRecordId), no se confía a
+    // ciegas en el __id ya guardado. ¿Por qué? Un registro cargado ANTES
+    // de corregir el esquema de identidad (cuando todavía dependía del
+    // OBJECTID, confirmado inestable entre exportaciones) quedó con un
+    // __id calculado de una forma que YA NO EXISTE — nunca iba a coincidir
+    // con el de un registro más nuevo del mismo caso real, así que la
+    // limpieza automática lo pasaba por alto para siempre (confirmado en
+    // producción: Violencia Intrafamiliar acumuló +96 registros de más,
+    // que ninguna limpieza posterior corrigió, por esto exactamente).
+    //
+    // Al mismo tiempo, SÍ se respeta el desempate por víctima que csvParser
+    // le agrega a un registro recién leído (el sufijo "-repN", para no
+    // fusionar a dos víctimas distintas del mismo hecho) — se detecta
+    // comparando si el __id guardado EMPIEZA con la base recién calculada:
+    // si es así, es un __id "de esquema actual" (con o sin ese sufijo) y
+    // se conserva tal cual; si no coincide en absoluto, es de un esquema
+    // viejo y se reemplaza por la base recalculada, para que por fin pueda
+    // reconocerse como el mismo caso que su versión más nueva.
+    const idBase = buildRecordId(r, 0);
+    const id = r.__id && r.__id.startsWith(idBase) ? r.__id : idBase;
+    r.__id = id; // corrige de una vez el campo guardado, para que el resto del código (ej. fusionarRegistros) también vea la identidad ya al día
     const previo = porIdentidad.get(id);
     if (!previo) {
       porIdentidad.set(id, r);
