@@ -18,6 +18,7 @@ import { mapearCuadrante } from '../data/db2Transform';
 import { MAPA_ESTACION } from '../data/db2Mapeos';
 import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
 import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
+import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
 import { useCapaArchivoGeorreferenciado } from '../hooks/useCapaArchivoGeorreferenciado';
 import { PanelArchivoGeorreferenciado, CapaLeafletArchivoGeorreferenciado } from '../components/mapa/CapaArchivoGeorreferenciado';
 import { useData } from '../context/DataContext';
@@ -524,75 +525,9 @@ export function MapaGeorreferenciacion() {
   // Registros filtrados SOLO con los filtros propios del mapa — reemplaza
   // al "filteredRecords" global (que aquí no aplica) para lo poco que se
   // usa (el conteo "colorear por casos" y el texto informativo).
-// Convierte UN valor crudo de columna en una fecha real, si es que lo es —
-// Date ya parseado, número de serie de Excel, o texto "dd/mm/aaaa" (con o
-// sin hora/AM-PM pegado al final, que se ignora). Separado de
-// elegirColumnaFechaConfiable/extraerFechaDePunto para poder usarse en
-// ambos sin repetir la lógica.
-function parsearValorFecha(valor: any): Date | null {
-  if (valor instanceof Date && !isNaN(valor.getTime())) {
-    return valor.getFullYear() >= 1990 && valor.getFullYear() <= 2035 ? valor : null;
-  }
-  if (typeof valor === 'number' && valor > 20000 && valor < 60000) {
-    const fecha = new Date(Date.UTC(1899, 11, 30) + valor * 86400000);
-    return !isNaN(fecha.getTime()) && fecha.getFullYear() >= 1990 && fecha.getFullYear() <= 2035 ? fecha : null;
-  }
-  if (typeof valor === 'string' && valor.trim()) {
-    const partes = valor.trim().split(/[\/\-]/);
-    if (partes.length === 3) {
-      const [a, b, c] = partes.map((x) => parseInt(x, 10));
-      if (c >= 1990 && c <= 2035) { const f = new Date(c, b - 1, a); if (!isNaN(f.getTime())) return f; }
-      if (a >= 1990 && a <= 2035) { const f = new Date(a, b - 1, c); if (!isNaN(f.getTime())) return f; }
-    }
-    const intento = new Date(valor);
-    if (!isNaN(intento.getTime()) && intento.getFullYear() >= 1990 && intento.getFullYear() <= 2035) return intento;
-  }
-  return null;
-}
-
-// Elige, para TODA una capa (no punto por punto), cuál de sus columnas
-// "FECHA *" es la que de verdad sirve para filtrar — por CÓMO SE COMPORTAN
-// los datos, no por cómo se llama la columna. Un archivo puede traer varias
-// columnas de fecha (fecha del hecho, fecha de creación del registro,
-// fecha de última edición, fecha de asignación...) y adivinar por el
-// nombre falla apenas el archivo usa palabras distintas. La señal
-// confiable es otra: la fecha REAL de un hecho varía de un registro a
-// otro (cada caso pasó un día distinto); una fecha ADMINISTRATIVA
-// (creación, última edición) muchas veces es casi la misma en todos los
-// registros — literalmente, "cuándo se generó/exportó el reporte", no
-// "cuándo pasó el caso". Confirmado en producción: con un archivo real, la
-// columna que top el nombre más "correcto" tenía el MISMO valor exacto en
-// todos los registros de muestra — filtrar por cualquier rango que no
-// incluyera ese único día dejaba todo en 0 o no cambiaba nada, aunque el
-// archivo sí trajera fechas reales y variadas en otra columna con nombre
-// menos obvio.
-function elegirColumnaFechaConfiable(puntos: { fila: Record<string, any> }[]): string | null {
-  if (puntos.length === 0) return null;
-  const clavesFecha = Object.keys(puntos[0].fila).filter((k) => /FECHA/i.test(k));
-  if (clavesFecha.length === 0) return null;
-  if (clavesFecha.length === 1) return clavesFecha[0]; // sin ambigüedad, no hace falta comparar nada
-
-  const muestra = puntos.length > 300 ? puntos.filter((_, i) => i % Math.ceil(puntos.length / 300) === 0) : puntos;
-  const esAdministrativa = (k: string) => /actualiz|creaci[oó]n|asignaci[oó]n|respuesta|modificaci[oó]n|registro/i.test(k);
-
-  const puntajes = clavesFecha.map((clave) => {
-    const fechas = muestra.map((p) => parsearValorFecha(p.fila[clave])).filter((f): f is Date => f !== null);
-    const distintas = new Set(fechas.map((f) => f.toDateString())).size;
-    return { clave, conValor: fechas.length, distintas, administrativa: esAdministrativa(clave) };
-  });
-
-  // Se prefiere, en orden: más fechas DISTINTAS (la señal fuerte de que es
-  // la fecha real del hecho) → nombre no-administrativo (desempate cuando
-  // la variedad es igual, ej. ambas en 0 porque la muestra fue chica) →
-  // más valores no vacíos (para no elegir una columna casi siempre vacía).
-  puntajes.sort((a, b) => b.distintas - a.distintas || Number(a.administrativa) - Number(b.administrativa) || b.conValor - a.conValor);
-  return puntajes[0].conValor > 0 ? puntajes[0].clave : null;
-}
-
-function extraerFechaDePunto(p: { fila: Record<string, any> }, columnaElegida: string | null): Date | null {
-  if (!columnaElegida) return null;
-  return parsearValorFecha(p.fila[columnaElegida]);
-}
+  // (parsearValorFecha / elegirColumnaFechaConfiable / extraerFechaDePunto
+  // ahora viven en utils/fechaPunto.ts — compartidas con Microgerencia,
+  // ver import arriba.)
 
   const filteredRecords = useMemo(() => {
     // El CAI se compara normalizado (mismo criterio de formatoCaiCanonico +

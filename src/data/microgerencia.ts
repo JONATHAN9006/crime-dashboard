@@ -40,6 +40,11 @@ export interface NodoMicrogerencia {
 export interface DatosMicrogerencia {
   diasHastaLaFecha: number;
   periodo: string;
+  // Mismo rango ("año actual a la fecha") que usan todos los números de la
+  // Microgerencia, como fecha simple (aaaa-mm-dd) — para que el mapa de
+  // calor filtre el mismo periodo que las tablas (ver ModalMicrogerencia.tsx).
+  actualInicio: string;
+  actualFin: string;
   anioActual: number;
   anioAnterior: number;
   delitoFiltrado: string | null;

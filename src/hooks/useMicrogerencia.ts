@@ -110,6 +110,13 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
     return {
       diasHastaLaFecha: diasTranscurridos,
       periodo: `Del ${formatFecha(ventana.actualInicio)} al ${formatFecha(ventana.actualFin)} (vigencia ${anioActual} vs. ${anioAnterior})`,
+      // Mismo rango que ya usa toda la Microgerencia para sus números (el
+      // "año actual a la fecha") — se expone también como fecha simple
+      // (aaaa-mm-dd) para que el mapa de calor filtre exactamente el mismo
+      // periodo que las tablas, en vez de usar todo el histórico (ver
+      // ModalMicrogerencia.tsx → generarImagenesParaNodos).
+      actualInicio: ventana.actualInicio.toISOString().slice(0, 10),
+      actualFin: ventana.actualFin.toISOString().slice(0, 10),
       anioActual, anioAnterior,
       delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
       general, distrito1, distrito2, delitos,

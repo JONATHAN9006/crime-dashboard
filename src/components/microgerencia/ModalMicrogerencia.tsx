@@ -231,15 +231,20 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
   // genera igual, solo tarda un poco más en construirse.
   async function generarImagenesParaNodos(nodos: NodoMicrogerencia[], delitoFiltrado: string | null): Promise<Map<string, string>> {
     const mapa = new Map<string, string>();
+    // Mismo periodo ("año actual a la fecha") que usan todos los demás
+    // números de esta Microgerencia — antes el mapa de calor no recibía
+    // ninguna fecha y siempre usaba TODO el histórico, sin importar la
+    // vigencia que se estuviera mostrando.
+    const { actualInicio, actualFin } = datos!;
     for (const nodo of nodos) {
       if (nodo.nombre === 'MEPOY General — Consolidado') {
-        const img = await generarImagenMapaGeneral(delitoFiltrado);
+        const img = await generarImagenMapaGeneral(delitoFiltrado, actualInicio, actualFin);
         if (img) mapa.set(nodo.nombre, img);
       } else if (NOMBRES_ESTACION_CORTOS.has(nodo.nombre)) {
-        const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado);
+        const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
         if (img) mapa.set(nodo.nombre, img);
       } else if (esNombreDeCai(nodo.nombre)) {
-        const img = await generarImagenMapaCai(nodo.nombre, delitoFiltrado);
+        const img = await generarImagenMapaCai(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
         if (img) mapa.set(nodo.nombre, img);
       }
     }

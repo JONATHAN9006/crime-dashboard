@@ -9,6 +9,7 @@ import { cargarCapas } from './geoStorage';
 import { cargarCapasPuntos } from './puntosStorage';
 import { generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { MAPA_ESTACION, MAPA_CAI } from './db2Mapeos';
+import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
 
 function normalizar(v: unknown): string {
   return String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -185,18 +186,38 @@ function nombreCaiDeFeature(feature: any, columna: string): string {
   return MAPA_CAI[crudo.toUpperCase()] ?? crudo;
 }
 
-async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string, caiCorto?: string) {
+async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string, caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null) {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
     capasPuntos = await cargarCapasPuntos();
   }
-  const resultado = capasPuntos
+  let resultado = capasPuntos
     .filter((c) => c.visible)
     .flatMap((c) => c.puntos)
     .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
     .filter((p) => !estacionCorta || p.estacionCorta === estacionCorta)
     .filter((p) => !caiCorto || p.caiCorto === caiCorto);
+
+  // Filtro de Fecha inicial/final — antes NO EXISTÍA en absoluto en este
+  // archivo (confirmado: el mapa de calor de Microgerencia siempre usaba
+  // TODO el histórico sin importar qué rango de fechas estuviera
+  // seleccionado en el dashboard). Usa la misma detección "por
+  // comportamiento de los datos" que ya corrige esto en el Mapa
+  // interactivo (ver utils/fechaPunto.ts) — así las dos partes del
+  // dashboard filtran exactamente igual.
+  if (fechaInicial || fechaFinal) {
+    const columnaFecha = elegirColumnaFechaConfiable(resultado);
+    const desde = fechaInicial ? new Date(fechaInicial) : null;
+    const hasta = fechaFinal ? new Date(`${fechaFinal}T23:59:59`) : null;
+    resultado = resultado.filter((p) => {
+      const f = extraerFechaDePunto(p, columnaFecha);
+      if (!f) return false;
+      if (desde && f < desde) return false;
+      if (hasta && f > hasta) return false;
+      return true;
+    });
+  }
 
   if (resultado.length === 0) {
     console.warn('[Microgerencia→Mapa] Detalle de capas de puntos:', capasPuntos.map((c) => ({
@@ -263,7 +284,7 @@ async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: st
 }
 
 /** Imagen de Popayán (Estación Norte + Sur) — para "MEPOY General". */
-export async function generarImagenMapaGeneral(delitoFiltrado: string | null): Promise<string | undefined> {
+export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeEstaciones();
     if (!localizada || localizada.features.length === 0) {
@@ -304,7 +325,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
       );
     }
     const featuresParaMapa = featuresNorteSur.length > 0 ? featuresNorteSur : localizada.features;
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación".', { delitoFiltrado });
       return undefined;
@@ -331,7 +352,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null): P
 }
 
 /** Imagen de UNA estación específica (ej. "E-Norte") — para los nodos de Distrito/Estación. Incluye las líneas internas de CAI. */
-export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null): Promise<string | undefined> {
+export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeEstaciones();
     if (!localizada) {
@@ -347,7 +368,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       );
       return undefined;
     }
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, nombreEstacionCorta);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, nombreEstacionCorta, undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
@@ -368,7 +389,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
 }
 
 /** Imagen de UN CAI específico (ej. "CAI 4") — recortada solo a su propio polígono. */
-export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null): Promise<string | undefined> {
+export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeCai();
     if (!localizada) {
@@ -380,7 +401,7 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
       console.warn(`[Microgerencia→Mapa] La capa de CAI no tiene ningún polígono que coincida con "${nombreCai}" en la columna "${localizada.columna}".`);
       return undefined;
     }
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, nombreCai);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, nombreCai, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreCai}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
