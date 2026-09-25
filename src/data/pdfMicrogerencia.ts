@@ -190,98 +190,67 @@ function altoDeTarjeta(nodo: NodoMicrogerencia, dim: Dimensiones): number {
 }
 
 export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
-  // El encabezado y el pie de página son las imágenes REALES que
-  // proporcionó el usuario. A su tamaño original (646×122 y 652×71)
-  // ocupaban 56mm + 32mm = 88mm de una hoja de apenas 210mm de alto —
-  // casi la mitad de la página — dejando muy poco para los datos.
-  // Intentar "encogerlas" estirando menos la misma imagen (como se hizo
-  // antes) las deforma (se ve el escudo ovalado, feo). La solución
-  // correcta era otra: las dos imágenes tienen una franja de fondo
-  // decorativo (el degradado verde) por ARRIBA y por ABAJO del
-  // contenido real (escudo/texto/iconos) que no aporta nada — esa franja
-  // se recortó de una vez en el archivo (ver public/assets/), así que
-  // ahora la imagen en sí ya es más "panorámica" (más ancha en
-  // proporción a su alto) y se puede seguir estirando a todo el ancho de
-  // la página SIN deformar nada, y aun así queda más pequeña: encabezado
-  // ~41mm (antes 56mm) y pie ~22mm (antes 32mm).
   const [encabezadoBase64, pieBase64] = await Promise.all([
     cargarImagenBase64('/assets/microgerencia-header.png'),
     cargarImagenBase64('/assets/microgerencia-footer.png'),
   ]);
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  let y = 0;
 
-  // Proporción REAL de cada imagen ya recortada (ver comentario arriba) —
-  // se sigue calculando a partir del tamaño real del archivo (no un
-  // número fijo "a ojo") para que, si el encabezado/pie se vuelve a
-  // actualizar más adelante, esto se ajuste solo sin tocar código.
   const ALTO_HEADER = MM_ANCHO * (270 / 1938);
   const ALTO_FOOTER = MM_ANCHO * (144 / 1956);
-
-  // Bajado un poco (era 0, pegado al borde absoluto) — a pedido explícito,
-  // se veía "remontado"/cortado visualmente contra el filo de la hoja.
   const MARGEN_SUPERIOR_HEADER = 4;
+  const Y_TOPE_PAGINA_FRESCA = MARGEN_SUPERIOR_HEADER + ALTO_HEADER + 5;
+
+  // Techo de seguridad para el alto de UNA página — no debería alcanzarse
+  // nunca en la práctica (Delitos siempre limita a los 10 principales,
+  // Trimestres siempre son 4), pero evita que una página termine
+  // absurdamente alta si algo cambia más adelante. Si el contenido natural
+  // de una tarjeta se pasa de esto, se achica proporcionalmente en vez de
+  // seguir creciendo la página sin límite.
+  const MAX_ALTO_PAGINA = 400;
+
+  // Cada página mide EXACTAMENTE lo que necesita su propia tarjeta — antes
+  // todas las páginas eran una A4 de 297mm fija, y el pie de página SIEMPRE
+  // quedaba pegado al fondo físico de esa hoja aunque el contenido real
+  // terminara mucho antes, dejando un espacio en blanco grande entre el
+  // contenido y el pie. Ahora la hoja termina justo donde termina el pie.
+  function alturaYEscalaParaNodo(nodo: NodoMicrogerencia): { alturaPagina: number; escala: number } {
+    const alturaNatural = Y_TOPE_PAGINA_FRESCA + altoDeTarjeta(nodo, crearDimensiones(1)) + 6 + 8 + ALTO_FOOTER;
+    if (alturaNatural <= MAX_ALTO_PAGINA) return { alturaPagina: alturaNatural, escala: 1 };
+    return { alturaPagina: MAX_ALTO_PAGINA, escala: 1 - (alturaNatural - MAX_ALTO_PAGINA) / altoDeTarjeta(nodo, crearDimensiones(1)) };
+  }
+
+  const primeraAltura = nodos.length > 0 ? alturaYEscalaParaNodo(nodos[0]) : { alturaPagina: MM_ALTO, escala: 1 };
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [MM_ANCHO, primeraAltura.alturaPagina] });
+  let y = 0;
+
   function dibujarEncabezadoPagina() {
     if (encabezadoBase64) {
       try { pdf.addImage(encabezadoBase64, 'PNG', 0, MARGEN_SUPERIOR_HEADER, MM_ANCHO, ALTO_HEADER); } catch { /* sin encabezado si falla */ }
     }
-    y = MARGEN_SUPERIOR_HEADER + ALTO_HEADER + 5;
+    y = Y_TOPE_PAGINA_FRESCA;
   }
 
-  // Y donde terminó el contenido real de cada página — así el pie se
-  // dibuja justo debajo (ver dibujarTarjetaNodo, que la va llenando), en
-  // vez de siempre pegado al fondo físico de la hoja.
+  // Y donde terminó el contenido real de cada página — el pie se dibuja
+  // justo debajo (ver dibujarTarjetaNodo). Con el alto de página ya
+  // ajustado al contenido, esto casi siempre coincide con "pegado al
+  // fondo de la hoja" — pero se mantiene por si alguna tarjeta terminó
+  // usando la escala reducida del techo de seguridad.
   const yFinalContenidoPorPagina = new Map<number, number>();
 
   function dibujarPiePagina(yContenido: number | undefined) {
-    // Si por lo que sea no se registró un final de contenido para esta
-    // página (no debería pasar), se cae al comportamiento de siempre
-    // (pegado al fondo) — más seguro que no dibujar nada.
-    const yFooter = yContenido != null ? Math.min(yContenido, MM_ALTO - ALTO_FOOTER) : MM_ALTO - ALTO_FOOTER;
+    const altoPaginaActual = (pdf as any).internal.pageSize.getHeight();
+    const yFooter = yContenido != null ? Math.min(yContenido, altoPaginaActual - ALTO_FOOTER) : altoPaginaActual - ALTO_FOOTER;
     if (pieBase64) {
       try { pdf.addImage(pieBase64, 'PNG', 0, yFooter, MM_ANCHO, ALTO_FOOTER); } catch { /* sin pie si falla */ }
     }
   }
 
-  const Y_TOPE_PAGINA_FRESCA = MARGEN_SUPERIOR_HEADER + ALTO_HEADER + 5; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
-  // Alto máximo que puede ocupar una tarjeta en CUALQUIER página (recién
-  // empezada o no) sin invadir el pie de página. Si una tarjeta no cabe
-  // aquí a tamaño normal, se achica proporcionalmente (ver
-  // calcularEscalaTarjeta) en vez de cortarse. Se deja un colchón chico
-  // (6mm, no los 14mm del margen general de la página) entre el final de
-  // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
-  // espacio de más que le haría falta a la letra.
-  // Ya no reserva un espacio en blanco fijo — el pie ahora se dibuja
-  // dinámicamente justo debajo del contenido real (ver
-  // yFinalContenidoPorPagina). Este valor solo pone un TECHO de seguridad
-  // a qué tan grande puede crecer una tarjeta antes de necesitar achicarse
-  // o saltar de página — chico a propósito, para que el contenido
-  // aproveche mejor el alto disponible en vez de dejarle un hueco grande
-  // "por si acaso" al pie.
-  const COLCHON_ANTES_DEL_PIE = 8;
-  const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
-
-  function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
-    const alturaNatural = altoDeTarjeta(nodo, crearDimensiones(1));
-    if (alturaNatural <= ALTO_MAXIMO_TARJETA) return 1;
-    return ALTO_MAXIMO_TARJETA / alturaNatural;
-  }
-
-  function nuevaPaginaSiNoCabe(altoNecesario: number) {
-    // Antes, si ya estábamos en una página recién empezada, nunca se
-    // saltaba de página (para no dejar una en blanco) y el contenido que
-    // sobraba simplemente se dibujaba encima del pie de página o se
-    // recortaba al borde físico de la hoja. Ahora eso ya no puede pasar:
-    // calcularEscalaTarjeta() garantiza que altoNecesario siempre quepa en
-    // ALTO_MAXIMO_TARJETA, así que esta función solo decide si conviene
-    // saltar a una página nueva por falta de espacio EN LO QUE QUEDA de la
-    // actual (no por falta de espacio en general).
-    if (y <= Y_TOPE_PAGINA_FRESCA) return;
-    if (y + altoNecesario > MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER) {
-      pdf.addPage();
-      dibujarEncabezadoPagina();
-    }
-  }
+  // Escala y alto de página YA calculados por nodo (una sola vez, antes de
+  // dibujar nada) — dibujarTarjetaNodo los reutiliza en vez de recalcular,
+  // para que la página que se creó para un nodo y la escala con la que se
+  // dibuja su contenido SIEMPRE coincidan entre sí.
+  const alturaYEscalaPorNodo = new Map<string, { alturaPagina: number; escala: number }>();
+  for (const nodo of nodos) alturaYEscalaPorNodo.set(nodo.nombre, alturaYEscalaParaNodo(nodo));
 
   function dibujarMetricas(nodo: NodoMicrogerencia, dim: Dimensiones) {
     const difProyeccion = Math.round(nodo.difConAnioAnterior);
@@ -468,7 +437,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       // Margen interno más grande (era 2mm) — a pedido explícito: pegada
       // borde a borde se sentía "recortada"; con más aire alrededor se ve
       // como una imagen completa dentro de su marco, no como un recorte.
-      pdf.addImage(imagenDataUrl, 'PNG', x0 + 6, y + 6, ancho - 12, alto - 12);
+      pdf.addImage(imagenDataUrl, 'PNG', x0 + 4, y + 4, ancho - 8, alto - 8);
     } catch {
       // Si la imagen viene corrupta o en un formato que jsPDF no acepta,
       // no se rompe el PDF entero — simplemente se deja el recuadro vacío.
@@ -488,10 +457,9 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // se reduce en la misma proporción, en vez de cortar el contenido que
     // sobre (que era exactamente lo que pasaba antes: la tabla de
     // "Distribución por mes" quedaba cortada antes de diciembre).
-    const escala = calcularEscalaTarjeta(nodo);
+    const escala = alturaYEscalaPorNodo.get(nodo.nombre)!.escala;
     const dim = crearDimensiones(escala);
     const altoTarjeta = altoDeTarjeta(nodo, dim);
-    nuevaPaginaSiNoCabe(altoTarjeta);
 
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
     pdf.setDrawColor(226, 232, 240);
@@ -578,12 +546,22 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   for (const nodo of nodos) {
     const original = imagenesPorNodo?.get(nodo.nombre);
     if (!original) continue;
-    const dim = crearDimensiones(calcularEscalaTarjeta(nodo));
+    const dim = crearDimensiones(alturaYEscalaPorNodo.get(nodo.nombre)!.escala);
     const anchoTercera = ANCHO_UTIL * 0.40;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
-    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 12, altoBanda - 12));
+    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 8, altoBanda - 8));
   }
-  for (const nodo of nodos) dibujarTarjetaNodo(nodo, imagenesAjustadas.get(nodo.nombre));
+  for (let i = 0; i < nodos.length; i++) {
+    const nodo = nodos[i];
+    if (i > 0) {
+      // Cada tarjeta (salvo la primera, para la que ya se creó la hoja
+      // con el tamaño correcto arriba) agrega su PROPIA página, ya medida
+      // a su propio contenido — no una A4 genérica.
+      pdf.addPage([MM_ANCHO, alturaYEscalaPorNodo.get(nodo.nombre)!.alturaPagina]);
+      dibujarEncabezadoPagina();
+    }
+    dibujarTarjetaNodo(nodo, imagenesAjustadas.get(nodo.nombre));
+  }
 
   // El pie de página (banda institucional + fecha de generación) se
   // dibuja al final, sobre TODAS las páginas ya generadas — más simple
@@ -596,13 +574,15 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // de generación — así el texto blanco SIEMPRE tiene contraste
     // garantizado, sin depender de qué color quedó justo ahí en la
     // imagen del pie (que puede variar si el pie se recorta o se
-    // reemplaza más adelante).
+    // reemplaza más adelante). Usa el alto REAL de esta página (ya no
+    // son todas iguales) para pegarse a su propio borde inferior.
+    const altoEstaPagina = (pdf as any).internal.pageSize.getHeight();
     pdf.setFillColor(6, 30, 24);
-    pdf.rect(0, MM_ALTO - 4, MM_ANCHO, 4, 'F');
+    pdf.rect(0, altoEstaPagina - 4, MM_ANCHO, 4, 'F');
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(6.5);
     pdf.setTextColor(255, 255, 255);
-    pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, MM_ALTO - 1.5);
+    pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, altoEstaPagina - 1.5);
   }
 
   if ((globalThis as any).__TEST_OUTPUT_PATH__) {
