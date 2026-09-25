@@ -60,6 +60,14 @@ export interface OpcionesPoligonoAislado {
   anchoLienzo?: number; // más chico = más rápido (ideal para miniaturas de vista previa)
   tamanoFuenteBase?: number; // tamaño de referencia a 1200px de ancho (por defecto 15)
   margen?: number; // margen alrededor del polígono, como fracción de su ancho/alto (por defecto 0.08); 0 = recorte exacto, sin nada sobresaliendo
+  // Proporción ancho/alto de la caja de destino (ej. 1.4 si la caja mide
+  // 140x100) — si se pasa, el margen se agranda en UN SOLO eje (el que
+  // haga falta) hasta que el recorte generado YA tenga esta proporción
+  // exacta, para que el ajuste posterior a la caja (recortarImagenParaCobertura)
+  // no tenga que recortar nada del polígono. Sin esto, el polígono se
+  // genera con su proporción natural y puede perder un lado entero al
+  // encajarlo después en una caja de proporción distinta.
+  aspectoObjetivo?: number;
   // false = sin calles/terreno de fondo (solo el contorno + el mapa de
   // calor) — pensado para el mapa GENERAL de Microgerencia, que cubre
   // toda la jurisdicción: a esa escala tan grande, las calles reales solo
@@ -76,7 +84,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -87,15 +95,47 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   const minLat = minDe(todosLosPuntosAnillo.map((p) => p[1]));
   const maxLat = maxDe(todosLosPuntosAnillo.map((p) => p[1]));
 
-  const margenLon = (maxLon - minLon) * 0.08 || 0.001;
-  const margenLat = (maxLat - minLat) * 0.08 || 0.001;
-  const loLon = minLon - margenLon, hiLon = maxLon + margenLon;
-  const loLat = minLat - margenLat, hiLat = maxLat + margenLat;
+  // El "margen" que se pedía por parámetro nunca se estaba usando de
+  // verdad aquí — este 0.08 estaba escrito directamente, sin conectar con
+  // la opción de arriba (confirmado: por eso subir el margen una y otra
+  // vez, en llamadas externas, no cambiaba nada en el resultado final).
+  const margenLon = (maxLon - minLon) * margen || 0.001;
+  const margenLat = (maxLat - minLat) * margen || 0.001;
+  let loLon = minLon - margenLon, hiLon = maxLon + margenLon;
+  let loLat = minLat - margenLat, hiLat = maxLat + margenLat;
 
-  const mercLoX = lonAMercatorX(loLon), mercHiX = lonAMercatorX(hiLon);
-  const mercLoY = latAMercatorY(hiLat), mercHiY = latAMercatorY(loLat);
-  const anchoMerc = mercHiX - mercLoX;
-  const altoMerc = mercHiY - mercLoY;
+  let mercLoX = lonAMercatorX(loLon), mercHiX = lonAMercatorX(hiLon);
+  let mercLoY = latAMercatorY(hiLat), mercHiY = latAMercatorY(loLat);
+  let anchoMerc = mercHiX - mercLoX;
+  let altoMerc = mercHiY - mercLoY;
+
+  // Si se pidió una proporción de destino (ancho/alto de la caja donde va
+  // a caer la imagen en el PDF), se agranda el margen en UN SOLO eje —
+  // el que haga falta — hasta que la proporción del recorte coincida
+  // EXACTAMENTE con la de esa caja. Así, cuando después se ajuste la
+  // imagen a la caja (recortarImagenParaCobertura), ya no tiene que
+  // recortar NADA — las proporciones ya vienen iguales. Antes, sin esto,
+  // el polígono se generaba con su proporción NATURAL (alta y angosta,
+  // por la forma real de la jurisdicción) y el recorte posterior le
+  // quitaba un lado entero para forzarlo a caber en una caja más ancha —
+  // por eso se veía "cortado" sin importar cuánto margen tuviera de por
+  // sí, el problema nunca fue la cantidad de margen sino la forma.
+  if (aspectoObjetivo && aspectoObjetivo > 0) {
+    const aspectoActual = anchoMerc / altoMerc;
+    if (aspectoActual < aspectoObjetivo) {
+      // Más angosto de lo que hace falta — se agranda el ancho (Lon).
+      const anchoMercDeseado = altoMerc * aspectoObjetivo;
+      const extra = (anchoMercDeseado - anchoMerc) / 2;
+      mercLoX -= extra; mercHiX += extra;
+      anchoMerc = mercHiX - mercLoX;
+    } else if (aspectoActual > aspectoObjetivo) {
+      // Más ancho de lo que hace falta — se agranda el alto (Lat).
+      const altoMercDeseado = anchoMerc / aspectoObjetivo;
+      const extra = (altoMercDeseado - altoMerc) / 2;
+      mercLoY -= extra; mercHiY += extra;
+      altoMerc = mercHiY - mercLoY;
+    }
+  }
 
   const alto = Math.max(1, Math.round(anchoLienzo * (altoMerc / anchoMerc)));
 

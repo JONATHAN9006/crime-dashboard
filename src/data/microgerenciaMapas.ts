@@ -365,6 +365,12 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
       margen: 0.3,
+      // Proporci00f3n t00edpica de la caja del mapa en el PDF (ancho/alto) 2014 no
+      // es exacta para CADA tarjeta (var00eda un poco seg00fan cu00e1ntos delitos
+      // tenga), pero acerca MUCHO m00e1s el resultado a la forma real de la
+      // caja que la proporci00f3n natural del pol00edgono (mucho m00e1s alta y
+      // angosta), que era la fuente real del recorte.
+      aspectoObjetivo: 0.85,
       feature: featureCollection,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
@@ -438,6 +444,12 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
       margen: 0.3,
+      // Proporci00f3n t00edpica de la caja del mapa en el PDF (ancho/alto) 2014 no
+      // es exacta para CADA tarjeta (var00eda un poco seg00fan cu00e1ntos delitos
+      // tenga), pero acerca MUCHO m00e1s el resultado a la forma real de la
+      // caja que la proporci00f3n natural del pol00edgono (mucho m00e1s alta y
+      // angosta), que era la fuente real del recorte.
+      aspectoObjetivo: 0.85,
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
@@ -475,6 +487,12 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
       margen: 0.3,
+      // Proporci00f3n t00edpica de la caja del mapa en el PDF (ancho/alto) 2014 no
+      // es exacta para CADA tarjeta (var00eda un poco seg00fan cu00e1ntos delitos
+      // tenga), pero acerca MUCHO m00e1s el resultado a la forma real de la
+      // caja que la proporci00f3n natural del pol00edgono (mucho m00e1s alta y
+      // angosta), que era la fuente real del recorte.
+      aspectoObjetivo: 0.85,
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],

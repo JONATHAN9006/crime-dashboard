@@ -522,8 +522,8 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // (nombre + 5 números) contra las 4 de Trimestres, así que necesita
     // más espacio; con el ancho anterior los números quedaban tan
     // apretados que se encimaban entre sí.
-    const anchoTrimestres = ANCHO_UTIL * 0.36;
-    const anchoTercera = ANCHO_UTIL * 0.38;
+    const anchoTrimestres = ANCHO_UTIL * 0.34;
+    const anchoTercera = ANCHO_UTIL * 0.40;
     const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoTercera - dim.paddingTarjeta * 2;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
 
@@ -579,7 +579,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     const original = imagenesPorNodo?.get(nodo.nombre);
     if (!original) continue;
     const dim = crearDimensiones(calcularEscalaTarjeta(nodo));
-    const anchoTercera = ANCHO_UTIL * 0.38;
+    const anchoTercera = ANCHO_UTIL * 0.40;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
     imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 12, altoBanda - 12));
   }
