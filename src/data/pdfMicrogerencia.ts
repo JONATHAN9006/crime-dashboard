@@ -218,21 +218,32 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   const ALTO_HEADER = MM_ANCHO * (270 / 1938);
   const ALTO_FOOTER = MM_ANCHO * (144 / 1956);
 
+  // Bajado un poco (era 0, pegado al borde absoluto) — a pedido explícito,
+  // se veía "remontado"/cortado visualmente contra el filo de la hoja.
+  const MARGEN_SUPERIOR_HEADER = 4;
   function dibujarEncabezadoPagina() {
     if (encabezadoBase64) {
-      try { pdf.addImage(encabezadoBase64, 'PNG', 0, 0, MM_ANCHO, ALTO_HEADER); } catch { /* sin encabezado si falla */ }
+      try { pdf.addImage(encabezadoBase64, 'PNG', 0, MARGEN_SUPERIOR_HEADER, MM_ANCHO, ALTO_HEADER); } catch { /* sin encabezado si falla */ }
     }
-    y = ALTO_HEADER + 5;
+    y = MARGEN_SUPERIOR_HEADER + ALTO_HEADER + 5;
   }
 
-  function dibujarPiePagina() {
-    const yFooter = MM_ALTO - ALTO_FOOTER;
+  // Y donde terminó el contenido real de cada página — así el pie se
+  // dibuja justo debajo (ver dibujarTarjetaNodo, que la va llenando), en
+  // vez de siempre pegado al fondo físico de la hoja.
+  const yFinalContenidoPorPagina = new Map<number, number>();
+
+  function dibujarPiePagina(yContenido: number | undefined) {
+    // Si por lo que sea no se registró un final de contenido para esta
+    // página (no debería pasar), se cae al comportamiento de siempre
+    // (pegado al fondo) — más seguro que no dibujar nada.
+    const yFooter = yContenido != null ? Math.min(yContenido, MM_ALTO - ALTO_FOOTER) : MM_ALTO - ALTO_FOOTER;
     if (pieBase64) {
       try { pdf.addImage(pieBase64, 'PNG', 0, yFooter, MM_ANCHO, ALTO_FOOTER); } catch { /* sin pie si falla */ }
     }
   }
 
-  const Y_TOPE_PAGINA_FRESCA = ALTO_HEADER + 5; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
+  const Y_TOPE_PAGINA_FRESCA = MARGEN_SUPERIOR_HEADER + ALTO_HEADER + 5; // el mismo valor que deja dibujarEncabezadoPagina() justo después de dibujar el encabezado
   // Alto máximo que puede ocupar una tarjeta en CUALQUIER página (recién
   // empezada o no) sin invadir el pie de página. Si una tarjeta no cabe
   // aquí a tamaño normal, se achica proporcionalmente (ver
@@ -240,7 +251,14 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // (6mm, no los 14mm del margen general de la página) entre el final de
   // la tarjeta y el pie — suficiente para que no se toquen, sin regalar
   // espacio de más que le haría falta a la letra.
-  const COLCHON_ANTES_DEL_PIE = 54;
+  // Ya no reserva un espacio en blanco fijo — el pie ahora se dibuja
+  // dinámicamente justo debajo del contenido real (ver
+  // yFinalContenidoPorPagina). Este valor solo pone un TECHO de seguridad
+  // a qué tan grande puede crecer una tarjeta antes de necesitar achicarse
+  // o saltar de página — chico a propósito, para que el contenido
+  // aproveche mejor el alto disponible en vez de dejarle un hueco grande
+  // "por si acaso" al pie.
+  const COLCHON_ANTES_DEL_PIE = 8;
   const ALTO_MAXIMO_TARJETA = MM_ALTO - COLCHON_ANTES_DEL_PIE - ALTO_FOOTER - Y_TOPE_PAGINA_FRESCA;
 
   function calcularEscalaTarjeta(nodo: NodoMicrogerencia): number {
@@ -504,8 +522,8 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // (nombre + 5 números) contra las 4 de Trimestres, así que necesita
     // más espacio; con el ancho anterior los números quedaban tan
     // apretados que se encimaban entre sí.
-    const anchoTrimestres = ANCHO_UTIL * 0.35;
-    const anchoTercera = ANCHO_UTIL * 0.37;
+    const anchoTrimestres = ANCHO_UTIL * 0.36;
+    const anchoTercera = ANCHO_UTIL * 0.38;
     const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoTercera - dim.paddingTarjeta * 2;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
 
@@ -531,15 +549,22 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     dibujarImagenMapaONodo(nodo, imagenMapaDataUrl, xTercera, anchoTercera, altoBanda, dim);
 
     y += altoBanda;
-    // Fuente/atribución, a pedido explícito — chica y discreta, debajo de
-    // cada tarjeta (el espacio ya está reservado en COLCHON_ANTES_DEL_PIE,
-    // así nunca invade el pie de página real).
+    // Fuente/atribución — chica y discreta, debajo de cada tarjeta.
     pdf.setFont('helvetica', 'italic');
     pdf.setFontSize(6.5 * dim.escala);
     pdf.setTextColor(...COLOR_MUTED);
     pdf.text('Fuente: Aplicativo Los Andes. La información está sujeta a variación.', MARGEN, y + 4 * dim.escala);
+    y += 6 * dim.escala;
 
-    y += ESPACIO_ENTRE_TARJETAS;
+    // Dónde quedó el contenido en ESTA página, para que el pie se dibuje
+    // justo debajo (no pegado al fondo físico de la hoja dejando un hueco
+    // en blanco) — a pedido explícito. Se guarda por número de página
+    // porque, si una tarjeta es chica, puede caber más de una en la misma
+    // hoja; cada vez que se dibuja algo en esa página se actualiza con la
+    // posición MÁS RECIENTE (la de más abajo), que es la que importa.
+    yFinalContenidoPorPagina.set(pdf.getNumberOfPages(), y);
+
+    y += ESPACIO_ENTRE_TARJETAS - 6 * dim.escala;
   }
 
   dibujarEncabezadoPagina();
@@ -554,7 +579,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     const original = imagenesPorNodo?.get(nodo.nombre);
     if (!original) continue;
     const dim = crearDimensiones(calcularEscalaTarjeta(nodo));
-    const anchoTercera = ANCHO_UTIL * 0.37;
+    const anchoTercera = ANCHO_UTIL * 0.38;
     const altoBanda = altoBandaTresColumnas(nodo, dim);
     imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 12, altoBanda - 12));
   }
@@ -566,7 +591,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   const totalPaginas = pdf.getNumberOfPages();
   for (let p = 1; p <= totalPaginas; p++) {
     pdf.setPage(p);
-    dibujarPiePagina();
+    dibujarPiePagina(yFinalContenidoPorPagina.get(p));
     // Franjita oscura propia (no parte de la imagen) detrás de la fecha
     // de generación — así el texto blanco SIEMPRE tiene contraste
     // garantizado, sin depender de qué color quedó justo ahí en la

@@ -364,7 +364,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
       // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
-      margen: 0.25,
+      margen: 0.3,
       feature: featureCollection,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
@@ -437,7 +437,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
-      margen: 0.25,
+      margen: 0.3,
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
@@ -474,7 +474,7 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
       // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
-      margen: 0.25,
+      margen: 0.3,
       feature,
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
