@@ -478,7 +478,12 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // completa de delitos como respaldo. El mapa se redujo un poco (era
     // 0.42) y Trimestres/Delitos ganaron ese espacio (era 0.25) — a
     // pedido explícito: en vertical se veían muy pegados/angostos.
-    const anchoTrimestres = ANCHO_UTIL * 0.28;
+    // Trimestres/Delitos ganaron ancho (era 0.28) a costa de Distribución
+    // por mes — a pedido explícito: Delitos tiene 6 columnas de datos
+    // (nombre + 5 números) contra las 4 de Trimestres, así que necesita
+    // más espacio; con el ancho anterior los números quedaban tan
+    // apretados que se encimaban entre sí.
+    const anchoTrimestres = ANCHO_UTIL * 0.33;
     const anchoTercera = ANCHO_UTIL * 0.34;
     const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoTercera - dim.paddingTarjeta * 2;
     const altoBanda = altoBandaTresColumnas(nodo, dim);

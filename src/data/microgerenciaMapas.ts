@@ -186,6 +186,32 @@ function nombreCaiDeFeature(feature: any, columna: string): string {
   return MAPA_CAI[crudo.toUpperCase()] ?? crudo;
 }
 
+// División oficial de CAI por Estación (misma que ya se usa para derivar el
+// CAI desde la Zona de Atención — ver RANGOS_CAI_POR_ESTACION en
+// csvParser.ts — y confirmada explícitamente por el usuario: Norte = CAI
+// 1-4, Sur = CAI 5-10). Se usa para CONSTRUIR el contorno de cada Estación
+// (y de "MEPOY General" = las dos juntas) UNIENDO los polígonos de sus
+// propios CAI — no depende de tener una capa de Estación aparte, que era
+// justo el problema (la única disponible, "JURIS_ESTACIONES_2026", trae
+// municipios en vez de la división real de Norte/Sur). Como el CAI SÍ está
+// bien cargado y confirmado, esto da un contorno confiable sin necesidad
+// de conseguir un shapefile adicional.
+const CAI_POR_ESTACION: Record<'NORTE' | 'SUR', Set<string>> = {
+  NORTE: new Set(['CAI 1', 'CAI 2', 'CAI 3', 'CAI 4']),
+  SUR: new Set(['CAI 5', 'CAI 6', 'CAI 7', 'CAI 8', 'CAI 9', 'CAI 10']),
+};
+
+async function construirEstacionDesdeCai(estacion: 'NORTE' | 'SUR' | 'AMBAS'): Promise<{ features: any[]; capaId: string } | null> {
+  const localizada = await localizarCapaDeCai();
+  if (!localizada) return null;
+  const conjunto = estacion === 'AMBAS' ? null : CAI_POR_ESTACION[estacion];
+  const features = localizada.features.filter((f) => {
+    const nombreCai = nombreCaiDeFeature(f, localizada.columna);
+    return conjunto === null ? esNombreDeCai(nombreCai) : conjunto.has(nombreCai);
+  });
+  return features.length > 0 ? { features, capaId: localizada.capa.id } : null;
+}
+
 async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string, caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null) {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
@@ -286,52 +312,40 @@ async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: st
 /** Imagen de Popayán (Estación Norte + Sur) — para "MEPOY General". */
 export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {
-    const localizada = await localizarCapaDeEstaciones();
-    if (!localizada || localizada.features.length === 0) {
-      console.warn('[Microgerencia→Mapa] No se encontró ninguna capa de Estación cargada en "Mapa/Georreferenciación" (o ninguna columna suya coincide con nombres de estación conocidos).');
-      return undefined;
+    // Prioridad 1: construir el contorno UNIENDO los CAI 1-10 (confiables,
+    // ya confirmados) — evita depender de una capa de Estación aparte,
+    // que en la práctica ha resultado ser la equivocada (municipios en
+    // vez de la división real de Norte/Sur). Prioridad 2 (respaldo): la
+    // capa de Estación de siempre, solo si no hay ninguna capa de CAI
+    // cargada todavía.
+    const desdeCai = await construirEstacionDesdeCai('AMBAS');
+    let featuresParaMapa: any[];
+    let capaContornoId: string;
+
+    if (desdeCai) {
+      featuresParaMapa = desdeCai.features;
+      capaContornoId = desdeCai.capaId;
+    } else {
+      const localizada = await localizarCapaDeEstaciones();
+      if (!localizada || localizada.features.length === 0) {
+        console.warn('[Microgerencia→Mapa] No se encontró ninguna capa de CAI ni de Estación cargada en "Mapa/Georreferenciación".');
+        return undefined;
+      }
+      const featuresNorteSur = localizada.features.filter((f) => {
+        const nombre = normalizar(nombreEstacionDeFeature(f, localizada.columna));
+        return nombre === normalizar('E-Norte') || nombre === normalizar('E-Sur');
+      });
+      featuresParaMapa = featuresNorteSur.length > 0 ? featuresNorteSur : localizada.features;
+      capaContornoId = localizada.capa.id;
     }
-    // "General" = Norte + Sur (el área urbana) — no las estaciones rurales.
-    const featuresNorteSur = localizada.features.filter((f) => {
-      const nombre = normalizar(nombreEstacionDeFeature(f, localizada.columna));
-      return nombre === normalizar('E-Norte') || nombre === normalizar('E-Sur');
-    });
-    if (featuresNorteSur.length === 0) {
-      // Diagnóstico para cuando SÍ se encontró una capa/columna de
-      // Estación, pero ninguno de sus valores coincidió con Norte/Sur —
-      // se listan los valores CRUDOS reales (antes y después de pasar por
-      // MAPA_ESTACION) para saber exactamente qué está trayendo la capa,
-      // sin necesidad de compartir el shapefile completo: basta con abrir
-      // la consola del navegador (F12 → pestaña "Console"), generar el
-      // PDF de nuevo, y copiar este mensaje.
-      const valoresCrudos = [...new Set(localizada.features.map((f) => String(f?.properties?.[localizada.columna] ?? '')))];
-      const todasLasCapas = await cargarCapas();
-      const resumenTodasLasCapas = todasLasCapas.map((capa) => {
-        const feats = extraerFeatures(capa.geojson);
-        if (feats.length === 0) return `  Capa "${capa.nombre}": (sin features)`;
-        const columnas = Object.keys(feats[0]?.properties ?? {});
-        const lineas = columnas.map((c) => {
-          const valores = feats.map((f) => String(f?.properties?.[c] ?? '').trim()).filter(Boolean);
-          const unicos = [...new Set(valores)];
-          return `      · "${c}": ${unicos.length} valor(es) distinto(s) — ejemplo(s): ${JSON.stringify(unicos.slice(0, 6))}`;
-        }).join('\n');
-        return `  Capa "${capa.nombre}" (${feats.length} elementos):\n${lineas}`;
-      }).join('\n');
-      console.warn(
-        `[Microgerencia→Mapa] Se detectó la capa "${localizada.capa.nombre}" (columna "${localizada.columna}") como la de Estación, pero NINGÚN valor coincidió con Norte/Sur — se está usando TODA la capa como respaldo.\n` +
-        `Valores encontrados en esa columna: ${JSON.stringify(valoresCrudos)}\n` +
-        `Traducidos por MAPA_ESTACION: ${JSON.stringify(valoresCrudos.map((v) => MAPA_ESTACION[v.toUpperCase()] ?? `(sin traducción: "${v}")`))}\n\n` +
-        `Por si la división Norte/Sur está en OTRA capa cargada (ej. por cuadrante), aquí están TODAS las capas con sus columnas:\n${resumenTodasLasCapas}`,
-      );
-    }
-    const featuresParaMapa = featuresNorteSur.length > 0 ? featuresNorteSur : localizada.features;
+
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación".', { delitoFiltrado });
       return undefined;
     }
     const featureCollection = { type: 'FeatureCollection', features: featuresParaMapa };
-    const anillosInternos = await obtenerAnillosInternos(featureCollection, localizada.capa.id);
+    const anillosInternos = await obtenerAnillosInternos(featureCollection, capaContornoId);
     return await generarDataUrlPoligonoAislado({
       feature: featureCollection,
       puntos,
@@ -354,26 +368,44 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
 /** Imagen de UNA estación específica (ej. "E-Norte") — para los nodos de Distrito/Estación. Incluye las líneas internas de CAI. */
 export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {
-    const localizada = await localizarCapaDeEstaciones();
-    if (!localizada) {
-      console.warn(`[Microgerencia→Mapa] No se encontró la capa de Estación (para "${nombreEstacionCorta}").`);
-      return undefined;
+    // Misma prioridad que en generarImagenMapaGeneral: construir el
+    // contorno de la Estación uniendo sus propios CAI (Norte = CAI 1-4,
+    // Sur = CAI 5-10) — confiable y ya cargado — antes de recurrir a una
+    // capa de Estación aparte.
+    const claveEstacion = normalizar(nombreEstacionCorta) === normalizar('E-Norte') ? 'NORTE' : normalizar(nombreEstacionCorta) === normalizar('E-Sur') ? 'SUR' : null;
+    const desdeCai = claveEstacion ? await construirEstacionDesdeCai(claveEstacion) : null;
+
+    let feature: any;
+    let capaContornoId: string;
+
+    if (desdeCai) {
+      feature = { type: 'FeatureCollection', features: desdeCai.features };
+      capaContornoId = desdeCai.capaId;
+    } else {
+      const localizada = await localizarCapaDeEstaciones();
+      if (!localizada) {
+        console.warn(`[Microgerencia→Mapa] No se encontró la capa de CAI ni la de Estación (para "${nombreEstacionCorta}").`);
+        return undefined;
+      }
+      const featureEncontrada = localizada.features.find((f) => normalizar(nombreEstacionDeFeature(f, localizada.columna)) === normalizar(nombreEstacionCorta));
+      if (!featureEncontrada) {
+        const valoresCrudos = [...new Set(localizada.features.map((f) => String(f?.properties?.[localizada.columna] ?? '')))];
+        console.warn(
+          `[Microgerencia→Mapa] La capa de Estación no tiene ningún polígono que coincida con "${nombreEstacionCorta}" en la columna "${localizada.columna}".\n` +
+          `Valores encontrados en esa columna: ${JSON.stringify(valoresCrudos)}`,
+        );
+        return undefined;
+      }
+      feature = featureEncontrada;
+      capaContornoId = localizada.capa.id;
     }
-    const feature = localizada.features.find((f) => normalizar(nombreEstacionDeFeature(f, localizada.columna)) === normalizar(nombreEstacionCorta));
-    if (!feature) {
-      const valoresCrudos = [...new Set(localizada.features.map((f) => String(f?.properties?.[localizada.columna] ?? '')))];
-      console.warn(
-        `[Microgerencia→Mapa] La capa de Estación no tiene ningún polígono que coincida con "${nombreEstacionCorta}" en la columna "${localizada.columna}".\n` +
-        `Valores encontrados en esa columna: ${JSON.stringify(valoresCrudos)}`,
-      );
-      return undefined;
-    }
+
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado, nombreEstacionCorta, undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
     }
-    const anillosInternos = await obtenerAnillosInternos(feature, localizada.capa.id);
+    const anillosInternos = await obtenerAnillosInternos(feature, capaContornoId);
     return await generarDataUrlPoligonoAislado({
       feature,
       puntos,
