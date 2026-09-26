@@ -533,16 +533,31 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
   // Lo que SÍ se corrige aquí son dos casos distintos, que no son "texto
   // truncado con ellipsis" sino contenedores con su propio scroll/ancho
   // que un archivo estático no puede tener:
-  const candidatosScroll = [raiz, ...Array.from(raiz.querySelectorAll<HTMLElement>('*'))].filter((el) => {
+  // IMPORTANTE — orden de detección: antes se revisaba qué contenedores YA
+  // tenían overflow ANTES de ensanchar ninguna tabla — así que un
+  // contenedor que todavía NO desbordaba (porque la tabla de adentro
+  // seguía angosta) nunca quedaba en la lista de "hay que ajustar este
+  // contenedor". Al ensanchar la tabla DESPUÉS, esa tabla pasaba a ser más
+  // ancha que su contenedor (que se quedaba con su overflow-x:auto
+  // original, recortando lo que sobra) — resultado confirmado: las
+  // últimas columnas de una tabla angosta (ej. "%" y "Aporte %" en
+  // "Casos por Estación") quedaban recortadas/invisibles, sin que el
+  // contenedor se enterara de que ahora tenía que ser más ancho.
+  //
+  // Se corrige detectando los CANDIDATOS a contenedor-con-scroll por su
+  // ESTILO (overflow-x: auto/scroll), sin exigir que YA estén
+  // desbordando — y revisando si desbordan (scrollWidth > clientWidth)
+  // recién DESPUÉS de ensanchar las tablas angostas, momento en el que ya
+  // se sabe con certeza si hace falta ajustarlos o no.
+  const posiblesContenedoresScroll = [raiz, ...Array.from(raiz.querySelectorAll<HTMLElement>('*'))].filter((el) => {
     const estilo = window.getComputedStyle(el);
-    return (estilo.overflowX === 'auto' || estilo.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1;
+    return estilo.overflowX === 'auto' || estilo.overflowX === 'scroll';
   });
   const ANCHO_MINIMO_TABLA = 620;
   const tablasAngostas = Array.from(raiz.querySelectorAll<HTMLTableElement>('table')).filter(
     (t) => t.getBoundingClientRect().width < ANCHO_MINIMO_TABLA,
   );
-  const candidatos = [...candidatosScroll, ...tablasAngostas];
-  const originales = candidatos.map((el) => ({
+  const originales = [...posiblesContenedoresScroll, ...tablasAngostas].map((el) => ({
     el,
     width: el.style.width,
     maxWidth: el.style.maxWidth,
@@ -557,30 +572,25 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
   // tamaño se veía como una animación visible de la información
   // agrandándose en pantalla, en vez de un ajuste instantáneo e
   // imperceptible antes de la captura.
-  candidatos.forEach((el) => { el.style.transition = 'none'; });
-  // ORDEN IMPORTA — a pedido explícito, tras confirmar el caso real
-  // ("Casos por Estación" salía cortado, "Comparativo de delitos" no):
-  // primero se ensancha la TABLA angosta (si la hay), y RECIÉN DESPUÉS se
-  // mide/fija el ancho del CONTENEDOR con scroll que la envuelve. Al revés
-  // (como estaba antes), el contenedor medía su scrollWidth ANTES de que
-  // la tabla de adentro creciera — quedaba fijado a un ancho viejo, más
-  // angosto, y la tabla ya ensanchada terminaba saliéndose de esa caja en
-  // vez de quedar completamente contenida, lo que producía el recorte.
-  // "Comparativo de delitos" nunca lo sufría porque su tarjeta ya es lo
-  // bastante ancha por sí sola y no necesita este ajuste en absoluto.
+  [...posiblesContenedoresScroll, ...tablasAngostas].forEach((el) => { el.style.transition = 'none'; });
+
+  // PRIMERO se ensanchan las tablas angostas (si las hay)...
   tablasAngostas.forEach((t) => {
     t.style.width = `${ANCHO_MINIMO_TABLA}px`;
     t.style.minWidth = `${ANCHO_MINIMO_TABLA}px`;
   });
-  candidatosScroll.forEach((el) => {
+  // ...y RECIÉN AHORA se revisa cuáles contenedores de scroll de verdad
+  // desbordan (con las tablas YA en su tamaño final) y se ajustan — nunca
+  // antes, que es justo el orden que causaba el recorte.
+  posiblesContenedoresScroll.forEach((el) => {
+    if (el.scrollWidth <= el.clientWidth + 1) return; // este no desborda, no se toca
     // Se usa el ancho YA MEDIDO en píxeles (scrollWidth), no la palabra
     // clave CSS "max-content" — en una tabla, pedirle al navegador que
     // calcule "max-content" puede disparar un recálculo de layout que en
     // ciertas combinaciones (columnas con ancho en %, tablas anidadas)
     // termina en un ancho absurdamente grande, produciendo un canvas roto.
-    // El valor medido es un número concreto y ya sabemos que es el
-    // correcto (es justamente lo que scrollWidth acababa de reportar) —
-    // y, gracias al orden de arriba, ya refleja la tabla YA ensanchada.
+    // El valor medido es un número concreto, y ya refleja la tabla YA
+    // ensanchada (gracias al orden de arriba).
     el.style.width = `${el.scrollWidth}px`;
     el.style.maxWidth = 'none';
     el.style.overflowX = 'visible';
@@ -630,11 +640,17 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   copia.style.width = `${anchoOriginal}px`;
   copia.style.pointerEvents = 'none';
   document.body.appendChild(copia);
-  // Un respiro de un cuadro (requestAnimationFrame) para que el navegador
-  // termine de calcular el diseño interno de la copia recién insertada
-  // (barras de "aporte", gráficas que miden su propio contenedor, etc.)
-  // antes de medir o tocar nada — sin esto, algunos elementos que dependen
-  // de su propio ancho ya renderizado podían quedar a medio calcular.
+  // Dos esperas antes de tocar o medir nada:
+  // 1) Que las fuentes ya estén listas — si el texto se mide/renderiza
+  //    todavía con la fuente de repuesto del navegador (más ancha/alta que
+  //    la definitiva), las líneas pueden calcularse con una altura
+  //    equivocada y terminar encimadas unas sobre otras en el resultado.
+  // 2) Un cuadro (requestAnimationFrame) para que el navegador termine de
+  //    calcular el diseño interno de la copia recién insertada (barras de
+  //    "aporte", gráficas que miden su propio contenedor, etc.).
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch { /* si falla, se sigue igual con la espera de abajo */ }
+  }
   await new Promise((resolve) => requestAnimationFrame(resolve));
 
   const ESCALA = 2;
