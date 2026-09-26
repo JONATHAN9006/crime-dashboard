@@ -21,6 +21,7 @@ import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
 import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
 import { useCapaArchivoGeorreferenciado } from '../hooks/useCapaArchivoGeorreferenciado';
 import { PanelArchivoGeorreferenciado, CapaLeafletArchivoGeorreferenciado } from '../components/mapa/CapaArchivoGeorreferenciado';
+import { ZoomSliderControl } from '../components/mapa/ZoomSliderControl';
 import { useData } from '../context/DataContext';
 import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
@@ -1385,7 +1386,7 @@ export function MapaGeorreferenciacion() {
     }
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas]);
+  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas, coloresSeleccionadosCalor.join(',')]);
 
   async function descargarPrevisualizacionCai(nombreCai: string) {
     const feature = buscarFeatureDeCai(nombreCai);
@@ -2118,7 +2119,8 @@ export function MapaGeorreferenciacion() {
             </div>
           )}
 
-          <MapContainer center={CENTRO_DEFECTO} zoom={12} style={{ height: '100%', width: '100%' }}>
+          <MapContainer center={CENTRO_DEFECTO} zoom={12} zoomControl={false} style={{ height: '100%', width: '100%' }}>
+            <ZoomSliderControl />
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
             <CapturarInstanciaDeMapa mapaRef={mapaRef} />
             <SeleccionPorClicEnMapa
