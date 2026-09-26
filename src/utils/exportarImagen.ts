@@ -607,58 +607,71 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
  */
 export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo: string | undefined): Promise<HTMLCanvasElement> {
   const html2canvas = (await import('html2canvas')).default;
-  // Etiquetar ANTES de ensanchar/capturar, para que el emparejamiento
-  // original->clon (ver congelarEstilosParaCaptura) sea por identidad
-  // estable y no por posición en el árbol.
-  const restaurarEtiquetas = etiquetarElementosParaCaptura(elemento);
-  const restaurarAnchos = ensancharTextosTruncados(elemento);
-  // Oculta las etiquetas/valores/aporte (data-export-texto) ANTES de
-  // capturar — se dibujan aparte, directamente en el canvas, después, en
-  // vez de dejar que html2canvas interprete y mida ese texto HTML.
-  const { registros: textosManuales, restaurar: restaurarTextos } = ocultarYRegistrarTextosManuales(elemento);
 
-  // Oculta, en el DOM REAL (temporalmente, con flash breve durante la
-  // captura — el mismo compromiso que ya asume ensancharTextosTruncados),
-  // cualquier elemento marcado a mano con data-ocultar-en-descarga —
-  // usado por componentes puntuales que necesitan excluir contenido
-  // específico de la imagen descargada (ej. los bloques de texto de
-  // "Comportamiento del delito", ver ComportamientoDelDelito.tsx). Se hace
-  // sobre el DOM real, ANTES de medir el alto, para que
-  // medirAltoRealDelContenido calcule el alto ya SIN ese espacio — si solo
-  // se ocultara en el clon (como la cuadrícula, más abajo), la altura
-  // reservada quedaría de más y la imagen exportada tendría un hueco vacío
-  // al final.
-  const elementosOcultosManualmente = Array.from(elemento.querySelectorAll<HTMLElement>('[data-ocultar-en-descarga]'));
-  const displaysOriginales = elementosOcultosManualmente.map((el) => el.style.display);
-  elementosOcultosManualmente.forEach((el) => { el.style.display = 'none'; });
-  const restaurarOcultamientoManual = () => {
-    elementosOcultosManualmente.forEach((el, i) => { el.style.display = displaysOriginales[i]; });
-  };
-
-  // Especificación de leyenda "para exportación" (ver TrendChart.tsx): si
-  // el componente trae elementos [data-export-leyenda-item], se dibuja una
-  // leyenda propia sobre el canvas final (más abajo) en vez de depender de
-  // la leyenda nativa de Recharts — que se posiciona con cálculos
-  // absolutos pensados para el tamaño en pantalla y no se adapta de forma
-  // confiable al canvas de exportación (texto cortado, mal distribuido).
-  // Por eso, cuando existe esta especificación, la leyenda nativa
-  // (".recharts-legend-wrapper") se oculta SOLO durante la captura — nunca
-  // en pantalla — igual que los bloques de arriba.
-  const especificacionLeyenda = Array.from(elemento.querySelectorAll<HTMLElement>('[data-export-leyenda-item]'))
-    .map((el) => ({ texto: el.textContent?.trim() ?? '', color: el.getAttribute('data-color') ?? '#334155' }))
-    .filter((it) => it.texto.length > 0);
-  const wrappersLeyendaNativa = especificacionLeyenda.length > 0
-    ? Array.from(elemento.querySelectorAll<HTMLElement>('.recharts-legend-wrapper'))
-    : [];
-  const displaysLeyendaOriginales = wrappersLeyendaNativa.map((el) => el.style.display);
-  wrappersLeyendaNativa.forEach((el) => { el.style.display = 'none'; });
-  const restaurarLeyendaNativa = () => {
-    wrappersLeyendaNativa.forEach((el, i) => { el.style.display = displaysLeyendaOriginales[i]; });
-  };
+  // TODA la preparación (ensanchar tablas angostas, ocultar textos
+  // manuales, ocultar la cuadrícula, etc.) se hace sobre una COPIA fuera
+  // de pantalla, nunca sobre el componente real — a pedido explícito,
+  // confirmado que afectaba TODOS los componentes descargables de
+  // Delictividad, no solo uno: antes, esos ajustes se aplicaban
+  // directamente al componente que el usuario tenía en pantalla, así que
+  // cualquier cambio de ancho o cualquier elemento que se ocultara
+  // producía un movimiento/parpadeo visible ahí mismo, encima de lo que se
+  // estaba viendo — y si la captura ocurría a mitad de ese movimiento (por
+  // una transición CSS, o simplemente por la mecánica async de
+  // html2canvas), la imagen resultante salía a medio ajustar, es decir,
+  // cortada. Con la copia, la página real NUNCA cambia — el usuario ni se
+  // entera de que algo se está preparando detrás de cámaras.
+  const copia = elemento.cloneNode(true) as HTMLElement;
+  const anchoOriginal = elemento.getBoundingClientRect().width;
+  copia.style.position = 'fixed';
+  copia.style.top = '0';
+  copia.style.left = '-99999px';
+  copia.style.margin = '0';
+  copia.style.width = `${anchoOriginal}px`;
+  copia.style.pointerEvents = 'none';
+  document.body.appendChild(copia);
 
   const ESCALA = 2;
   let canvasContenido: HTMLCanvasElement;
+  let textosManuales: TextoManual[];
+  let especificacionLeyenda: { texto: string; color: string }[];
+
   try {
+    // Etiquetar ANTES de ensanchar/capturar, para que el emparejamiento
+    // copia->clon-de-html2canvas (ver congelarEstilosParaCaptura) sea por
+    // identidad estable y no por posición en el árbol.
+    const restaurarEtiquetas = etiquetarElementosParaCaptura(copia);
+    const restaurarAnchos = ensancharTextosTruncados(copia);
+    // Oculta las etiquetas/valores/aporte (data-export-texto) ANTES de
+    // capturar — se dibujan aparte, directamente en el canvas, después, en
+    // vez de dejar que html2canvas interprete y mida ese texto HTML.
+    const { registros: textosManualesEncontrados, restaurar: restaurarTextos } = ocultarYRegistrarTextosManuales(copia);
+    textosManuales = textosManualesEncontrados;
+
+    // Oculta (en la COPIA, nunca en el DOM real) cualquier elemento
+    // marcado a mano con data-ocultar-en-descarga — usado por componentes
+    // puntuales que necesitan excluir contenido específico de la imagen
+    // descargada (ej. los bloques de texto de "Comportamiento del
+    // delito", ver ComportamientoDelDelito.tsx). Se hace ANTES de medir el
+    // alto, para que medirAltoRealDelContenido calcule el alto ya SIN ese
+    // espacio.
+    const elementosOcultosManualmente = Array.from(copia.querySelectorAll<HTMLElement>('[data-ocultar-en-descarga]'));
+    elementosOcultosManualmente.forEach((el) => { el.style.display = 'none'; });
+
+    // Especificación de leyenda "para exportación" (ver TrendChart.tsx): si
+    // el componente trae elementos [data-export-leyenda-item], se dibuja una
+    // leyenda propia sobre el canvas final (más abajo) en vez de depender de
+    // la leyenda nativa de Recharts — que se posiciona con cálculos
+    // absolutos pensados para el tamaño en pantalla y no se adapta de forma
+    // confiable al canvas de exportación (texto cortado, mal distribuido).
+    const especificacionLeyendaEncontrada = Array.from(copia.querySelectorAll<HTMLElement>('[data-export-leyenda-item]'))
+      .map((el) => ({ texto: el.textContent?.trim() ?? '', color: el.getAttribute('data-color') ?? '#334155' }))
+      .filter((it) => it.texto.length > 0);
+    especificacionLeyenda = especificacionLeyendaEncontrada;
+    if (especificacionLeyenda.length > 0) {
+      copia.querySelectorAll<HTMLElement>('.recharts-legend-wrapper').forEach((el) => { el.style.display = 'none'; });
+    }
+
     // Se le pasa a html2canvas el alto/ancho REAL medido justo antes de
     // capturar, en vez de dejar que lo adivine solo — sin esto, la última
     // fila de listas o tablas largas podía quedar recortada.
@@ -709,9 +722,9 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
     // colchón más amplio es la forma más confiable de nunca volver a
     // recortar el final de ningún componente descargable.
     const MARGEN_SEGURIDAD_PX = 24;
-    const alturaReal = medirAltoRealDelContenido(elemento) + MARGEN_SEGURIDAD_PX;
-    const anchoReal = Math.ceil(elemento.scrollWidth) + 4;
-    canvasContenido = await html2canvas(elemento, {
+    const alturaReal = medirAltoRealDelContenido(copia) + MARGEN_SEGURIDAD_PX;
+    const anchoReal = Math.ceil(copia.scrollWidth) + 4;
+    canvasContenido = await html2canvas(copia, {
       // null (en vez de blanco) para que la imagen exportada tenga fondo
       // null = fondo transparente real (RGBA), a pedido explícito — el
       // archivo se verificó correcto píxel por píxel (sin fugas de negro
@@ -726,13 +739,13 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
       windowWidth: anchoReal,
       onclone: (doc, clonado) => {
         // congelarEstilosParaCaptura reemplaza el atributo "style" de cada
-        // elemento del clon por su estilo YA CALCULADO del original (que
-        // nunca está oculto) — si se ocultara la cuadrícula ANTES de esa
+        // elemento del clon por su estilo YA CALCULADO de la copia (que
+        // nunca está oculta) — si se ocultara la cuadrícula ANTES de esa
         // función, ese cambio se perdería al pisarse el "style". Por eso se
         // marca ANTES (con un atributo, que sí sobrevive) y se oculta
         // DESPUÉS de que el estilo ya quedó congelado.
         clonado.querySelectorAll('.recharts-cartesian-grid').forEach((n) => n.setAttribute('data-ocultar-en-descarga', '1'));
-        congelarEstilosParaCaptura(elemento, clonado);
+        congelarEstilosParaCaptura(copia, clonado);
         doc.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => n.remove());
         // Las líneas de la cuadrícula de fondo (Recharts CartesianGrid) son
         // útiles en pantalla para leer valores, pero en la imagen exportada
@@ -740,16 +753,14 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
         clonado.querySelectorAll('[data-ocultar-en-descarga]').forEach((n) => ((n as HTMLElement).style.display = 'none'));
       },
     });
-  } finally {
-    // Se revierte siempre, incluso si algo falla a mitad de la captura —
-    // nunca debe quedar un cambio de ancho visible en pantalla, ni las
-    // etiquetas temporales de emparejamiento, ni los elementos ocultados a
-    // mano para esta descarga en particular.
+    // No hace falta "restaurar" nada — la COPIA es la única que se tocó en
+    // todo este proceso; el componente real, siempre intacto, ni se
+    // enteró. Solo queda sacar la copia del documento.
     restaurarAnchos();
     restaurarEtiquetas();
     restaurarTextos();
-    restaurarOcultamientoManual();
-    restaurarLeyendaNativa();
+  } finally {
+    copia.remove();
   }
 
   // Los textos manuales (etiquetas, valores, aporte) se dibujan más abajo,
