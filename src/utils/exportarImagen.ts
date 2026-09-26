@@ -549,7 +549,15 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
     minWidth: el.style.minWidth,
     overflow: el.style.overflow,
     overflowX: el.style.overflowX,
+    transition: el.style.transition,
   }));
+  // Transiciones CSS desactivadas ANTES de cambiar el ancho — a pedido
+  // explícito: sin esto, si el elemento (o una clase de Tailwind como
+  // transition-all) tenía una transición de "width" o "all", el cambio de
+  // tamaño se veía como una animación visible de la información
+  // agrandándose en pantalla, en vez de un ajuste instantáneo e
+  // imperceptible antes de la captura.
+  candidatos.forEach((el) => { el.style.transition = 'none'; });
   candidatosScroll.forEach((el) => {
     // Se usa el ancho YA MEDIDO en píxeles (scrollWidth), no la palabra
     // clave CSS "max-content" — en una tabla, pedirle al navegador que
@@ -568,12 +576,13 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
     t.style.minWidth = `${ANCHO_MINIMO_TABLA}px`;
   });
   return () => {
-    originales.forEach(({ el, width, maxWidth, minWidth, overflow, overflowX }) => {
+    originales.forEach(({ el, width, maxWidth, minWidth, overflow, overflowX, transition }) => {
       el.style.width = width;
       el.style.maxWidth = maxWidth;
       el.style.minWidth = minWidth;
       el.style.overflow = overflow;
       el.style.overflowX = overflowX;
+      el.style.transition = transition;
     });
   };
 }
