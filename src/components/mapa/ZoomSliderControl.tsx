@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMap } from 'react-leaflet';
+import L from 'leaflet';
 
 /**
  * Control de zoom con una barra deslizante en vez de los botones +/- de
@@ -12,6 +13,7 @@ export function ZoomSliderControl() {
   const [zoom, setZoom] = useState(map.getZoom());
   const minZoom = map.getMinZoom() || 3;
   const maxZoom = map.getMaxZoom() && map.getMaxZoom() !== Infinity ? map.getMaxZoom() : 18;
+  const contenedorRef = useRef<HTMLDivElement>(null);
 
   // Si el usuario hace zoom con la rueda del mouse, pellizco táctil, o
   // doble clic, la barra se actualiza sola para reflejar el zoom real.
@@ -21,14 +23,28 @@ export function ZoomSliderControl() {
     return () => { map.off('zoomend', actualizar); };
   }, [map]);
 
+  // El React onMouseDown/stopPropagation NO alcanza a bloquear el arrastre
+  // del mapa — Leaflet engancha sus propios eventos nativos (mousedown,
+  // touchstart) directamente sobre el contenedor del mapa para iniciar el
+  // "pan", y esos escuchas nativos pueden dispararse antes de que React
+  // procese el evento sintético, sin importar cuántos stopPropagation se
+  // pongan del lado de React. Por eso el clic para arrastrar la barra
+  // nunca funcionaba: el mapa "se robaba" el gesto para sí mismo. La
+  // forma correcta (la que usa el propio Leaflet para sus controles
+  // nativos) es L.DomEvent.disableClickPropagation/disableScrollPropagation,
+  // que desactiva esos escuchas nativos específicamente para este
+  // elemento.
+  useEffect(() => {
+    if (!contenedorRef.current) return;
+    L.DomEvent.disableClickPropagation(contenedorRef.current);
+    L.DomEvent.disableScrollPropagation(contenedorRef.current);
+  }, []);
+
   return (
     <div
+      ref={contenedorRef}
       className="leaflet-bar leaflet-control flex flex-col items-center gap-1 bg-white p-1.5 rounded shadow"
       style={{ position: 'absolute', top: 80, left: 10, zIndex: 1000, height: 140 }}
-      // Evita que arrastrar la barra también arrastre/haga zoom al mapa de abajo.
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      onWheel={(e) => e.stopPropagation()}
     >
       <span className="text-[10px] font-semibold text-slate-500">+</span>
       <input
