@@ -630,6 +630,12 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   copia.style.width = `${anchoOriginal}px`;
   copia.style.pointerEvents = 'none';
   document.body.appendChild(copia);
+  // Un respiro de un cuadro (requestAnimationFrame) para que el navegador
+  // termine de calcular el diseño interno de la copia recién insertada
+  // (barras de "aporte", gráficas que miden su propio contenedor, etc.)
+  // antes de medir o tocar nada — sin esto, algunos elementos que dependen
+  // de su propio ancho ya renderizado podían quedar a medio calcular.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
 
   const ESCALA = 2;
   let canvasContenido: HTMLCanvasElement;
