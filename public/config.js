@@ -20,5 +20,5 @@ window.APP_CONFIG = {
   supabaseAnonKey: "sb_publishable_2hS5D9iCjaOKeSXdYOrDpg_jRRaWniM",
   operatividadBackendUrl: "https://script.google.com/macros/s/AKfycbw5YKQVuG9z0nvgCNqqSvxm9x_7EKqX2XAyoTcXY215CZEbj8b35sgARZozhAa6IegG/exec",
   updatePassword: "Cieps2026**",
-  agenteIAUrl: "",
+  agenteIAUrl: "/.netlify/functions/agenteIA",
 };
