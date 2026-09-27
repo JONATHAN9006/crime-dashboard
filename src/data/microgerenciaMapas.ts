@@ -151,7 +151,7 @@ function nombreEstacionDeFeature(feature: any, columna: string): string {
 // "CAI" en vez de comparar contra una lista cerrada, ya que el nombre
 // exacto varía entre el histórico ("CAI Comuna Cuatro") y los datos nuevos
 // ("CAI 4").
-async function localizarCapaDeCai() {
+export async function localizarCapaDeCai() {
   let capas = await cargarCapas();
   if (capas.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
@@ -195,7 +195,7 @@ async function localizarCapaDeCai() {
   return null;
 }
 
-function nombreCaiDeFeature(feature: any, columna: string): string {
+export function nombreCaiDeFeature(feature: any, columna: string): string {
   const crudo = String(feature?.properties?.[columna] ?? '');
   return MAPA_CAI[crudo.toUpperCase()] ?? crudo;
 }

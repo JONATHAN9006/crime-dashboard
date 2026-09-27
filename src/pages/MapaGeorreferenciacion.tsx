@@ -22,6 +22,8 @@ import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fecha
 import { useCapaArchivoGeorreferenciado } from '../hooks/useCapaArchivoGeorreferenciado';
 import { PanelArchivoGeorreferenciado, CapaLeafletArchivoGeorreferenciado } from '../components/mapa/CapaArchivoGeorreferenciado';
 import { ZoomSliderControl } from '../components/mapa/ZoomSliderControl';
+import { CapaPronosticoIA } from '../components/mapa/CapaPronosticoIA';
+import type { Horizonte } from '../utils/analisisPredictivo';
 import { useData } from '../context/DataContext';
 import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
@@ -806,6 +808,8 @@ export function MapaGeorreferenciacion() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capas, valoresConocidos]);
   const capaArchivoGeorreferenciado = useCapaArchivoGeorreferenciado(capas, camposUnionAutoDetectados);
+  const [mostrarPronosticoIA, setMostrarPronosticoIA] = useState(false);
+  const [horizontePronosticoIA, setHorizontePronosticoIA] = useState<Horizonte>(168);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [capasPuntos, setCapasPuntos] = useState<CapaPuntos[]>([]);
@@ -1944,6 +1948,34 @@ export function MapaGeorreferenciacion() {
           <IrACoordenadas onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
         </div>
 
+        {/* Capa "Pronóstico analítico" — colorea los CAI según la
+            concentración pronosticada por el motor estadístico (ver
+            utils/analisisPredictivo.ts, el mismo que usa la pestaña
+            "Pronóstico" del Analista IA). Se puede activar junto con
+            Delitos para comparar REAL vs PRONÓSTICO en el mismo mapa. */}
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+          <label className="flex cursor-pointer items-center gap-1.5 font-medium">
+            <input type="checkbox" checked={mostrarPronosticoIA} onChange={(e) => setMostrarPronosticoIA(e.target.checked)} />
+            🔮 Pronóstico IA
+          </label>
+          {mostrarPronosticoIA && (
+            <>
+              <span className="h-4 w-px bg-indigo-200" />
+              <span className="text-indigo-500">Horizonte:</span>
+              {([24, 48, 72, 168] as const).map((h) => (
+                <button
+                  key={h}
+                  onClick={() => setHorizontePronosticoIA(h)}
+                  className={`rounded px-2 py-0.5 ${horizontePronosticoIA === h ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}
+                >
+                  {h === 168 ? '7 días' : `${h}h`}
+                </button>
+              ))}
+              <span className="text-indigo-400">Concentración pronosticada según patrones históricos — no es certeza de ocurrencia.</span>
+            </>
+          )}
+        </div>
+
         {/* Capa TEMPORAL de análisis — carga de un CSV/XLS/XLSX propio con
             coordenadas (ver useCapaArchivoGeorreferenciado.ts y
             CapaArchivoGeorreferenciado.tsx). Completamente aislada: no toca
@@ -2418,6 +2450,12 @@ export function MapaGeorreferenciacion() {
                 );
               })
             ))}
+            <CapaPronosticoIA
+              activo={mostrarPronosticoIA}
+              delito={filtrosMapa.delito.length === 1 ? filtrosMapa.delito[0] : null}
+              horizonteHoras={horizontePronosticoIA}
+              records={records}
+            />
             <CapaLeafletArchivoGeorreferenciado
               registrosFiltrados={capaArchivoGeorreferenciado.registrosFiltrados}
               modoVisualizacion={capaArchivoGeorreferenciado.modoVisualizacion}
