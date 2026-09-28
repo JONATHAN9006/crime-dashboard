@@ -6,6 +6,7 @@ import { FilterPanel } from './components/filters/FilterPanel';
 import { ResumenEjecutivo } from './pages/ResumenEjecutivo';
 import { AnalisisUnidad } from './pages/AnalisisUnidad';
 import { OperatividadUnidad } from './pages/OperatividadUnidad';
+import { Rnmc, Irisp1, Macri } from './pages/ModulosPendientes';
 import { UltimasSemanas } from './pages/UltimasSemanas';
 import { MatrizCalor } from './pages/MatrizCalor';
 import { MapaGeorreferenciacion } from './pages/MapaGeorreferenciacion';
@@ -22,6 +23,9 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
   unidad: AnalisisUnidad,
   operatividadUnidad: OperatividadUnidad,
+  rnmc: Rnmc,
+  irisp1: Irisp1,
+  macri: Macri,
   ultimasSemanas: UltimasSemanas,
   matrizCalor: MatrizCalor,
   mapa: MapaGeorreferenciacion,
@@ -35,7 +39,12 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
 // El mapa, "Indicadores Tasa Cosec" y "Productos Esperados" pueden abrirse
 // aunque todavía no haya datos cargados — ninguno de los tres depende de la
 // base de datos de delitos.
-const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos'];
+const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc', 'irisp1', 'macri'];
+
+// Páginas que NO muestran el panel de filtros generales de delitos: el mapa
+// tiene el suyo propio, y RNMC/IRISP1/MACRI son módulos aparte que todavía
+// no se rigen por esos filtros.
+const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['mapa', 'rnmc', 'irisp1', 'macri'];
 
 function Shell() {
   const [pagina, setPagina] = useState<PaginaId>('resumen');
@@ -66,7 +75,7 @@ function Shell() {
                   generales del dashboard no se muestran ahí, mientras que
                   el resto de los módulos los sigue usando exactamente igual
                   que siempre. */}
-              {records.length > 0 && pagina !== 'mapa' && <FilterPanel />}
+              {records.length > 0 && !PAGINAS_SIN_FILTRO_GENERAL.includes(pagina) && <FilterPanel />}
               <Pagina />
             </div>
           )}

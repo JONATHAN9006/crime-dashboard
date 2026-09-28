@@ -13,6 +13,9 @@ export interface AccesoHerramientas {
   resumen: boolean;
   unidad: boolean;
   operatividadUnidad: boolean;
+  rnmc: boolean;
+  irisp1: boolean;
+  macri: boolean;
   ultimasSemanas: boolean;
   matrizCalor: boolean;
   mapa: boolean;
@@ -35,6 +38,11 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
     resumen: true,
     unidad: true,
     operatividadUnidad: true,
+    // Módulos nuevos, todavía en construcción — ocultos para el jefe hasta
+    // que estén listos (cambiar a true para habilitarlos).
+    rnmc: false,
+    irisp1: false,
+    macri: false,
     ultimasSemanas: true,
     matrizCalor: true,
     mapa: false,
@@ -53,6 +61,9 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
     resumen: true,
     unidad: true,
     operatividadUnidad: true,
+    rnmc: true,
+    irisp1: true,
+    macri: true,
     ultimasSemanas: true,
     matrizCalor: true,
     mapa: true,
