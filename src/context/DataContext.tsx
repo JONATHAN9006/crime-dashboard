@@ -47,7 +47,7 @@ interface DataContextValue {
   drillDown: (campo: keyof FilterState, valor: string) => void;
   loading: boolean;
   loadError: string | null;
-  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number }) | { error: string }>;
+  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number }) | { error: string }>;
   limpiarTodo: () => Promise<void>;
   lastColumns: string[];
   backendUrl: string;
@@ -313,6 +313,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           };
         } else if (modo === 'reemplazarAnio') {
           const reemplazo = reemplazarAniosDelArchivo(records, parsed.registros);
+          // Confirmación explícita ANTES de borrar nada — a pedido
+          // explícito, tras un caso real donde este modo terminó borrando
+          // años que no debía. En vez de solo confiar en el cálculo, se le
+          // muestra al usuario EXACTAMENTE qué años detectó el archivo y
+          // cuántos registros ya guardados se van a eliminar, para que lo
+          // vea y decida ANTES de que pase — no después.
+          if (!forzar) {
+            return {
+              requiereConfirmacionAnio: true,
+              aniosAReemplazar: reemplazo.aniosReemplazados,
+              registrosAEliminar: reemplazo.registrosAnterioresEliminados,
+              registrosDelArchivo: parsed.registros.length,
+            } as any;
+          }
           registrosFinales = reemplazo.registros;
           // Se sincroniza TODO lo que quedó de esos años (no solo lo
           // "nuevo") — el servidor central también debe reflejar que esos

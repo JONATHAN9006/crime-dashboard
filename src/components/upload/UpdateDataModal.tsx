@@ -5,7 +5,7 @@ import type { UpdateMode, UpdateSummary } from '../../types/crime';
 import { formatFechaHora } from '../../utils/aggregations';
 import { obtenerConfig } from '../../config';
 
-type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number }) | { error: string };
+type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number }) | { error: string };
 
 export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) {
   const { cargarArchivo, limpiarTodo, meta, records, backendUrl, cargarArchivoOperatividad, operatividadMeta } = useData();
@@ -235,7 +235,40 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
         </div>
       )}
 
-      {resultado && !('error' in resultado) && (
+      {resultado && !('error' in resultado) && resultado.requiereConfirmacionAnio && (
+        <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="text-sm text-amber-900">
+              <p className="font-semibold">Vas a reemplazar por completo el/los año(s): {resultado.aniosAReemplazar?.join(', ')}</p>
+              <p className="mt-1">
+                Esto va a <strong>eliminar {resultado.registrosAEliminar?.toLocaleString('es-CO')} registro(s)</strong> que ya estaban guardados de {resultado.aniosAReemplazar?.length === 1 ? 'ese año' : 'esos años'}, y los va a reemplazar por los <strong>{resultado.registrosDelArchivo?.toLocaleString('es-CO')} registro(s)</strong> de este archivo. Los demás años NO se tocan.
+              </p>
+              <p className="mt-2 text-xs text-amber-700">Revisa que el/los año(s) de arriba sean los que esperabas antes de continuar — si ves un año que no debería estar ahí (ej. 2024 o 2025 en un archivo que debería ser solo de 2026), cancela y avísanos.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                if (!archivo) return;
+                setProcesando(true);
+                const res = await cargarArchivo(archivo, modo, token || undefined, usuario, true);
+                setResultado(res);
+                setProcesando(false);
+              }}
+              disabled={procesando}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
+            >
+              Sí, entiendo — reemplazar {resultado.aniosAReemplazar?.length === 1 ? 'ese año' : 'esos años'}
+            </button>
+            <button onClick={() => setResultado(null)} disabled={procesando} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {resultado && !('error' in resultado) && !resultado.requiereConfirmacionAnio && (
         <div className="space-y-2">
           {resultado.formatoDetectado === 'db2' && (
             <div className="flex items-start gap-2 rounded-lg bg-sky-50 p-3 text-sm text-sky-800">
