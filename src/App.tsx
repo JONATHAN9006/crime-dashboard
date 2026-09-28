@@ -6,7 +6,8 @@ import { FilterPanel } from './components/filters/FilterPanel';
 import { ResumenEjecutivo } from './pages/ResumenEjecutivo';
 import { AnalisisUnidad } from './pages/AnalisisUnidad';
 import { OperatividadUnidad } from './pages/OperatividadUnidad';
-import { Rnmc, Irisp1, Macri } from './pages/ModulosPendientes';
+import { Rnmc } from './pages/Rnmc';
+import { Irisp1, Macri } from './pages/ModulosPendientes';
 import { UltimasSemanas } from './pages/UltimasSemanas';
 import { MatrizCalor } from './pages/MatrizCalor';
 import { MapaGeorreferenciacion } from './pages/MapaGeorreferenciacion';
@@ -44,7 +45,7 @@ const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc',
 // Páginas que NO muestran el panel de filtros generales de delitos: el mapa
 // tiene el suyo propio, y RNMC/IRISP1/MACRI son módulos aparte que todavía
 // no se rigen por esos filtros.
-const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['mapa', 'rnmc', 'irisp1', 'macri'];
+const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['mapa', 'irisp1', 'macri'];
 
 function Shell() {
   const [pagina, setPagina] = useState<PaginaId>('resumen');

@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { Scale, ShieldAlert, Network, Hammer } from 'lucide-react';
+import { ShieldAlert, Network, Hammer } from 'lucide-react';
 
 // Módulos nuevos del menú (RNMC, IRISP1, MACRI) — por ahora solo la
 // estructura: aparecen en el sidebar, se pueden abrir, y avisan que están
@@ -20,9 +20,6 @@ function ModuloEnConstruccion({ titulo, icono: Icono }: { titulo: string; icono:
   );
 }
 
-export function Rnmc() {
-  return <ModuloEnConstruccion titulo="RNMC" icono={Scale} />;
-}
 export function Irisp1() {
   return <ModuloEnConstruccion titulo="IRISP1" icono={ShieldAlert} />;
 }
