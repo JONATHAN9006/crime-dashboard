@@ -226,7 +226,51 @@ async function construirEstacionDesdeCai(estacion: 'NORTE' | 'SUR' | 'AMBAS'): P
   return features.length > 0 ? { features, capaId: localizada.capa.id } : null;
 }
 
-async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string, caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null) {
+// Las tres estaciones del Distrito Dos (rurales). A diferencia de Norte y
+// Sur — que se construyen uniendo sus CAI — estas NO tienen CAI: su
+// polígono sale de la capa de jurisdicción ("JURIS_ESTACIONES_2026"), donde
+// cada una aparece como un elemento con su nombre (Timbío, Coconuco,
+// Sotará). Esa capa NO sirve para Norte/Sur (trae el municipio completo de
+// Popayán), pero sí es la fuente correcta para estas tres.
+const ESTACIONES_RURALES = ['E-Timbio', 'E-Coconuco', 'E-Sotara'] as const;
+
+// Traduce cualquier forma del nombre ("Estación Sotara" larga, "E-Sotara"
+// corta) a la forma corta que usan los puntos guardados.
+function aFormaCortaDeEstacion(nombre: string): string | null {
+  const norm = normalizar(nombre);
+  for (const corto of NOMBRES_ESTACION_CORTOS) {
+    const c = normalizar(corto);
+    if (norm === c || norm === `ESTACION ${c.replace(/^E-/, '')}`) return corto;
+  }
+  return null;
+}
+
+// Busca, en las capas cargadas, los polígonos cuyo nombre (en cualquier
+// columna, sin importar tildes ni mayúsculas) coincide con las estaciones
+// pedidas — "Sotará" en la capa encaja con "E-Sotara" del dashboard.
+async function construirEstacionesRuralesDesdeJurisdiccion(cortas: readonly string[]): Promise<{ features: any[]; capaId: string } | null> {
+  let capas = await cargarCapas();
+  if (capas.length === 0) {
+    await new Promise((r) => setTimeout(r, 400));
+    capas = await cargarCapas();
+  }
+  const objetivos = new Set(cortas.map((c) => normalizar(c).replace(/^E-/, '')));
+  // Primero las capas cuyo nombre sugiere jurisdicción/estaciones.
+  const ordenadas = [...capas].sort((a, b) => Number(/ESTAC|JURIS/i.test(b.nombre)) - Number(/ESTAC|JURIS/i.test(a.nombre)));
+  for (const capa of ordenadas) {
+    const feats = extraerFeatures(capa.geojson);
+    if (feats.length === 0) continue;
+    const columnas = Object.keys(feats[0]?.properties ?? {});
+    for (const columna of columnas) {
+      const encontrados = feats.filter((f) => objetivos.has(normalizar(f?.properties?.[columna])));
+      if (encontrados.length > 0) return { features: encontrados, capaId: capa.id };
+    }
+  }
+  console.warn(`[Microgerencia→Mapa] Ninguna capa cargada tiene polígonos con los nombres ${JSON.stringify([...objetivos])} (esperados: ${JSON.stringify(cortas)}).`);
+  return null;
+}
+
+async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null) {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
@@ -236,7 +280,7 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
     .filter((c) => c.visible)
     .flatMap((c) => c.puntos)
     .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
-    .filter((p) => !estacionCorta || p.estacionCorta === estacionCorta)
+    .filter((p) => !estacionCorta || (typeof estacionCorta === 'string' ? p.estacionCorta === estacionCorta : estacionCorta.includes(p.estacionCorta ?? '')))
     .filter((p) => !caiCorto || p.caiCorto === caiCorto);
 
   // Filtro de Fecha inicial/final — antes NO EXISTÍA en absoluto en este
@@ -365,11 +409,11 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
       margen: 0.3,
-      // Proporci00f3n t00edpica de la caja del mapa en el PDF (ancho/alto) 2014 no
-      // es exacta para CADA tarjeta (var00eda un poco seg00fan cu00e1ntos delitos
-      // tenga), pero acerca MUCHO m00e1s el resultado a la forma real de la
-      // caja que la proporci00f3n natural del pol00edgono (mucho m00e1s alta y
-      // angosta), que era la fuente real del recorte.
+      // Proporción típica de la caja del mapa en el PDF (ancho/alto). No es
+      // exacta para CADA tarjeta (varía un poco según cuántos delitos
+      // tenga), pero acerca mucho más el resultado a la forma real de la
+      // caja que la proporción natural del polígono (más alta y angosta),
+      // que era la fuente real del recorte.
       aspectoObjetivo: 0.85,
       feature: featureCollection,
       puntos,
@@ -403,6 +447,11 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     const claveEstacion = (nombreNorm === normalizar('E-Norte') || nombreNorm === normalizar('Estacion Norte')) ? 'NORTE'
       : (nombreNorm === normalizar('E-Sur') || nombreNorm === normalizar('Estacion Sur')) ? 'SUR' : null;
     const desdeCai = claveEstacion ? await construirEstacionDesdeCai(claveEstacion) : null;
+    // Estaciones rurales (Timbío, Coconuco, Sotará): no tienen CAI, su
+    // polígono sale de la capa de jurisdicción, buscado por nombre.
+    const cortaRural = aFormaCortaDeEstacion(nombreEstacionCorta);
+    const esRural = cortaRural != null && (ESTACIONES_RURALES as readonly string[]).includes(cortaRural);
+    const desdeJurisdiccion = !desdeCai && esRural ? await construirEstacionesRuralesDesdeJurisdiccion([cortaRural!]) : null;
 
     let feature: any;
     let capaContornoId: string;
@@ -410,6 +459,9 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     if (desdeCai) {
       feature = { type: 'FeatureCollection', features: desdeCai.features };
       capaContornoId = desdeCai.capaId;
+    } else if (desdeJurisdiccion) {
+      feature = { type: 'FeatureCollection', features: desdeJurisdiccion.features };
+      capaContornoId = desdeJurisdiccion.capaId;
     } else {
       const localizada = await localizarCapaDeEstaciones();
       if (!localizada) {
@@ -432,7 +484,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     // Los puntos guardan la estación en forma CORTA ("E-Norte") — si al
     // nodo le llegó la forma larga ("Estación Norte"), se traduce antes de
     // filtrar, o el filtro nunca encontraría ningún punto.
-    const estacionCortaParaFiltro = claveEstacion === 'NORTE' ? 'E-Norte' : claveEstacion === 'SUR' ? 'E-Sur' : nombreEstacionCorta;
+    const estacionCortaParaFiltro = claveEstacion === 'NORTE' ? 'E-Norte' : claveEstacion === 'SUR' ? 'E-Sur' : (cortaRural ?? nombreEstacionCorta);
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estacionCortaParaFiltro, undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
@@ -444,11 +496,11 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
       margen: 0.3,
-      // Proporci00f3n t00edpica de la caja del mapa en el PDF (ancho/alto) 2014 no
-      // es exacta para CADA tarjeta (var00eda un poco seg00fan cu00e1ntos delitos
-      // tenga), pero acerca MUCHO m00e1s el resultado a la forma real de la
-      // caja que la proporci00f3n natural del pol00edgono (mucho m00e1s alta y
-      // angosta), que era la fuente real del recorte.
+      // Proporción típica de la caja del mapa en el PDF (ancho/alto). No es
+      // exacta para CADA tarjeta (varía un poco según cuántos delitos
+      // tenga), pero acerca mucho más el resultado a la forma real de la
+      // caja que la proporción natural del polígono (más alta y angosta),
+      // que era la fuente real del recorte.
       aspectoObjetivo: 0.85,
       feature,
       puntos,
@@ -456,9 +508,51 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       etiquetas: [],
       anchoLienzo: 700,
       anillosInternos,
+      // Las estaciones rurales abarcan cientos de km²: las calles reales a
+      // esa escala solo meten ruido (y miles de teselas por descargar).
+      mostrarCalles: !esRural,
     });
   } catch (err) {
     console.error(`[Microgerencia→Mapa] Falló generando el mapa de "${nombreEstacionCorta}":`, err);
+    return undefined;
+  }
+}
+
+/**
+ * Imagen de un DISTRITO completo — Distrito Uno = Estación Norte + Sur (los
+ * CAI 1 al 10 unidos), Distrito Dos = Timbío + Coconuco + Sotará (sus
+ * polígonos de la capa de jurisdicción). Los puntos del mapa de calor son
+ * solo los de las estaciones de ese distrito.
+ */
+export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
+  try {
+    const estaciones: readonly string[] = distrito === 'UNO' ? ['E-Norte', 'E-Sur'] : ESTACIONES_RURALES;
+    const origen = distrito === 'UNO' ? await construirEstacionDesdeCai('AMBAS') : await construirEstacionesRuralesDesdeJurisdiccion(ESTACIONES_RURALES);
+    if (!origen) {
+      console.warn(`[Microgerencia→Mapa] No se encontraron los polígonos del Distrito ${distrito === 'UNO' ? 'Uno (CAI 1-10)' : 'Dos (Timbío, Coconuco, Sotará)'}.`);
+      return undefined;
+    }
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estaciones, undefined, fechaInicial, fechaFinal);
+    if (puntos.length === 0) {
+      console.warn(`[Microgerencia→Mapa] No hay puntos para el Distrito ${distrito === 'UNO' ? 'Uno' : 'Dos'} — revisa la capa de PUNTOS (ej. "Delitos") y que esos registros traigan coordenadas.`, { delitoFiltrado });
+      return undefined;
+    }
+    const feature = { type: 'FeatureCollection', features: origen.features };
+    const anillosInternos = await obtenerAnillosInternos(feature, origen.capaId);
+    return await generarDataUrlPoligonoAislado({
+      margen: 0.3,
+      aspectoObjetivo: 0.85,
+      feature,
+      puntos,
+      colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
+      etiquetas: [],
+      anchoLienzo: 700,
+      anillosInternos,
+      // A escala de distrito completo, las calles solo meten ruido.
+      mostrarCalles: false,
+    });
+  } catch (err) {
+    console.error(`[Microgerencia→Mapa] Falló generando el mapa del Distrito ${distrito}:`, err);
     return undefined;
   }
 }
@@ -487,11 +581,11 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
       // veía "cortado", pegado a los bordes del recuadro; con más aire
       // alrededor se ve completo y mejor ubicado dentro del marco.
       margen: 0.3,
-      // Proporci00f3n t00edpica de la caja del mapa en el PDF (ancho/alto) 2014 no
-      // es exacta para CADA tarjeta (var00eda un poco seg00fan cu00e1ntos delitos
-      // tenga), pero acerca MUCHO m00e1s el resultado a la forma real de la
-      // caja que la proporci00f3n natural del pol00edgono (mucho m00e1s alta y
-      // angosta), que era la fuente real del recorte.
+      // Proporción típica de la caja del mapa en el PDF (ancho/alto). No es
+      // exacta para CADA tarjeta (varía un poco según cuántos delitos
+      // tenga), pero acerca mucho más el resultado a la forma real de la
+      // caja que la proporción natural del polígono (más alta y angosta),
+      // que era la fuente real del recorte.
       aspectoObjetivo: 0.85,
       feature,
       puntos,

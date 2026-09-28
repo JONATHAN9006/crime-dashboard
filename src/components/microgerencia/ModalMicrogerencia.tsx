@@ -4,7 +4,7 @@ import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia } from '../../data/pdfMicrogerencia';
-import { generarImagenMapaGeneral, generarImagenMapaEstacion, generarImagenMapaCai, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
+import { generarImagenMapaGeneral, generarImagenMapaDistrito, generarImagenMapaEstacion, generarImagenMapaCai, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 
 function formatearPct(n: number | null): string {
@@ -239,6 +239,12 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     for (const nodo of nodos) {
       if (nodo.nombre === 'MEPOY General — Consolidado') {
         const img = await generarImagenMapaGeneral(delitoFiltrado, actualInicio, actualFin);
+        if (img) mapa.set(nodo.nombre, img);
+      } else if (nodo.nombre === 'Distrito Uno' || nodo.nombre === 'Distrito Dos') {
+        // Distrito Uno = Estación Norte + Sur; Distrito Dos = Timbío +
+        // Coconuco + Sotará — antes estos nodos no tenían ninguna lógica
+        // de mapa y salían siempre sin imagen.
+        const img = await generarImagenMapaDistrito(nodo.nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitoFiltrado, actualInicio, actualFin);
         if (img) mapa.set(nodo.nombre, img);
       } else if (esNombreDeEstacion(nodo.nombre)) {
         const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
