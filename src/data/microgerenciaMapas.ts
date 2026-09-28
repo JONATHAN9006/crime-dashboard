@@ -8,7 +8,7 @@
 import { cargarCapas } from './geoStorage';
 import { cargarCapasPuntos } from './puntosStorage';
 import { generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
-import { MAPA_ESTACION, MAPA_CAI } from './db2Mapeos';
+import { MAPA_ESTACION, MAPA_CAI, MAPA_CUADRANTE } from './db2Mapeos';
 import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
 
 function normalizar(v: unknown): string {
@@ -245,6 +245,49 @@ function aFormaCortaDeEstacion(nombre: string): string | null {
   return null;
 }
 
+// Prefijos de código de cuadrante que pertenecen a una estación rural —
+// se sacan de la MISMA tabla (MAPA_CUADRANTE) con la que el dashboard ya
+// asigna cada registro a su zona de atención, para no duplicar esa
+// información a mano. Ej.: "MEPOYMNVCCD02E01000000002" → "Z. Atención 2
+// E-Timbio" da el prefijo "MEPOYMNVCCD02E01" (distrito 02, estación 01),
+// que cubre TODOS los cuadrantes de Timbío aunque la tabla solo liste
+// algunos.
+function prefijosDeCuadranteParaEstacion(corta: string): string[] {
+  const prefijos = new Set<string>();
+  for (const [codigo, valor] of Object.entries(MAPA_CUADRANTE)) {
+    const m = codigo.toUpperCase().match(/^(MEPOYMNVCCD\d{2}E\d{2})/);
+    if (m && valor.endsWith(corta)) prefijos.add(m[1]);
+  }
+  return [...prefijos];
+}
+
+// Polígonos de los CUADRANTES de una estación rural (Timbío, Coconuco o
+// Sotará) — los del shapefile de cuadrantes, identificados por el prefijo
+// de su código. Es lo que se dibuja cuando se elige ESA estación (el
+// contorno del distrito completo sí usa la capa de jurisdicción).
+async function construirEstacionRuralDesdeCuadrantes(corta: string): Promise<{ features: any[]; capaId: string } | null> {
+  const prefijos = prefijosDeCuadranteParaEstacion(corta);
+  if (prefijos.length === 0) return null;
+  let capas = await cargarCapas();
+  if (capas.length === 0) {
+    await new Promise((r) => setTimeout(r, 400));
+    capas = await cargarCapas();
+  }
+  for (const capa of capas) {
+    const feats = extraerFeatures(capa.geojson);
+    if (feats.length === 0) continue;
+    const encontrados = feats.filter((f) =>
+      Object.values(f?.properties ?? {}).some((v) => {
+        const s = normalizar(v);
+        return prefijos.some((p) => s.startsWith(p));
+      }),
+    );
+    if (encontrados.length > 0) return { features: encontrados, capaId: capa.id };
+  }
+  console.warn(`[Microgerencia→Mapa] Ninguna capa cargada tiene cuadrantes con código que empiece con ${JSON.stringify(prefijos)} (estación ${corta}) — se usará el polígono de jurisdicción como respaldo.`);
+  return null;
+}
+
 // Busca, en las capas cargadas, los polígonos cuyo nombre (en cualquier
 // columna, sin importar tildes ni mayúsculas) coincide con las estaciones
 // pedidas — "Sotará" en la capa encaja con "E-Sotara" del dashboard.
@@ -451,7 +494,11 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     // polígono sale de la capa de jurisdicción, buscado por nombre.
     const cortaRural = aFormaCortaDeEstacion(nombreEstacionCorta);
     const esRural = cortaRural != null && (ESTACIONES_RURALES as readonly string[]).includes(cortaRural);
-    const desdeJurisdiccion = !desdeCai && esRural ? await construirEstacionesRuralesDesdeJurisdiccion([cortaRural!]) : null;
+    // Al elegir una estación rural se dibujan los polígonos de SUS
+    // cuadrantes; solo si no se encuentran, se cae al polígono de
+    // jurisdicción de esa estación.
+    const desdeCuadrantes = !desdeCai && esRural ? await construirEstacionRuralDesdeCuadrantes(cortaRural!) : null;
+    const desdeJurisdiccion = !desdeCai && !desdeCuadrantes && esRural ? await construirEstacionesRuralesDesdeJurisdiccion([cortaRural!]) : null;
 
     let feature: any;
     let capaContornoId: string;
@@ -459,6 +506,9 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     if (desdeCai) {
       feature = { type: 'FeatureCollection', features: desdeCai.features };
       capaContornoId = desdeCai.capaId;
+    } else if (desdeCuadrantes) {
+      feature = { type: 'FeatureCollection', features: desdeCuadrantes.features };
+      capaContornoId = desdeCuadrantes.capaId;
     } else if (desdeJurisdiccion) {
       feature = { type: 'FeatureCollection', features: desdeJurisdiccion.features };
       capaContornoId = desdeJurisdiccion.capaId;
@@ -490,7 +540,9 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
     }
-    const anillosInternos = await obtenerAnillosInternos(feature, capaContornoId);
+    // Con cuadrantes como contorno, cada uno ya dibuja su propio borde —
+    // no hacen falta líneas internas aparte.
+    const anillosInternos = desdeCuadrantes ? [] : await obtenerAnillosInternos(feature, capaContornoId);
     return await generarDataUrlPoligonoAislado({
       // Más margen (por defecto 0.08) — a pedido explícito: el polígono se
       // veía "cortado", pegado a los bordes del recuadro; con más aire
