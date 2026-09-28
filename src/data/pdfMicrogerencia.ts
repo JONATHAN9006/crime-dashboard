@@ -299,7 +299,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(BASE_FS.tituloBloque * dim.escala);
     pdf.setTextColor(...colorTitulo);
-    pdf.text(titulo, x0 + dim.paddingTarjeta, y + 6 * dim.escala);
+    pdf.text(titulo, x0 + dim.paddingTarjeta, y + 6 * dim.escala, { align: 'left' });
 
     const colEtiqueta = x0 + dim.paddingTarjeta;
     const colValor2025 = x0 + ancho * 0.55;

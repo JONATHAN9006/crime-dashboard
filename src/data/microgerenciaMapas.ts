@@ -416,7 +416,18 @@ async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: st
 // cargada, sin depender de un nombre exacto).
 function top5Barrios(puntos: { fila: Record<string, any> }[]): string[] | null {
   if (puntos.length === 0) return null;
-  const colBarrio = Object.keys(puntos[0].fila).find((k) => /BARRIO/i.test(k));
+  // Se busca la columna de barrio revisando TODOS los puntos (no solo el
+  // primero) — "General" mezcla puntos de varias capas (Delitos, IRISP1,
+  // Macri...) y no todas traen las mismas columnas; mirar solo el primero
+  // hacía que la etiqueta desapareciera por completo si esa capa en
+  // particular no tenía barrio, aunque las demás sí.
+  const colBarrio = (() => {
+    for (const p of puntos) {
+      const encontrada = Object.keys(p.fila).find((k) => /BARRIO/i.test(k));
+      if (encontrada) return encontrada;
+    }
+    return null;
+  })();
   if (!colBarrio) return null;
   const conteo = new Map<string, number>();
   for (const p of puntos) {
@@ -431,12 +442,11 @@ function top5Barrios(puntos: { fila: Record<string, any> }[]): string[] | null {
     .map(([barrio, casos], i) => `${i + 1}. ${barrio} — ${casos}`);
 }
 
-// Verde suave, el mismo tono del título de cada tarjeta en el PDF (ver
-// COLOR_GREEN_CLARO en pdfMicrogerencia.ts) — a pedido explícito, para que
-// la etiqueta del Top 5 combine visualmente con el resto de la tarjeta en
-// vez de usar la caja oscura genérica que ya usan las demás etiquetas.
-const COLOR_ETIQUETA_BARRIOS_FONDO = 'rgba(209, 240, 231, 0.92)';
-const COLOR_ETIQUETA_BARRIOS_TEXTO = '#065f46';
+// A pedido explícito, después de que el verde suave se viera mal: fondo
+// blanco limpio, texto oscuro — combina con cualquier mapa de calor de
+// fondo, en vez de competir con los colores del propio mapa.
+const COLOR_ETIQUETA_BARRIOS_FONDO = 'rgba(255, 255, 255, 0.94)';
+const COLOR_ETIQUETA_BARRIOS_TEXTO = '#1e293b';
 
 
 export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
@@ -468,19 +478,19 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
       capaContornoId = localizada.capa.id;
     }
 
-    // "General" = TODA la jurisdicción — Norte, Sur (uniendo sus CAI) MÁS
-    // Timbío, Coconuco y Sotará (sus cuadrantes, o si no los tienen, el
-    // polígono de jurisdicción de cada una) — a pedido explícito: antes
-    // "General" solo mostraba el área urbana (Norte+Sur), dejando afuera
-    // las tres estaciones rurales del Distrito Dos.
-    for (const corta of ESTACIONES_RURALES) {
-      const desdeCuadrantesRural = await construirEstacionRuralDesdeCuadrantes(corta);
-      if (desdeCuadrantesRural) { featuresParaMapa.push(...desdeCuadrantesRural.features); continue; }
-      const desdeJurisdiccionRural = await construirEstacionesRuralesDesdeJurisdiccion([corta]);
-      if (desdeJurisdiccionRural) featuresParaMapa.push(...desdeJurisdiccionRural.features);
+    // "General" = Norte + Sur (uniendo sus CAI) + Timbío — a pedido
+    // explícito, se dejaron afuera Coconuco y Sotará para que el mapa se
+    // vea más grande y legible (con las 5 estaciones, el área quedaba
+    // demasiado repartida y cada una se veía chica).
+    const desdeCuadrantesTimbio = await construirEstacionRuralDesdeCuadrantes('E-Timbio');
+    if (desdeCuadrantesTimbio) {
+      featuresParaMapa.push(...desdeCuadrantesTimbio.features);
+    } else {
+      const desdeJurisdiccionTimbio = await construirEstacionesRuralesDesdeJurisdiccion(['E-Timbio']);
+      if (desdeJurisdiccionTimbio) featuresParaMapa.push(...desdeJurisdiccionTimbio.features);
     }
 
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, undefined, fechaInicial, fechaFinal);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, ['E-Norte', 'E-Sur', 'E-Timbio'], undefined, fechaInicial, fechaFinal);
     if (puntos.length === 0) {
       console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación".', { delitoFiltrado });
       return undefined;
