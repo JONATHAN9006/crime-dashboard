@@ -2,6 +2,42 @@ import type { CrimeRecord, DatasetMeta, DataQuality, UpdateSummary } from '../ty
 import { COLUMNAS_REQUERIDAS, buildRecordId } from './csvParser';
 import { maxDe, minDe } from '../utils/mathSeguro';
 
+/**
+ * Reemplaza COMPLETO el/los año(s) que trae el archivo nuevo, dejando
+ * intactos los demás años ya guardados — a diferencia de fusionarRegistros
+ * (que intenta reconocer duplicado por duplicado), aquí no se compara nada:
+ * se borra todo lo que ya había de esos años y se pone en su lugar
+ * exactamente lo que trae el archivo.
+ *
+ * Por qué existe esto: confirmado en producción, cuando el archivo es
+ * siempre "la exportación completa del año a la fecha" (no un incremento),
+ * comparar registro por registro contra la carga anterior es frágil para
+ * los delitos de muchos casos. La razón exacta: cuando varias víctimas de
+ * un mismo hecho comparten fecha, hora, lugar, edad y género (no hay nada
+ * más en el archivo que las distinga), el sistema las numera para no
+ * perder a ninguna dentro de un mismo archivo — pero esa numeración
+ * depende del ORDEN en que aparecen las filas, que el sistema de origen no
+ * garantiza igual entre una exportación y la siguiente. Si el orden
+ * cambia, esas víctimas dejan de "coincidir" con la carga anterior y se
+ * duplican — más veces mientras más casos tenga el delito (más chance de
+ * varias personas con los mismos datos). Reemplazando el año completo en
+ * vez de fusionarlo, este problema deja de existir: no hace falta que
+ * ninguna fila "coincida" con nada, el archivo nuevo simplemente ES la
+ * verdad completa de ese año.
+ */
+export function reemplazarAniosDelArchivo(
+  existentes: CrimeRecord[],
+  nuevos: CrimeRecord[],
+): { registros: CrimeRecord[]; aniosReemplazados: number[]; registrosAnterioresEliminados: number } {
+  const aniosDelArchivo = new Set(nuevos.map((r) => r.anio).filter((a): a is number => a != null));
+  const conservados = existentes.filter((r) => r.anio == null || !aniosDelArchivo.has(r.anio));
+  return {
+    registros: [...conservados, ...nuevos],
+    aniosReemplazados: [...aniosDelArchivo].sort(),
+    registrosAnterioresEliminados: existentes.length - conservados.length,
+  };
+}
+
 export function fusionarRegistros(
   existentes: CrimeRecord[],
   nuevos: CrimeRecord[],

@@ -145,7 +145,7 @@ export const emptyFilterState: FilterState = {
   fechaFinal: null,
 };
 
-export type UpdateMode = 'reemplazar' | 'agregar';
+export type UpdateMode = 'reemplazar' | 'agregar' | 'reemplazarAnio';
 
 export interface UpdateSummary {
   nuevos: number;
@@ -163,4 +163,10 @@ export interface UpdateSummary {
   // traía y el registro guardado todavía no las tenía.
   actualizadosConCoordenadas?: number;
   valoresNuevosDB2?: string[];
+  // Presentes solo en modo "reemplazarAnio" (ver reemplazarAniosDelArchivo
+  // en datasetOps.ts) — qué años se reemplazaron por completo y cuántos
+  // registros viejos de esos años se quitaron para darle paso al archivo
+  // nuevo.
+  aniosReemplazados?: number[];
+  registrosAnterioresEliminados?: number;
 }

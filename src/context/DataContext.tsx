@@ -7,7 +7,7 @@ import { emptyFilterState } from '../types/crime';
 import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
-import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda } from '../data/datasetOps';
+import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo } from '../data/datasetOps';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarRegistrosSupabase, consultarMetaSupabase, subirRegistrosSupabase } from '../data/supabaseApi';
@@ -311,6 +311,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             columnasNuevas,
             columnasFaltantes: [],
           };
+        } else if (modo === 'reemplazarAnio') {
+          const reemplazo = reemplazarAniosDelArchivo(records, parsed.registros);
+          registrosFinales = reemplazo.registros;
+          // Se sincroniza TODO lo que quedó de esos años (no solo lo
+          // "nuevo") — el servidor central también debe reflejar que esos
+          // registros viejos ya no existen, no solo agregar los actuales.
+          registrosParaSincronizar = reemplazo.registros.filter((r) => r.anio != null && reemplazo.aniosReemplazados.includes(r.anio));
+          resumen = {
+            nuevos: parsed.registros.length,
+            duplicados: 0,
+            incorporados: parsed.registros.length,
+            totalFinal: registrosFinales.length,
+            columnasNuevas,
+            columnasFaltantes: [],
+            aniosReemplazados: reemplazo.aniosReemplazados,
+            registrosAnterioresEliminados: reemplazo.registrosAnterioresEliminados,
+          };
         } else {
           const fusion = fusionarRegistros(records, parsed.registros, columnasNuevas, []);
           registrosFinales = fusion.registros;
@@ -360,7 +377,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             return { ...resumen, sincronizado: false, errorSincronizacion: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
           }
           try {
-            const res = await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, registrosParaSincronizar, usuario || 'No identificado', undefined, forzar);
+            const res = await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, registrosParaSincronizar, usuario || 'No identificado', undefined, forzar, resumen.aniosReemplazados);
             if (!res.ok) {
               // Nota: con Supabase (upsert por registro individual) ya no
               // existe la carrera de "quién sube de último pisa todo el

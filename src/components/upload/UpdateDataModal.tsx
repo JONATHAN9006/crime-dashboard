@@ -117,7 +117,7 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
           {tipoDataset === 'delictividad' && (
             <>
               <p className="mb-2 text-sm font-medium text-slate-700">Modo de actualización</p>
-              <div className="mb-4 grid grid-cols-2 gap-2">
+              <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button
                   onClick={() => setModo('agregar')}
                   className={`rounded-lg border p-3 text-left text-sm ${modo === 'agregar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
@@ -126,11 +126,18 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
                   <p className="mt-0.5 text-xs text-slate-500">Incorpora nuevos registros sin perder los existentes. Detecta duplicados automáticamente.</p>
                 </button>
                 <button
+                  onClick={() => setModo('reemplazarAnio')}
+                  className={`rounded-lg border p-3 text-left text-sm ${modo === 'reemplazarAnio' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+                >
+                  <p className="font-semibold text-slate-800">Actualizar año completo</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Reemplaza SOLO el/los año(s) que trae el archivo (ej. todo 2026) — los demás años quedan intactos. Recomendado si siempre subes la misma matriz completa del año.</p>
+                </button>
+                <button
                   onClick={() => setModo('reemplazar')}
                   className={`rounded-lg border p-3 text-left text-sm ${modo === 'reemplazar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
                 >
-                  <p className="font-semibold text-slate-800">Reemplazar información</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Elimina los datos actuales y trabaja únicamente con el nuevo archivo.</p>
+                  <p className="font-semibold text-slate-800">Reemplazar todo</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Elimina TODOS los años ya cargados y trabaja únicamente con el nuevo archivo.</p>
                 </button>
               </div>
             </>
@@ -241,9 +248,19 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
             <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
             <div>
               <p className="font-semibold">Actualización completada</p>
-              <p>Registros encontrados: {resultado.nuevos}</p>
-              <p>Registros nuevos incorporados: {resultado.incorporados}</p>
-              <p>Registros duplicados detectados (omitidos): {resultado.duplicados}</p>
+              {resultado.aniosReemplazados && resultado.aniosReemplazados.length > 0 ? (
+                <>
+                  <p>Año(s) reemplazado(s) por completo: {resultado.aniosReemplazados.join(', ')}</p>
+                  <p>Registros viejos de esos años eliminados: {resultado.registrosAnterioresEliminados ?? 0}</p>
+                  <p>Registros del archivo nuevo incorporados: {resultado.incorporados}</p>
+                </>
+              ) : (
+                <>
+                  <p>Registros encontrados: {resultado.nuevos}</p>
+                  <p>Registros nuevos incorporados: {resultado.incorporados}</p>
+                  <p>Registros duplicados detectados (omitidos): {resultado.duplicados}</p>
+                </>
+              )}
               {!!resultado.actualizadosConCoordenadas && (
                 <p>De esos duplicados, se les agregó Latitud/Longitud a: {resultado.actualizadosConCoordenadas}</p>
               )}

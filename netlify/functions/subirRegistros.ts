@@ -44,6 +44,14 @@ interface CuerpoSolicitud {
   // saber si debe refrescar) descargara el dataset A MEDIAS y le pisara a
   // quien está subiendo su propia vista local, completa, con una parcial.
   esUltimoLote?: boolean;
+  // Años a borrar del servidor ANTES de guardar los registros de este
+  // envío — usado por el modo "reemplazar solo este año" del dashboard
+  // (ver reemplazarAniosDelArchivo en datasetOps.ts): sin este borrado
+  // previo, un registro que existía en el servidor pero YA NO aparece en
+  // el archivo nuevo (ej. se corrigió y quedó con un identificador
+  // distinto) se quedaría huérfano ahí para siempre, aunque localmente sí
+  // se haya quitado — el upsert de más abajo nunca borra nada por sí solo.
+  aniosABorrar?: number[];
 }
 
 export const handler: Handler = async (event) => {
@@ -67,7 +75,13 @@ export const handler: Handler = async (event) => {
   if (!cuerpo.token || cuerpo.token !== UPDATE_TOKEN) {
     return { statusCode: 200, body: JSON.stringify({ ok: false, error: 'Clave de actualización incorrecta. No tienes autorización para actualizar el dashboard.' }) };
   }
-  if (!Array.isArray(cuerpo.registros) || cuerpo.registros.length === 0) {
+  if (!Array.isArray(cuerpo.registros)) {
+    return { statusCode: 400, body: JSON.stringify({ ok: false, error: 'Solicitud mal formada: falta la lista de registros.' }) };
+  }
+  // Vacío es válido SOLO cuando la solicitud es puramente un borrado por
+  // año (aniosABorrar) — el cliente hace esa llamada aparte, ANTES de
+  // empezar a subir los lotes normales de registros.
+  if (cuerpo.registros.length === 0 && !(Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0)) {
     return { statusCode: 200, body: JSON.stringify({ ok: false, error: 'No se recibió ningún registro para guardar.' }) };
   }
 
@@ -82,6 +96,23 @@ export const handler: Handler = async (event) => {
   });
 
   try {
+    // Borrado por año — pensado para que el cliente lo pida en una
+    // llamada APARTE, con registros: [], antes de empezar a subir los
+    // lotes normales (ver reemplazarAniosDelArchivo en datasetOps.ts y su
+    // uso en DataContext.tsx). Si además trajera registros en la MISMA
+    // llamada, se borra primero y se guardan después, sin problema.
+    if (Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0) {
+      const { error: errorBorrado } = await supabase
+        .from('crime_records')
+        .delete()
+        .eq('dataset', dataset)
+        .in('anio', cuerpo.aniosABorrar);
+      if (errorBorrado) throw new Error(errorBorrado.message);
+      if (cuerpo.registros.length === 0) {
+        return { statusCode: 200, body: JSON.stringify({ ok: true, mensaje: `Se borraron los registros de ${dataset} de los años ${cuerpo.aniosABorrar.join(', ')}.`, fecha: new Date().toISOString() }) };
+      }
+    }
+
     const filas = cuerpo.registros.map((r) => ({
       dataset,
       id_identidad: r.__id,

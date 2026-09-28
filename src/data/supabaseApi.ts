@@ -86,7 +86,24 @@ export async function subirRegistrosSupabase(
   usuario: string,
   dataset?: DatasetRemoto,
   forzar?: boolean,
+  aniosABorrar?: number[],
 ): Promise<RemotePushResult> {
+  // Borrado por año — pedido en SU PROPIA llamada, antes de subir nada,
+  // para el modo "reemplazar solo este año" (ver reemplazarAniosDelArchivo
+  // en datasetOps.ts). Sin esto, un registro que ya no existe en el
+  // archivo nuevo se quedaría guardado en el servidor para siempre — el
+  // upsert de los lotes de abajo nunca borra nada por sí solo.
+  if (aniosABorrar && aniosABorrar.length > 0) {
+    const respBorrado = await fetch(functionUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, registros: [], usuario, dataset, aniosABorrar }),
+    });
+    const cuerpoBorrado = await respBorrado.json().catch(() => null);
+    if (!respBorrado.ok || !cuerpoBorrado || !cuerpoBorrado.ok) {
+      throw new Error((cuerpoBorrado && cuerpoBorrado.error) || `El backend respondió con error ${respBorrado.status} al borrar los años ${aniosABorrar.join(', ')}.`);
+    }
+  }
   if (registros.length === 0) {
     return { ok: true, mensaje: 'No había registros nuevos ni modificados para sincronizar.', fecha: new Date().toISOString() };
   }
