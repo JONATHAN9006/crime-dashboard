@@ -410,44 +410,6 @@ async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: st
   return anillos;
 }
 
-// Top 5 de barrios con más casos, para la etiqueta suave dentro del mapa —
-// busca CUALQUIER columna que contenga "BARRIO" en el nombre (funciona con
-// "BARRIO_HECHO" de Delitos y con lo que traiga cualquier otra capa
-// cargada, sin depender de un nombre exacto).
-function top5Barrios(puntos: { fila: Record<string, any> }[]): string[] | null {
-  if (puntos.length === 0) return null;
-  // Se busca la columna de barrio revisando TODOS los puntos (no solo el
-  // primero) — "General" mezcla puntos de varias capas (Delitos, IRISP1,
-  // Macri...) y no todas traen las mismas columnas; mirar solo el primero
-  // hacía que la etiqueta desapareciera por completo si esa capa en
-  // particular no tenía barrio, aunque las demás sí.
-  const colBarrio = (() => {
-    for (const p of puntos) {
-      const encontrada = Object.keys(p.fila).find((k) => /BARRIO/i.test(k));
-      if (encontrada) return encontrada;
-    }
-    return null;
-  })();
-  if (!colBarrio) return null;
-  const conteo = new Map<string, number>();
-  for (const p of puntos) {
-    const valor = String(p.fila[colBarrio] ?? '').trim();
-    if (!valor || /^(NO REPORTADO|SIN REPORTAR|SIN ASIGNAR|N\/A|NA|-)$/i.test(valor)) continue;
-    conteo.set(valor, (conteo.get(valor) || 0) + 1);
-  }
-  if (conteo.size === 0) return null;
-  return Array.from(conteo.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([barrio, casos], i) => `${i + 1}. ${barrio} — ${casos}`);
-}
-
-// A pedido explícito, después de que el verde suave se viera mal: fondo
-// blanco limpio, texto oscuro — combina con cualquier mapa de calor de
-// fondo, en vez de competir con los colores del propio mapa.
-const COLOR_ETIQUETA_BARRIOS_FONDO = 'rgba(255, 255, 255, 0.94)';
-const COLOR_ETIQUETA_BARRIOS_TEXTO = '#1e293b';
-
 
 export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {
@@ -512,7 +474,6 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
       etiquetas: [],
-      gruposEtiquetas: (() => { const t5 = top5Barrios(puntos); return t5 ? [{ titulo: 'TOP 5 BARRIOS', lineas: t5, colorFondo: COLOR_ETIQUETA_BARRIOS_FONDO, colorTexto: COLOR_ETIQUETA_BARRIOS_TEXTO }] : []; })(),
       anchoLienzo: 700,
       anillosInternos,
       // Solo el contorno de Estación Norte+Sur + el mapa de calor — sin
@@ -609,7 +570,6 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
       etiquetas: [],
-      gruposEtiquetas: (() => { const t5 = top5Barrios(puntos); return t5 ? [{ titulo: 'TOP 5 BARRIOS', lineas: t5, colorFondo: COLOR_ETIQUETA_BARRIOS_FONDO, colorTexto: COLOR_ETIQUETA_BARRIOS_TEXTO }] : []; })(),
       anchoLienzo: 700,
       anillosInternos,
       // Las estaciones rurales abarcan cientos de km²: las calles reales a
@@ -650,7 +610,6 @@ export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoF
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
       etiquetas: [],
-      gruposEtiquetas: (() => { const t5 = top5Barrios(puntos); return t5 ? [{ titulo: 'TOP 5 BARRIOS', lineas: t5, colorFondo: COLOR_ETIQUETA_BARRIOS_FONDO, colorTexto: COLOR_ETIQUETA_BARRIOS_TEXTO }] : []; })(),
       anchoLienzo: 700,
       anillosInternos,
       // A escala de distrito completo, las calles solo meten ruido.
@@ -696,7 +655,6 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
       puntos,
       colores: ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'],
       etiquetas: [],
-      gruposEtiquetas: (() => { const t5 = top5Barrios(puntos); return t5 ? [{ titulo: 'TOP 5 BARRIOS', lineas: t5, colorFondo: COLOR_ETIQUETA_BARRIOS_FONDO, colorTexto: COLOR_ETIQUETA_BARRIOS_TEXTO }] : []; })(),
       anchoLienzo: 700,
       anillosInternos,
     });

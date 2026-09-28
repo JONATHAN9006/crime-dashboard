@@ -294,7 +294,7 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
 // (ver DataContext.tsx). Si el dataset no trae ningún registro con
 // coordenadas, no hace nada (deja lo que ya hubiera, sea lo que sea).
 export async function sincronizarCapaDelitosDesdeRecords(records: {
-  lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null; cai: string; barrioHecho: string;
+  lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null; cai: string;
 }[]): Promise<void> {
   // OJO: se usa una comprobación explícita de tipo/finitud, NO "!== null".
   // Los registros guardados en el navegador ANTES de que existiera este
@@ -315,7 +315,7 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
     // por delito/estación de esta capa usa delitoCorto/estacionCorta
     // directamente (ver capasPuntosProcesadas en MapaGeorreferenciacion),
     // nunca "fila", así que no hace falta más que esto.
-    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai, BARRIO_HECHO: r.barrioHecho },
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai },
     delitoCorto: r.delito,
     estacionCorta: r.estacion,
     caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,

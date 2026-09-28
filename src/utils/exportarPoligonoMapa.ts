@@ -51,7 +51,7 @@ export interface OpcionesPoligonoAislado {
   puntos: PuntoParaMapaCalor[];
   colores: (string | null)[];
   etiquetas: string[];
-  gruposEtiquetas?: { titulo: string; lineas: string[]; colorFondo?: string; colorTexto?: string }[]; // varias cajas separadas (ej. una por año, o el Top 5 de barrios); si se pasa, tiene prioridad sobre "etiquetas". colorFondo/colorTexto: opcional, por defecto la caja oscura de siempre.
+  gruposEtiquetas?: { titulo: string; lineas: string[] }[]; // varias cajas separadas (ej. una por año); si se pasa, tiene prioridad sobre "etiquetas"
   opacidadPoligono?: number;
   opacidadCalor?: number;
   opacidadEtiquetas?: number;
@@ -298,7 +298,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       const lineasConTitulo = g.titulo ? [g.titulo, ...g.lineas] : g.lineas;
       const ancho = maxDe(lineasConTitulo.map((t) => ctx.measureText(t).width)) + paddingX * 2;
       const alto = paddingY * 2 + alturaLinea * lineasConTitulo.length;
-      return { lineasConTitulo, ancho, alto, colorFondo: g.colorFondo, colorTexto: g.colorTexto };
+      return { lineasConTitulo, ancho, alto };
     });
     const anchoCaja = maxDe(cajas.map((c) => c.ancho));
     const altoTotal = cajas.reduce((suma, c) => suma + c.alto, 0) + espacioEntreCajas * (cajas.length - 1);
@@ -334,9 +334,9 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
     ctx.globalAlpha = opacidadEtiquetas;
     let yActual = mejor.y;
     for (const caja of cajas) {
-      ctx.fillStyle = caja.colorFondo ?? 'rgba(15, 23, 42, 0.88)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
       ctx.fillRect(mejor.x, yActual, anchoCaja, caja.alto);
-      ctx.fillStyle = caja.colorTexto ?? '#ffffff';
+      ctx.fillStyle = '#ffffff';
       ctx.textBaseline = 'middle';
       caja.lineasConTitulo.forEach((texto, i) => {
         ctx.fillText(texto, mejor.x + paddingX, yActual + paddingY + alturaLinea * i + alturaLinea / 2);
