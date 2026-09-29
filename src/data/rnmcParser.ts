@@ -23,6 +23,13 @@ export interface RegistroComparendo {
   unidadPolicial: string; // UNIDAD_LABORA_POL, ej. "MEPOY - CAI COMUNA CUATRO"
   funcionario: string; // POLICIA_IMPUSO
   barrio: string;
+  lat: number | null;
+  lon: number | null;
+}
+
+function parseCoordenada(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.'));
+  return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
 function limpiar(v: unknown): string {
@@ -92,6 +99,8 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
       unidadPolicial: limpiar(fila.UNIDAD_LABORA_POL),
       funcionario: limpiar(fila.POLICIA_IMPUSO),
       barrio: limpiar(fila.BARRIO_HECHOS),
+      lat: parseCoordenada(fila.LATITUD) ?? parseCoordenada(fila.LATITUD_GPS),
+      lon: parseCoordenada(fila.LONGITUD) ?? parseCoordenada(fila.LONGITUD_GPS),
     };
   });
 }

@@ -17,7 +17,7 @@ export interface PuntoGeo {
   caiCorto: string | null;
 }
 
-export type TipoCapaPuntos = 'irisp1' | 'delitos' | 'operatividad' | 'macri' | 'generico';
+export type TipoCapaPuntos = 'irisp1' | 'delitos' | 'operatividad' | 'macri' | 'rnmc' | 'generico';
 
 export interface CapaPuntos {
   id: string;
@@ -345,5 +345,52 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
     filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
   };
   await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'delitos'), nueva]);
+}
+
+// Igual que sincronizarCapaDelitosDesdeRecords, pero para los comparendos
+// de RNMC — se llama desde la página RNMC cada vez que se carga o
+// sincroniza la matriz, para que aparezcan automáticamente como una capa
+// más (checkbox "RNMC") en Mapa/Georreferenciación, usando la latitud y
+// longitud que sí trae ese archivo.
+export async function sincronizarCapaRnmcDesdeComparendos(registros: {
+  lat: number | null; lon: number | null; fecha: Date | null; articuloNumeral: string; comuna: string; zonaAtencionHechos: string; barrio: string;
+}[]): Promise<void> {
+  const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
+  const conCoordenadas = registros.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  if (conCoordenadas.length === 0) return;
+
+  const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
+    lat: r.lat as number,
+    lon: r.lon as number,
+    fila: { FECHA_HECHO: r.fecha, COMPORTAMIENTO: r.articuloNumeral, COMUNA: r.comuna, ZONA_ATENCION: r.zonaAtencionHechos, BARRIO_HECHOS: r.barrio },
+    delitoCorto: r.articuloNumeral,
+    estacionCorta: null,
+    caiCorto: null,
+  }));
+
+  const capas = await cargarCapasPuntos();
+  const previa = capas.find((c) => c.tipo === 'rnmc');
+  const nueva: CapaPuntos = {
+    id: previa?.id ?? `rnmc-auto-${Date.now()}`,
+    nombre: 'RNMC',
+    tipo: 'rnmc',
+    archivoNombre: 'Matriz de comparendos (automático)',
+    cargadoPor: previa?.cargadoPor ?? 'Sistema',
+    fechaCarga: new Date().toISOString(),
+    columnas: ['COMPORTAMIENTO', 'COMUNA', 'ZONA_ATENCION', 'FECHA_HECHO'],
+    colLat: 'lat',
+    colLon: 'lon',
+    colDelito: 'COMPORTAMIENTO',
+    colEstado: null,
+    colEstadoExistencia: null,
+    colDependencia: null,
+    puntos,
+    visible: previa?.visible ?? true,
+    filtroEstado: previa?.filtroEstado ?? [],
+    filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+    filtroDependencia: previa?.filtroDependencia ?? [],
+    filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+  };
+  await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'rnmc'), nueva]);
 }
 

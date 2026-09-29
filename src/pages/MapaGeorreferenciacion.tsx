@@ -908,7 +908,7 @@ export function MapaGeorreferenciacion() {
     await persistirPuntos(capasPuntos.map((c) => (c.id === id ? { ...c, ...cambios } : c)));
   }
 
-  function alternarVisibilidadPorTipo(tipo: 'irisp1' | 'delitos' | 'operatividad' | 'macri', visible: boolean) {
+  function alternarVisibilidadPorTipo(tipo: 'irisp1' | 'delitos' | 'operatividad' | 'macri' | 'rnmc', visible: boolean) {
     persistirPuntos(capasPuntos.map((c) => (c.tipo === tipo ? { ...c, visible } : c)));
   }
 
@@ -1220,6 +1220,17 @@ export function MapaGeorreferenciacion() {
       .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
     [capasPuntosProcesadas],
   );
+
+  // RNMC (comparendos) — mismo patrón que IRISP1, pero sin el modo
+  // "pantalla completa" (exploración por comportamiento aparte); se
+  // mantiene simple, mostrando siempre los puntos visibles tal cual.
+  const puntosRnmcParaMostrar = useMemo(
+    () => capasPuntosProcesadas
+      .filter(({ capa }) => capa.tipo === 'rnmc' && capa.visible)
+      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
+    [capasPuntosProcesadas],
+  );
+  const mostrarCalorRnmc = capasPuntos.some((c) => c.tipo === 'rnmc' && c.visible);
 
   // --- Pantalla completa: exploración independiente por delito -----------
   // En este modo se navega TODOS los puntos de la fuente elegida (sin
@@ -1932,6 +1943,15 @@ export function MapaGeorreferenciacion() {
             <span className="h-2 w-2 rounded-full bg-[#7c3aed]" /> Macri
           </label>
           <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={capasPuntos.some((c) => c.tipo === 'rnmc' && c.visible)}
+              onChange={(e) => alternarVisibilidadPorTipo('rnmc', e.target.checked)}
+              disabled={!capasPuntos.some((c) => c.tipo === 'rnmc')}
+            />
+            <span className="h-2 w-2 rounded-full bg-[#db2777]" /> RNMC
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
             <input type="checkbox" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
             Comparar IRISP1 vs Delitos
           </label>
@@ -2297,6 +2317,18 @@ export function MapaGeorreferenciacion() {
               />
             )}
 
+            {/* Mapa de calor de RNMC (comparendos) — misma mecánica, con su
+                propia escala (rosado → magenta) para distinguirse de
+                Delitos/IRISP1/Operatividad/Macri. Usa la latitud/longitud
+                que trae la matriz de comparendos. */}
+            {mostrarCalorRnmc && modoVisualizacion === 'calor' && (
+              <KernelHeatmapLayer
+                puntos={puntosRnmcParaMostrar}
+                colores={['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843']}
+                opacidad={opacidades.calor / 100}
+              />
+            )}
+
             {/* Mapa de calor de Operatividad y Macri: mismo mecanismo que
                 Delitos/IRISP1 (Kernel Density con su propia escala de
                 colores), pero sin modo "pantalla completa" propio ni
@@ -2338,6 +2370,11 @@ export function MapaGeorreferenciacion() {
             {modoVisualizacion === 'puntos' && mostrarCalorMacri && puntosMacriParaMostrar.map((p, i) => (
               <CircleMarker key={`pm-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#7c3aed', weight: 1, fillColor: '#7c3aed', fillOpacity: 0.75 }}>
                 <Popup>Macri</Popup>
+              </CircleMarker>
+            ))}
+            {modoVisualizacion === 'puntos' && mostrarCalorRnmc && puntosRnmcParaMostrar.map((p, i) => (
+              <CircleMarker key={`pr-${i}`} center={[p.lat, p.lon]} radius={4} pathOptions={{ color: '#db2777', weight: 1, fillColor: '#db2777', fillOpacity: 0.75 }}>
+                <Popup>RNMC — {(p as any).delitoCorto ?? 'Comparendo'}</Popup>
               </CircleMarker>
             ))}
 
