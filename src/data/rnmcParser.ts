@@ -8,6 +8,7 @@ import { MAPA_CUADRANTE } from './db2Mapeos';
 // de columna exacto, sin heurísticas de detección como las de Delictividad.
 
 export interface RegistroComparendo {
+  __id: string; // EXPEDIENTE — único por comparendo, confirmado contra el archivo real (6.619 filas, 6.619 valores distintos). Es la identidad real del sistema de origen, no un hash calculado.
   fecha: Date | null;
   anio: number | null;
   articulo: string; // "Art. 27" (sin el texto largo)
@@ -76,6 +77,7 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
     const cuadrantePatrulla = limpiar(fila.CUADRANTE_CARGO_POL);
     const fecha = parseFechaExcel(fila.FECHA_HECHOS);
     return {
+      __id: limpiar(fila.EXPEDIENTE) || `SIN-EXPEDIENTE-${Math.random().toString(36).slice(2)}`,
       fecha,
       anio: fecha ? fecha.getFullYear() : null,
       articulo,

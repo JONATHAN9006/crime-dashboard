@@ -5,7 +5,7 @@ import type { DatasetRemoto, RemoteMeta, RemotePushResult } from './remoteApi';
 // Un solo cliente reutilizado — createClient no es caro, pero no hay
 // necesidad de crear uno nuevo en cada llamada.
 let clienteCache: { url: string; anonKey: string; cliente: SupabaseClient } | null = null;
-function obtenerCliente(url: string, anonKey: string): SupabaseClient {
+export function obtenerCliente(url: string, anonKey: string): SupabaseClient {
   if (clienteCache && clienteCache.url === url && clienteCache.anonKey === anonKey) return clienteCache.cliente;
   const cliente = createClient(url, anonKey);
   clienteCache = { url, anonKey, cliente };

@@ -35,7 +35,7 @@ const TAMANO_LOTE = 500;
 interface CuerpoSolicitud {
   token: string;
   usuario?: string;
-  dataset?: 'delictividad' | 'operatividad';
+  dataset?: 'delictividad' | 'operatividad' | 'rnmc';
   registros: Array<Record<string, unknown> & { __id: string; fecha?: string | null; anio?: number | null; delito?: string }>;
   // true SOLO en el último lote de una subida (ver TAMANO_LOTE_SUBIDA en
   // supabaseApi.ts) — evita que "última actualización" quede cambiando

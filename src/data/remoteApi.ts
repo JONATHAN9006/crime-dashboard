@@ -23,7 +23,7 @@ export interface RemotePushResult {
 // asume "delictividad" (el comportamiento de siempre, sin cambios). Se
 // agrega "operatividad" como segundo dataset independiente, con su propio
 // archivo y su propia fecha/usuario de actualización en el mismo backend.
-export type DatasetRemoto = 'delictividad' | 'operatividad';
+export type DatasetRemoto = 'delictividad' | 'operatividad' | 'rnmc';
 
 // Tamaño de cada pedazo pedido al backend, en caracteres — bastante por
 // debajo del límite real de Apps Script (que la base ya alcanzó con
