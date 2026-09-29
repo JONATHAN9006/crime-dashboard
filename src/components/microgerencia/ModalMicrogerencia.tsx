@@ -3,8 +3,11 @@ import { createPortal } from 'react-dom';
 import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react';
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
-import { generarPdfMicrogerencia } from '../../data/pdfMicrogerencia';
-import { generarImagenMapaGeneral, generarImagenMapaDistrito, generarImagenMapaEstacion, generarImagenMapaCai, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
+import { generarImagenMapaGeneral, generarImagenMapaDistrito, generarImagenMapaEstacion, generarImagenMapaCai, generarImagenMapaGeneralPorTipo, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
+import { generarPdfMicrogerencia, dibujarSeccionResumenSimple, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import { useData } from '../../context/DataContext';
+import { cargarComparendos } from '../../data/rnmcStorage';
+import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 
 function formatearPct(n: number | null): string {
@@ -196,7 +199,8 @@ const TITULOS_VISTA: Record<Vista, string> = {
   delitos: 'Comparativo por Delito',
 };
 
-export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
+export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCerrar: () => void; fuentesAdicionales?: FuenteMicrogerencia[] }) {
+  const { filteredOperatividadRecords } = useData();
   const datos = useMicrogerencia();
   const [vista, setVista] = useState<Vista>('general');
   const [seleccionados, setSeleccionados] = useState<Map<string, NodoMicrogerencia>>(new Map());
@@ -257,19 +261,94 @@ export function ModalMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     return mapa;
   }
 
+  // Secciones extra (Operatividad, RNMC) — una página resumen por fuente
+  // seleccionada en el paso anterior (SelectorFuentesMicrogerencia), cada
+  // una con sus propios totales, un par de rankings y su propio mapa
+  // general. Delictividad NO pasa por aquí — sigue su camino de siempre,
+  // con todo el árbol Distrito/Estación/CAI.
+  async function construirSeccionesExtra(): Promise<SeccionExtraMicrogerencia[]> {
+    const secciones: SeccionExtraMicrogerencia[] = [];
+
+    if (fuentesAdicionales.includes('operatividad') && filteredOperatividadRecords.length > 0) {
+      const porCategoria = new Map<string, number>();
+      const porEstacion = new Map<string, number>();
+      for (const r of filteredOperatividadRecords) {
+        if (r.categoria) porCategoria.set(r.categoria, (porCategoria.get(r.categoria) || 0) + 1);
+        if (r.estacion) porEstacion.set(r.estacion, (porEstacion.get(r.estacion) || 0) + 1);
+      }
+      const rankCategoria = Array.from(porCategoria.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
+      const rankEstacion = Array.from(porEstacion.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
+      const imagenMapa = await generarImagenMapaGeneralPorTipo('operatividad', ['#bfdbfe', '#60a5fa', '#2563eb', '#1e3a8a']);
+      secciones.push({
+        alturaPagina: 190,
+        dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
+          titulo: 'Operatividad',
+          subtitulo: `${filteredOperatividadRecords.length.toLocaleString('es-CO')} registro(s) en el periodo filtrado`,
+          estadisticas: [
+            { valor: String(filteredOperatividadRecords.length), etiqueta: 'Total registros' },
+            { valor: String(porCategoria.size), etiqueta: 'Categorías' },
+            { valor: String(porEstacion.size), etiqueta: 'Estaciones' },
+          ],
+          rankings: [
+            { titulo: 'Por categoría', filas: rankCategoria },
+            { titulo: 'Por estación', filas: rankEstacion },
+          ],
+          imagenMapa,
+        }),
+      });
+    }
+
+    if (fuentesAdicionales.includes('rnmc')) {
+      const guardado = await cargarComparendos();
+      const registros = guardado?.registros ?? [];
+      if (registros.length > 0) {
+        const porComportamiento = new Map<string, number>();
+        const porComuna = new Map<string, number>();
+        const porZona = new Map<string, number>();
+        for (const r of registros) {
+          if (r.articuloNumeral) porComportamiento.set(r.articuloNumeral, (porComportamiento.get(r.articuloNumeral) || 0) + 1);
+          if (r.comuna) porComuna.set(r.comuna, (porComuna.get(r.comuna) || 0) + 1);
+          if (r.zonaAtencionHechos) porZona.set(r.zonaAtencionHechos, (porZona.get(r.zonaAtencionHechos) || 0) + 1);
+        }
+        const rank = (m: Map<string, number>) => Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
+        const imagenMapa = await generarImagenMapaGeneralPorTipo('rnmc', ['#fbcfe8', '#f472b6', '#ec4899', '#831843']);
+        secciones.push({
+          alturaPagina: 190,
+          dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
+            titulo: 'RNMC — Registro Nacional de Medidas Correctivas',
+            subtitulo: `${registros.length.toLocaleString('es-CO')} comparendo(s)`,
+            estadisticas: [
+              { valor: String(registros.length), etiqueta: 'Comparendos' },
+              { valor: String(porComuna.size), etiqueta: 'Comunas' },
+              { valor: String(porZona.size), etiqueta: 'Zonas de atención' },
+            ],
+            rankings: [
+              { titulo: 'Comportamientos más registrados', filas: rank(porComportamiento) },
+              { titulo: 'Comunas con más comparendos', filas: rank(porComuna) },
+            ],
+            imagenMapa,
+          }),
+        });
+      }
+    }
+
+    return secciones;
+  }
+
   async function descargarPdf() {
     if (!datos) return;
     setGenerandoPdf(true);
     try {
+      const seccionesExtra = await construirSeccionesExtra();
       if (seleccionados.size > 0) {
         const nodosSeleccionados = Array.from(seleccionados.values());
         const imagenes = await generarImagenesParaNodos(nodosSeleccionados, datos.delitoFiltrado);
-        await generarPdfMicrogerencia(nodosSeleccionados, `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`, imagenes);
+        await generarPdfMicrogerencia(nodosSeleccionados, `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`, imagenes, seccionesExtra);
       } else if (vista === 'delitos') {
-        await generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos);
+        await generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos, undefined, seccionesExtra);
       } else if (raizVistaActual) {
         const imagenes = await generarImagenesParaNodos([raizVistaActual], datos.delitoFiltrado);
-        await generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista], imagenes);
+        await generarPdfMicrogerencia([raizVistaActual], TITULOS_VISTA[vista], imagenes, seccionesExtra);
       }
     } finally {
       setGenerandoPdf(false);

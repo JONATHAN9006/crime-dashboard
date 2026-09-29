@@ -189,7 +189,110 @@ function altoDeTarjeta(nodo: NodoMicrogerencia, dim: Dimensiones): number {
   return dim.altoTituloTarjeta + dim.altoFilaMetricas + altoBandaTresColumnas(nodo, dim) + dim.paddingTarjeta * 3;
 }
 
-export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>): Promise<void> {
+/**
+ * Contenido de una página "resumen simple" para una fuente sin el árbol
+ * Distrito/Estación/CAI de Delictividad (Operatividad, RNMC...) — título,
+ * estadísticas clave, un par de rankings en texto plano, y el mapa general
+ * de esa fuente a la derecha. Deliberadamente más sencilla que
+ * dibujarTarjetaNodo — cubre lo esencial de un vistazo, sin intentar
+ * replicar TODO el detalle de Delictividad para una fuente con una
+ * estructura de datos distinta.
+ */
+export function dibujarSeccionResumenSimple(
+  pdf: any,
+  xInicio: number,
+  yInicio: number,
+  anchoUtil: number,
+  opciones: {
+    titulo: string;
+    subtitulo: string;
+    estadisticas: { etiqueta: string; valor: string }[];
+    rankings: { titulo: string; filas: { etiqueta: string; valor: number }[] }[];
+    imagenMapa?: string;
+  },
+): number {
+  let y = yInicio;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(15, 23, 42);
+  pdf.text(opciones.titulo, xInicio, y);
+  y += 6;
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  pdf.setTextColor(100, 116, 139);
+  pdf.text(opciones.subtitulo, xInicio, y);
+  y += 8;
+
+  // Fila de estadísticas clave.
+  const anchoStat = anchoUtil / Math.max(1, opciones.estadisticas.length);
+  opciones.estadisticas.forEach((s, i) => {
+    const x = xInicio + i * anchoStat;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(15);
+    pdf.setTextColor(21, 144, 137);
+    pdf.text(s.valor, x, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(100, 116, 139);
+    pdf.text(s.etiqueta, x, y + 4.5);
+  });
+  y += 12;
+
+  const anchoColumnaIzquierda = opciones.imagenMapa ? anchoUtil * 0.55 : anchoUtil;
+  const anchoMapa = anchoUtil - anchoColumnaIzquierda - 6;
+  const yTablas = y;
+
+  for (const ranking of opciones.rankings) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9.5);
+    pdf.setTextColor(15, 23, 42);
+    pdf.text(ranking.titulo, xInicio, y);
+    y += 5;
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+    const max = Math.max(1, ...ranking.filas.map((f) => f.valor));
+    for (const fila of ranking.filas.slice(0, 8)) {
+      pdf.setTextColor(51, 65, 85);
+      pdf.text(fila.etiqueta, xInicio, y, { maxWidth: anchoColumnaIzquierda * 0.62 });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(21, 144, 137);
+      pdf.text(String(fila.valor), xInicio + anchoColumnaIzquierda - 2, y, { align: 'right' });
+      pdf.setFont('helvetica', 'normal');
+      // Barrita simple proporcional, debajo del nombre.
+      const anchoBarra = (fila.valor / max) * (anchoColumnaIzquierda * 0.55);
+      pdf.setFillColor(226, 232, 240);
+      pdf.rect(xInicio, y + 1, anchoColumnaIzquierda * 0.55, 1.3, 'F');
+      pdf.setFillColor(21, 144, 137);
+      pdf.rect(xInicio, y + 1, Math.max(1, anchoBarra), 1.3, 'F');
+      y += 6.5;
+    }
+    y += 3;
+  }
+
+  if (opciones.imagenMapa) {
+    const altoMapa = Math.max(y - yTablas, 70);
+    try {
+      pdf.addImage(opciones.imagenMapa, 'PNG', xInicio + anchoColumnaIzquierda + 6, yTablas, anchoMapa, altoMapa);
+    } catch { /* si falla la imagen, se deja la página sin mapa en vez de romper todo el PDF */ }
+  }
+
+  return y;
+}
+
+export interface SeccionExtraMicrogerencia {
+  // Alto que necesita esta página (mismo criterio que alturaYEscalaParaNodo:
+  // encabezado + contenido + pie) — quien arma la sección decide su propio
+  // alto según cuánto contenido tenga.
+  alturaPagina: number;
+  // Dibuja el CONTENIDO de la página (todo lo que va debajo del
+  // encabezado) — recibe el mismo "pdf" ya con la página activa y el
+  // encabezado ya dibujado, y el ancho útil disponible; debe devolver la
+  // posición Y donde terminó de dibujar, para que el pie se pueda ubicar
+  // justo debajo (mismo mecanismo dinámico que ya usa el resto del PDF).
+  dibujarContenido: (pdf: any, xInicio: number, yInicio: number, anchoUtil: number) => number;
+}
+
+export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>, seccionesExtra?: SeccionExtraMicrogerencia[]): Promise<void> {
   const [encabezadoBase64, pieBase64] = await Promise.all([
     cargarImagenBase64('/assets/microgerencia-header.png'),
     cargarImagenBase64('/assets/microgerencia-footer.png'),
@@ -561,6 +664,19 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       dibujarEncabezadoPagina();
     }
     dibujarTarjetaNodo(nodo, imagenesAjustadas.get(nodo.nombre));
+  }
+
+  // Secciones adicionales (Operatividad, RNMC...) — páginas propias, cada
+  // una con SU alto ya calculado por quien la arma, agregadas DESPUÉS de
+  // Delictividad pero ANTES del pie (para que el pie, dibujado más abajo
+  // sobre TODAS las páginas, también les llegue a estas).
+  if (seccionesExtra) {
+    for (const seccion of seccionesExtra) {
+      pdf.addPage([MM_ANCHO, seccion.alturaPagina]);
+      dibujarEncabezadoPagina();
+      const yFinal = seccion.dibujarContenido(pdf, MARGEN, y, ANCHO_UTIL);
+      yFinalContenidoPorPagina.set(pdf.getNumberOfPages(), yFinal + 6);
+    }
   }
 
   // El pie de página (banda institucional + fecha de generación) se

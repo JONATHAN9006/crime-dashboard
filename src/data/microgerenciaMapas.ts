@@ -621,6 +621,54 @@ export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoF
   }
 }
 
+/**
+ * Mapa general para una fuente CUALQUIERA que ya esté cargada como capa de
+ * puntos (Operatividad, RNMC...) — a diferencia de generarImagenMapaGeneral
+ * (pensado solo para Delitos), este SÍ filtra los puntos por su propio
+ * "tipo" de capa, para no mezclarlos con los de otras fuentes que
+ * casualmente estén visibles al mismo tiempo en el mapa interactivo.
+ */
+export async function generarImagenMapaGeneralPorTipo(tipo: 'operatividad' | 'rnmc', colores: string[]): Promise<string | undefined> {
+  try {
+    const capas = await cargarCapasPuntos();
+    const puntos = capas.filter((c) => c.tipo === tipo && c.visible).flatMap((c) => c.puntos);
+    if (puntos.length === 0) {
+      console.warn(`[Microgerencia→Mapa] No hay puntos visibles de "${tipo}" — revisa que esa capa esté cargada y su checkbox activo en Mapa/Georreferenciación.`);
+      return undefined;
+    }
+    const origen = (await construirEstacionDesdeCai('AMBAS')) ?? null;
+    let featuresParaMapa: any[];
+    let capaContornoId: string;
+    if (origen) {
+      featuresParaMapa = [...origen.features];
+      capaContornoId = origen.capaId;
+      const desdeCuadrantesTimbio = await construirEstacionRuralDesdeCuadrantes('E-Timbio');
+      if (desdeCuadrantesTimbio) featuresParaMapa.push(...desdeCuadrantesTimbio.features);
+    } else {
+      const localizada = await localizarCapaDeEstaciones();
+      if (!localizada || localizada.features.length === 0) return undefined;
+      featuresParaMapa = [...localizada.features];
+      capaContornoId = localizada.capa.id;
+    }
+    const featureCollection = { type: 'FeatureCollection', features: featuresParaMapa };
+    const anillosInternos = await obtenerAnillosInternos(featureCollection, capaContornoId);
+    return await generarDataUrlPoligonoAislado({
+      margen: 0.3,
+      aspectoObjetivo: 1.1,
+      feature: featureCollection,
+      puntos: puntos.map((p) => ({ lat: p.lat, lon: p.lon })),
+      colores,
+      etiquetas: [],
+      anchoLienzo: 700,
+      anillosInternos,
+      mostrarCalles: false,
+    });
+  } catch (err) {
+    console.error(`[Microgerencia→Mapa] Falló generando el mapa general de "${tipo}":`, err);
+    return undefined;
+  }
+}
+
 /** Imagen de UN CAI específico (ej. "CAI 4") — recortada solo a su propio polígono. */
 export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
   try {

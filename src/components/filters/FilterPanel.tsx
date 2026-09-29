@@ -6,7 +6,7 @@ import { aplicarFiltros, contarFiltrosActivos } from '../../utils/filters';
 import { uniqueSorted } from '../../utils/aggregations';
 import { MultiSelect } from './MultiSelect';
 import { SelectorMultifecha } from './SelectorMultifecha';
-import { ModalMicrogerencia } from '../microgerencia/ModalMicrogerencia';
+import { SelectorFuentesMicrogerencia } from '../microgerencia/SelectorFuentesMicrogerencia';
 import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 
@@ -107,7 +107,7 @@ export function FilterPanel() {
         </div>
       </div>
 
-      {mostrarMicrogerencia && <ModalMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
+      {mostrarMicrogerencia && <SelectorFuentesMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
 
       {expandido && (
         <div className="border-t border-slate-100 p-4">
