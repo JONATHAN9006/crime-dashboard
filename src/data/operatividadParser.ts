@@ -27,6 +27,13 @@ function numeroONull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Coordenadas — mismo criterio que Delictividad: "0" o vacío no cuentan
+// como coordenada real (evita puntos falsos apilados en 0,0 en el mapa).
+function coordenadaONull(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.'));
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+
 // El Excel trae el delito como una cita legal completa, ej. "ARTÍCULO 239.
 // HURTO MOTOCICLETAS" — se quita el "ARTÍCULO NNN[letra]. " del inicio y lo
 // que queda se traduce con la MISMA tabla que usa el dataset principal
@@ -118,6 +125,8 @@ function mapearFilas(filas: Record<string, unknown>[]): OperatividadRecord[] {
       circunstanciaCaptura: limpiarYFormatear(fila['CIRCUSNTANCIA_CAPTURA']),
       situacionJuridica: limpiarYFormatear(fila['SITUACION_JURIDICA']),
       valor: numeroONull(fila['VALOR']),
+      lat: coordenadaONull(fila['LATITUD']),
+      lon: coordenadaONull(fila['LONGITUD']),
       raw,
     };
     return rec;

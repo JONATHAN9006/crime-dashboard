@@ -1836,7 +1836,7 @@ export function MapaGeorreferenciacion() {
                 <FileUp size={13} /> IRISP1
               </button>
               <p className="text-[10px] leading-snug text-slate-400">
-                "Delitos" ya no se carga aquí — se toma automáticamente de "Actualizar información" cuando ese archivo trae columnas de Latitud/Longitud.
+                "Delitos" y "Operatividad" ya no se cargan aquí — se toman automáticamente de "Actualizar información" cuando ese archivo trae columnas de Latitud/Longitud. IRISP1, Macri y RNMC ya se cargan solos, en el mismo momento en que subes cada uno desde su propia pantalla.
               </p>
               <button
                 type="button"
@@ -1911,7 +1911,6 @@ export function MapaGeorreferenciacion() {
               type="checkbox"
               checked={capasPuntos.some((c) => c.tipo === 'delitos' && c.visible)}
               onChange={(e) => alternarVisibilidadPorTipo('delitos', e.target.checked)}
-              disabled={!capasPuntos.some((c) => c.tipo === 'delitos')}
             />
             <span className="h-2 w-2 rounded-full bg-[#dc2626]" /> Delitos
           </label>
@@ -1920,7 +1919,6 @@ export function MapaGeorreferenciacion() {
               type="checkbox"
               checked={capasPuntos.some((c) => c.tipo === 'operatividad' && c.visible)}
               onChange={(e) => alternarVisibilidadPorTipo('operatividad', e.target.checked)}
-              disabled={!capasPuntos.some((c) => c.tipo === 'operatividad')}
             />
             <span className="h-2 w-2 rounded-full bg-[#d97706]" /> Operatividad
           </label>
@@ -1929,7 +1927,6 @@ export function MapaGeorreferenciacion() {
               type="checkbox"
               checked={capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible)}
               onChange={(e) => alternarVisibilidadPorTipo('irisp1', e.target.checked)}
-              disabled={!capasPuntos.some((c) => c.tipo === 'irisp1')}
             />
             <span className="h-2 w-2 rounded-full bg-[#2563eb]" /> IRISP1
           </label>
@@ -1938,7 +1935,6 @@ export function MapaGeorreferenciacion() {
               type="checkbox"
               checked={capasPuntos.some((c) => c.tipo === 'macri' && c.visible)}
               onChange={(e) => alternarVisibilidadPorTipo('macri', e.target.checked)}
-              disabled={!capasPuntos.some((c) => c.tipo === 'macri')}
             />
             <span className="h-2 w-2 rounded-full bg-[#7c3aed]" /> Macri
           </label>
@@ -1947,7 +1943,6 @@ export function MapaGeorreferenciacion() {
               type="checkbox"
               checked={capasPuntos.some((c) => c.tipo === 'rnmc' && c.visible)}
               onChange={(e) => alternarVisibilidadPorTipo('rnmc', e.target.checked)}
-              disabled={!capasPuntos.some((c) => c.tipo === 'rnmc')}
             />
             <span className="h-2 w-2 rounded-full bg-[#db2777]" /> RNMC
           </label>

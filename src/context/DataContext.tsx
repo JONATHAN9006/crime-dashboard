@@ -8,6 +8,7 @@ import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParse
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo } from '../data/datasetOps';
+import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarRegistrosSupabase, consultarMetaSupabase, subirRegistrosSupabase } from '../data/supabaseApi';
@@ -489,6 +490,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.setItem('mepoy-operatividad', JSON.stringify({ registros, ultimaActualizacion, nombreArchivo }));
     } catch { /* si no cabe en localStorage, se queda solo en memoria para esta sesión */ }
+    // Se llama aquí (el único lugar que comparten la carga inicial —al
+    // entrar— y una subida nueva) para que la capa "Operatividad" del mapa
+    // se actualice sola siempre que este dataset cambie, sin un paso
+    // aparte — igual que Delitos.
+    sincronizarCapaOperatividadDesdeRecords(registros).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
   }
 
   useEffect(() => {
@@ -535,6 +541,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           const registros: OperatividadRecord[] = (datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
           setOperatividadRecords(registros);
           setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
+          sincronizarCapaOperatividadDesdeRecords(registros).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
         }
       } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
     })();

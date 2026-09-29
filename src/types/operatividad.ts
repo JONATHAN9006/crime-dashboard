@@ -46,6 +46,12 @@ export interface OperatividadRecord {
   situacionJuridica: string;
   valor: number | null;
 
+  // Presentes solo si el archivo trae columnas de Latitud/Longitud —
+  // alimentan automáticamente la capa "Operatividad" del mapa, igual que
+  // Delitos (ver puntosStorage.ts:sincronizarCapaOperatividadDesdeRecords).
+  lat: number | null;
+  lon: number | null;
+
   raw: Record<string, string>;
 }
 

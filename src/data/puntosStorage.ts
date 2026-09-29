@@ -347,6 +347,53 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
   await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'delitos'), nueva]);
 }
 
+// Igual que sincronizarCapaDelitosDesdeRecords, pero para Operatividad —
+// se llama desde cargarArchivoOperatividad cada vez que se sube ese
+// archivo, para que aparezca automáticamente como capa ("Operatividad")
+// en Mapa/Georreferenciación en cuanto ese archivo trae Latitud/Longitud,
+// sin necesidad de cargarla aparte con "Cargar capa".
+export async function sincronizarCapaOperatividadDesdeRecords(records: {
+  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; fecha: Date | null; categoria: string;
+}[]): Promise<void> {
+  const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
+  const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  if (conCoordenadas.length === 0) return;
+
+  const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
+    lat: r.lat as number,
+    lon: r.lon as number,
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria },
+    delitoCorto: r.delitoAsociado,
+    estacionCorta: r.estacion,
+    caiCorto: null,
+  }));
+
+  const capas = await cargarCapasPuntos();
+  const previa = capas.find((c) => c.tipo === 'operatividad');
+  const nueva: CapaPuntos = {
+    id: previa?.id ?? `operatividad-auto-${Date.now()}`,
+    nombre: 'Operatividad',
+    tipo: 'operatividad',
+    archivoNombre: 'Actualizar información (automático)',
+    cargadoPor: previa?.cargadoPor ?? 'Sistema',
+    fechaCarga: new Date().toISOString(),
+    columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD'],
+    colLat: 'lat',
+    colLon: 'lon',
+    colDelito: 'DELITO',
+    colEstado: null,
+    colEstadoExistencia: null,
+    colDependencia: 'ESTACION',
+    puntos,
+    visible: previa?.visible ?? true,
+    filtroEstado: previa?.filtroEstado ?? [],
+    filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+    filtroDependencia: previa?.filtroDependencia ?? [],
+    filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+  };
+  await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'operatividad'), nueva]);
+}
+
 // Igual que sincronizarCapaDelitosDesdeRecords, pero para los comparendos
 // de RNMC — se llama desde la página RNMC cada vez que se carga o
 // sincroniza la matriz, para que aparezcan automáticamente como una capa
