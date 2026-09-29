@@ -25,6 +25,7 @@ export interface RegistroComparendo {
   barrio: string;
   lat: number | null;
   lon: number | null;
+  mediacionInSitu: boolean; // columna MEDIACION — "X" cuando se aplicó, vacía si no
 }
 
 function parseCoordenada(v: unknown): number | null {
@@ -101,6 +102,7 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
       barrio: limpiar(fila.BARRIO_HECHOS),
       lat: parseCoordenada(fila.LATITUD) ?? parseCoordenada(fila.LATITUD_GPS),
       lon: parseCoordenada(fila.LONGITUD) ?? parseCoordenada(fila.LONGITUD_GPS),
+      mediacionInSitu: limpiar(fila.MEDIACION).toUpperCase() === 'X',
     };
   });
 }
