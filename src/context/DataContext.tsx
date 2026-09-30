@@ -499,7 +499,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       for (const r of records) {
         if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
       }
-      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
+      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch((err) => console.error('[Operatividad→Mapa] Falló guardando la capa de puntos:', err));
     }
   }
 
@@ -552,7 +552,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       for (const r of records) {
         if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
       }
-      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
+      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch((err) => console.error('[Operatividad→Mapa] Falló guardando la capa de puntos:', err));
     }
         }
       } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }

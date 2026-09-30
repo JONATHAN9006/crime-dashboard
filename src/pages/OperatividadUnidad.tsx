@@ -61,8 +61,10 @@ export function OperatividadUnidad() {
   // de datos pero nunca se mostraba en pantalla, solo en el PDF de
   // Microgerencia. Mismo patrón que las demás tarjetas de esta página.
   // Etiquetas más cortas para que quepan bien en la barra — a pedido
-  // explícito ("Orden Judicial" ocupaba mucho espacio).
-  const acortarEtiqueta = (v: string) => (v.toUpperCase() === 'ORDEN JUDICIAL' ? 'O.J.' : v);
+  // explícito. "Orden Judicial Ley 906/600" pasa a "O.J Ley 906"/"O.J Ley
+  // 600" (conservando cuál de las dos leyes es, en vez de perder ese dato
+  // fusionando ambas en una sola etiqueta "O.J").
+  const acortarEtiqueta = (v: string) => v.replace(/^ORDEN JUDICIAL\b/i, 'O.J');
   const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop) =>
     conAporte(recortar(agruparPor(registros, (r) => acortarEtiqueta(campo(r) || 'NO REPORTADO')).filter((d) => d.key !== 'NO REPORTADO'), top));
   const porCircunstancia = rankear((r) => r.circunstanciaCaptura, topCircunstancia);
@@ -140,6 +142,9 @@ export function OperatividadUnidad() {
             <Card title="Circunstancia de captura" descargable="operatividad-circunstancia" actions={<SelectorTopBotones valor={topCircunstancia} onChange={setTopCircunstancia} />}>
               <AporteBarList data={porCircunstancia} colorBordeMaximo={AZUL_REY} />
             </Card>
+            <Card title="Permiso de arma" descargable="operatividad-permiso-arma" actions={<SelectorTopBotones valor={topPermisoArma} onChange={setTopPermisoArma} />}>
+              <AporteBarList data={porPermisoArma} colorBordeMaximo={AZUL_REY} />
+            </Card>
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -160,9 +165,6 @@ export function OperatividadUnidad() {
             </Card>
             <Card title="País (persona)" descargable="operatividad-pais-persona" actions={<SelectorTopBotones valor={topPaisPersona} onChange={setTopPaisPersona} />}>
               <AporteBarList data={porPaisPersona} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Permiso de arma" descargable="operatividad-permiso-arma" actions={<SelectorTopBotones valor={topPermisoArma} onChange={setTopPermisoArma} />}>
-              <AporteBarList data={porPermisoArma} colorBordeMaximo={AZUL_REY} />
             </Card>
             <Card title="Situación jurídica" descargable="operatividad-situacion-juridica" actions={<SelectorTopBotones valor={topSituacionJuridica} onChange={setTopSituacionJuridica} />}>
               <AporteBarList data={porSituacionJuridica} colorBordeMaximo={AZUL_REY} />

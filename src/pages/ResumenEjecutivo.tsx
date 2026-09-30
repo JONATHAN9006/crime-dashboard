@@ -243,7 +243,7 @@ export function ResumenEjecutivo() {
                 const anterior = operatividadRecords.filter((r) => r.categoria === cat && r.anio === ventana.anioAnterior).length;
                 const diferencia = actual - anterior;
                 const variacionPct = anterior > 0 ? (diferencia / anterior) * 100 : (actual > 0 ? 100 : null);
-                return { key: cat.toUpperCase(), actual, anterior, diferencia, variacionPct, aportePct: 0, totalAnioAnteriorCompleto: anterior };
+                return { key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior, diferencia, variacionPct, aportePct: 0, totalAnioAnteriorCompleto: anterior };
               }).filter((f) => f.actual > 0 || f.anterior > 0).sort((a, b) => b.actual - a.actual);
               const totalActual = filas.reduce((a, f) => a + f.actual, 0);
               const filasConAporte = filas.map((f) => ({ ...f, aportePct: totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));

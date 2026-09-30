@@ -1828,23 +1828,9 @@ export function MapaGeorreferenciacion() {
               >
                 <FileUp size={13} /> {cargando ? 'Procesando...' : 'Cargar capa'}
               </button>
-              <button
-                type="button"
-                onClick={() => setModalCapaPuntos('IRISP1')}
-                className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
-              >
-                <FileUp size={13} /> IRISP1
-              </button>
               <p className="text-[10px] leading-snug text-slate-400">
-                "Delitos" y "Operatividad" ya no se cargan aquí — se toman automáticamente de "Actualizar información" cuando ese archivo trae columnas de Latitud/Longitud. RNMC ya se carga solo, desde su propia pantalla. IRISP1 y Macri, por ahora, siguen cargándose aquí — todavía no tienen una pantalla propia.
+                "Delitos" y "Operatividad" ya no se cargan aquí — se toman automáticamente de "Actualizar información" cuando ese archivo trae columnas de Latitud/Longitud. RNMC ya se carga solo, desde su propia pantalla. IRISP1 y Macri, por ahora, no tienen dónde cargarse — a pedido explícito se retiraron sus botones de aquí; hace falta construirles su propia pantalla (como RNMC) para poder volver a subirlos.
               </p>
-              <button
-                type="button"
-                onClick={() => setModalCapaPuntos('Macri')}
-                className="flex w-full items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
-              >
-                <FileUp size={13} /> Macri
-              </button>
             </div>
           )}
 

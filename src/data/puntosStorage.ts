@@ -287,6 +287,30 @@ export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
 // --- Sincronización automática de la capa "Delitos" desde el dataset ------
 //
 // Cuando el archivo cargado en "Actualizar información" trae columnas de
+// Bloqueo simple para las funciones "sincronizarCapaXDesdeY" de abajo —
+// BUG REAL, encontrado por diagnóstico: Delitos, Operatividad y RNMC cada
+// una hace "leer TODAS las capas → quitar la propia vieja → agregar la
+// propia nueva → guardar TODAS las capas de vuelta". Si dos de estas se
+// disparan casi al mismo tiempo (ej. al entrar al dashboard, Delitos y
+// Operatividad sincronizan juntas), sin este bloqueo la SEGUNDA en
+// terminar de escribir pisa por completo lo que la primera acababa de
+// guardar — esto explica el síntoma real reportado: "4425 puntos con
+// coordenadas válidas" en la consola y aun así "0 puntos encontrados" al
+// generar el mapa; la sincronización sí ocurrió, pero otra sincronización
+// concurrente la borró un instante después. Encadenando todas por esta
+// MISMA promesa, cada una espera a que la anterior termine de leer Y
+// escribir antes de empezar la suya, eliminando la carrera.
+let colaSincronizacionCapas: Promise<void> = Promise.resolve();
+async function actualizarCapaDeFormaSegura(tipo: TipoCapaPuntos, construirNueva: (capasActuales: CapaPuntos[]) => CapaPuntos | null): Promise<void> {
+  colaSincronizacionCapas = colaSincronizacionCapas.then(async () => {
+    const capas = await cargarCapasPuntos();
+    const nueva = construirNueva(capas);
+    if (!nueva) return;
+    await guardarCapasPuntos([...capas.filter((c) => c.tipo !== tipo), nueva]);
+  }).catch(() => { /* un fallo en una sincronización no debe bloquear las siguientes de la cola */ });
+  return colaSincronizacionCapas;
+}
+
 // Latitud/Longitud (ver COLUMN_MAP en csvParser.ts), esta función construye
 // — o actualiza — la capa de puntos "Delitos" DIRECTAMENTE desde esos
 // registros, sin necesidad de subir un Excel de coordenadas aparte en el
@@ -321,30 +345,31 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
     caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,
   }));
 
-  const capas = await cargarCapasPuntos();
-  const previa = capas.find((c) => c.tipo === 'delitos');
-  const nueva: CapaPuntos = {
-    id: previa?.id ?? `delitos-auto-${Date.now()}`,
-    nombre: 'Delitos',
-    tipo: 'delitos',
-    archivoNombre: 'Actualizar información (automático)',
-    cargadoPor: previa?.cargadoPor ?? 'Sistema',
-    fechaCarga: new Date().toISOString(),
-    columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO'],
-    colLat: 'lat',
-    colLon: 'lon',
-    colDelito: 'DELITO',
-    colEstado: null,
-    colEstadoExistencia: null,
-    colDependencia: 'ESTACION',
-    puntos,
-    visible: previa?.visible ?? true,
-    filtroEstado: previa?.filtroEstado ?? [],
-    filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
-    filtroDependencia: previa?.filtroDependencia ?? [],
-    filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
-  };
-  await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'delitos'), nueva]);
+  await actualizarCapaDeFormaSegura('delitos', (capas) => {
+    const previa = capas.find((c) => c.tipo === 'delitos');
+    const nueva: CapaPuntos = {
+      id: previa?.id ?? `delitos-auto-${Date.now()}`,
+      nombre: 'Delitos',
+      tipo: 'delitos',
+      archivoNombre: 'Actualizar información (automático)',
+      cargadoPor: previa?.cargadoPor ?? 'Sistema',
+      fechaCarga: new Date().toISOString(),
+      columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO'],
+      colLat: 'lat',
+      colLon: 'lon',
+      colDelito: 'DELITO',
+      colEstado: null,
+      colEstadoExistencia: null,
+      colDependencia: 'ESTACION',
+      puntos,
+      visible: previa?.visible ?? true,
+      filtroEstado: previa?.filtroEstado ?? [],
+      filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+      filtroDependencia: previa?.filtroDependencia ?? [],
+      filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+    };
+    return nueva;
+  });
 }
 
 // Igual que sincronizarCapaDelitosDesdeRecords, pero para Operatividad —
@@ -373,30 +398,32 @@ export async function sincronizarCapaOperatividadDesdeRecords(records: {
     caiCorto: cuadranteACai?.get(r.cuadrante) ?? null,
   }));
 
-  const capas = await cargarCapasPuntos();
-  const previa = capas.find((c) => c.tipo === 'operatividad');
-  const nueva: CapaPuntos = {
-    id: previa?.id ?? `operatividad-auto-${Date.now()}`,
-    nombre: 'Operatividad',
-    tipo: 'operatividad',
-    archivoNombre: 'Actualizar información (automático)',
-    cargadoPor: previa?.cargadoPor ?? 'Sistema',
-    fechaCarga: new Date().toISOString(),
-    columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD'],
-    colLat: 'lat',
-    colLon: 'lon',
-    colDelito: 'DELITO',
-    colEstado: null,
-    colEstadoExistencia: null,
-    colDependencia: 'ESTACION',
-    puntos,
-    visible: previa?.visible ?? true,
-    filtroEstado: previa?.filtroEstado ?? [],
-    filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
-    filtroDependencia: previa?.filtroDependencia ?? [],
-    filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
-  };
-  await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'operatividad'), nueva]);
+  await actualizarCapaDeFormaSegura('operatividad', (capas) => {
+    const previa = capas.find((c) => c.tipo === 'operatividad');
+    const nueva: CapaPuntos = {
+      id: previa?.id ?? `operatividad-auto-${Date.now()}`,
+      nombre: 'Operatividad',
+      tipo: 'operatividad',
+      archivoNombre: 'Actualizar información (automático)',
+      cargadoPor: previa?.cargadoPor ?? 'Sistema',
+      fechaCarga: new Date().toISOString(),
+      columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD'],
+      colLat: 'lat',
+      colLon: 'lon',
+      colDelito: 'DELITO',
+      colEstado: null,
+      colEstadoExistencia: null,
+      colDependencia: 'ESTACION',
+      puntos,
+      visible: previa?.visible ?? true,
+      filtroEstado: previa?.filtroEstado ?? [],
+      filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+      filtroDependencia: previa?.filtroDependencia ?? [],
+      filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+    };
+    return nueva;
+  });
+  console.info(`[Operatividad→Mapa] Capa guardada con ${puntos.length} punto(s). Estaciones cortas: ${JSON.stringify([...new Set(puntos.map((p) => p.estacionCorta))])}`);
 }
 
 // Igual que sincronizarCapaDelitosDesdeRecords, pero para los comparendos
@@ -421,29 +448,30 @@ export async function sincronizarCapaRnmcDesdeComparendos(registros: {
     caiCorto: null,
   }));
 
-  const capas = await cargarCapasPuntos();
-  const previa = capas.find((c) => c.tipo === 'rnmc');
-  const nueva: CapaPuntos = {
-    id: previa?.id ?? `rnmc-auto-${Date.now()}`,
-    nombre: 'RNMC',
-    tipo: 'rnmc',
-    archivoNombre: 'Matriz de comparendos (automático)',
-    cargadoPor: previa?.cargadoPor ?? 'Sistema',
-    fechaCarga: new Date().toISOString(),
-    columnas: ['COMPORTAMIENTO', 'COMUNA', 'ZONA_ATENCION', 'FECHA_HECHO'],
-    colLat: 'lat',
-    colLon: 'lon',
-    colDelito: 'COMPORTAMIENTO',
-    colEstado: null,
-    colEstadoExistencia: null,
-    colDependencia: null,
-    puntos,
-    visible: previa?.visible ?? true,
-    filtroEstado: previa?.filtroEstado ?? [],
-    filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
-    filtroDependencia: previa?.filtroDependencia ?? [],
-    filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
-  };
-  await guardarCapasPuntos([...capas.filter((c) => c.tipo !== 'rnmc'), nueva]);
+  await actualizarCapaDeFormaSegura('rnmc', (capas) => {
+    const previa = capas.find((c) => c.tipo === 'rnmc');
+    const nueva: CapaPuntos = {
+      id: previa?.id ?? `rnmc-auto-${Date.now()}`,
+      nombre: 'RNMC',
+      tipo: 'rnmc',
+      archivoNombre: 'Matriz de comparendos (automático)',
+      cargadoPor: previa?.cargadoPor ?? 'Sistema',
+      fechaCarga: new Date().toISOString(),
+      columnas: ['COMPORTAMIENTO', 'COMUNA', 'ZONA_ATENCION', 'FECHA_HECHO'],
+      colLat: 'lat',
+      colLon: 'lon',
+      colDelito: 'COMPORTAMIENTO',
+      colEstado: null,
+      colEstadoExistencia: null,
+      colDependencia: null,
+      puntos,
+      visible: previa?.visible ?? true,
+      filtroEstado: previa?.filtroEstado ?? [],
+      filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+      filtroDependencia: previa?.filtroDependencia ?? [],
+      filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+    };
+    return nueva;
+  });
 }
 
