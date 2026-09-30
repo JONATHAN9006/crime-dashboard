@@ -71,23 +71,10 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   const latitudRef = (latMin0 + latMax0) / 2;
   const correccionLon = Math.cos((latitudRef * Math.PI) / 180); // "método geodésico": 1° de longitud pesa distinto según la latitud
 
-  // Radio ADAPTATIVO — a pedido explícito, tras confirmar visualmente que
-  // Operatividad (puntos mucho más repartidos por todo el territorio, no
-  // concentrados como Delitos) se veía como manchas sueltas y débiles en
-  // vez de un mapa de calor continuo: con un radio FIJO de 250 m, cuando
-  // los puntos están en promedio más separados que eso, cada uno queda
-  // aislado sin fundirse con sus vecinos. Se estima el espaciado promedio
-  // real entre puntos (área del rectángulo que los contiene ÷ cantidad de
-  // puntos, la misma heurística estándar de "densidad de puntos" que usa
-  // ArcGIS/QGIS para sugerir un radio de búsqueda) y se usa el máximo
-  // entre eso y 250 m — así Delitos (denso) se queda exactamente igual
-  // que antes, y una fuente más dispersa (Operatividad, RNMC…) obtiene un
-  // radio más ancho, sin necesidad de que cada capa configure el suyo.
-  const anchoMetros0 = (lonMax0 - lonMin0) * 111_320 * correccionLon;
-  const altoMetros0 = (latMax0 - latMin0) * 111_320;
-  const areaMetros0 = Math.max(anchoMetros0 * altoMetros0, 1);
-  const espaciadoPromedio = Math.sqrt(areaMetros0 / puntos.length);
-  const RADIO_BUSQUEDA_METROS = Math.min(Math.max(250, espaciadoPromedio * 1.2), 2000);
+  // Radio de búsqueda REAL, en metros — a pedido explícito, de vuelta a un
+  // valor FIJO (el intento de radio adaptativo se veía peor, no mejor).
+  // 125 m de radio de búsqueda equivale a un círculo de 250 m de diámetro.
+  const RADIO_BUSQUEDA_METROS = 125;
 
   // Margen igual al radio de búsqueda — así el kernel de un punto cerca del
   // borde del área analizada no se corta en seco.
