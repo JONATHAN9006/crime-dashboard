@@ -41,10 +41,6 @@ function paletaPorDefecto(): (string | null)[] {
 // mueven ni cambian.
 const ANCLAS_FRACCION_FIJAS = [0, 0.08, 0.22, 0.42, 0.68, 1];
 
-// Radio de búsqueda REAL, en metros — igual al parámetro "Radio de
-// búsqueda: 250" de la herramienta de ArcGIS.
-const RADIO_BUSQUEDA_METROS = 250;
-
 function metrosAGradosLat(metros: number): number {
   return metros / 111_320;
 }
@@ -74,6 +70,24 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   const lonMax0 = maxDe(lons);
   const latitudRef = (latMin0 + latMax0) / 2;
   const correccionLon = Math.cos((latitudRef * Math.PI) / 180); // "método geodésico": 1° de longitud pesa distinto según la latitud
+
+  // Radio ADAPTATIVO — a pedido explícito, tras confirmar visualmente que
+  // Operatividad (puntos mucho más repartidos por todo el territorio, no
+  // concentrados como Delitos) se veía como manchas sueltas y débiles en
+  // vez de un mapa de calor continuo: con un radio FIJO de 250 m, cuando
+  // los puntos están en promedio más separados que eso, cada uno queda
+  // aislado sin fundirse con sus vecinos. Se estima el espaciado promedio
+  // real entre puntos (área del rectángulo que los contiene ÷ cantidad de
+  // puntos, la misma heurística estándar de "densidad de puntos" que usa
+  // ArcGIS/QGIS para sugerir un radio de búsqueda) y se usa el máximo
+  // entre eso y 250 m — así Delitos (denso) se queda exactamente igual
+  // que antes, y una fuente más dispersa (Operatividad, RNMC…) obtiene un
+  // radio más ancho, sin necesidad de que cada capa configure el suyo.
+  const anchoMetros0 = (lonMax0 - lonMin0) * 111_320 * correccionLon;
+  const altoMetros0 = (latMax0 - latMin0) * 111_320;
+  const areaMetros0 = Math.max(anchoMetros0 * altoMetros0, 1);
+  const espaciadoPromedio = Math.sqrt(areaMetros0 / puntos.length);
+  const RADIO_BUSQUEDA_METROS = Math.min(Math.max(250, espaciadoPromedio * 1.2), 2000);
 
   // Margen igual al radio de búsqueda — así el kernel de un punto cerca del
   // borde del área analizada no se corta en seco.
