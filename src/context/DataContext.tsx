@@ -494,7 +494,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // entrar— y una subida nueva) para que la capa "Operatividad" del mapa
     // se actualice sola siempre que este dataset cambie, sin un paso
     // aparte — igual que Delitos.
-    sincronizarCapaOperatividadDesdeRecords(registros).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
+    {
+      const cuadranteACai = new Map<string, string>();
+      for (const r of records) {
+        if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
+      }
+      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
+    }
   }
 
   useEffect(() => {
@@ -541,7 +547,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           const registros: OperatividadRecord[] = (datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
           setOperatividadRecords(registros);
           setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
-          sincronizarCapaOperatividadDesdeRecords(registros).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
+          {
+      const cuadranteACai = new Map<string, string>();
+      for (const r of records) {
+        if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
+      }
+      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch(() => { /* si falla, el mapa simplemente sigue con lo que ya tenía */ });
+    }
         }
       } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
     })();

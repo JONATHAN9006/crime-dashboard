@@ -54,7 +54,24 @@ function construirVentana(registros: OperatividadRecord[]) {
 }
 
 export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
-  const { filteredOperatividadRecords } = useData();
+  const { filteredOperatividadRecords, records } = useData();
+
+  // Operatividad no trae una columna de CAI propia — pero SÍ trae
+  // cuadrante, con el MISMO formato de código que Delictividad
+  // (confirmado: mapearCuadrante/traducirDependenciaAZona son las mismas
+  // funciones). Como Delictividad SÍ tiene cuadrante Y CAI juntos en el
+  // mismo registro, se arma un cruce cuadrante→CAI a partir de ESOS
+  // registros y se le aplica a Operatividad — así se puede armar el nivel
+  // de CAI para Operatividad sin que el archivo lo traiga directamente.
+  const cuadranteACai = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const r of records) {
+      if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !mapa.has(r.cuadrante)) {
+        mapa.set(r.cuadrante, r.cai);
+      }
+    }
+    return mapa;
+  }, [records]);
 
   return useMemo(() => {
     const ventana = construirVentana(filteredOperatividadRecords);
@@ -103,13 +120,19 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
       return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: categoriasDelNodo, hijos };
     }
 
+    function caisDe(estacion: string): NodoMicrogerencia[] {
+      const universo = recsActual.filter((r) => r.estacion === estacion && cuadranteACai.get(r.cuadrante));
+      const cais = Array.from(new Set(universo.map((r) => cuadranteACai.get(r.cuadrante)!))).sort((a, b) => a.localeCompare(b, 'es'));
+      return cais.map((cai) => calcularNodo(`${cai} (Operatividad)`, (r) => r.estacion === estacion && cuadranteACai.get(r.cuadrante) === cai));
+    }
+
     // Distrito Uno / Dos + estaciones — misma estructura que Delictividad.
     // "Comuna" no es un campo propio de Operatividad (no existe esa
     // columna en esta matriz); la agrupación más cercana disponible es la
     // Estación, así que el desglose por unidad queda a ese nivel.
-    const nodosDistrito1 = ESTACIONES_DISTRITO_1.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est));
+    const nodosDistrito1 = ESTACIONES_DISTRITO_1.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)));
     const distrito1 = calcularNodo('Distrito Uno (Operatividad)', (r) => (ESTACIONES_DISTRITO_1 as readonly string[]).includes(r.estacion), nodosDistrito1);
-    const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est));
+    const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)));
     const distrito2 = calcularNodo('Distrito Dos (Operatividad)', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2);
     const general = calcularNodo('Operatividad — Consolidado', () => true, [distrito1, distrito2]);
 

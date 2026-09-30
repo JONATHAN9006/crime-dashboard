@@ -11,6 +11,7 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { DataStatusPanel } from '../components/layout/Header';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
+import { CapturasComparativoCard } from '../components/resumen/CapturasComparativoCard';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
@@ -121,6 +122,21 @@ export function ResumenEjecutivo() {
   );
   const kpisVigenciaActual = useKpis(soloVigenciaActual);
   const hallazgos = useHallazgosPrincipales(filteredRecordsResumen, recordsBaseResumen, filters, records, meta?.fechaMaxParametro);
+
+  // Capturas (Operatividad) en "Principales hallazgos" — a pedido
+  // explícito, junto al resto de hallazgos calculados dinámicamente. Solo
+  // se agrega si ya se escribió el total 2025 manual (ver
+  // CapturasComparativoCard.tsx) — sin eso no hay con qué comparar.
+  const hallazgosConCapturas = useMemo(() => {
+    const totalCapturas2026 = filteredOperatividadRecords.filter((r) => r.categoria === 'CAPTURAS').length;
+    const guardado = localStorage.getItem('mepoy-capturas-2025-manual');
+    const total2025 = guardado ? Number(guardado) : null;
+    if (total2025 == null || totalCapturas2026 === 0) return hallazgos;
+    const dif = totalCapturas2026 - total2025;
+    const pct = total2025 > 0 ? (dif / total2025) * 100 : null;
+    const texto = `Capturas: ${formatNumero(totalCapturas2026)} en el periodo actual frente a ${formatNumero(total2025)} en 2025${pct !== null ? ` (${dif >= 0 ? '+' : ''}${formatDecimal(pct, 1)}%)` : ''}.`;
+    return [...hallazgos, { tipo: (dif > 0 ? 'alerta' : dif < 0 ? 'positivo' : 'info') as 'alerta' | 'positivo' | 'info', texto }];
+  }, [hallazgos, filteredOperatividadRecords]);
   const cuadrantes = useCuadrantesCriticos(filteredRecordsResumen, 5);
   const barrios = useBarriosCriticos(filteredRecordsResumen, 5);
 
@@ -168,7 +184,7 @@ export function ResumenEjecutivo() {
           elementos en el JSX es lo que determina dónde caen con el
           auto-placement de CSS Grid (fila por fila, columna por columna,
           saltando las celdas ya ocupadas por el row-span de la izquierda). */}
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.1fr_0.7fr_1fr]">
         <Card
           className="lg:row-span-2"
           title="Comparativo de delitos"
@@ -208,6 +224,13 @@ export function ResumenEjecutivo() {
           )}
         </Card>
 
+        <div className="lg:row-span-2">
+          <CapturasComparativoCard
+            totalCapturas2026={filteredOperatividadRecords.filter((r) => r.categoria === 'CAPTURAS').length}
+            totalOperatividad2026={filteredOperatividadRecords.length}
+          />
+        </div>
+
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <KpiCard titulo={`Total general de casos (${ventana.anioActual})`} valor={formatNumero(kpisVigenciaActual.totalCasos)} subtitulo={`${formatNumero(kpisVigenciaActual.totalRegistros)} registros`} icono={<Layers size={16} />} acento="navy" />
@@ -216,7 +239,7 @@ export function ResumenEjecutivo() {
             <KpiCard titulo="Barrio con mayor incidencia" valor={kpisVigenciaActual.barrioTop?.key ?? '—'} subtitulo={kpisVigenciaActual.barrioTop ? `${formatNumero(kpisVigenciaActual.barrioTop.casos)} casos` : undefined} icono={<MapPin size={16} />} acento="green" />
           </div>
           <div className="flex-1">
-            <InsightList insights={hallazgos} titulo="Principales hallazgos" />
+            <InsightList insights={hallazgosConCapturas} titulo="Principales hallazgos" />
           </div>
         </div>
 

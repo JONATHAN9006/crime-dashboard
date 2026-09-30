@@ -268,18 +268,25 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
   // con todo el árbol Distrito/Estación/CAI.
   // Traduce el NOMBRE de un nodo de Delictividad al nodo EQUIVALENTE de
   // Operatividad — a pedido explícito: si en Delictividad se elige
-  // "Distrito Uno" (o una Estación puntual), Operatividad debe traer SOLO
-  // eso, no el árbol completo siempre. Nota: por ahora no hay nodos de
-  // CAI propios en Operatividad (ver useMicrogerenciaOperatividad.ts), así
-  // que una selección a nivel de CAI no tiene equivalente todavía y se
-  // omite de Operatividad (el resto de Delictividad sigue igual).
+  // "Distrito Uno" (o una Estación o un CAI puntual), Operatividad debe
+  // traer SOLO eso, no el árbol completo siempre. El nivel de CAI se
+  // resuelve cruzando el cuadrante de Operatividad con el CAI de
+  // Delictividad (ver useMicrogerenciaOperatividad.ts) — Operatividad no
+  // trae CAI como columna propia.
   function nodoOperatividadEquivalente(nombreDelictividad: string): NodoMicrogerencia | null {
     if (!datosOperatividad) return null;
     if (nombreDelictividad === 'MEPOY General — Consolidado') return datosOperatividad.general;
     if (nombreDelictividad === 'Distrito Uno') return datosOperatividad.distrito1;
     if (nombreDelictividad === 'Distrito Dos') return datosOperatividad.distrito2;
     const todasLasEstaciones = [...datosOperatividad.distrito1.hijos, ...datosOperatividad.distrito2.hijos];
-    return todasLasEstaciones.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`) ?? null;
+    const porEstacion = todasLasEstaciones.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
+    if (porEstacion) return porEstacion;
+    // Nivel de CAI — cruzado con Delictividad (ver useMicrogerenciaOperatividad.ts).
+    for (const estacion of todasLasEstaciones) {
+      const cai = estacion.hijos.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
+      if (cai) return cai;
+    }
+    return null;
   }
 
   const datosOperatividad = useMicrogerenciaOperatividad();

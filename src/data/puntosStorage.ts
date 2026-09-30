@@ -353,8 +353,8 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
 // en Mapa/Georreferenciación en cuanto ese archivo trae Latitud/Longitud,
 // sin necesidad de cargarla aparte con "Cargar capa".
 export async function sincronizarCapaOperatividadDesdeRecords(records: {
-  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; fecha: Date | null; categoria: string;
-}[]): Promise<void> {
+  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; cuadrante: string; fecha: Date | null; categoria: string;
+}[], cuadranteACai?: Map<string, string>): Promise<void> {
   const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
   const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
   console.info(`[Operatividad→Mapa] ${conCoordenadas.length} de ${records.length} registro(s) tienen Latitud/Longitud válidas. Estaciones encontradas: ${JSON.stringify([...new Set(conCoordenadas.map((r) => r.estacion))])}`);
@@ -366,7 +366,11 @@ export async function sincronizarCapaOperatividadDesdeRecords(records: {
     fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria },
     delitoCorto: r.delitoAsociado,
     estacionCorta: r.estacion,
-    caiCorto: null,
+    // CAI inferido cruzando el cuadrante con Delictividad (Operatividad no
+    // trae CAI propio) — ver useMicrogerenciaOperatividad.ts, que arma el
+    // mismo cruce para las tarjetas; aquí se aplica igual para que el
+    // mapa de un CAI puntual también encuentre sus puntos de Operatividad.
+    caiCorto: cuadranteACai?.get(r.cuadrante) ?? null,
   }));
 
   const capas = await cargarCapasPuntos();

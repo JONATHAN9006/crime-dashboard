@@ -704,6 +704,8 @@ export async function generarImagenesParaNodosOperatividad(nodos: NodoMicrogeren
       img = await generarImagenMapaDistrito('DOS', null, fechaInicial, fechaFinal, 'operatividad');
     } else if (ESTACION_POR_NOMBRE[nodo.nombre]) {
       img = await generarImagenMapaEstacion(ESTACION_POR_NOMBRE[nodo.nombre], null, fechaInicial, fechaFinal, 'operatividad');
+    } else if (nodo.nombre.endsWith(' (Operatividad)') && esNombreDeCai(nodo.nombre.replace(' (Operatividad)', ''))) {
+      img = await generarImagenMapaCai(nodo.nombre.replace(' (Operatividad)', ''), null, fechaInicial, fechaFinal, 'operatividad');
     }
     if (img) mapa.set(nodo.nombre, img);
   }
@@ -711,7 +713,7 @@ export async function generarImagenesParaNodosOperatividad(nodos: NodoMicrogeren
 }
 
 /** Imagen de UN CAI específico (ej. "CAI 4") — recortada solo a su propio polígono. */
-export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
+export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeCai();
     if (!localizada) {
@@ -723,7 +725,7 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
       console.warn(`[Microgerencia→Mapa] La capa de CAI no tiene ningún polígono que coincida con "${nombreCai}" en la columna "${localizada.columna}".`);
       return undefined;
     }
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, nombreCai, fechaInicial, fechaFinal);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, undefined, nombreCai, fechaInicial, fechaFinal, tipoCapa);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreCai}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
