@@ -11,7 +11,8 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { DataStatusPanel } from '../components/layout/Header';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
-import { CapturasComparativoCard } from '../components/resumen/CapturasComparativoCard';
+import { ComparativoOperatividadTable } from '../components/tables/ComparativoOperatividadTable';
+
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
@@ -125,12 +126,13 @@ export function ResumenEjecutivo() {
 
   // Capturas (Operatividad) en "Principales hallazgos" — a pedido
   // explícito, junto al resto de hallazgos calculados dinámicamente. Solo
-  // se agrega si ya se escribió el total 2025 manual (ver
-  // CapturasComparativoCard.tsx) — sin eso no hay con qué comparar.
+  // se agrega si ya se escribió el total 2025 manual para "CAPTURAS" (ver
+  // ComparativoOperatividadTable.tsx) — sin eso no hay con qué comparar.
   const hallazgosConCapturas = useMemo(() => {
     const totalCapturas2026 = filteredOperatividadRecords.filter((r) => r.categoria === 'CAPTURAS').length;
-    const guardado = localStorage.getItem('mepoy-capturas-2025-manual');
-    const total2025 = guardado ? Number(guardado) : null;
+    let valoresManuales: Record<string, number> = {};
+    try { valoresManuales = JSON.parse(localStorage.getItem('mepoy-operatividad-2025-manual') || '{}'); } catch { /* ignorar */ }
+    const total2025 = valoresManuales['CAPTURAS'];
     if (total2025 == null || totalCapturas2026 === 0) return hallazgos;
     const dif = totalCapturas2026 - total2025;
     const pct = total2025 > 0 ? (dif / total2025) * 100 : null;
@@ -175,18 +177,12 @@ export function ResumenEjecutivo() {
         subtitle="Resumen — ¿Qué está pasando, dónde y cuándo? Para el desglose completo de indicadores, ve a la sección 'Indicadores'."
       />
 
-      {/* BLOQUE 1 — Reorganizado para aprovechar el espacio: "Comparativo de
-          delitos" (izquierda) ocupa las DOS filas de esta cuadrícula
-          (lg:row-span-2), ya que suele ser más alto que el bloque de la
-          derecha. A la derecha: arriba KPIs + Hallazgos, abajo — en el
-          espacio que antes quedaba vacío bajo ese bloque — Cuadrantes
-          críticos y Barrios críticos lado a lado. El orden de los tres
-          elementos en el JSX es lo que determina dónde caen con el
-          auto-placement de CSS Grid (fila por fila, columna por columna,
-          saltando las celdas ya ocupadas por el row-span de la izquierda). */}
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.1fr_0.7fr_1fr]">
+      {/* BLOQUE 1 — Arriba, SOLO los dos comparativos lado a lado (Delitos y
+          Operatividad) — a pedido explícito. Todo lo demás (KPIs,
+          Hallazgos, Cuadrantes/Barrios críticos) va DEBAJO, en su propia
+          fila. */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card
-          className="lg:row-span-2"
           title="Comparativo de delitos"
           subtitle={`${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`}
           descargable="comparativo-delitos-resumen"
@@ -224,25 +220,37 @@ export function ResumenEjecutivo() {
           )}
         </Card>
 
-        <div className="lg:row-span-2">
-          <CapturasComparativoCard
-            totalCapturas2026={filteredOperatividadRecords.filter((r) => r.categoria === 'CAPTURAS').length}
-            totalOperatividad2026={filteredOperatividadRecords.length}
-          />
-        </div>
+        <Card title="Comparativo de Operatividad" subtitle={`2025 (manual) vs. ${ventana.anioActual}, por categoría`} descargable="comparativo-operatividad-resumen">
+          {filteredOperatividadRecords.length > 0 ? (
+            <ComparativoOperatividadTable
+              data={Array.from(
+                filteredOperatividadRecords.reduce((m, r) => {
+                  const k = r.categoria || 'Sin categoría';
+                  m.set(k, (m.get(k) || 0) + 1);
+                  return m;
+                }, new Map<string, number>()),
+              ).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos)}
+              anioActual={ventana.anioActual}
+            />
+          ) : (
+            <p className="py-8 text-center text-sm text-slate-400">Sin datos de Operatividad cargados todavía.</p>
+          )}
+        </Card>
+      </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <KpiCard titulo={`Total general de casos (${ventana.anioActual})`} valor={formatNumero(kpisVigenciaActual.totalCasos)} subtitulo={`${formatNumero(kpisVigenciaActual.totalRegistros)} registros`} icono={<Layers size={16} />} acento="navy" />
-            <KpiCard titulo="Delito con mayor incidencia" valor={kpisVigenciaActual.delitoTop?.key ?? '—'} subtitulo={kpisVigenciaActual.delitoTop ? `${formatNumero(kpisVigenciaActual.delitoTop.casos)} casos (${formatDecimal(kpisVigenciaActual.participacionDelitoTop)}%)` : undefined} icono={<ShieldAlert size={16} />} acento="red" />
-            <KpiCard titulo="Estación con mayor incidencia" valor={kpisVigenciaActual.estacionTop?.key ?? '—'} subtitulo={kpisVigenciaActual.estacionTop ? `${formatNumero(kpisVigenciaActual.estacionTop.casos)} casos` : undefined} icono={<Building2 size={16} />} acento="navy" />
-            <KpiCard titulo="Barrio con mayor incidencia" valor={kpisVigenciaActual.barrioTop?.key ?? '—'} subtitulo={kpisVigenciaActual.barrioTop ? `${formatNumero(kpisVigenciaActual.barrioTop.casos)} casos` : undefined} icono={<MapPin size={16} />} acento="green" />
-          </div>
-          <div className="flex-1">
-            <InsightList insights={hallazgosConCapturas} titulo="Principales hallazgos" />
-          </div>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <KpiCard titulo={`Total general de casos (${ventana.anioActual})`} valor={formatNumero(kpisVigenciaActual.totalCasos)} subtitulo={`${formatNumero(kpisVigenciaActual.totalRegistros)} registros`} icono={<Layers size={16} />} acento="navy" />
+          <KpiCard titulo="Delito con mayor incidencia" valor={kpisVigenciaActual.delitoTop?.key ?? '—'} subtitulo={kpisVigenciaActual.delitoTop ? `${formatNumero(kpisVigenciaActual.delitoTop.casos)} casos (${formatDecimal(kpisVigenciaActual.participacionDelitoTop)}%)` : undefined} icono={<ShieldAlert size={16} />} acento="red" />
+          <KpiCard titulo="Estación con mayor incidencia" valor={kpisVigenciaActual.estacionTop?.key ?? '—'} subtitulo={kpisVigenciaActual.estacionTop ? `${formatNumero(kpisVigenciaActual.estacionTop.casos)} casos` : undefined} icono={<Building2 size={16} />} acento="navy" />
+          <KpiCard titulo="Barrio con mayor incidencia" valor={kpisVigenciaActual.barrioTop?.key ?? '—'} subtitulo={kpisVigenciaActual.barrioTop ? `${formatNumero(kpisVigenciaActual.barrioTop.casos)} casos` : undefined} icono={<MapPin size={16} />} acento="green" />
         </div>
+        <div className="flex-1">
+          <InsightList insights={hallazgosConCapturas} titulo="Principales hallazgos" />
+        </div>
+      </div>
 
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card title="Cuadrantes críticos" subtitle="Top 5 por número de casos" descargable="cuadrantes-criticos-resumen">
             <ul className="space-y-2">

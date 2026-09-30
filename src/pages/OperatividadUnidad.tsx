@@ -31,6 +31,15 @@ export function OperatividadUnidad() {
   const [topBarrio, setTopBarrio] = useState<ValorTop>(5);
   const [topDelito, setTopDelito] = useState<ValorTop>(10);
   const [topZona, setTopZona] = useState<ValorTop>(10);
+  const [topCircunstancia, setTopCircunstancia] = useState<ValorTop>(10);
+  const [topClaseBien, setTopClaseBien] = useState<ValorTop>(10);
+  const [topTipoBien, setTopTipoBien] = useState<ValorTop>(10);
+  const [topMarca, setTopMarca] = useState<ValorTop>(10);
+  const [topTurno, setTopTurno] = useState<ValorTop>(10);
+  const [topCiudad, setTopCiudad] = useState<ValorTop>(10);
+  const [topPaisPersona, setTopPaisPersona] = useState<ValorTop>(10);
+  const [topPermisoArma, setTopPermisoArma] = useState<ValorTop>(10);
+  const [topSituacionJuridica, setTopSituacionJuridica] = useState<ValorTop>(10);
 
   const registros = filteredOperatividadRecords;
   const total = registros.length;
@@ -46,6 +55,22 @@ export function OperatividadUnidad() {
 
   const porDelitoCompleto = agruparPor(registros, (r) => r.delitoAsociado || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const porDelito = conAporte(recortar(porDelitoCompleto, topDelito));
+
+  // Detalle propio de Operatividad (circunstancia, bienes, ubicación de la
+  // persona, situación jurídica) — a pedido explícito: estaba en el tipo
+  // de datos pero nunca se mostraba en pantalla, solo en el PDF de
+  // Microgerencia. Mismo patrón que las demás tarjetas de esta página.
+  const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop) =>
+    conAporte(recortar(agruparPor(registros, (r) => campo(r) || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO'), top));
+  const porCircunstancia = rankear((r) => r.circunstanciaCaptura, topCircunstancia);
+  const porClaseBien = rankear((r) => r.claseBien, topClaseBien);
+  const porTipoBien = rankear((r) => r.tipoBien, topTipoBien);
+  const porMarca = rankear((r) => r.marca, topMarca);
+  const porTurno = rankear((r) => r.turno, topTurno);
+  const porCiudad = rankear((r) => r.ciudad, topCiudad);
+  const porPaisPersona = rankear((r) => r.paisPersona, topPaisPersona);
+  const porPermisoArma = rankear((r) => r.permisoArma, topPermisoArma);
+  const porSituacionJuridica = rankear((r) => r.situacionJuridica, topSituacionJuridica);
 
   const filtrosActivos = [
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
@@ -108,6 +133,36 @@ export function OperatividadUnidad() {
             </Card>
             <Card title="Por barrio" descargable="operatividad-barrio" actions={<SelectorTopBotones valor={topBarrio} onChange={setTopBarrio} />}>
               <AporteBarList data={porBarrio} colorBordeMaximo={AZUL_REY} />
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card title="Circunstancia de captura" descargable="operatividad-circunstancia" actions={<SelectorTopBotones valor={topCircunstancia} onChange={setTopCircunstancia} />}>
+              <AporteBarList data={porCircunstancia} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Clase de bien" descargable="operatividad-clase-bien" actions={<SelectorTopBotones valor={topClaseBien} onChange={setTopClaseBien} />}>
+              <AporteBarList data={porClaseBien} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Tipo de bien" descargable="operatividad-tipo-bien" actions={<SelectorTopBotones valor={topTipoBien} onChange={setTopTipoBien} />}>
+              <AporteBarList data={porTipoBien} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Marca" descargable="operatividad-marca" actions={<SelectorTopBotones valor={topMarca} onChange={setTopMarca} />}>
+              <AporteBarList data={porMarca} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Turno" descargable="operatividad-turno" actions={<SelectorTopBotones valor={topTurno} onChange={setTopTurno} />}>
+              <AporteBarList data={porTurno} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Ciudad" descargable="operatividad-ciudad" actions={<SelectorTopBotones valor={topCiudad} onChange={setTopCiudad} />}>
+              <AporteBarList data={porCiudad} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="País (persona)" descargable="operatividad-pais-persona" actions={<SelectorTopBotones valor={topPaisPersona} onChange={setTopPaisPersona} />}>
+              <AporteBarList data={porPaisPersona} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Permiso de arma" descargable="operatividad-permiso-arma" actions={<SelectorTopBotones valor={topPermisoArma} onChange={setTopPermisoArma} />}>
+              <AporteBarList data={porPermisoArma} colorBordeMaximo={AZUL_REY} />
+            </Card>
+            <Card title="Situación jurídica" descargable="operatividad-situacion-juridica" actions={<SelectorTopBotones valor={topSituacionJuridica} onChange={setTopSituacionJuridica} />}>
+              <AporteBarList data={porSituacionJuridica} colorBordeMaximo={AZUL_REY} />
             </Card>
           </div>
         </>
