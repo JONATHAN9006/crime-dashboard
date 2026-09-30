@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { agruparPor, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
@@ -41,7 +41,20 @@ export function OperatividadUnidad() {
   const [topPermisoArma, setTopPermisoArma] = useState<ValorTop>(10);
   const [topSituacionJuridica, setTopSituacionJuridica] = useState<ValorTop>(10);
 
-  const registros = filteredOperatividadRecords;
+  // Por defecto (sin ningún año elegido en el filtro general), se muestra
+  // SOLO el año más reciente cargado — a pedido explícito, para que el
+  // total de esta página coincida con el de "Comparativo de Operatividad"
+  // en Inicio/Resumen en vez de sumar silenciosamente todos los años
+  // cargados (2025+2026). Si el usuario SÍ elige uno o más años en el
+  // filtro general, esa elección manda tal cual (incluida la suma de
+  // varios años si elige más de uno).
+  const registros = useMemo(() => {
+    if (filters.anio.length > 0) return filteredOperatividadRecords;
+    const conFecha = filteredOperatividadRecords.filter((r): r is typeof r & { anio: number } => r.anio != null);
+    if (conFecha.length === 0) return filteredOperatividadRecords;
+    const anioMasReciente = Math.max(...conFecha.map((r) => r.anio));
+    return filteredOperatividadRecords.filter((r) => r.anio === anioMasReciente);
+  }, [filteredOperatividadRecords, filters.anio]);
   const total = registros.length;
 
   const porCategoria = agruparPor(registros, (r) => r.categoria || 'Sin categoría');
