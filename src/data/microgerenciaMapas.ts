@@ -354,12 +354,10 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
   }
 
   if (resultado.length === 0) {
-    console.warn('[Microgerencia→Mapa] Detalle de capas de puntos:', capasPuntos.map((c) => ({
-      nombre: c.nombre,
-      visible: c.visible,
-      totalPuntos: c.puntos.length,
-      ejemploPunto: c.puntos[0] ?? null,
-    })));
+    console.warn(
+      `[Microgerencia→Mapa] 0 puntos encontrados (tipoCapa=${tipoCapa ?? 'ninguno'}, estacionCorta=${JSON.stringify(estacionCorta ?? null)}, caiCorto=${caiCorto ?? 'ninguno'}). Capas cargadas: ` +
+      capasPuntos.map((c) => `"${c.nombre}" [tipo=${c.tipo}, visible=${c.visible}, puntos=${c.puntos.length}]`).join(' | '),
+    );
   }
   return resultado;
 }

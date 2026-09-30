@@ -60,8 +60,11 @@ export function OperatividadUnidad() {
   // persona, situación jurídica) — a pedido explícito: estaba en el tipo
   // de datos pero nunca se mostraba en pantalla, solo en el PDF de
   // Microgerencia. Mismo patrón que las demás tarjetas de esta página.
+  // Etiquetas más cortas para que quepan bien en la barra — a pedido
+  // explícito ("Orden Judicial" ocupaba mucho espacio).
+  const acortarEtiqueta = (v: string) => (v.toUpperCase() === 'ORDEN JUDICIAL' ? 'O.J.' : v);
   const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop) =>
-    conAporte(recortar(agruparPor(registros, (r) => campo(r) || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO'), top));
+    conAporte(recortar(agruparPor(registros, (r) => acortarEtiqueta(campo(r) || 'NO REPORTADO')).filter((d) => d.key !== 'NO REPORTADO'), top));
   const porCircunstancia = rankear((r) => r.circunstanciaCaptura, topCircunstancia);
   const porClaseBien = rankear((r) => r.claseBien, topClaseBien);
   const porTipoBien = rankear((r) => r.tipoBien, topTipoBien);
@@ -134,12 +137,12 @@ export function OperatividadUnidad() {
             <Card title="Por barrio" descargable="operatividad-barrio" actions={<SelectorTopBotones valor={topBarrio} onChange={setTopBarrio} />}>
               <AporteBarList data={porBarrio} colorBordeMaximo={AZUL_REY} />
             </Card>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card title="Circunstancia de captura" descargable="operatividad-circunstancia" actions={<SelectorTopBotones valor={topCircunstancia} onChange={setTopCircunstancia} />}>
               <AporteBarList data={porCircunstancia} colorBordeMaximo={AZUL_REY} />
             </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card title="Clase de bien" descargable="operatividad-clase-bien" actions={<SelectorTopBotones valor={topClaseBien} onChange={setTopClaseBien} />}>
               <AporteBarList data={porClaseBien} colorBordeMaximo={AZUL_REY} />
             </Card>

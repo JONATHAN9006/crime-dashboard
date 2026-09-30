@@ -65,7 +65,7 @@ interface DataContextValue {
   operatividadRecords: OperatividadRecord[];
   filteredOperatividadRecords: OperatividadRecord[];
   operatividadMeta: { totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null;
-  cargarArchivoOperatividad: (file: File, token?: string, usuario?: string) => Promise<{ registros: number } | { error: string }>;
+  cargarArchivoOperatividad: (file: File, token?: string, usuario?: string, modo?: 'reemplazar' | 'agregar') => Promise<{ registros: number } | { error: string }>;
 }
 
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
@@ -561,10 +561,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [operatividadBackendUrl, loading]);
 
-  const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string): Promise<{ registros: number } | { error: string }> => {
+  const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string, modo: 'reemplazar' | 'agregar' = 'reemplazar'): Promise<{ registros: number } | { error: string }> => {
     try {
-      const { registros } = await parsearOperatividad(file);
-      if (registros.length === 0) return { error: 'No se encontraron registros válidos en el archivo (¿tiene las columnas OPERATIVIDAD y DELITO_ASOCIADO?).' };
+      const { registros: nuevos } = await parsearOperatividad(file);
+      if (nuevos.length === 0) return { error: 'No se encontraron registros válidos en el archivo (¿tiene las columnas OPERATIVIDAD y DELITO_ASOCIADO?).' };
+
+      // "Agregar" — a pedido explícito, para poder subir el archivo del
+      // año anterior (2025) SIN borrar el año en curso ya cargado.
+      // Deduplicado simple por __id (OBJECTID): si el mismo registro ya
+      // existiera, se queda con la versión nueva.
+      const existentes = modo === 'agregar' ? operatividadRecords.filter((r) => !nuevos.some((n) => n.__id === r.__id)) : [];
+      const registros = [...existentes, ...nuevos];
 
       const ahora = new Date();
 
@@ -582,11 +589,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         guardarOperatividadLocal(registros, ahora, file.name);
       }
 
-      return { registros: registros.length };
+      return { registros: nuevos.length };
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'No fue posible leer el archivo de Operatividad.' };
     }
-  }, [operatividadBackendUrl]);
+  }, [operatividadBackendUrl, operatividadRecords]);
 
   // Se filtra con los MISMOS filtros generales del dashboard, usando el
   // campo equivalente de cada uno (Delito ↔ delitoAsociado, Estación,

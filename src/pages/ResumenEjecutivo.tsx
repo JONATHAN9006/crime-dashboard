@@ -11,7 +11,6 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { DataStatusPanel } from '../components/layout/Header';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
-import { ComparativoOperatividadTable } from '../components/tables/ComparativoOperatividadTable';
 
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
@@ -50,7 +49,7 @@ function FiltroTendenciaBoton({ activo, color, icono, etiqueta, onClick }: {
 }
 
 export function ResumenEjecutivo() {
-  const { records, filteredRecords, recordsBase, filters, meta, filteredOperatividadRecords, operatividadMeta, periodos } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, filteredOperatividadRecords, operatividadRecords, operatividadMeta, periodos } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
@@ -59,6 +58,8 @@ export function ResumenEjecutivo() {
   // función.
   const [aumentoActivo, setAumentoActivo] = useState(false);
   const [disminucionActivo, setDisminucionActivo] = useState(false);
+  const [aumentoActivoOperatividad, setAumentoActivoOperatividad] = useState(false);
+  const [disminucionActivoOperatividad, setDisminucionActivoOperatividad] = useState(false);
 
   // "Total general de casos": siempre la vigencia MÁS RECIENTE (2026 al
   // momento de escribir esto, calculado dinámicamente para que siga siendo
@@ -125,20 +126,18 @@ export function ResumenEjecutivo() {
   const hallazgos = useHallazgosPrincipales(filteredRecordsResumen, recordsBaseResumen, filters, records, meta?.fechaMaxParametro);
 
   // Capturas (Operatividad) en "Principales hallazgos" — a pedido
-  // explícito, junto al resto de hallazgos calculados dinámicamente. Solo
-  // se agrega si ya se escribió el total 2025 manual para "CAPTURAS" (ver
-  // ComparativoOperatividadTable.tsx) — sin eso no hay con qué comparar.
+  // explícito, junto al resto de hallazgos calculados dinámicamente. Usa
+  // datos REALES de 2025 (ya no un valor manual) — solo aparece si ya se
+  // cargó el archivo de 2025 (modo "Agregar" en Operatividad).
   const hallazgosConCapturas = useMemo(() => {
-    const totalCapturas2026 = filteredOperatividadRecords.filter((r) => r.categoria === 'CAPTURAS').length;
-    let valoresManuales: Record<string, number> = {};
-    try { valoresManuales = JSON.parse(localStorage.getItem('mepoy-operatividad-2025-manual') || '{}'); } catch { /* ignorar */ }
-    const total2025 = valoresManuales['CAPTURAS'];
-    if (total2025 == null || totalCapturas2026 === 0) return hallazgos;
-    const dif = totalCapturas2026 - total2025;
-    const pct = total2025 > 0 ? (dif / total2025) * 100 : null;
-    const texto = `Capturas: ${formatNumero(totalCapturas2026)} en el periodo actual frente a ${formatNumero(total2025)} en 2025${pct !== null ? ` (${dif >= 0 ? '+' : ''}${formatDecimal(pct, 1)}%)` : ''}.`;
+    const capturas2026 = operatividadRecords.filter((r) => r.categoria === 'CAPTURAS' && r.anio === ventana.anioActual).length;
+    const capturas2025 = operatividadRecords.filter((r) => r.categoria === 'CAPTURAS' && r.anio === ventana.anioAnterior).length;
+    if (capturas2025 === 0 || capturas2026 === 0) return hallazgos;
+    const dif = capturas2026 - capturas2025;
+    const pct = (dif / capturas2025) * 100;
+    const texto = `Capturas: ${formatNumero(capturas2026)} en ${ventana.anioActual} frente a ${formatNumero(capturas2025)} en ${ventana.anioAnterior} (${dif >= 0 ? '+' : ''}${formatDecimal(pct, 1)}%).`;
     return [...hallazgos, { tipo: (dif > 0 ? 'alerta' : dif < 0 ? 'positivo' : 'info') as 'alerta' | 'positivo' | 'info', texto }];
-  }, [hallazgos, filteredOperatividadRecords]);
+  }, [hallazgos, operatividadRecords, ventana.anioActual, ventana.anioAnterior]);
   const cuadrantes = useCuadrantesCriticos(filteredRecordsResumen, 5);
   const barrios = useBarriosCriticos(filteredRecordsResumen, 5);
 
@@ -220,18 +219,46 @@ export function ResumenEjecutivo() {
           )}
         </Card>
 
-        <Card title="Comparativo de Operatividad" subtitle={`2025 (manual) vs. ${ventana.anioActual}, por categoría`} descargable="comparativo-operatividad-resumen">
-          {filteredOperatividadRecords.length > 0 ? (
-            <ComparativoOperatividadTable
-              data={Array.from(
-                filteredOperatividadRecords.reduce((m, r) => {
-                  const k = r.categoria || 'Sin categoría';
-                  m.set(k, (m.get(k) || 0) + 1);
-                  return m;
-                }, new Map<string, number>()),
-              ).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos)}
-              anioActual={ventana.anioActual}
-            />
+        <Card
+          title="Comparativo de Operatividad"
+          subtitle={`${ventana.anioAnterior} vs. ${ventana.anioActual}, por categoría`}
+          descargable="comparativo-operatividad-resumen"
+          actions={(
+            <div className="flex items-center gap-1.5">
+              <FiltroTendenciaBoton activo={aumentoActivoOperatividad} color="rojo" icono={<TrendingUp size={12} />} etiqueta="Aumento" onClick={() => setAumentoActivoOperatividad((v) => !v)} />
+              <FiltroTendenciaBoton activo={disminucionActivoOperatividad} color="verde" icono={<TrendingDown size={12} />} etiqueta="Disminución" onClick={() => setDisminucionActivoOperatividad((v) => !v)} />
+            </div>
+          )}
+        >
+          {operatividadRecords.length > 0 ? (
+            (() => {
+              // Mismo formato que "Comparativo de delitos" — ahora con
+              // datos REALES de 2025 (ya no manual): a pedido explícito,
+              // se retiró la entrada a mano porque el archivo de 2025 se
+              // va a cargar de verdad (ver "Agregar información" en
+              // Operatividad, en Actualizar información).
+              const categorias = Array.from(new Set(operatividadRecords.map((r) => r.categoria || 'SIN CATEGORÍA')));
+              const filas = categorias.map((cat) => {
+                const actual = operatividadRecords.filter((r) => r.categoria === cat && r.anio === ventana.anioActual).length;
+                const anterior = operatividadRecords.filter((r) => r.categoria === cat && r.anio === ventana.anioAnterior).length;
+                const diferencia = actual - anterior;
+                const variacionPct = anterior > 0 ? (diferencia / anterior) * 100 : (actual > 0 ? 100 : null);
+                return { key: cat.toUpperCase(), actual, anterior, diferencia, variacionPct, aportePct: 0, totalAnioAnteriorCompleto: anterior };
+              }).filter((f) => f.actual > 0 || f.anterior > 0).sort((a, b) => b.actual - a.actual);
+              const totalActual = filas.reduce((a, f) => a + f.actual, 0);
+              const filasConAporte = filas.map((f) => ({ ...f, aportePct: totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));
+              const filasFiltradas = filasConAporte.filter((f) => {
+                if (!aumentoActivoOperatividad && !disminucionActivoOperatividad) return true;
+                if (aumentoActivoOperatividad && f.diferencia > 0) return true;
+                if (disminucionActivoOperatividad && f.diferencia < 0) return true;
+                return false;
+              });
+              return filasFiltradas.length > 0 ? (
+                <ComparativoCategoriaTable data={filasFiltradas} etiqueta="Categoría" anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} limite={filasFiltradas.length} />
+              ) : (
+                <p className="py-8 text-center text-sm text-slate-400">Ninguna categoría coincide con el filtro seleccionado.</p>
+              );
+            })()
           ) : (
             <p className="py-8 text-center text-sm text-slate-400">Sin datos de Operatividad cargados todavía.</p>
           )}

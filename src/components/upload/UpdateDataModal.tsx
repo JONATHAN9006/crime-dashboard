@@ -18,6 +18,7 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [resultadoOperatividad, setResultadoOperatividad] = useState<{ registros: number } | { error: string } | null>(null);
+  const [modoOperatividad, setModoOperatividad] = useState<'reemplazar' | 'agregar'>('reemplazar');
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function procesar() {
@@ -25,7 +26,7 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
 
     if (tipoDataset === 'operatividad') {
       setProcesando(true);
-      const res = await cargarArchivoOperatividad(archivo, token || undefined, usuario);
+      const res = await cargarArchivoOperatividad(archivo, token || undefined, usuario, modoOperatividad);
       setResultadoOperatividad(res);
       setProcesando(false);
       return;
@@ -89,14 +90,35 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
         backendUrl ? (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-brand-navy/20 bg-brand-navy/5 p-3 text-xs text-brand-navy">
             <UploadCloud size={15} className="mt-0.5 shrink-0" />
-            <p>La Operatividad se sincroniza con el servidor central, igual que la Delictividad — cualquier persona que consulte el dashboard verá esta misma actualización. Cada carga <strong>reemplaza</strong> la anterior.</p>
+            <p>La Operatividad se sincroniza con el servidor central, igual que la Delictividad — cualquier persona que consulte el dashboard verá esta misma actualización.</p>
           </div>
         ) : (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
             <CloudOff size={15} className="mt-0.5 shrink-0" />
-            <p>La Operatividad se guarda solo en este navegador (todavía no hay servidor central configurado) — y cada carga <strong>reemplaza</strong> la anterior.</p>
+            <p>La Operatividad se guarda solo en este navegador (todavía no hay servidor central configurado).</p>
           </div>
         )
+      )}
+
+      {tipoDataset === 'operatividad' && (
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setModoOperatividad('agregar')}
+            className={`rounded-lg border p-3 text-left text-sm ${modoOperatividad === 'agregar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+          >
+            <p className="font-semibold text-slate-800">Agregar información</p>
+            <p className="mt-0.5 text-xs text-slate-500">Incorpora este archivo sin borrar lo ya cargado — para subir, por ejemplo, el año anterior sin perder el año en curso.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModoOperatividad('reemplazar')}
+            className={`rounded-lg border p-3 text-left text-sm ${modoOperatividad === 'reemplazar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+          >
+            <p className="font-semibold text-slate-800">Reemplazar información</p>
+            <p className="mt-0.5 text-xs text-slate-500">Elimina los datos de Operatividad actuales y deja únicamente este archivo.</p>
+          </button>
+        </div>
       )}
 
       {tipoDataset === 'delictividad' && backendUrl && !resultado && (
