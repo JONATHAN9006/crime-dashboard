@@ -12,7 +12,7 @@ import { maxDe } from '../../utils/mathSeguro';
 // DIF/% con fondo rojo cuando el comportamiento es desfavorable (aumento) y
 // verde cuando es favorable (disminución), igual que en los reportes de Excel.
 export function ComparativoCategoriaTable({
-  data, etiqueta, anioActual, anioAnterior, onRowClick, limite = 10,
+  data, etiqueta, anioActual, anioAnterior, onRowClick, limite = 10, invertirColores = false,
 }: {
   data: FilaComparativaCategoria[];
   etiqueta: string;
@@ -20,6 +20,10 @@ export function ComparativoCategoriaTable({
   anioAnterior: number;
   onRowClick?: (key: string) => void;
   limite?: number;
+  // Delictividad: más casos = rojo (malo). Operatividad (capturas,
+  // incautaciones...) es al revés — más = verde (positivo), menos = rojo
+  // (vamos perdiendo) — a pedido explícito. true invierte esa relación.
+  invertirColores?: boolean;
 }) {
   const filas = data.slice(0, limite);
   const totalAnterior = filas.reduce((a, f) => a + f.anterior, 0);
@@ -31,8 +35,10 @@ export function ComparativoCategoriaTable({
 
   function colorCelda(valor: number | null) {
     if (valor === null) return 'bg-slate-100 text-slate-500';
-    if (valor > 0.01) return 'bg-rose-500 text-white';
-    if (valor < -0.01) return 'bg-emerald-500 text-white';
+    const favorable = invertirColores ? valor > 0.01 : valor < -0.01;
+    const desfavorable = invertirColores ? valor < -0.01 : valor > 0.01;
+    if (desfavorable) return 'bg-rose-500 text-white';
+    if (favorable) return 'bg-emerald-500 text-white';
     return 'bg-amber-400 text-white';
   }
 

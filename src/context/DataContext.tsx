@@ -65,7 +65,7 @@ interface DataContextValue {
   operatividadRecords: OperatividadRecord[];
   filteredOperatividadRecords: OperatividadRecord[];
   operatividadMeta: { totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null;
-  cargarArchivoOperatividad: (file: File, token?: string, usuario?: string, modo?: 'reemplazar' | 'agregar') => Promise<{ registros: number } | { error: string }>;
+  cargarArchivoOperatividad: (file: File, token?: string, usuario?: string, modo?: 'reemplazar' | 'agregar' | 'reemplazarAnio') => Promise<{ registros: number } | { error: string }>;
 }
 
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
@@ -561,17 +561,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [operatividadBackendUrl, loading]);
 
-  const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string, modo: 'reemplazar' | 'agregar' = 'reemplazar'): Promise<{ registros: number } | { error: string }> => {
+  const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string, modo: 'reemplazar' | 'agregar' | 'reemplazarAnio' = 'reemplazar'): Promise<{ registros: number } | { error: string }> => {
     try {
       const { registros: nuevos } = await parsearOperatividad(file);
       if (nuevos.length === 0) return { error: 'No se encontraron registros válidos en el archivo (¿tiene las columnas OPERATIVIDAD y DELITO_ASOCIADO?).' };
 
-      // "Agregar" — a pedido explícito, para poder subir el archivo del
-      // año anterior (2025) SIN borrar el año en curso ya cargado.
-      // Deduplicado simple por __id (OBJECTID): si el mismo registro ya
-      // existiera, se queda con la versión nueva.
-      const existentes = modo === 'agregar' ? operatividadRecords.filter((r) => !nuevos.some((n) => n.__id === r.__id)) : [];
-      const registros = [...existentes, ...nuevos];
+      let registros: OperatividadRecord[];
+      if (modo === 'agregar') {
+        // "Agregar" — para subir el archivo del año anterior (2025) SIN
+        // borrar el año en curso ya cargado. Deduplicado simple por __id.
+        registros = [...operatividadRecords.filter((r) => !nuevos.some((n) => n.__id === r.__id)), ...nuevos];
+      } else if (modo === 'reemplazarAnio') {
+        // "Actualizar año completo" — misma idea que Delictividad (ver
+        // reemplazarAniosDelArchivo en datasetOps.ts), pero para
+        // Operatividad: reemplaza SOLO el/los año(s) que trae el archivo
+        // (normalmente 2026), dejando 2025 intacto — sin esto, cada vez
+        // que se sube la matriz del año en curso habría que elegir entre
+        // perder 2025 (Reemplazar) o arriesgarse a duplicar 2026
+        // (Agregar, si el archivo se resube completo).
+        const aniosDelArchivo = new Set(nuevos.map((r) => r.anio).filter((a): a is number => a != null));
+        registros = [...operatividadRecords.filter((r) => r.anio == null || !aniosDelArchivo.has(r.anio)), ...nuevos];
+      } else {
+        registros = nuevos;
+      }
 
       const ahora = new Date();
 

@@ -225,8 +225,8 @@ export function ResumenEjecutivo() {
           descargable="comparativo-operatividad-resumen"
           actions={(
             <div className="flex items-center gap-1.5">
-              <FiltroTendenciaBoton activo={aumentoActivoOperatividad} color="rojo" icono={<TrendingUp size={12} />} etiqueta="Aumento" onClick={() => setAumentoActivoOperatividad((v) => !v)} />
-              <FiltroTendenciaBoton activo={disminucionActivoOperatividad} color="verde" icono={<TrendingDown size={12} />} etiqueta="Disminución" onClick={() => setDisminucionActivoOperatividad((v) => !v)} />
+              <FiltroTendenciaBoton activo={aumentoActivoOperatividad} color="verde" icono={<TrendingUp size={12} />} etiqueta="Aumento" onClick={() => setAumentoActivoOperatividad((v) => !v)} />
+              <FiltroTendenciaBoton activo={disminucionActivoOperatividad} color="rojo" icono={<TrendingDown size={12} />} etiqueta="Disminución" onClick={() => setDisminucionActivoOperatividad((v) => !v)} />
             </div>
           )}
         >
@@ -254,7 +254,7 @@ export function ResumenEjecutivo() {
                 return false;
               });
               return filasFiltradas.length > 0 ? (
-                <ComparativoCategoriaTable data={filasFiltradas} etiqueta="Categoría" anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} limite={filasFiltradas.length} />
+                <ComparativoCategoriaTable data={filasFiltradas} etiqueta="Categoría" anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} limite={filasFiltradas.length} invertirColores />
               ) : (
                 <p className="py-8 text-center text-sm text-slate-400">Ninguna categoría coincide con el filtro seleccionado.</p>
               );

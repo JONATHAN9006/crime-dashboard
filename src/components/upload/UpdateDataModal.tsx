@@ -18,7 +18,7 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [resultadoOperatividad, setResultadoOperatividad] = useState<{ registros: number } | { error: string } | null>(null);
-  const [modoOperatividad, setModoOperatividad] = useState<'reemplazar' | 'agregar'>('reemplazar');
+  const [modoOperatividad, setModoOperatividad] = useState<'reemplazar' | 'agregar' | 'reemplazarAnio'>('reemplazarAnio');
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function procesar() {
@@ -101,22 +101,30 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
       )}
 
       {tipoDataset === 'operatividad' && (
-        <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
           <button
             type="button"
             onClick={() => setModoOperatividad('agregar')}
             className={`rounded-lg border p-3 text-left text-sm ${modoOperatividad === 'agregar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
           >
             <p className="font-semibold text-slate-800">Agregar información</p>
-            <p className="mt-0.5 text-xs text-slate-500">Incorpora este archivo sin borrar lo ya cargado — para subir, por ejemplo, el año anterior sin perder el año en curso.</p>
+            <p className="mt-0.5 text-xs text-slate-500">Incorpora este archivo sin borrar lo ya cargado — para el año anterior (2025), que no se vuelve a subir.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModoOperatividad('reemplazarAnio')}
+            className={`rounded-lg border p-3 text-left text-sm ${modoOperatividad === 'reemplazarAnio' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
+          >
+            <p className="font-semibold text-slate-800">Actualizar año completo</p>
+            <p className="mt-0.5 text-xs text-slate-500">Reemplaza SOLO el/los año(s) que trae el archivo (ej. 2026) — los demás años quedan intactos. Recomendado para la matriz del año en curso.</p>
           </button>
           <button
             type="button"
             onClick={() => setModoOperatividad('reemplazar')}
             className={`rounded-lg border p-3 text-left text-sm ${modoOperatividad === 'reemplazar' ? 'border-brand-green bg-brand-green/5 ring-1 ring-brand-green' : 'border-slate-200'}`}
           >
-            <p className="font-semibold text-slate-800">Reemplazar información</p>
-            <p className="mt-0.5 text-xs text-slate-500">Elimina los datos de Operatividad actuales y deja únicamente este archivo.</p>
+            <p className="font-semibold text-slate-800">Reemplazar todo</p>
+            <p className="mt-0.5 text-xs text-slate-500">Elimina TODOS los años de Operatividad ya cargados y deja únicamente este archivo.</p>
           </button>
         </div>
       )}
