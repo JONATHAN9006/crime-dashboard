@@ -85,7 +85,15 @@ export const handler: Handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ ok: false, error: 'No se recibió ningún registro para guardar.' }) };
   }
 
-  const dataset = cuerpo.dataset === 'operatividad' ? 'operatividad' : 'delictividad';
+  // BUG REAL, encontrado por diagnóstico (29-30 sep): esta línea solo
+  // reconocía 'operatividad' como caso especial — CUALQUIER OTRO valor,
+  // incluido 'rnmc', caía por defecto a 'delictividad'. Como RNMC sube sus
+  // comparendos con dataset:'rnmc', sus 6.619 filas terminaron guardadas
+  // en la tabla como si fueran Delictividad — de ahí que la descarga de
+  // Delitos trajera de vuelta registros de RNMC (que no tienen campo
+  // "delito") y reventara con "Cannot read properties of undefined
+  // (reading 'toUpperCase')" al intentar normalizarlos como si lo fueran.
+  const dataset = cuerpo.dataset === 'operatividad' ? 'operatividad' : cuerpo.dataset === 'rnmc' ? 'rnmc' : 'delictividad';
   // El header "apikey" se fuerza explícitamente (además de pasar la llave
   // como segundo argumento) — de puro seguro: así no depende de que esta
   // versión puntual de la librería arme sola el encabezado a partir de la
