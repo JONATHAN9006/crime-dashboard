@@ -357,6 +357,7 @@ export async function sincronizarCapaOperatividadDesdeRecords(records: {
 }[]): Promise<void> {
   const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
   const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  console.info(`[Operatividad→Mapa] ${conCoordenadas.length} de ${records.length} registro(s) tienen Latitud/Longitud válidas. Estaciones encontradas: ${JSON.stringify([...new Set(conCoordenadas.map((r) => r.estacion))])}`);
   if (conCoordenadas.length === 0) return;
 
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
@@ -404,6 +405,7 @@ export async function sincronizarCapaRnmcDesdeComparendos(registros: {
 }[]): Promise<void> {
   const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
   const conCoordenadas = registros.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  console.info(`[RNMC→Mapa] ${conCoordenadas.length} de ${registros.length} comparendo(s) tienen Latitud/Longitud válidas.`);
   if (conCoordenadas.length === 0) return;
 
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({

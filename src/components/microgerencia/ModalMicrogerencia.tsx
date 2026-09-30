@@ -7,6 +7,7 @@ import { generarImagenMapaGeneral, generarImagenMapaDistrito, generarImagenMapaE
 import { generarPdfMicrogerencia, dibujarSeccionResumenSimple, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
 import { cargarComparendos } from '../../data/rnmcStorage';
+import { useData } from '../../context/DataContext';
 import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 
@@ -265,7 +266,63 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
   // una con sus propios totales, un par de rankings y su propio mapa
   // general. Delictividad NO pasa por aquí — sigue su camino de siempre,
   // con todo el árbol Distrito/Estación/CAI.
+  // Traduce el NOMBRE de un nodo de Delictividad al nodo EQUIVALENTE de
+  // Operatividad — a pedido explícito: si en Delictividad se elige
+  // "Distrito Uno" (o una Estación puntual), Operatividad debe traer SOLO
+  // eso, no el árbol completo siempre. Nota: por ahora no hay nodos de
+  // CAI propios en Operatividad (ver useMicrogerenciaOperatividad.ts), así
+  // que una selección a nivel de CAI no tiene equivalente todavía y se
+  // omite de Operatividad (el resto de Delictividad sigue igual).
+  function nodoOperatividadEquivalente(nombreDelictividad: string): NodoMicrogerencia | null {
+    if (!datosOperatividad) return null;
+    if (nombreDelictividad === 'MEPOY General — Consolidado') return datosOperatividad.general;
+    if (nombreDelictividad === 'Distrito Uno') return datosOperatividad.distrito1;
+    if (nombreDelictividad === 'Distrito Dos') return datosOperatividad.distrito2;
+    const todasLasEstaciones = [...datosOperatividad.distrito1.hijos, ...datosOperatividad.distrito2.hijos];
+    return todasLasEstaciones.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`) ?? null;
+  }
+
   const datosOperatividad = useMicrogerenciaOperatividad();
+  const { filteredOperatividadRecords } = useData();
+
+  // Detalle propio de Operatividad que NO cabe en la tarjeta estándar de
+  // dibujarTarjetaNodo (pensada para delito/estación) — a pedido
+  // explícito: circunstancia de captura, clase/tipo de bien, marca,
+  // ciudad, país, permiso de arma, turno, zona y situación jurídica. Va
+  // como una página aparte, después del árbol Distrito/Estación.
+  function construirPaginaDetalleOperatividad(): SeccionExtraMicrogerencia | null {
+    if (!fuentesAdicionales.includes('operatividad') || filteredOperatividadRecords.length === 0) return null;
+    const rank = (campo: (r: typeof filteredOperatividadRecords[number]) => string) => {
+      const m = new Map<string, number>();
+      for (const r of filteredOperatividadRecords) {
+        const v = campo(r);
+        if (v) m.set(v, (m.get(v) || 0) + 1);
+      }
+      return Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
+    };
+    const rankings = [
+      { titulo: 'Circunstancia de captura', filas: rank((r) => r.circunstanciaCaptura) },
+      { titulo: 'Clase de bien', filas: rank((r) => r.claseBien) },
+      { titulo: 'Tipo de bien', filas: rank((r) => r.tipoBien) },
+      { titulo: 'Marca', filas: rank((r) => r.marca) },
+      { titulo: 'Ciudad', filas: rank((r) => r.ciudad) },
+      { titulo: 'País (persona)', filas: rank((r) => r.paisPersona) },
+      { titulo: 'Permiso de arma', filas: rank((r) => r.permisoArma) },
+      { titulo: 'Turno', filas: rank((r) => r.turno) },
+      { titulo: 'Zona', filas: rank((r) => r.zona) },
+      { titulo: 'Situación jurídica', filas: rank((r) => r.situacionJuridica) },
+    ].filter((r) => r.filas.length > 0);
+    if (rankings.length === 0) return null;
+    return {
+      alturaPagina: 80 + rankings.length * 42,
+      dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
+        titulo: 'Operatividad — Detalle',
+        subtitulo: `${filteredOperatividadRecords.length.toLocaleString('es-CO')} registro(s) — circunstancia, bienes, ubicación y situación jurídica`,
+        estadisticas: [],
+        rankings,
+      }),
+    };
+  }
 
   // Operatividad — MISMA lógica de componentes que Delictividad: se arma
   // el mismo tipo de árbol (general + Distrito Uno/Dos + sus estaciones,
@@ -273,15 +330,23 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
   // — ver useMicrogerenciaOperatividad.ts) y se dibuja con la MISMA
   // función de tarjeta (dibujarTarjetaNodo), así que sale con el mismo
   // tamaño de hoja y el mismo diseño, sin ninguna lógica aparte.
-  async function construirGrupoOperatividad(): Promise<{ nodos: NodoMicrogerencia[]; imagenes: Map<string, string> } | null> {
+  async function construirGrupoOperatividad(nombresDelictividadSeleccionados: string[]): Promise<{ nodos: NodoMicrogerencia[]; imagenes: Map<string, string> } | null> {
     if (!fuentesAdicionales.includes('operatividad') || !datosOperatividad) return null;
-    const nodos = [datosOperatividad.general, datosOperatividad.distrito1, datosOperatividad.distrito2, ...datosOperatividad.distrito1.hijos, ...datosOperatividad.distrito2.hijos];
+    const nodos = nombresDelictividadSeleccionados
+      .map((nombre) => nodoOperatividadEquivalente(nombre))
+      .filter((n): n is NodoMicrogerencia => n !== null);
+    // Sin equivalentes (ej. todo lo elegido era a nivel de CAI, o no había
+    // Distrito/Estación/General en la selección) — no se agrega nada de
+    // Operatividad en vez de, por defecto, mandar el árbol completo.
+    if (nodos.length === 0) return null;
     const imagenes = await generarImagenesParaNodosOperatividad(nodos, datosOperatividad.actualInicio, datosOperatividad.actualFin);
     return { nodos, imagenes };
   }
 
   async function construirSeccionesExtra(): Promise<SeccionExtraMicrogerencia[]> {
     const secciones: SeccionExtraMicrogerencia[] = [];
+    const detalleOperatividad = construirPaginaDetalleOperatividad();
+    if (detalleOperatividad) secciones.push(detalleOperatividad);
 
     if (fuentesAdicionales.includes('rnmc')) {
       const guardado = await cargarComparendos();
@@ -325,23 +390,21 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
     setGenerandoPdf(true);
     try {
       const seccionesExtra = await construirSeccionesExtra();
-      const grupoOperatividad = await construirGrupoOperatividad();
-      // Delictividad + Operatividad van en la MISMA llamada (un solo
-      // arreglo de nodos, un solo mapa de imágenes) para que las páginas
-      // de Operatividad salgan con dibujarTarjetaNodo tal cual las de
-      // Delictividad — nombres ya únicos entre sí (ver
-      // useMicrogerenciaOperatividad.ts), así que no chocan al combinarse.
       if (seleccionados.size > 0) {
         const nodosSeleccionados = Array.from(seleccionados.values());
         const imagenes = await generarImagenesParaNodos(nodosSeleccionados, datos.delitoFiltrado);
+        const grupoOperatividad = await construirGrupoOperatividad(nodosSeleccionados.map((n) => n.nombre));
         const nodosFinales = grupoOperatividad ? [...nodosSeleccionados, ...grupoOperatividad.nodos] : nodosSeleccionados;
         const imagenesFinales = grupoOperatividad ? new Map([...imagenes, ...grupoOperatividad.imagenes]) : imagenes;
         await generarPdfMicrogerencia(nodosFinales, `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`, imagenesFinales, seccionesExtra);
       } else if (vista === 'delitos') {
-        const nodosFinales = grupoOperatividad ? [...datos.delitos, ...grupoOperatividad.nodos] : datos.delitos;
-        await generarPdfMicrogerencia(nodosFinales, TITULOS_VISTA.delitos, grupoOperatividad?.imagenes, seccionesExtra);
+        // La vista "por delito" no tiene un Distrito/Estación/General
+        // puntual que traducir — Operatividad no se agrega aquí (no hay
+        // con qué emparejarlo de forma honesta).
+        await generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos, undefined, seccionesExtra);
       } else if (raizVistaActual) {
         const imagenes = await generarImagenesParaNodos([raizVistaActual], datos.delitoFiltrado);
+        const grupoOperatividad = await construirGrupoOperatividad([raizVistaActual.nombre]);
         const nodosFinales = grupoOperatividad ? [raizVistaActual, ...grupoOperatividad.nodos] : [raizVistaActual];
         const imagenesFinales = grupoOperatividad ? new Map([...imagenes, ...grupoOperatividad.imagenes]) : imagenes;
         await generarPdfMicrogerencia(nodosFinales, TITULOS_VISTA[vista], imagenesFinales, seccionesExtra);

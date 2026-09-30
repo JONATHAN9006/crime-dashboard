@@ -45,6 +45,12 @@ export interface OperatividadRecord {
   circunstanciaCaptura: string;
   situacionJuridica: string;
   valor: number | null;
+  // Agregados a pedido explícito — nombres de columna supuestos
+  // (CIUDAD, PAIS_PERSONA, PERMISO_ARMA); si el archivo real las trae con
+  // otro nombre, avisar para ajustar el mapeo exacto en operatividadParser.ts.
+  ciudad: string;
+  paisPersona: string;
+  permisoArma: string;
 
   // Presentes solo si el archivo trae columnas de Latitud/Longitud —
   // alimentan automáticamente la capa "Operatividad" del mapa, igual que
