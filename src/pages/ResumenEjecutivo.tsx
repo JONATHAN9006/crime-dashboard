@@ -129,15 +129,25 @@ export function ResumenEjecutivo() {
   // explícito, junto al resto de hallazgos calculados dinámicamente. Usa
   // datos REALES de 2025 (ya no un valor manual) — solo aparece si ya se
   // cargó el archivo de 2025 (modo "Agregar" en Operatividad).
+  // Ventana de Operatividad — misma lógica que Delictividad, pero sobre SU
+  // PROPIA última fecha (puede no coincidir con la de Delictividad).
+  const ventanaOperatividad = useMemo(() => {
+    const conFecha = operatividadRecords.filter((r): r is typeof r & { fecha: Date } => r.fecha != null);
+    const fechaMax = conFecha.length > 0 ? conFecha.reduce((max, r) => (r.fecha > max ? r.fecha : max), conFecha[0].fecha) : new Date();
+    const anioActual = fechaMax.getFullYear();
+    const anioAnterior = anioActual - 1;
+    return { conFecha, fechaMax, anioActual, anioAnterior, cutoffAnterior: new Date(anioAnterior, fechaMax.getMonth(), fechaMax.getDate()) };
+  }, [operatividadRecords]);
+
   const hallazgosConCapturas = useMemo(() => {
-    const capturas2026 = operatividadRecords.filter((r) => r.categoria === 'CAPTURAS' && r.anio === ventana.anioActual).length;
-    const capturas2025 = operatividadRecords.filter((r) => r.categoria === 'CAPTURAS' && r.anio === ventana.anioAnterior).length;
+    const capturas2026 = operatividadRecords.filter((r) => r.categoria === 'CAPTURAS' && r.anio === ventanaOperatividad.anioActual).length;
+    const capturas2025 = ventanaOperatividad.conFecha.filter((r) => r.categoria === 'CAPTURAS' && r.fecha.getFullYear() === ventanaOperatividad.anioAnterior && r.fecha <= ventanaOperatividad.cutoffAnterior).length;
     if (capturas2025 === 0 || capturas2026 === 0) return hallazgos;
     const dif = capturas2026 - capturas2025;
     const pct = (dif / capturas2025) * 100;
-    const texto = `Capturas: ${formatNumero(capturas2026)} en ${ventana.anioActual} frente a ${formatNumero(capturas2025)} en ${ventana.anioAnterior} (${dif >= 0 ? '+' : ''}${formatDecimal(pct, 1)}%).`;
-    return [...hallazgos, { tipo: (dif > 0 ? 'alerta' : dif < 0 ? 'positivo' : 'info') as 'alerta' | 'positivo' | 'info', texto }];
-  }, [hallazgos, operatividadRecords, ventana.anioActual, ventana.anioAnterior]);
+    const texto = `Capturas: ${formatNumero(capturas2026)} en ${ventanaOperatividad.anioActual} frente a ${formatNumero(capturas2025)} en ${ventanaOperatividad.anioAnterior} a la misma fecha (${dif >= 0 ? '+' : ''}${formatDecimal(pct, 1)}%).`;
+    return [...hallazgos, { tipo: (dif > 0 ? 'positivo' : dif < 0 ? 'alerta' : 'info') as 'alerta' | 'positivo' | 'info', texto }];
+  }, [hallazgos, operatividadRecords, ventanaOperatividad]);
   const cuadrantes = useCuadrantesCriticos(filteredRecordsResumen, 5);
   const barrios = useBarriosCriticos(filteredRecordsResumen, 5);
 
@@ -221,7 +231,7 @@ export function ResumenEjecutivo() {
 
         <Card
           title="Comparativo de Operatividad"
-          subtitle={`${ventana.anioAnterior} vs. ${ventana.anioActual}, por categoría`}
+          subtitle={`${ventanaOperatividad.anioAnterior} vs. ${ventanaOperatividad.anioActual}, por categoría`}
           descargable="comparativo-operatividad-resumen"
           actions={(
             <div className="flex items-center gap-1.5">
@@ -233,18 +243,26 @@ export function ResumenEjecutivo() {
           {operatividadRecords.length > 0 ? (
             (() => {
               // Mismo formato que "Comparativo de delitos" — ahora con
-              // datos REALES de 2025 (ya no manual): a pedido explícito,
-              // se retiró la entrada a mano porque el archivo de 2025 se
-              // va a cargar de verdad (ver "Agregar información" en
-              // Operatividad, en Actualizar información).
+              // Misma lógica que Delictividad — a pedido explícito: la
+              // fecha de corte se calcula sobre la ÚLTIMA fecha que traiga
+              // Operatividad (no la de Delictividad, que puede ser
+              // distinta — ver ventanaOperatividad), y el año anterior se
+              // compara "a la misma fecha" (ej. si Operatividad llega
+              // hasta el 27/09/2026, se compara contra el
+              // 01/01/2025–27/09/2025) — mientras que la columna "Total
+              // 2025" sí es el año anterior COMPLETO, hasta el cierre de
+              // diciembre.
+              const { conFecha, anioActual: anioActualOp, anioAnterior: anioAnteriorOp, cutoffAnterior: cutoffAnteriorOp } = ventanaOperatividad;
+
               const categorias = Array.from(new Set(operatividadRecords.map((r) => r.categoria || 'SIN CATEGORÍA')));
               const filas = categorias.map((cat) => {
-                const actual = operatividadRecords.filter((r) => r.categoria === cat && r.anio === ventana.anioActual).length;
-                const anterior = operatividadRecords.filter((r) => r.categoria === cat && r.anio === ventana.anioAnterior).length;
-                const diferencia = actual - anterior;
-                const variacionPct = anterior > 0 ? (diferencia / anterior) * 100 : (actual > 0 ? 100 : null);
-                return { key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior, diferencia, variacionPct, aportePct: 0, totalAnioAnteriorCompleto: anterior };
-              }).filter((f) => f.actual > 0 || f.anterior > 0).sort((a, b) => b.actual - a.actual);
+                const actual = operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioActualOp).length;
+                const anteriorALaFecha = conFecha.filter((r) => r.categoria === cat && r.fecha.getFullYear() === anioAnteriorOp && r.fecha <= cutoffAnteriorOp).length;
+                const anteriorCompleto = operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioAnteriorOp).length;
+                const diferencia = actual - anteriorALaFecha;
+                const variacionPct = anteriorALaFecha > 0 ? (diferencia / anteriorALaFecha) * 100 : (actual > 0 ? 100 : null);
+                return { key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior: anteriorALaFecha, diferencia, variacionPct, aportePct: 0, totalAnioAnteriorCompleto: anteriorCompleto };
+              }).filter((f) => f.actual > 0 || f.anterior > 0 || f.totalAnioAnteriorCompleto > 0).sort((a, b) => b.actual - a.actual);
               const totalActual = filas.reduce((a, f) => a + f.actual, 0);
               const filasConAporte = filas.map((f) => ({ ...f, aportePct: totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));
               const filasFiltradas = filasConAporte.filter((f) => {
@@ -254,7 +272,7 @@ export function ResumenEjecutivo() {
                 return false;
               });
               return filasFiltradas.length > 0 ? (
-                <ComparativoCategoriaTable data={filasFiltradas} etiqueta="Categoría" anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} limite={filasFiltradas.length} invertirColores />
+                <ComparativoCategoriaTable data={filasFiltradas} etiqueta="Categoría" anioAnterior={anioAnteriorOp} anioActual={anioActualOp} limite={filasFiltradas.length} invertirColores />
               ) : (
                 <p className="py-8 text-center text-sm text-slate-400">Ninguna categoría coincide con el filtro seleccionado.</p>
               );

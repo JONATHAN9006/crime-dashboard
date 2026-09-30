@@ -6,6 +6,7 @@
 // descargas del aplicativo.
 
 export const MAPA_DELITO: Record<string, string> = {
+  'HURTO BANCOS': 'Hurto E. Financieras',
   'HURTO AUTOMOTORES': 'H. Automotores',
   'HURTO A BICICLETAS': 'H. Bicicletas',
   'HURTO RESIDENCIAS': 'H. Residencias',
