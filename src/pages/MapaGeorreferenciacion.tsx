@@ -2400,11 +2400,18 @@ export function MapaGeorreferenciacion() {
               ))}
 
             {/* Los puntos individuales se ocultan por completo en modo
-                comparación, y también cuando cualquiera de los dos mapas de
-                calor (Delitos o IRISP1) está activo — se pidió ver
-                directamente el mapa de calor "ya pintado", sin los puntos
-                sueltos compitiendo visualmente con la cuadrícula de color. */}
-            {!modoComparacion && !mostrarCalorDelitos && !mostrarCalorIrisp1 && capasPuntosProcesadas.filter(({ capa }) => capa.visible).map(({ capa, puntosFiltrados, ordenDelitos }) => (
+                comparación, y también cuando cualquiera de los mapas de
+                calor de ESTE MISMO grupo (Delitos o IRISP1) está activo —
+                se pidió ver directamente el mapa de calor "ya pintado",
+                sin los puntos sueltos compitiendo visualmente con la
+                cuadrícula de color. Las capas de Operatividad, Macri y
+                RNMC quedan excluidas de este bloque (bug real, ya
+                corregido: antes SÍ se colaban aquí incluso con su propio
+                mapa de calor activo, porque este bloque solo conocía
+                Delitos/IRISP1) — cada una ya tiene su propio bloque de
+                puntos, correctamente controlado por su propio checkbox y
+                por el modo Puntos/Calor (ver más abajo). */}
+            {!modoComparacion && !mostrarCalorDelitos && !mostrarCalorIrisp1 && capasPuntosProcesadas.filter(({ capa }) => capa.visible && capa.tipo !== 'operatividad' && capa.tipo !== 'macri' && capa.tipo !== 'rnmc').map(({ capa, puntosFiltrados, ordenDelitos }) => (
               puntosFiltrados.map((p, i) => {
                 // Vista normal (sin comparar): cada delito con su propio
                 // color, igual que semaforiza el resto del dashboard.

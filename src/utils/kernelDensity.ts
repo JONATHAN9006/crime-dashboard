@@ -73,8 +73,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
 
   // Radio de búsqueda REAL, en metros — a pedido explícito, de vuelta a un
   // valor FIJO (el intento de radio adaptativo se veía peor, no mejor).
-  // 125 m de radio de búsqueda equivale a un círculo de 250 m de diámetro.
-  const RADIO_BUSQUEDA_METROS = 125;
+  const RADIO_BUSQUEDA_METROS = 200;
 
   // Margen igual al radio de búsqueda — así el kernel de un punto cerca del
   // borde del área analizada no se corta en seco.
