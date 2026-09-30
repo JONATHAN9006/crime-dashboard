@@ -31,6 +31,18 @@ function renderEtiquetaExterna(mostrarCasos: boolean) {
   };
 }
 
+// Línea guía de la etiqueta — DEBE ocultarse en la misma condición que el
+// texto (percent < 0.04): "label" y "labelLine" son props independientes
+// en recharts, así que una porción pequeña sin texto (label devuelve null)
+// igual dejaba dibujada la rayita que apuntaba hacia ese texto ausente —
+// bug real, confirmado visualmente ("no sale el label de Rural, sale una
+// rayita"). Con esto, sin texto tampoco hay línea.
+function renderLineaGuia(props: any) {
+  if (props.percent < 0.04) return <></>;
+  const { points } = props;
+  return <path d={`M${points[0].x},${points[0].y}L${points[1].x},${points[1].y}`} stroke="#94a3b8" strokeWidth={1} fill="none" />;
+}
+
 export function DonutChart({ data, height = 300, mostrarCasos = false }: { data: { key: string; casos: number }[]; height?: number; mostrarCasos?: boolean }) {
   const total = data.reduce((a, d) => a + d.casos, 0);
 
@@ -46,7 +58,7 @@ export function DonutChart({ data, height = 300, mostrarCasos = false }: { data:
           paddingAngle={2}
           isAnimationActive={false}
           label={renderEtiquetaExterna(mostrarCasos)}
-          labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+          labelLine={renderLineaGuia}
         >
           {data.map((_, i) => (
             <Cell key={i} fill={COLORES[i % COLORES.length]} stroke="#fff" strokeWidth={1} />

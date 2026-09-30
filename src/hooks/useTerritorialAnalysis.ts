@@ -17,7 +17,14 @@ export function useRanking(records: CrimeRecord[], getter: (r: CrimeRecord) => s
 
 export function useUrbanoRural(records: CrimeRecord[]) {
   return useMemo(() => {
-    const agrupado = agruparPor(records, (r) => (r.zona === 'RURAL' ? 'RURAL' : r.zona === 'URBANO' || r.zona === 'URBANA' ? 'URBANO' : 'NO REPORTADO'));
+    // "includes" en vez de igualdad exacta — a pedido explícito, tras
+    // confirmar que la porción "Rural" salía vacía: la comparación
+    // aceptaba DOS formas para Urbano ('URBANO' o 'URBANA') pero solo UNA
+    // forma exacta para Rural ('RURAL'), así que cualquier variante del
+    // dato real (ej. "ZONA RURAL", o con espacios) nunca hacía match y
+    // esos registros caían silenciosamente en "No Reportado". Con
+    // "includes" ambas zonas quedan igual de tolerantes a variantes.
+    const agrupado = agruparPor(records, (r) => (r.zona.includes('RURAL') ? 'RURAL' : r.zona.includes('URBAN') ? 'URBANO' : 'NO REPORTADO'));
     const total = totalCasos(records);
     return agrupado.map((item) => ({ ...item, participacion: participacionPct(item.casos, total) }));
   }, [records]);
