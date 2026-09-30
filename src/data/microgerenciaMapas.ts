@@ -10,6 +10,7 @@ import { cargarCapasPuntos } from './puntosStorage';
 import { generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { MAPA_ESTACION, MAPA_CAI, MAPA_CUADRANTE } from './db2Mapeos';
 import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
+import type { NodoMicrogerencia } from './microgerencia';
 
 function normalizar(v: unknown): string {
   return String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -313,7 +314,7 @@ async function construirEstacionesRuralesDesdeJurisdiccion(cortas: readonly stri
   return null;
 }
 
-async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null) {
+async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc') {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
@@ -321,6 +322,12 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
   }
   let resultado = capasPuntos
     .filter((c) => c.visible)
+    // Sin "tipoCapa": comportamiento de SIEMPRE (Delictividad, sin filtrar
+    // por tipo — no se toca para no arriesgar lo que ya funciona). Con
+    // "tipoCapa": SOLO los puntos de esa fuente específica (Operatividad,
+    // RNMC...), para no mezclarlos con Delitos/IRISP1/Macri que puedan
+    // estar visibles al mismo tiempo en el mapa interactivo.
+    .filter((c) => !tipoCapa || c.tipo === tipoCapa)
     .flatMap((c) => c.puntos)
     .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
     .filter((p) => !estacionCorta || (typeof estacionCorta === 'string' ? p.estacionCorta === estacionCorta : estacionCorta.includes(p.estacionCorta ?? '')))
@@ -411,7 +418,7 @@ async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: st
 }
 
 
-export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
+export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     // Prioridad 1: construir el contorno UNIENDO los CAI 1-10 (confiables,
     // ya confirmados) — evita depender de una capa de Estación aparte,
@@ -452,7 +459,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
       if (desdeJurisdiccionTimbio) featuresParaMapa.push(...desdeJurisdiccionTimbio.features);
     }
 
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, ['E-Norte', 'E-Sur', 'E-Timbio'], undefined, fechaInicial, fechaFinal);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, ['E-Norte', 'E-Sur', 'E-Timbio'], undefined, fechaInicial, fechaFinal, tipoCapa);
     if (puntos.length === 0) {
       console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación".', { delitoFiltrado });
       return undefined;
@@ -489,7 +496,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
 }
 
 /** Imagen de UNA estación específica (ej. "E-Norte") — para los nodos de Distrito/Estación. Incluye las líneas internas de CAI. */
-export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
+export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     // Misma prioridad que en generarImagenMapaGeneral: construir el
     // contorno de la Estación uniendo sus propios CAI (Norte = CAI 1-4,
@@ -547,7 +554,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
     // nodo le llegó la forma larga ("Estación Norte"), se traduce antes de
     // filtrar, o el filtro nunca encontraría ningún punto.
     const estacionCortaParaFiltro = claveEstacion === 'NORTE' ? 'E-Norte' : claveEstacion === 'SUR' ? 'E-Sur' : (cortaRural ?? nombreEstacionCorta);
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estacionCortaParaFiltro, undefined, fechaInicial, fechaFinal);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estacionCortaParaFiltro, undefined, fechaInicial, fechaFinal, tipoCapa);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos disponibles para "${nombreEstacionCorta}" — revisa la capa de PUNTOS (ej. "Delitos") en "Mapa/Georreferenciación".`, { delitoFiltrado });
       return undefined;
@@ -588,7 +595,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
  * polígonos de la capa de jurisdicción). Los puntos del mapa de calor son
  * solo los de las estaciones de ese distrito.
  */
-export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null): Promise<string | undefined> {
+export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     const estaciones: readonly string[] = distrito === 'UNO' ? ['E-Norte', 'E-Sur'] : ESTACIONES_RURALES;
     const origen = distrito === 'UNO' ? await construirEstacionDesdeCai('AMBAS') : await construirEstacionesRuralesDesdeJurisdiccion(ESTACIONES_RURALES);
@@ -596,7 +603,7 @@ export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoF
       console.warn(`[Microgerencia→Mapa] No se encontraron los polígonos del Distrito ${distrito === 'UNO' ? 'Uno (CAI 1-10)' : 'Dos (Timbío, Coconuco, Sotará)'}.`);
       return undefined;
     }
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estaciones, undefined, fechaInicial, fechaFinal);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estaciones, undefined, fechaInicial, fechaFinal, tipoCapa);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos para el Distrito ${distrito === 'UNO' ? 'Uno' : 'Dos'} — revisa la capa de PUNTOS (ej. "Delitos") y que esos registros traigan coordenadas.`, { delitoFiltrado });
       return undefined;
@@ -667,6 +674,40 @@ export async function generarImagenMapaGeneralPorTipo(tipo: 'operatividad' | 'rn
     console.error(`[Microgerencia→Mapa] Falló generando el mapa general de "${tipo}":`, err);
     return undefined;
   }
+}
+
+/**
+ * Imágenes para el árbol de Operatividad — a diferencia de
+ * generarImagenesParaNodos (Delictividad, que adivina el tipo de nodo por
+ * el PATRÓN del nombre), aquí se sabe de antemano exactamente qué es cada
+ * nodo porque useMicrogerenciaOperatividad.ts siempre arma el árbol igual:
+ * 1 general + Distrito Uno/Dos + sus 5 estaciones. Los nombres llevan el
+ * sufijo "(Operatividad)" (ver ese hook) precisamente para no chocar con
+ * los de Delictividad cuando ambos grupos van en el mismo PDF.
+ */
+export async function generarImagenesParaNodosOperatividad(nodos: NodoMicrogerencia[], fechaInicial: string, fechaFinal: string): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  const ESTACION_POR_NOMBRE: Record<string, string> = {
+    'Estación Norte (Operatividad)': 'E-Norte',
+    'Estación Sur (Operatividad)': 'E-Sur',
+    'Estación Timbio (Operatividad)': 'E-Timbio',
+    'Estación Coconuco (Operatividad)': 'E-Coconuco',
+    'Estación Sotara (Operatividad)': 'E-Sotara',
+  };
+  for (const nodo of nodos) {
+    let img: string | undefined;
+    if (nodo.nombre === 'Operatividad — Consolidado') {
+      img = await generarImagenMapaGeneral(null, fechaInicial, fechaFinal, 'operatividad');
+    } else if (nodo.nombre === 'Distrito Uno (Operatividad)') {
+      img = await generarImagenMapaDistrito('UNO', null, fechaInicial, fechaFinal, 'operatividad');
+    } else if (nodo.nombre === 'Distrito Dos (Operatividad)') {
+      img = await generarImagenMapaDistrito('DOS', null, fechaInicial, fechaFinal, 'operatividad');
+    } else if (ESTACION_POR_NOMBRE[nodo.nombre]) {
+      img = await generarImagenMapaEstacion(ESTACION_POR_NOMBRE[nodo.nombre], null, fechaInicial, fechaFinal, 'operatividad');
+    }
+    if (img) mapa.set(nodo.nombre, img);
+  }
+  return mapa;
 }
 
 /** Imagen de UN CAI específico (ej. "CAI 4") — recortada solo a su propio polígono. */
