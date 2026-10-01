@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Gauge, Building2, CalendarRange, Flame,
   Map, X, GitCompare, Table2, ShieldCheck, ChevronLeft, UserRound, Activity, Package, Eye, Target,
@@ -39,6 +39,30 @@ const ITEMS_ADICIONALES: { id: PaginaId; label: string; icon: React.ElementType 
   { id: 'calidad', label: 'Calidad de Datos', icon: ShieldCheck },
   { id: 'productos', label: 'Productos Esperados', icon: Package },
 ];
+
+// Tres tamaños de pantalla, con los mismos cortes de Tailwind:
+//  · 'movil'   (< 768 px)        → menú oculto; se abre con ☰ como cajón encima.
+//  · 'compacto'(768 – 1023 px)  → franja angosta FIJA, solo íconos, con el
+//                                   nombre en un recuadro al pasar el mouse
+//                                   (ej. el dashboard a media pantalla).
+//  · 'amplio'  (≥ 1024 px)       → menú completo, con la flecha para angostarlo.
+type TamanoPantalla = 'movil' | 'compacto' | 'amplio';
+function tamanoActual(): TamanoPantalla {
+  if (typeof window === 'undefined') return 'amplio';
+  if (window.matchMedia('(min-width: 1024px)').matches) return 'amplio';
+  if (window.matchMedia('(min-width: 768px)').matches) return 'compacto';
+  return 'movil';
+}
+function useTamanoPantalla(): TamanoPantalla {
+  const [tamano, setTamano] = useState<TamanoPantalla>(tamanoActual);
+  useEffect(() => {
+    const consultas = [window.matchMedia('(min-width: 1024px)'), window.matchMedia('(min-width: 768px)')];
+    const actualizar = () => setTamano(tamanoActual());
+    consultas.forEach((q) => q.addEventListener('change', actualizar));
+    return () => consultas.forEach((q) => q.removeEventListener('change', actualizar));
+  }, []);
+  return tamano;
+}
 
 // Tooltip propio (CSS puro con group-hover): aparece de inmediato al pasar el
 // cursor, sin depender del tooltip nativo del navegador (que tiene retraso y
@@ -117,7 +141,12 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
   abierto: boolean;
   onCerrar: () => void;
 }) {
-  const [colapsado, setColapsado] = useState(false);
+  // Preferencia del usuario (flecha) — solo aplica en pantalla amplia. En
+  // pantalla compacta el menú SIEMPRE va angosto (solo íconos), y en móvil
+  // el cajón que se abre con ☰ SIEMPRE va completo (con nombres).
+  const [colapsadoManual, setColapsadoManual] = useState(false);
+  const tamano = useTamanoPantalla();
+  const colapsado = tamano === 'compacto' || (tamano === 'amplio' && colapsadoManual);
   // El tooltip de los ítems del menú se maneja aquí (fuera del <nav>, que
   // tiene scroll vertical) para que NO quede recortado por el overflow del
   // contenedor con scroll — así siempre se sobrepone visible al sidebar.
@@ -125,24 +154,32 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
 
   return (
     <>
-      {abierto && <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={onCerrar} />}
+      {abierto && <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={onCerrar} />}
+      {/* CAUSA del espacio en blanco a media pantalla: antes este <aside>
+          llevaba "relative" y "fixed" a la vez. En Tailwind v4 "relative"
+          queda después en el CSS y gana, así que por debajo de 1024 px el
+          menú NO salía del flujo: se corría hacia la izquierda (fuera de
+          vista) pero seguía ocupando sus 256 px — de ahí la franja vacía.
+          Ahora: en móvil es "fixed" (cajón encima del contenido); desde
+          768 px es "relative" (ocupa su ancho real y el resto del dashboard
+          se reacomoda en el espacio que queda). */}
       <aside
         className={clsx(
-          'relative fixed inset-y-0 left-0 z-40 transform bg-brand-green-darkest transition-[width,transform] duration-300 ease-in-out lg:static lg:translate-x-0',
-          colapsado ? 'w-20' : 'w-64',
+          'fixed inset-y-0 left-0 z-40 shrink-0 transform bg-brand-green-darkest transition-[width,transform] duration-300 ease-in-out md:relative md:translate-x-0',
+          colapsado ? 'w-16' : 'w-64',
           abierto ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {/* Botón para angostar/expandir el sidebar (flecha animada) */}
         <button
-          onClick={() => setColapsado((v) => !v)}
+          onClick={() => setColapsadoManual((v) => !v)}
           title={colapsado ? 'Expandir menú' : 'Contraer menú'}
           className="absolute -right-3 top-8 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition-colors hover:text-brand-green lg:flex"
         >
           <ChevronLeft size={14} className={clsx('transition-transform duration-300 ease-in-out', colapsado && 'rotate-180')} />
         </button>
 
-        <div className={clsx('flex items-center px-5 py-5', colapsado ? 'justify-center px-3' : 'justify-between')}>
+        <div className={clsx('flex items-center py-5', colapsado ? 'justify-center px-2' : 'justify-between px-5')}>
           <div className="group relative flex items-center gap-2.5">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/95 p-1">
               <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" />
@@ -156,13 +193,13 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             {colapsado && <TooltipLateral texto="Análisis Delictivo — MEPOY · Popayán" />}
           </div>
           {!colapsado && (
-            <button className="text-emerald-100/70 hover:text-white lg:hidden" onClick={onCerrar}>
+            <button className="text-emerald-100/70 hover:text-white md:hidden" onClick={onCerrar}>
               <X size={20} />
             </button>
           )}
         </div>
 
-        <nav className="mt-1 flex flex-col gap-0.5 overflow-y-auto px-3 pb-16" style={{ maxHeight: 'calc(100vh - 130px)' }}>
+        <nav className={clsx('mt-1 flex flex-col gap-0.5 overflow-y-auto pb-16', colapsado ? 'px-2' : 'px-3')} style={{ maxHeight: 'calc(100vh - 130px)' }}>
           {ITEMS_PRINCIPALES.map((item) => (
             <ItemBoton
               key={item.id}
@@ -210,7 +247,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
           <span
             className={clsx(
               'pointer-events-none absolute z-50 max-w-[220px] -translate-y-1/2 whitespace-normal rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
-              colapsado ? 'left-[72px]' : 'left-[264px]',
+              colapsado ? 'left-[68px]' : 'left-[264px]',
             )}
             style={{ top: tooltipItem.top }}
           >

@@ -51,7 +51,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="flex items-center justify-between gap-3 px-4 py-3 lg:px-6">
           <div className="flex items-center gap-3">
-            <button className="text-slate-500 lg:hidden" onClick={onAbrirMenu}><Menu size={22} /></button>
+            <button className="text-slate-500 md:hidden" onClick={onAbrirMenu}><Menu size={22} /></button>
             <div>
               <div className="flex items-center gap-2">
                 <span className={`h-2 w-2 rounded-full ${actualizadoHoy ? 'bg-emerald-500' : 'bg-amber-400'}`} />
