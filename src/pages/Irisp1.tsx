@@ -83,6 +83,16 @@ function fechaCorta(d: Date | null): string {
 
 // ── Piezas visuales ──────────────────────────────────────────────────────
 
+function TarjetaKpi({ titulo, valor, detalle }: { titulo: string; valor: string; detalle: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{titulo}</p>
+      <p className="mt-0.5 text-2xl font-bold text-brand-navy">{valor}</p>
+      <p className="text-[11px] text-slate-500">{detalle}</p>
+    </div>
+  );
+}
+
 function BandaFase({ titulo }: { titulo: string }) {
   return (
     <div className="rounded-lg bg-brand-navy px-4 py-2 text-center text-sm font-bold uppercase tracking-wide text-white">{titulo}</div>
@@ -113,7 +123,7 @@ function TotalesPorAnio({ registros }: { registros: RegistroIrisp[] }) {
   }, [registros]);
   const tonos = ['bg-emerald-100 text-emerald-900', 'bg-emerald-200 text-emerald-900', 'bg-emerald-300 text-emerald-950', 'bg-emerald-500 text-white', 'bg-emerald-700 text-white'];
   return (
-    <Card title="Total de informaciones por año" subtitle="Respeta todos los filtros excepto Año" descargable="irisp1-total-por-anio">
+    <Card title="Total de informaciones por año" subtitle="Respeta todos los filtros excepto Año" descargable="irisp1-total-por-anio" className="h-full">
       <div className="flex flex-wrap items-stretch gap-1">
         {porAnio.map(([anio, n], i) => (
           <div
@@ -151,7 +161,7 @@ function IdentificacionDe({ registros }: { registros: RegistroIrisp[] }) {
   const conteos = grupos.map((g) => ({ ...g, n: registros.filter((r) => g.patron.test(r.clase)).length }));
   const otros = registros.length - conteos.reduce((a, c) => a + c.n, 0);
   return (
-    <Card title="Información dirigida a la identificación de" descargable="irisp1-identificacion">
+    <Card title="Información dirigida a la identificación de" descargable="irisp1-identificacion" className="h-full">
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {conteos.map((c) => (
           <div key={c.titulo} className="rounded-lg bg-slate-50 p-3 text-center">
@@ -241,27 +251,28 @@ function ComparativoEstadistica({ registros, aniosSel, estacionesSel }: { regist
       title="Comparativo número de informaciones — estadística delictiva"
       subtitle={`Delictividad MEPOY ${anios.join(', ') || ''}${estacionesSel.length ? ` · ${estacionesSel.join(', ')}` : ''}`}
       descargable="irisp1-comparativo-estadistica"
+      className="h-full"
     >
       {sinBase ? (
         <p className="py-6 text-center text-xs text-slate-400">Carga la base de Delictividad para poder comparar.</p>
       ) : (
-        <div className="max-h-[420px] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-slate-100 text-slate-600">
               <tr>
-                <th className="px-2 py-1.5 text-left">Delito</th>
-                <th className="px-2 py-1.5 text-right">Informaciones</th>
-                <th className="px-2 py-1.5 text-right">Casos (delictividad)</th>
-                <th className="px-2 py-1.5 text-right">Casos por información</th>
+                <th className="px-2 py-1 text-left">Delito</th>
+                <th className="px-2 py-1 text-right">Informaciones</th>
+                <th className="px-2 py-1 text-right">Casos (delictividad)</th>
+                <th className="px-2 py-1 text-right">Casos por información</th>
               </tr>
             </thead>
             <tbody>
               {filas.map((f) => (
                 <tr key={f.delito} className="border-b border-slate-100">
-                  <td className="px-2 py-1 font-medium text-slate-700">{f.delito}</td>
-                  <td className={`px-2 py-1 text-right font-semibold ${f.informaciones === 0 ? 'text-rose-600' : 'text-brand-navy'}`}>{f.informaciones}</td>
-                  <td className="px-2 py-1 text-right text-slate-600">{f.casos == null ? <span className="text-slate-400" title="No se registra como delito en la base de Delictividad">n/a</span> : formatNumero(f.casos)}</td>
-                  <td className="px-2 py-1 text-right text-slate-600">{f.casosPorInf == null ? (f.informaciones === 0 && f.casos ? <span className="font-semibold text-rose-600">sin información</span> : '—') : formatDecimal(f.casosPorInf, 1)}</td>
+                  <td className="whitespace-nowrap px-2 py-0.5 font-medium text-slate-700">{f.delito}</td>
+                  <td className={`px-2 py-0.5 text-right font-semibold ${f.informaciones === 0 ? 'text-rose-600' : 'text-brand-navy'}`}>{f.informaciones}</td>
+                  <td className="px-2 py-0.5 text-right text-slate-600">{f.casos == null ? <span className="text-slate-400" title="No se registra como delito en la base de Delictividad">n/a</span> : formatNumero(f.casos)}</td>
+                  <td className="px-2 py-0.5 text-right text-slate-600">{f.casosPorInf == null ? (f.informaciones === 0 && f.casos ? <span className="font-semibold text-rose-600">sin información</span> : '—') : formatDecimal(f.casosPorInf, 1)}</td>
                 </tr>
               ))}
             </tbody>
@@ -607,8 +618,7 @@ export function Irisp1() {
     const siExiste = filtrados.filter((r) => r.existencia === 'Si existe').length;
     const finalizadas = filtrados.filter((r) => r.estado === 'Finalizado').length;
     const siedco = filtrados.reduce((a, r) => a + r.cantidadSiedco, 0);
-    const georref = filtrados.filter((r) => r.lat != null && r.lon != null).length;
-    return { n, siExiste, finalizadas, siedco, georref };
+    return { n, siExiste, finalizadas, siedco };
   }, [filtrados]);
 
   const aniosSeleccionados = useMemo(() => filtros.anio.map(Number), [filtros.anio]);
@@ -663,25 +673,26 @@ export function Irisp1() {
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">Ninguna información coincide con los filtros.</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            {[
-              { t: 'Informaciones', v: formatNumero(kpis.n), s: 'en la selección' },
-              { t: 'Si existe', v: pct(kpis.siExiste, kpis.n), s: `${kpis.siExiste} verificadas como existentes` },
-              { t: 'Finalizadas', v: formatNumero(kpis.finalizadas), s: pct(kpis.finalizadas, kpis.n) },
-              { t: 'Resultados SIEDCO', v: formatNumero(kpis.siedco), s: `Efectividad ${pct(kpis.siedco, kpis.n)}` },
-              { t: 'Georreferenciadas', v: pct(kpis.georref, kpis.n), s: 'visibles en la capa IRISP1 del mapa' },
-            ].map((k) => (
-              <div key={k.t} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{k.t}</p>
-                <p className="mt-0.5 text-2xl font-bold text-brand-navy">{k.v}</p>
-                <p className="text-[11px] text-slate-500">{k.s}</p>
+          {/* Distribución en tres columnas (a pedido): izquierda Informaciones
+              + Si existe sobre el total por año; centro el comparativo con
+              estadística delictiva a toda la altura; derecha Finalizadas +
+              Resultados SIEDCO sobre "identificación de". */}
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <TarjetaKpi titulo="Informaciones" valor={formatNumero(kpis.n)} detalle="en la selección" />
+                <TarjetaKpi titulo="Si existe" valor={pct(kpis.siExiste, kpis.n)} detalle={`${kpis.siExiste} verificadas como existentes`} />
               </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <TotalesPorAnio registros={sinFiltroAnio} />
-            <IdentificacionDe registros={filtrados} />
+              <div className="flex-1"><TotalesPorAnio registros={sinFiltroAnio} /></div>
+            </div>
+            <ComparativoEstadistica registros={filtrados} aniosSel={aniosSeleccionados} estacionesSel={filtros.estacion} />
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <TarjetaKpi titulo="Finalizadas" valor={formatNumero(kpis.finalizadas)} detalle={pct(kpis.finalizadas, kpis.n)} />
+                <TarjetaKpi titulo="Resultados SIEDCO" valor={formatNumero(kpis.siedco)} detalle={`Efectividad ${pct(kpis.siedco, kpis.n)}`} />
+              </div>
+              <div className="flex-1"><IdentificacionDe registros={filtrados} /></div>
+            </div>
           </div>
 
           <BandaFase titulo="Fase de recolección" />
@@ -696,12 +707,6 @@ export function Irisp1() {
             <BloqueBarras titulo="Municipio" registros={filtrados} campo={(r) => r.municipio} archivo="irisp1-municipio" topInicial={5} />
             <Periodicidad registros={filtrados} />
           </div>
-
-          <ComparativoEstadistica
-            registros={filtrados}
-            aniosSel={aniosSeleccionados}
-            estacionesSel={filtros.estacion}
-          />
 
           <BandaFase titulo="Fase de asignación" />
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
