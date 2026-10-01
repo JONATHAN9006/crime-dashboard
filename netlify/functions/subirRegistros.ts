@@ -35,7 +35,7 @@ const TAMANO_LOTE = 500;
 interface CuerpoSolicitud {
   token: string;
   usuario?: string;
-  dataset?: 'delictividad' | 'operatividad' | 'rnmc' | 'irisp1';
+  dataset?: 'delictividad' | 'operatividad' | 'rnmc' | 'irisp1' | 'macri' | 'macri_seguimiento';
   registros: Array<Record<string, unknown> & { __id: string; fecha?: string | null; anio?: number | null; delito?: string }>;
   // true SOLO en el último lote de una subida (ver TAMANO_LOTE_SUBIDA en
   // supabaseApi.ts) — evita que "última actualización" quede cambiando
@@ -52,6 +52,12 @@ interface CuerpoSolicitud {
   // distinto) se quedaría huérfano ahí para siempre, aunque localmente sí
   // se haya quitado — el upsert de más abajo nunca borra nada por sí solo.
   aniosABorrar?: number[];
+  // true = borrar TODO el dataset antes de guardar (llamada aparte, con
+  // registros: []). Lo usa MACRI: su matriz es una foto completa de los
+  // objetivos vigentes, así que un objetivo que ya no viene en el archivo
+  // nuevo debe desaparecer del servidor. Solo se permite para 'macri' —
+  // nunca para delictividad ni para el seguimiento manual.
+  reemplazarTodo?: boolean;
 }
 
 export const handler: Handler = async (event) => {
@@ -81,7 +87,7 @@ export const handler: Handler = async (event) => {
   // Vacío es válido SOLO cuando la solicitud es puramente un borrado por
   // año (aniosABorrar) — el cliente hace esa llamada aparte, ANTES de
   // empezar a subir los lotes normales de registros.
-  if (cuerpo.registros.length === 0 && !(Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0)) {
+  if (cuerpo.registros.length === 0 && !(Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0) && !cuerpo.reemplazarTodo) {
     return { statusCode: 200, body: JSON.stringify({ ok: false, error: 'No se recibió ningún registro para guardar.' }) };
   }
 
@@ -96,7 +102,7 @@ export const handler: Handler = async (event) => {
   // Lista explícita de datasets válidos — cualquier valor desconocido sigue
   // cayendo a 'delictividad' como antes, pero ya no hace falta encadenar
   // un ternario más cada vez que se agrega un módulo (IRISP1, MACRI…).
-  const DATASETS_VALIDOS = ['delictividad', 'operatividad', 'rnmc', 'irisp1'] as const;
+  const DATASETS_VALIDOS = ['delictividad', 'operatividad', 'rnmc', 'irisp1', 'macri', 'macri_seguimiento'] as const;
   const dataset = (DATASETS_VALIDOS as readonly string[]).includes(cuerpo.dataset ?? '') ? (cuerpo.dataset as string) : 'delictividad';
   // El header "apikey" se fuerza explícitamente (además de pasar la llave
   // como segundo argumento) — de puro seguro: así no depende de que esta
@@ -113,6 +119,13 @@ export const handler: Handler = async (event) => {
     // lotes normales (ver reemplazarAniosDelArchivo en datasetOps.ts y su
     // uso en DataContext.tsx). Si además trajera registros en la MISMA
     // llamada, se borra primero y se guardan después, sin problema.
+    if (cuerpo.reemplazarTodo && dataset === 'macri') {
+      const { error: errorBorradoTotal } = await supabase.from('crime_records').delete().eq('dataset', 'macri');
+      if (errorBorradoTotal) throw new Error(errorBorradoTotal.message);
+      if (cuerpo.registros.length === 0) {
+        return { statusCode: 200, body: JSON.stringify({ ok: true, mensaje: 'Se borró la matriz MACRI anterior.', fecha: new Date().toISOString() }) };
+      }
+    }
     if (Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0) {
       const { error: errorBorrado } = await supabase
         .from('crime_records')

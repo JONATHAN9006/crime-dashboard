@@ -525,3 +525,45 @@ export async function sincronizarCapaIrispDesdeRegistros(registros: {
     };
   });
 }
+
+// MACRI → capa "Macri" del mapa, automática, cuando la matriz GIOC trae
+// LATITUD/LONGITUD (la exportación completa del aplicativo sí las trae; la
+// tabla de seguimiento manual no). Si ningún objetivo tiene coordenadas, no
+// toca la capa que ya hubiera.
+export async function sincronizarCapaMacriDesdeObjetivos(objetivos: {
+  nombreObjetivo: string; lat: number | null; lon: number | null; delitoPrincipalTexto: string;
+  estadoActual: string; grupo: string; estrategia: string; zonaTexto: string; fechaFinal: Date | null;
+}[]): Promise<void> {
+  const filas = objetivos
+    .filter((o) => o.lat != null && o.lon != null && o.lat !== 0 && o.lon !== 0)
+    .map((o) => ({
+      LATITUD: o.lat, LONGITUD: o.lon, 'NOMBRE OBJETIVO': o.nombreObjetivo, 'DELITO PRINCIPAL': o.delitoPrincipalTexto,
+      'ESTADO ACTUAL': o.estadoActual, GRUPO: o.grupo, ESTRATEGIA: o.estrategia, 'ZONA INJERENCIA': o.zonaTexto, 'FECHA FINAL': o.fechaFinal,
+    }));
+  if (filas.length === 0) return;
+  const puntos = construirPuntos(filas, 'LATITUD', 'LONGITUD', 'DELITO PRINCIPAL', 'macri', null);
+  await actualizarCapaDeFormaSegura('macri', (capas) => {
+    const previa = capas.find((c) => c.tipo === 'macri');
+    return {
+      id: previa?.id ?? `macri-auto-${Date.now()}`,
+      nombre: 'Macri',
+      tipo: 'macri',
+      archivoNombre: 'Matriz GIOC (automático)',
+      cargadoPor: previa?.cargadoPor ?? 'Sistema',
+      fechaCarga: new Date().toISOString(),
+      columnas: Object.keys(filas[0]),
+      colLat: 'LATITUD',
+      colLon: 'LONGITUD',
+      colDelito: 'DELITO PRINCIPAL',
+      colEstado: 'ESTADO ACTUAL',
+      colEstadoExistencia: null,
+      colDependencia: null,
+      puntos,
+      visible: previa?.visible ?? true,
+      filtroEstado: previa?.filtroEstado ?? [],
+      filtroEstadoExistencia: [],
+      filtroDependencia: [],
+      filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+    };
+  });
+}

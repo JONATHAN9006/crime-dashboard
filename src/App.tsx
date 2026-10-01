@@ -7,7 +7,7 @@ import { ResumenEjecutivo } from './pages/ResumenEjecutivo';
 import { AnalisisUnidad } from './pages/AnalisisUnidad';
 import { OperatividadUnidad } from './pages/OperatividadUnidad';
 import { Rnmc } from './pages/Rnmc';
-import { Macri } from './pages/ModulosPendientes';
+import { Macri } from './pages/Macri';
 import { Irisp1 } from './pages/Irisp1';
 import { UltimasSemanas } from './pages/UltimasSemanas';
 import { MatrizCalor } from './pages/MatrizCalor';
@@ -45,8 +45,8 @@ const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc',
 
 // Páginas que NO muestran el panel de filtros generales de delitos: el mapa
 // tiene el suyo propio, IRISP1 también (sus campos — Estado, Existencia,
-// Fuente, Clase — no existen en Delictividad) y MACRI todavía no se rige
-// por esos filtros.
+// Fuente, Clase — no existen en Delictividad) y MACRI es una tabla de
+// seguimiento de objetivos que cruza Delictividad por su cuenta.
 const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['mapa', 'irisp1', 'macri'];
 
 function Shell() {
