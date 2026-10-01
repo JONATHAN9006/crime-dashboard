@@ -84,7 +84,7 @@ export function ComparativoCategoriaTable({
               </td>
               <td className="px-2 py-2">
                 <div className="flex items-center justify-center gap-1">
-                  <span className="w-11 shrink-0 text-right text-[13px] text-slate-500">{formatDecimal(f.aportePct, 1)}%</span>
+                  <span className="w-14 shrink-0 whitespace-nowrap text-right text-[13px] text-slate-500">{formatDecimal(f.aportePct, 1)}%</span>
                   <div className="h-2 w-8 shrink-0 overflow-hidden rounded-full bg-slate-100">
                     <div className="h-full rounded-full bg-sky-400" style={{ width: `${(f.aportePct / maxAporte) * 100}%` }} />
                   </div>

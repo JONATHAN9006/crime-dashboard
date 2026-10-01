@@ -608,6 +608,34 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
   };
 }
 
+
+// ── Corrección de la línea base del texto en html2canvas ────────────────
+// CAUSA REAL del texto "corrido hacia abajo" (y de la última fila cortada)
+// en TODAS las descargas de imagen y del PDF: para saber a qué altura
+// dibujar cada texto, html2canvas mete en la página un <div> oculto con un
+// texto de muestra y una <img> de 1×1 px alineada a la línea base, y mide
+// la distancia entre ambos (FontMetrics.parseMetrics). Esa medición la hace
+// sobre el documento REAL, no sobre el clon — y en el documento real rige
+// el "preflight" de Tailwind, que pone `img { display: block }`. Con eso la
+// imagen de muestra salta a la línea de abajo, la "línea base" medida
+// queda una línea entera más abajo de lo real, y cada texto se dibuja
+// varios píxeles más abajo de donde está en pantalla: queda pegado al
+// borde inferior de su fila, y en la última fila se sale del área
+// capturada (se ve cortado).
+//
+// La corrección es una sola regla CSS que devuelve SOLO esa imagen de
+// muestra (1×1, GIF en base64, hija directa del <div> temporal que
+// html2canvas cuelga del <body>) a display:inline — no toca ninguna otra
+// imagen del dashboard. Se inserta una vez, la primera vez que se exporta.
+const ID_ESTILO_METRICAS = 'correccion-metricas-html2canvas';
+function asegurarCorreccionMetricasHtml2canvas() {
+  if (document.getElementById(ID_ESTILO_METRICAS)) return;
+  const estilo = document.createElement('style');
+  estilo.id = ID_ESTILO_METRICAS;
+  estilo.textContent = 'body > div > img[width="1"][height="1"][src^="data:image/gif"] { display: inline !important; }';
+  document.head.appendChild(estilo);
+}
+
 /**
  * Núcleo de captura reutilizado tanto por la descarga en PNG como por la
  * generación de PDF — así ambas rutas comparten EXACTAMENTE la misma
@@ -617,6 +645,7 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
  */
 export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo: string | undefined): Promise<HTMLCanvasElement> {
   const html2canvas = (await import('html2canvas')).default;
+  asegurarCorreccionMetricasHtml2canvas();
 
   // TODA la preparación (ensanchar tablas angostas, ocultar textos
   // manuales, ocultar la cuadrícula, etc.) se hace sobre una COPIA fuera
@@ -944,6 +973,7 @@ export async function exportarMapaComoImagen(
   etiquetas?: string[],
 ): Promise<void> {
   const html2canvasMod = (await import('html2canvas')).default;
+  asegurarCorreccionMetricasHtml2canvas();
   let canvas = await html2canvasMod(elemento, {
     backgroundColor: '#e5e7eb',
     scale: 1,
