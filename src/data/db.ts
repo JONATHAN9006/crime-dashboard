@@ -1,13 +1,14 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 export const DB_NAME = 'crime-dashboard-db';
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 export const STORE_RECORDS = 'records';
 export const STORE_META = 'meta';
 export const STORE_GEO = 'geo';
 export const STORE_PUNTOS = 'puntos';
 export const STORE_PRODUCTOS = 'productos_esperados';
 export const STORE_RNMC = 'rnmc';
+export const STORE_IRISP = 'irisp1';
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
@@ -21,6 +22,7 @@ export function getDb() {
         if (!db.objectStoreNames.contains(STORE_PUNTOS)) db.createObjectStore(STORE_PUNTOS);
         if (!db.objectStoreNames.contains(STORE_PRODUCTOS)) db.createObjectStore(STORE_PRODUCTOS);
         if (!db.objectStoreNames.contains(STORE_RNMC)) db.createObjectStore(STORE_RNMC);
+        if (!db.objectStoreNames.contains(STORE_IRISP)) db.createObjectStore(STORE_IRISP);
       },
       // Si esta misma pestaña tiene la base abierta con una versión VIEJA y
       // otra pestaña/ventana intenta abrir una versión NUEVA (ej. después de

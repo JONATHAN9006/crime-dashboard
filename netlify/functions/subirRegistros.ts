@@ -35,7 +35,7 @@ const TAMANO_LOTE = 500;
 interface CuerpoSolicitud {
   token: string;
   usuario?: string;
-  dataset?: 'delictividad' | 'operatividad' | 'rnmc';
+  dataset?: 'delictividad' | 'operatividad' | 'rnmc' | 'irisp1';
   registros: Array<Record<string, unknown> & { __id: string; fecha?: string | null; anio?: number | null; delito?: string }>;
   // true SOLO en el último lote de una subida (ver TAMANO_LOTE_SUBIDA en
   // supabaseApi.ts) — evita que "última actualización" quede cambiando
@@ -93,7 +93,11 @@ export const handler: Handler = async (event) => {
   // Delitos trajera de vuelta registros de RNMC (que no tienen campo
   // "delito") y reventara con "Cannot read properties of undefined
   // (reading 'toUpperCase')" al intentar normalizarlos como si lo fueran.
-  const dataset = cuerpo.dataset === 'operatividad' ? 'operatividad' : cuerpo.dataset === 'rnmc' ? 'rnmc' : 'delictividad';
+  // Lista explícita de datasets válidos — cualquier valor desconocido sigue
+  // cayendo a 'delictividad' como antes, pero ya no hace falta encadenar
+  // un ternario más cada vez que se agrega un módulo (IRISP1, MACRI…).
+  const DATASETS_VALIDOS = ['delictividad', 'operatividad', 'rnmc', 'irisp1'] as const;
+  const dataset = (DATASETS_VALIDOS as readonly string[]).includes(cuerpo.dataset ?? '') ? (cuerpo.dataset as string) : 'delictividad';
   // El header "apikey" se fuerza explícitamente (además de pasar la llave
   // como segundo argumento) — de puro seguro: así no depende de que esta
   // versión puntual de la librería arme sola el encabezado a partir de la

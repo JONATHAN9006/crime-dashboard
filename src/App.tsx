@@ -7,7 +7,8 @@ import { ResumenEjecutivo } from './pages/ResumenEjecutivo';
 import { AnalisisUnidad } from './pages/AnalisisUnidad';
 import { OperatividadUnidad } from './pages/OperatividadUnidad';
 import { Rnmc } from './pages/Rnmc';
-import { Irisp1, Macri } from './pages/ModulosPendientes';
+import { Macri } from './pages/ModulosPendientes';
+import { Irisp1 } from './pages/Irisp1';
 import { UltimasSemanas } from './pages/UltimasSemanas';
 import { MatrizCalor } from './pages/MatrizCalor';
 import { MapaGeorreferenciacion } from './pages/MapaGeorreferenciacion';
@@ -43,8 +44,9 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
 const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc', 'irisp1', 'macri'];
 
 // Páginas que NO muestran el panel de filtros generales de delitos: el mapa
-// tiene el suyo propio, y RNMC/IRISP1/MACRI son módulos aparte que todavía
-// no se rigen por esos filtros.
+// tiene el suyo propio, IRISP1 también (sus campos — Estado, Existencia,
+// Fuente, Clase — no existen en Delictividad) y MACRI todavía no se rige
+// por esos filtros.
 const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['mapa', 'irisp1', 'macri'];
 
 function Shell() {
@@ -63,7 +65,6 @@ function Shell() {
           {loading && (
             <div className="flex h-64 items-center justify-center text-sm text-slate-400">Cargando información...</div>
           )}
-          {!loading && loadError && records.length === 0 && !requiereDatos && <Pagina />}
           {!loading && loadError && records.length === 0 && requiereDatos && (
             <div className="mx-auto max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-5 text-center text-sm text-amber-800">
               {loadError}

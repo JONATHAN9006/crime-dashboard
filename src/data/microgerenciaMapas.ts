@@ -314,20 +314,26 @@ async function construirEstacionesRuralesDesdeJurisdiccion(cortas: readonly stri
   return null;
 }
 
-async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc') {
+async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'delitos' | 'operatividad' | 'rnmc') {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
     capasPuntos = await cargarCapasPuntos();
   }
+  // BUG REAL, encontrado por diagnóstico: antes se exigía que la capa
+  // estuviera "visible" — la MISMA casilla que prende/apaga cada capa en
+  // el mapa interactivo. Microgerencia terminaba dependiendo de qué
+  // casillas hubiera marcadas en OTRA pantalla en ese momento: si el
+  // usuario desmarcaba "Delitos" ahí (para mirar Operatividad/RNMC, por
+  // ejemplo), Microgerencia se quedaba sin ningún punto de Delitos, sin
+  // ningún aviso más allá del mapa saliendo vacío. Microgerencia debe usar
+  // los datos cargados siempre, sin importar qué esté marcado en el mapa.
+  // "tipoCapa" por defecto 'delitos' (nunca "todas las capas juntas") —
+  // así Delictividad tampoco arrastra sin querer puntos de
+  // IRISP1/Operatividad/RNMC/Macri que compartan la misma estación/CAI.
+  const tipo = tipoCapa ?? 'delitos';
   let resultado = capasPuntos
-    .filter((c) => c.visible)
-    // Sin "tipoCapa": comportamiento de SIEMPRE (Delictividad, sin filtrar
-    // por tipo — no se toca para no arriesgar lo que ya funciona). Con
-    // "tipoCapa": SOLO los puntos de esa fuente específica (Operatividad,
-    // RNMC...), para no mezclarlos con Delitos/IRISP1/Macri que puedan
-    // estar visibles al mismo tiempo en el mapa interactivo.
-    .filter((c) => !tipoCapa || c.tipo === tipoCapa)
+    .filter((c) => c.tipo === tipo)
     .flatMap((c) => c.puntos)
     .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
     .filter((p) => !estacionCorta || (typeof estacionCorta === 'string' ? p.estacionCorta === estacionCorta : estacionCorta.includes(p.estacionCorta ?? '')))
@@ -636,7 +642,9 @@ export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoF
 export async function generarImagenMapaGeneralPorTipo(tipo: 'operatividad' | 'rnmc', colores: string[]): Promise<string | undefined> {
   try {
     const capas = await cargarCapasPuntos();
-    const puntos = capas.filter((c) => c.tipo === tipo && c.visible).flatMap((c) => c.puntos);
+    // Mismo bug que obtenerPuntosFiltrados — no debe depender de la
+    // casilla "visible" del mapa interactivo.
+    const puntos = capas.filter((c) => c.tipo === tipo).flatMap((c) => c.puntos);
     if (puntos.length === 0) {
       console.warn(`[Microgerencia→Mapa] No hay puntos visibles de "${tipo}" — revisa que esa capa esté cargada y su checkbox activo en Mapa/Georreferenciación.`);
       return undefined;

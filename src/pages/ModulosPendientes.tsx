@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
-import { ShieldAlert, Network, Hammer } from 'lucide-react';
+import { Network, Hammer } from 'lucide-react';
 
-// Módulos nuevos del menú (RNMC, IRISP1, MACRI) — por ahora solo la
+// Módulos nuevos del menú (MACRI; RNMC e IRISP1 ya tienen página propia) — por ahora solo la
 // estructura: aparecen en el sidebar, se pueden abrir, y avisan que están
 // pendientes de definir sus parámetros. Cuando se definan, cada uno se
 // reemplaza por su página real (basta con cambiar la entrada en
@@ -20,9 +20,6 @@ function ModuloEnConstruccion({ titulo, icono: Icono }: { titulo: string; icono:
   );
 }
 
-export function Irisp1() {
-  return <ModuloEnConstruccion titulo="IRISP1" icono={ShieldAlert} />;
-}
 export function Macri() {
   return <ModuloEnConstruccion titulo="MACRI" icono={Network} />;
 }

@@ -8,13 +8,15 @@ function acortar(texto: string, maxLargo = 16): string {
 }
 
 // Renderiza el nombre + valor directamente afuera de cada porción, con una
-// línea guía corta. Solo se etiquetan porciones con participación suficiente
-// (>=4%) para evitar que los segmentos diminutos generen texto amontonado o
-// superpuesto; esos casos siguen disponibles en la leyenda y el tooltip.
-function renderEtiquetaExterna(mostrarCasos: boolean) {
+// línea guía corta. Por defecto solo se etiquetan porciones con
+// participación suficiente (>=4%, configurable vía "umbral") para evitar
+// que los segmentos diminutos generen texto amontonado o superpuesto; esos
+// casos siguen disponibles en la leyenda y el tooltip. Un gráfico con más
+// espacio disponible puede bajar ese umbral (ver AnalisisUnidad.tsx).
+function renderEtiquetaExterna(mostrarCasos: boolean, umbral: number) {
   return (props: any) => {
     const { cx, cy, midAngle, outerRadius, percent, name, value } = props;
-    if (percent < 0.04) return null;
+    if (percent < umbral) return null;
     const RAD = Math.PI / 180;
     const radioLinea = outerRadius + 14;
     const radioTexto = outerRadius + 18;
@@ -37,13 +39,15 @@ function renderEtiquetaExterna(mostrarCasos: boolean) {
 // igual dejaba dibujada la rayita que apuntaba hacia ese texto ausente —
 // bug real, confirmado visualmente ("no sale el label de Rural, sale una
 // rayita"). Con esto, sin texto tampoco hay línea.
-function renderLineaGuia(props: any) {
-  if (props.percent < 0.04) return <></>;
-  const { points } = props;
-  return <path d={`M${points[0].x},${points[0].y}L${points[1].x},${points[1].y}`} stroke="#94a3b8" strokeWidth={1} fill="none" />;
+function renderLineaGuia(umbral: number) {
+  return (props: any) => {
+    if (props.percent < umbral) return <></>;
+    const { points } = props;
+    return <path d={`M${points[0].x},${points[0].y}L${points[1].x},${points[1].y}`} stroke="#94a3b8" strokeWidth={1} fill="none" />;
+  };
 }
 
-export function DonutChart({ data, height = 300, mostrarCasos = false }: { data: { key: string; casos: number }[]; height?: number; mostrarCasos?: boolean }) {
+export function DonutChart({ data, height = 300, mostrarCasos = false, umbralEtiqueta = 0.04 }: { data: { key: string; casos: number }[]; height?: number; mostrarCasos?: boolean; umbralEtiqueta?: number }) {
   const total = data.reduce((a, d) => a + d.casos, 0);
 
   return (
@@ -57,8 +61,8 @@ export function DonutChart({ data, height = 300, mostrarCasos = false }: { data:
           outerRadius="58%"
           paddingAngle={2}
           isAnimationActive={false}
-          label={renderEtiquetaExterna(mostrarCasos)}
-          labelLine={renderLineaGuia}
+          label={renderEtiquetaExterna(mostrarCasos, umbralEtiqueta)}
+          labelLine={renderLineaGuia(umbralEtiqueta)}
         >
           {data.map((_, i) => (
             <Cell key={i} fill={COLORES[i % COLORES.length]} stroke="#fff" strokeWidth={1} />

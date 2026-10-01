@@ -477,7 +477,7 @@ export function AnalisisUnidad() {
 
           <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
             <Card title="Zonas con mayor concentración" descargable="zonas-concentracion">
-              <DonutChart data={urbanoRural} height={280} mostrarCasos />
+              <DonutChart data={urbanoRural} height={340} mostrarCasos umbralEtiqueta={0.005} />
             </Card>
             <Card title="Distribución por género" descargable="distribucion-genero">
               <DonutChart data={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} height={280} mostrarCasos />

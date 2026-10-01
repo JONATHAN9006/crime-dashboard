@@ -475,3 +475,53 @@ export async function sincronizarCapaRnmcDesdeComparendos(registros: {
   });
 }
 
+
+// IRISP1 → capa "IRISP1" del mapa, automática — igual que RNMC/Delitos: ya
+// no hace falta subir el Excel aparte en el mapa, basta con cargarlo una
+// vez en el módulo IRISP1. Se arman filas con los MISMOS nombres de columna
+// del archivo original (Delito Principal, Estado, Estado Existencia,
+// Dependencia) para que los filtros propios que el mapa ya tenía para
+// IRISP1 (estado, existencia, estación) sigan funcionando sin cambios.
+// Una sola columna de fecha ("Fecha creación") — así el filtro de fechas
+// del mapa la toma sin ambigüedad (ver elegirColumnaFechaConfiable).
+export async function sincronizarCapaIrispDesdeRegistros(registros: {
+  codigo: string; lat: number | null; lon: number | null; fecha: Date | null; delitoTexto: string;
+  estado: string; existencia: string; dependencia: string; barrio: string; clase: string; fuente: string;
+}[]): Promise<void> {
+  const filas = registros
+    .filter((r) => r.lat != null && r.lon != null)
+    .map((r) => ({
+      Latitud: r.lat, Longitud: r.lon, Codigo: r.codigo,
+      'Delito Principal': r.delitoTexto, Estado: r.estado, 'Estado Existencia': r.existencia,
+      Dependencia: r.dependencia, Barrio: r.barrio, Clase: r.clase, Fuente: r.fuente,
+      'Fecha creación': r.fecha,
+    }));
+  console.info(`[IRISP1→Mapa] ${filas.length} de ${registros.length} información(es) tienen Latitud/Longitud.`);
+  if (filas.length === 0) return;
+  const puntos = construirPuntos(filas, 'Latitud', 'Longitud', 'Delito Principal', 'irisp1', 'Dependencia');
+
+  await actualizarCapaDeFormaSegura('irisp1', (capas) => {
+    const previa = capas.find((c) => c.tipo === 'irisp1');
+    return {
+      id: previa?.id ?? `irisp1-auto-${Date.now()}`,
+      nombre: 'IRISP1',
+      tipo: 'irisp1',
+      archivoNombre: 'Matriz IRISP1 (automático)',
+      cargadoPor: previa?.cargadoPor ?? 'Sistema',
+      fechaCarga: new Date().toISOString(),
+      columnas: Object.keys(filas[0]),
+      colLat: 'Latitud',
+      colLon: 'Longitud',
+      colDelito: 'Delito Principal',
+      colEstado: 'Estado',
+      colEstadoExistencia: 'Estado Existencia',
+      colDependencia: 'Dependencia',
+      puntos,
+      visible: previa?.visible ?? true,
+      filtroEstado: previa?.filtroEstado ?? [],
+      filtroEstadoExistencia: previa?.filtroEstadoExistencia ?? [],
+      filtroDependencia: previa?.filtroDependencia ?? [],
+      filtroDelitoPropio: previa?.filtroDelitoPropio ?? [],
+    };
+  });
+}
