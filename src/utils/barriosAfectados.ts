@@ -32,7 +32,13 @@ interface RegistroConBarrio {
   cantidad?: number;
 }
 
-const NO_ES_BARRIO = /^(NO REPORTADO|SIN REPORTAR|SIN BARRIO|SIN ASIGNAR|NO SE ENCONTR|BARRIO PENDIENTE|PENDIENTE|N\/?A|-|\s*)$/i;
+// Valores que NO son un barrio real y nunca se señalan con flecha (no se
+// sabe dónde quedan). Se busca DENTRO del texto ya normalizado (sin
+// tildes, en mayúsculas), no como texto exacto — así cubre todas las
+// variantes: "PENDIENTE POR ASIGNAR", "Barrio pendiente por asignar",
+// "SIN ASIGNAR", "NO SE ENCONTRÓ", etc. (antes la comparación era exacta y
+// "PENDIENTE POR ASIGNAR" se colaba como si fuera un barrio).
+const NO_ES_BARRIO = /PENDIENTE|POR ASIGNAR|SIN ASIGNAR|NO ASIGNAD|NO REPORTAD|SIN REPORTAR|SIN BARRIO|NO SE ENCONTR|NO ENCONTRAD|SIN INFORMACI|NO REGISTRA|SIN DATO|DESCONOCID|INDETERMINAD|^N\/?A$|^[-.\s]*$/;
 
 export function normalizarNombre(v: unknown): string {
   return String(v ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
@@ -66,7 +72,7 @@ export function calcularTopBarrios(
   const porBarrio = new Map<string, { nombre: string; casos: number; lats: number[]; lons: number[] }>();
   for (const r of registros) {
     const nombre = String(r.barrioHecho ?? '').trim();
-    if (!nombre || NO_ES_BARRIO.test(nombre)) continue;
+    if (!nombre || NO_ES_BARRIO.test(normalizarNombre(nombre))) continue;
     const tieneCoord = typeof r.lat === 'number' && isFinite(r.lat) && typeof r.lon === 'number' && isFinite(r.lon);
     // En la descarga de una zona/CAI solo cuentan los casos que caen dentro.
     if (dentroDe && (!tieneCoord || !puntoEnFeatureGeoJSON(r.lon as number, r.lat as number, dentroDe))) continue;
