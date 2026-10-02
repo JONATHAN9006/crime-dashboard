@@ -5,6 +5,7 @@
 // que las calles, el polígono y el mapa de calor calcen exactamente en la
 // misma posición — no una proyección aproximada distinta a la de las
 // tiles.
+import { dibujarFlechasBarrios, type FlechaBarrio } from './barriosAfectados';
 import { calcularKernelDensidad, type PuntoDensidad } from './kernelDensity';
 import { maxDe, minDe } from './mathSeguro';
 
@@ -77,6 +78,9 @@ export interface OpcionesPoligonoAislado {
   // quien ya usa esto a nivel de Estación o CAI, donde sí ayuda ver las
   // calles reales.
   mostrarCalles?: boolean;
+  // Barrios más afectados a señalar con flecha + rótulo (ver
+  // utils/barriosAfectados.ts). Los que caigan fuera del recorte se omiten.
+  flechas?: FlechaBarrio[];
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -84,7 +88,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -344,6 +348,12 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       yActual += caja.alto + espacioEntreCajas;
     }
     ctx.globalAlpha = 1;
+  }
+
+  // 6) Flechas a los barrios más afectados — al final, encima de todo,
+  //    con la MISMA proyección (lonAX/latAY) que el calor y los polígonos.
+  if (flechas.length > 0) {
+    dibujarFlechasBarrios(ctx, flechas, (lat, lon) => ({ x: lonAX(lon), y: latAY(lat) }), canvas.width, canvas.height);
   }
 
   return canvas;

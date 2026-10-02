@@ -11,6 +11,8 @@ import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
+import { FlechasBarrios } from '../components/mapa/FlechasBarrios';
+import { calcularTopBarrios, normalizarNombre } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { maxDe } from '../utils/mathSeguro';
@@ -1267,6 +1269,41 @@ export function MapaGeorreferenciacion() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pantallaCompleta, seleccionDelitos, puntosDelitosVisibles, capasPuntosProcesadas]);
 
+  // ── Barrios más afectados (flechas sobre el mapa de calor) ──────────────
+  // 0 = apagado; 3 o 5 = cuántos barrios señalar. Se calcula con los MISMOS
+  // registros que ya filtra el panel "Filtros de visualización" (delito,
+  // estación, CAI, zona, fechas) — si se elige "H. Personas", las flechas
+  // apuntan a los barrios con más hurtos a personas.
+  const [cantidadFlechasBarrio, setCantidadFlechasBarrio] = useState<0 | 3 | 5>(3);
+  // Polígonos de barrio (si hay una capa de barrios cargada en el mapa),
+  // por nombre normalizado — solo para ubicar mejor la flecha.
+  const poligonosBarrio = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id) ?? null;
+      const esCapaBarrios = capa.dimension === 'barrioHecho' || /barrio/i.test(capa.nombre) || (campo != null && /BARRIO/i.test(campo));
+      if (!esCapaBarrios) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const props = f?.properties ?? {};
+        const clave = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /BARRIO|NOMBRE/i.test(k))?.[1];
+        if (clave != null) m.set(normalizarNombre(clave), f);
+      }
+    }
+    return m;
+  }, [capas, camposUnionAutoDetectados]);
+  const registrosParaFlechas = useMemo(
+    () => (pantallaCompleta && seleccionDelitos ? filteredRecords.filter((r) => r.delito === seleccionDelitos) : filteredRecords),
+    [filteredRecords, pantallaCompleta, seleccionDelitos],
+  );
+  const flechasBarrios = useMemo(() => {
+    if (cantidadFlechasBarrio === 0) return [];
+    return calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: zonaActiva?.feature });
+    // zonaActiva se recalcula en cada render — se compara por su nombre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registrosParaFlechas, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre, zonaActiva?.capaId]);
+  const flechasDentroDe = (feature: any) =>
+    cantidadFlechasBarrio === 0 ? [] : calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: feature });
+
   const puntosIrisp1ParaMostrar = useMemo(() => {
     if (pantallaCompleta) {
       return seleccionIrisp1 ? puntosCrudosPorTipo('irisp1').filter((p) => (p.delitoCorto ?? 'NO REPORTADO') === seleccionIrisp1) : [];
@@ -1417,6 +1454,7 @@ export function MapaGeorreferenciacion() {
         colores: paletaCalorDelitos,
         etiquetas: [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`, ...lineasDelito],
         nombreArchivo: `mapa-calor-${nombreCai}`.replace(/\s+/g, '-'),
+        flechas: flechasDentroDe(feature),
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1457,6 +1495,7 @@ export function MapaGeorreferenciacion() {
         colores: paletaCalorDelitos,
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+        flechas: flechasBarrios,
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1494,6 +1533,7 @@ export function MapaGeorreferenciacion() {
         colores: paletaCalorDelitos,
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+        flechas: flechasBarrios,
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1606,6 +1646,7 @@ export function MapaGeorreferenciacion() {
         etiquetas: [],
         gruposEtiquetas,
         nombreArchivo: 'mapa-general-mepoy',
+        flechas: flechasBarrios,
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: 0,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1833,6 +1874,32 @@ export function MapaGeorreferenciacion() {
               </p>
             </div>
           )}
+
+          <div className="mt-3 rounded-lg bg-white/5 p-2.5">
+            <p className="mb-1.5 text-xs font-semibold text-slate-300">Señalar barrios más afectados</p>
+            <div className="grid grid-cols-3 gap-1">
+              {([[0, 'No'], [3, 'Top 3'], [5, 'Top 5']] as const).map(([valor, texto]) => (
+                <button
+                  key={valor}
+                  type="button"
+                  onClick={() => setCantidadFlechasBarrio(valor)}
+                  className={clsx('rounded-md px-2 py-1.5 text-xs font-semibold', cantidadFlechasBarrio === valor ? 'bg-white text-brand-navy' : 'bg-white/10 hover:bg-white/20')}
+                >
+                  {texto}
+                </button>
+              ))}
+            </div>
+            {cantidadFlechasBarrio > 0 && flechasBarrios.length > 0 && (
+              <ol className="mt-2 space-y-0.5 text-[11px] text-slate-200">
+                {flechasBarrios.map((f) => (
+                  <li key={f.barrio} className="flex justify-between gap-2"><span className="truncate">{f.rango}. {f.barrio}</span><b>{f.casos.toLocaleString('es-CO')}</b></li>
+                ))}
+              </ol>
+            )}
+            {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && (
+              <p className="mt-2 text-[11px] text-slate-400">Sin barrios con casos ubicables para estos filtros.</p>
+            )}
+          </div>
 
           <div className="mt-3 flex gap-2">
             <button
@@ -2277,6 +2344,9 @@ export function MapaGeorreferenciacion() {
                 opacidad={opacidades.calor / 100}
               />
             )}
+            {/* Flechas a los barrios más afectados — encima del calor, solo
+                mientras la capa de Delitos está a la vista. */}
+            {mostrarCalorDelitos && flechasBarrios.length > 0 && <FlechasBarrios flechas={flechasBarrios} />}
 
             {/* Mapa de calor de IRISP1: misma cuadrícula compacta, con su
                 propia escala de 5 clases (azul → morado), completamente
