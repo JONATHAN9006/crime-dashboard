@@ -11,7 +11,7 @@ import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
-import { FlechasBarrios } from '../components/mapa/FlechasBarrios';
+import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
 import { calcularTopBarrios, normalizarNombre } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
@@ -1301,8 +1301,17 @@ export function MapaGeorreferenciacion() {
     // zonaActiva se recalcula en cada render — se compara por su nombre.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registrosParaFlechas, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre, zonaActiva?.capaId]);
+  // Dónde dejó el usuario cada rótulo (arrastrándolo), por barrio. Se
+  // conserva al cambiar de filtro: si el barrio vuelve a salir, su rótulo
+  // aparece donde se había dejado.
+  const [posicionesRotulo, setPosicionesRotulo] = useState<PosicionesRotulo>({});
+  // Para las descargas: las flechas con la posición de rótulo que se VE en
+  // pantalla en este momento (arrastrada o automática), para que la imagen
+  // salga igual a lo que se acomodó.
+  const conRotulosDePantalla = (lista: typeof flechasBarrios) =>
+    mapaRef.current ? posicionesEfectivasRotulo(lista, mapaRef.current, posicionesRotulo) : lista;
   const flechasDentroDe = (feature: any) =>
-    cantidadFlechasBarrio === 0 ? [] : calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: feature });
+    cantidadFlechasBarrio === 0 ? [] : conRotulosDePantalla(calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: feature }));
 
   const puntosIrisp1ParaMostrar = useMemo(() => {
     if (pantallaCompleta) {
@@ -1495,7 +1504,7 @@ export function MapaGeorreferenciacion() {
         colores: paletaCalorDelitos,
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
-        flechas: flechasBarrios,
+        flechas: conRotulosDePantalla(flechasBarrios),
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1533,7 +1542,7 @@ export function MapaGeorreferenciacion() {
         colores: paletaCalorDelitos,
         etiquetas,
         nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
-        flechas: flechasBarrios,
+        flechas: conRotulosDePantalla(flechasBarrios),
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1646,7 +1655,7 @@ export function MapaGeorreferenciacion() {
         etiquetas: [],
         gruposEtiquetas,
         nombreArchivo: 'mapa-general-mepoy',
-        flechas: flechasBarrios,
+        flechas: conRotulosDePantalla(flechasBarrios),
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: 0,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1895,6 +1904,16 @@ export function MapaGeorreferenciacion() {
                   <li key={f.barrio} className="flex justify-between gap-2"><span className="truncate">{f.rango}. {f.barrio}</span><b>{f.casos.toLocaleString('es-CO')}</b></li>
                 ))}
               </ol>
+            )}
+            {cantidadFlechasBarrio > 0 && flechasBarrios.length > 0 && (
+              <p className="mt-2 text-[10.5px] leading-snug text-slate-400">
+                Arrastra cualquier rótulo en el mapa para reubicarlo; la flecha lo sigue y la descarga sale igual.
+              </p>
+            )}
+            {Object.keys(posicionesRotulo).length > 0 && (
+              <button type="button" onClick={() => setPosicionesRotulo({})} className="mt-1.5 w-full rounded-md bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">
+                ↺ Reacomodar automáticamente
+              </button>
             )}
             {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && (
               <p className="mt-2 text-[11px] text-slate-400">Sin barrios con casos ubicables para estos filtros.</p>
@@ -2346,7 +2365,13 @@ export function MapaGeorreferenciacion() {
             )}
             {/* Flechas a los barrios más afectados — encima del calor, solo
                 mientras la capa de Delitos está a la vista. */}
-            {mostrarCalorDelitos && flechasBarrios.length > 0 && <FlechasBarrios flechas={flechasBarrios} />}
+            {mostrarCalorDelitos && flechasBarrios.length > 0 && (
+              <FlechasBarrios
+                flechas={flechasBarrios}
+                posiciones={posicionesRotulo}
+                onMover={(clave, pos) => setPosicionesRotulo((prev) => ({ ...prev, [clave]: pos }))}
+              />
+            )}
 
             {/* Mapa de calor de IRISP1: misma cuadrícula compacta, con su
                 propia escala de 5 clases (azul → morado), completamente

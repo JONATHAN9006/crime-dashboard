@@ -19,6 +19,10 @@ export interface FlechaBarrio {
   casos: number;
   lat: number;
   lon: number;
+  // Dónde va el rótulo (si se fijó, ej. porque el usuario lo arrastró en
+  // pantalla). Sin esto, se ubica solo, hacia afuera del grupo.
+  rotuloLat?: number;
+  rotuloLon?: number;
 }
 
 interface RegistroConBarrio {
@@ -140,8 +144,11 @@ export function dibujarFlechasBarrios(
 
   visibles.forEach(({ f, p }, i) => {
     const d = dirs[i];
-    // Punto del rótulo, empujado hacia adentro si se sale del lienzo.
-    let lx = p.x + d.x * largo, ly = p.y + d.y * largo;
+    // Punto del rótulo: el que se dejó en pantalla (arrastrado o
+    // automático) si viene; si no, hacia afuera. Siempre empujado hacia
+    // adentro si se sale del lienzo.
+    const fijo = f.rotuloLat != null && f.rotuloLon != null ? aPixel(f.rotuloLat, f.rotuloLon) : null;
+    let lx = fijo ? fijo.x : p.x + d.x * largo, ly = fijo ? fijo.y : p.y + d.y * largo;
     ctx.font = `bold ${tamFuente}px Arial`;
     const texto = `${f.rango}. ${f.barrio} — ${f.casos.toLocaleString('es-CO')} caso${f.casos === 1 ? '' : 's'}`;
     const anchoCaja = ctx.measureText(texto).width + tamFuente * 1.2;
