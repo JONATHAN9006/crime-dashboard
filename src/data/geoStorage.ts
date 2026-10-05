@@ -12,6 +12,11 @@ export interface CapaGeografica {
   // qué agrupar los casos filtrados (estación, cuadrante o barrio).
   dimension: 'estacion' | 'cuadrante' | 'barrioHecho' | null;
   colorearPorCasos: boolean;
+  // Capa compartida con los demás equipos a través del servidor central
+  // (ver geoSync.ts). Sin estos campos = la capa solo existe en este equipo.
+  compartida?: boolean;
+  versionCompartida?: string;
+  partesCompartidas?: number;
 }
 
 export async function guardarCapas(capas: CapaGeografica[]) {

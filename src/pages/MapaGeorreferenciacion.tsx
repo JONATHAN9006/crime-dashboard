@@ -3,10 +3,11 @@ import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, 
 import shp from 'shpjs';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Calendar, Maximize2, Download } from 'lucide-react';
+import { AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Calendar, Maximize2, Download, Cloud } from 'lucide-react';
 import clsx from 'clsx';
 import { Card, PageHeader } from '../components/ui/Card';
 import { guardarCapas, cargarCapas, limpiarCapas, type CapaGeografica } from '../data/geoStorage';
+import { sincronizarCapasDesdeServidor, subirCapaCompartida, subirFichaCapa, borrarCapaCompartida, hayServidorParaCapas } from '../data/geoSync';
 import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
@@ -888,8 +889,41 @@ export function MapaGeorreferenciacion() {
       setCapas(guardadas);
       const guardadasPuntos = await cargarCapasPuntos();
       setCapasPuntos(guardadasPuntos);
+      // Después de mostrar lo que ya había en este equipo, se traen las
+      // capas compartidas desde el servidor central (las que cargaron otros
+      // equipos) — ver geoSync.ts.
+      try {
+        setEstadoCompartir('Buscando capas compartidas…');
+        const sincronizadas = await sincronizarCapasDesdeServidor();
+        if (sincronizadas) setCapas(sincronizadas);
+        setEstadoCompartir(null);
+      } catch (e) {
+        setEstadoCompartir(`No se pudieron traer las capas compartidas: ${e instanceof Error ? e.message : 'error desconocido'}`);
+      }
     })();
   }, []);
+
+  // ── Capas compartidas con los demás equipos ────────────────────────────
+  const [estadoCompartir, setEstadoCompartir] = useState<string | null>(null);
+  const [compartiendo, setCompartiendo] = useState<string | null>(null);
+  async function compartirCapa(capa: CapaGeografica) {
+    setCompartiendo(capa.id);
+    setEstadoCompartir(`Compartiendo "${capa.nombre}" con los demás equipos…`);
+    try {
+      const version = await subirCapaCompartida(capa);
+      const partes = Math.max(1, Math.ceil(JSON.stringify(capa.geojson).length / 2_500_000));
+      setCapas((prev) => {
+        const nuevas = prev.map((c) => (c.id === capa.id ? { ...c, compartida: true, versionCompartida: version, partesCompartidas: partes } : c));
+        guardarCapas(nuevas);
+        return nuevas;
+      });
+      setEstadoCompartir(`"${capa.nombre}" ya está disponible para todos los equipos.`);
+    } catch (e) {
+      setEstadoCompartir(`No se pudo compartir "${capa.nombre}": ${e instanceof Error ? e.message : 'error desconocido'}. La capa sigue disponible en este equipo.`);
+    } finally {
+      setCompartiendo(null);
+    }
+  }
 
   async function persistirPuntos(nuevas: CapaPuntos[]) {
     setCapasPuntos(nuevas);
@@ -958,6 +992,8 @@ export function MapaGeorreferenciacion() {
       };
       await persistir([...capas, nueva]);
       setCapaExpandida(nueva.id);
+      // Toda capa nueva se comparte sola con los demás equipos.
+      if (hayServidorParaCapas()) compartirCapa(nueva);
     } catch (e) {
       setError('No se pudo procesar el archivo. Verifica que el .zip contenga los 4 componentes del mismo shapefile (.shp, .shx, .dbf, .prj) sin carpetas dentro del zip.');
     } finally {
@@ -967,12 +1003,30 @@ export function MapaGeorreferenciacion() {
   }
 
   async function quitarCapa(id: string) {
-    if (!confirm('¿Quitar esta capa geográfica?')) return;
+    const capa = capas.find((c) => c.id === id);
+    if (!confirm(capa?.compartida ? '¿Quitar esta capa geográfica? Está compartida: se quitará también de los demás equipos.' : '¿Quitar esta capa geográfica?')) return;
+    if (capa?.compartida) {
+      try {
+        await borrarCapaCompartida(capa.id, capa.partesCompartidas ?? 1);
+      } catch (e) {
+        setEstadoCompartir(`No se pudo quitar la capa del servidor: ${e instanceof Error ? e.message : 'error desconocido'}. No se quitó.`);
+        return;
+      }
+    }
     await persistir(capas.filter((c) => c.id !== id));
   }
 
   async function actualizarCapa(id: string, cambios: Partial<CapaGeografica>) {
-    await persistir(capas.map((c) => (c.id === id ? { ...c, ...cambios } : c)));
+    const nuevas = capas.map((c) => (c.id === id ? { ...c, ...cambios } : c));
+    await persistir(nuevas);
+    // Si cambia algo de la configuración (no la visibilidad, que es de cada
+    // equipo) en una capa compartida, se actualiza su ficha en el servidor.
+    const capa = nuevas.find((c) => c.id === id);
+    const tocaFicha = Object.keys(cambios).some((k) => ['nombre', 'campoUnion', 'dimension', 'colorearPorCasos'].includes(k));
+    if (capa?.compartida && tocaFicha && capa.versionCompartida) {
+      subirFichaCapa(capa, capa.partesCompartidas ?? 1, capa.versionCompartida).catch((e) =>
+        setEstadoCompartir(`No se pudo actualizar la capa compartida: ${e instanceof Error ? e.message : 'error desconocido'}`));
+    }
   }
 
   async function limpiarTodo() {
@@ -1812,6 +1866,9 @@ export function MapaGeorreferenciacion() {
             </div>
           </div>
 
+          {estadoCompartir && (
+            <p className="mt-3 rounded-md bg-white/10 px-2 py-1.5 text-[11px] leading-snug text-slate-200">{estadoCompartir}</p>
+          )}
           {capas.length > 0 && (
             <div className="mt-4 border-t border-white/10 pt-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Capas cargadas</p>
@@ -1825,6 +1882,21 @@ export function MapaGeorreferenciacion() {
                           <input type="checkbox" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
                           <span className="truncate">{capa.nombre}</span>
                         </label>
+                        {/* Compartida = la ven todos los equipos (link interno y jefe).
+                            Si no, botón para compartirla (capas cargadas antes de que existiera esto). */}
+                        {capa.compartida ? (
+                          <span title="Compartida: la ven todos los equipos" className="shrink-0 text-emerald-300"><Cloud size={13} /></span>
+                        ) : hayServidorParaCapas() ? (
+                          <button
+                            type="button"
+                            disabled={compartiendo != null}
+                            onClick={() => compartirCapa(capa)}
+                            title="Solo está en este equipo — clic para compartirla con los demás"
+                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 ring-1 ring-amber-300/50 hover:bg-white/10 disabled:opacity-50"
+                          >
+                            {compartiendo === capa.id ? 'Subiendo…' : 'Compartir'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => quitarCapa(capa.id)}

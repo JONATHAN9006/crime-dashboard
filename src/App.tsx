@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { sincronizarCapasDesdeServidor } from './data/geoSync';
 import { DataProvider, useData } from './context/DataContext';
 import { Sidebar, type PaginaId } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
@@ -90,6 +91,12 @@ function Shell() {
 export default function App() {
   const modoAcceso = obtenerModoAcceso();
   const accesoAnalistaIA = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].analistaIA;
+  // Capas geográficas compartidas (shapefiles que cargaron otros equipos):
+  // se traen al abrir el dashboard, en segundo plano, para que el mapa y
+  // Microgerencia las tengan sin que nadie tenga que volver a subirlas.
+  useEffect(() => {
+    sincronizarCapasDesdeServidor().catch((e) => console.warn('[Capas compartidas] No se pudo sincronizar al abrir:', e));
+  }, []);
   return (
     <DataProvider>
       <Shell />
