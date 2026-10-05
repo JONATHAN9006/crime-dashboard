@@ -6,7 +6,7 @@ import { useKpis } from '../hooks/useKpis';
 import { useVentanaComparativa, useComparativoCategoria } from '../hooks/useComparativoHomologo';
 import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
-import { IconoEscudo, KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
+import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
 import { aporteAlCambioPct, contarPor, maximoDe } from '../analitica/cambio';
 import { franjaDeTresHoras } from '../analitica/lectura';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
@@ -178,8 +178,15 @@ export function ResumenEjecutivo() {
     actual: comparativoTodosLosDelitos.reduce((a, f) => a + f.actual, 0),
     anterior: comparativoTodosLosDelitos.reduce((a, f) => a + f.anterior, 0),
   }), [comparativoTodosLosDelitos]);
-  const mayorAumento = useMemo(() => [...comparativoTodosLosDelitos].filter((f) => f.diferencia > 0).sort((a, b) => b.diferencia - a.diferencia)[0] ?? null, [comparativoTodosLosDelitos]);
-  const mayorDisminucion = useMemo(() => [...comparativoTodosLosDelitos].filter((f) => f.diferencia < 0).sort((a, b) => a.diferencia - b.diferencia)[0] ?? null, [comparativoTodosLosDelitos]);
+  // Mayor aumento / mayor disminución = el delito con MÁS CASOS de
+  // diferencia (no el de mayor %): un delito que pasa de 1 a 0 casos baja
+  // −100 % pero solo un caso, y no es el que más pesa en el total. Se
+  // revisan TODOS los delitos del comparativo (no solo los que deja ver el
+  // botón Aumento/Disminución). Empate en casos → el de mayor variación %.
+  const mayorAumento = useMemo(() => [...comparativoTodosLosDelitos].filter((f) => f.diferencia > 0)
+    .sort((a, b) => b.diferencia - a.diferencia || (b.variacionPct ?? 0) - (a.variacionPct ?? 0))[0] ?? null, [comparativoTodosLosDelitos]);
+  const mayorDisminucion = useMemo(() => [...comparativoTodosLosDelitos].filter((f) => f.diferencia < 0)
+    .sort((a, b) => a.diferencia - b.diferencia || (a.variacionPct ?? 0) - (b.variacionPct ?? 0))[0] ?? null, [comparativoTodosLosDelitos]);
   const totalVigencia = kpisVigenciaActual.totalCasos;
   const cantidad = (r: CrimeRecord) => r.cantidad || 1;
   const horarioCritico = useMemo(() => {
@@ -233,7 +240,6 @@ export function ResumenEjecutivo() {
       {/* ── Encabezado ejecutivo ─────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <IconoEscudo size={44} />
           <div>
             <h1 className="text-[24px] font-bold leading-tight" style={{ color: AZUL_TINTA }}>Dashboard de Análisis Delictivo — Resumen Ejecutivo</h1>
             <p className="text-[14px] text-slate-500">Periodo: {periodoTexto} &nbsp;|&nbsp; Comparativo: mismo periodo {ventana.anioAnterior}</p>

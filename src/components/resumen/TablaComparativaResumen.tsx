@@ -67,7 +67,9 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
         <tbody>
           {filas.map((f) => {
             const aporte = f.aportePct ?? 0;
-            const colorBarra = Math.abs(aporte) < 0.0001 ? 'bg-slate-300' : desfavorable(aporte) ? 'bg-[#ef3e55]' : 'bg-[#25b36a]';
+            // Barra de aporte en azul claro en las dos tablas (a pedido); el
+            // signo lo sigue indicando el número (negativo = el delito bajó).
+            const colorBarra = Math.abs(aporte) < 0.0001 ? 'bg-slate-300' : 'bg-sky-400';
             return (
               <tr key={f.key}>
                 <td className={`truncate border-b border-slate-100 px-3 py-[5px] text-slate-800 ${alinearNombre === 'center' ? 'text-center' : 'text-left'}`} title={f.key}>{f.key}</td>

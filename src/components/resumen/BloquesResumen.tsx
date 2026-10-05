@@ -8,16 +8,6 @@ import { formatDecimal, formatFecha, formatFechaHora, formatNumero } from '../..
 
 export const AZUL_TINTA = '#10233f';
 
-export function IconoEscudo({ size = 40 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden>
-      <path d="M20 2 L35 7 V18 C35 28 28.5 35 20 38 C11.5 35 5 28 5 18 V7 Z" fill="#1d3a6b" />
-      <path d="M20 5.5 L32 9.5 V18.3 C32 26.4 26.9 32.2 20 34.8 C13.1 32.2 8 26.4 8 18.3 V9.5 Z" fill="none" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1" />
-      <path d="M20 11 L22.4 17.3 L29 17.5 L23.8 21.6 L25.6 28 L20 24.3 L14.4 28 L16.2 21.6 L11 17.5 L17.6 17.3 Z" fill="#ffffff" />
-    </svg>
-  );
-}
-
 export function KpiResumen({ titulo, valor, detalle, nota, icono, fondoIcono, fondo = 'bg-white', colorDetalle = 'text-slate-500' }: {
   titulo: string;
   valor: string;
