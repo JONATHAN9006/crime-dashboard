@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Scale, Upload, RefreshCcw, CloudUpload } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { obtenerConfig } from '../config';
+import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { leerMatrizComparendos, type RegistroComparendo } from '../data/rnmcParser';
 import { guardarComparendos, cargarComparendos, descargarComparendosSupabase, subirComparendosSupabase } from '../data/rnmcStorage';
 import { sincronizarCapaRnmcDesdeComparendos } from '../data/puntosStorage';
@@ -171,7 +172,7 @@ export function Rnmc() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [modoActivo, setModoActivo] = useState<'todos' | 'H. Personas' | 'L. Personales' | string>('todos');
 
-  const { backendUrl, supabaseAnonKey, updatePassword } = obtenerConfig();
+  const { backendUrl, supabaseAnonKey } = obtenerConfig();
   const sincronizacionDisponible = !!backendUrl && !!supabaseAnonKey;
 
   useEffect(() => {
@@ -214,9 +215,12 @@ export function Rnmc() {
       if (sincronizacionDisponible) {
         setSincronizando(true);
         try {
-          await subirComparendosSupabase(FUNCION_SUBIR_REGISTROS, updatePassword || 'sin-clave', leidos, 'No identificado');
+          const clave = pedirClaveSesion('subir los comparendos RNMC');
+          if (!clave) throw new Error(MENSAJE_SIN_CLAVE);
+          await subirComparendosSupabase(FUNCION_SUBIR_REGISTROS, clave, leidos, 'No identificado');
           setAviso('Sincronizado con el servidor central — todas las personas verán esta actualización.');
         } catch (e) {
+          revisarErrorDeClave(e);
           setAviso(`Los datos quedaron guardados en este navegador, pero no se pudo sincronizar con el servidor: ${e instanceof Error ? e.message : 'error desconocido'}`);
         } finally {
           setSincronizando(false);

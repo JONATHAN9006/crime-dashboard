@@ -5,6 +5,7 @@ import type { UpdateMode, UpdateSummary } from '../../types/crime';
 import { formatFechaHora } from '../../utils/aggregations';
 import { obtenerConfig } from '../../config';
 import { EliminarInformacion } from './EliminarInformacion';
+import { claveGuardada, recordarClaveSesion, revisarErrorDeClave } from '../../utils/claveSesion';
 
 type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number; requiereConfirmacionRepetidos?: boolean; coincidenciasRepetidas?: number; aniosRepetidos?: number[] }) | { error: string };
 
@@ -14,7 +15,8 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
   const [tipoDataset, setTipoDataset] = useState<'delictividad' | 'operatividad'>('delictividad');
   const [modo, setModo] = useState<UpdateMode>('agregar');
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [token, setToken] = useState('');
+  // Precargada con la clave de esta sesión (si ya se escribió en otro módulo).
+  const [token, setToken] = useState(() => claveGuardada() ?? '');
   const [usuario, setUsuario] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
@@ -44,6 +46,11 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
     const res = await cargarArchivo(archivo, modo, token || undefined, usuario);
     setResultado(res);
     setProcesando(false);
+    // Clave aceptada → se recuerda para esta pestaña (RNMC, IRISP1, MACRI y
+    // capas del mapa ya no la vuelven a pedir); rechazada → se olvida.
+    const textoError = 'error' in res ? res.error : (res as { errorSincronizacion?: string }).errorSincronizacion;
+    if (textoError) revisarErrorDeClave(new Error(textoError));
+    else if (token) recordarClaveSesion(token);
   }
 
   function reiniciar() {

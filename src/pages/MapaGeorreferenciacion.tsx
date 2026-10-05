@@ -12,6 +12,7 @@ import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
+import { MultiSelectMapa } from '../components/mapa/MultiSelectMapa';
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
 import { calcularTopBarrios, normalizarNombre } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
@@ -1122,11 +1123,19 @@ export function MapaGeorreferenciacion() {
       // lista de exclusión vieja se autocorrija sin depender de volver a
       // subir el archivo.
       const DELITOS_EXCLUIDOS_MAPA = new Set(DELITOS_EXCLUIDOS_CANONICOS.map((d) => d.toUpperCase()));
+      const caiPermitidosNorm = new Set(filters.cai.map((c) => normalizar(formatoCaiCanonico(c))));
 
       const puntosFiltrados = capa.puntos.filter((p) => {
         if (esExacto && DELITOS_EXCLUIDOS_MAPA.has((p.delitoCorto ?? '').toUpperCase())) return false;
         if (esExacto && capa.colDelito && delitosCortosAMostrar && !delitosCortosAMostrar.has(p.delitoCorto ?? '')) return false;
         if (esExacto && capa.colDependencia && filters.estacion.length > 0 && !filters.estacion.includes(p.estacionCorta ?? '')) return false;
+        // CAI, Zona de Atención y Barrio (selección múltiple): también
+        // recortan los puntos de Delitos, con el mismo vocabulario que los
+        // registros. Un punto guardado antes de que su ficha trajera BARRIO
+        // o ZONA no se descarta: se vuelve a generar al recargar los datos.
+        if (esExacto && filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
+        if (esExacto && filters.cuadrante.length > 0 && 'ZONA' in p.fila && !filters.cuadrante.includes(String(p.fila.ZONA ?? ''))) return false;
+        if (esExacto && filters.barrioHecho.length > 0 && 'BARRIO' in p.fila && !filters.barrioHecho.includes(String(p.fila.BARRIO ?? ''))) return false;
         if (!esExacto && equivalentesDifuso && capa.filtroDelitoPropio.length === 0 && !equivalentesDifuso.has(String(p.fila[capa.colDelito!] ?? ''))) return false;
         if (!esExacto && equivalentesEstacionDifuso && !equivalentesEstacionDifuso.has(String(p.fila[capa.colDependencia!] ?? ''))) return false;
         if (capa.colEstado && capa.filtroEstado.length > 0 && !capa.filtroEstado.includes(String(p.fila[capa.colEstado] ?? ''))) return false;
@@ -1199,7 +1208,7 @@ export function MapaGeorreferenciacion() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.delito, filters.estacion, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
+  }, [capasPuntos, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -1257,10 +1266,11 @@ export function MapaGeorreferenciacion() {
   }, [coordenadaManual, capas, camposUnionAutoDetectados, opcionesFiltroMapa, capasPuntos]);
 
   const puntosDelBarrioSeleccionado = useMemo(() => {
-    if (filtrosMapa.barrioHecho.length !== 1) return [];
-    const barrioNorm = normalizar(filtrosMapa.barrioHecho[0]);
+    // Con uno o VARIOS barrios elegidos, el mapa se encuadra en sus casos.
+    if (filtrosMapa.barrioHecho.length === 0) return [];
+    const barriosNorm = new Set(filtrosMapa.barrioHecho.map((b) => normalizar(b)));
     const todosLosPuntos = capasPuntosProcesadas.filter(({ capa }) => capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados);
-    return todosLosPuntos.filter((p) => Object.values(p.fila).some((v) => normalizar(String(v ?? '')) === barrioNorm));
+    return todosLosPuntos.filter((p) => Object.values(p.fila).some((v) => barriosNorm.has(normalizar(String(v ?? '')))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtrosMapa.barrioHecho.join(','), capasPuntosProcesadas]);
 
@@ -1827,17 +1837,17 @@ export function MapaGeorreferenciacion() {
             {([
               ['delito', 'Delito'], ['cuadrante', 'Zona de Atención'], ['estacion', 'Estación'], ['cai', 'CAI'], ['barrioHecho', 'Barrio'],
             ] as const).map(([clave, etiqueta]) => (
-              <div key={clave}>
-                <label className="mb-1 block text-xs font-semibold text-slate-300">{etiqueta}</label>
-                <select
-                  value={filtrosMapa[clave][0] ?? ''}
-                  onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, [clave]: e.target.value ? [e.target.value] : [] }))}
-                  className="w-full rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-sm text-white"
-                >
-                  <option value="" className="text-slate-800">Todos</option>
-                  {opcionesFiltroMapa[clave].map((v) => <option key={v} value={v} className="text-slate-800">{v}</option>)}
-                </select>
-              </div>
+              // Selección múltiple (a pedido): varios delitos, barrios, CAI…
+              // a la vez. Vacío = Todos. El filtrado de abajo ya trabajaba
+              // con listas, así que el mapa, el calor y las flechas de
+              // barrios respetan la selección completa.
+              <MultiSelectMapa
+                key={clave}
+                etiqueta={etiqueta}
+                opciones={opcionesFiltroMapa[clave]}
+                seleccion={filtrosMapa[clave]}
+                onChange={(valores) => setFiltrosMapa((prev) => ({ ...prev, [clave]: valores }))}
+              />
             ))}
           </div>
 

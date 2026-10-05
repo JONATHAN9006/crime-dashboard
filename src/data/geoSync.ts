@@ -1,4 +1,5 @@
 import { obtenerConfig } from '../config';
+import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { obtenerCliente } from './supabaseApi';
 import { cargarCapas, guardarCapas, type CapaGeografica } from './geoStorage';
 
@@ -39,8 +40,8 @@ export interface MetaCapaCompartida {
 }
 
 function servidor() {
-  const { backendUrl, supabaseAnonKey, updatePassword } = obtenerConfig();
-  return backendUrl && supabaseAnonKey ? { url: backendUrl, key: supabaseAnonKey, token: updatePassword || 'sin-clave' } : null;
+  const { backendUrl, supabaseAnonKey } = obtenerConfig();
+  return backendUrl && supabaseAnonKey ? { url: backendUrl, key: supabaseAnonKey } : null;
 }
 
 export function hayServidorParaCapas(): boolean {
@@ -50,13 +51,19 @@ export function hayServidorParaCapas(): boolean {
 async function enviar(cuerpo: Record<string, unknown>) {
   const s = servidor();
   if (!s) throw new Error('No hay servidor central configurado.');
+  const token = pedirClaveSesion('compartir capas del mapa');
+  if (!token) throw new Error(MENSAJE_SIN_CLAVE);
   const resp = await fetch(FUNCION, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: s.token, usuario: 'Mapa', dataset: DATASET, registros: [], ...cuerpo }),
+    body: JSON.stringify({ token, usuario: 'Mapa', dataset: DATASET, registros: [], ...cuerpo }),
   });
   const r = await resp.json().catch(() => null);
-  if (!resp.ok || !r || !r.ok) throw new Error((r && r.error) || `El servidor respondió con error ${resp.status}.`);
+  if (!resp.ok || !r || !r.ok) {
+    const error = new Error((r && r.error) || `El servidor respondió con error ${resp.status}.`);
+    revisarErrorDeClave(error);
+    throw error;
+  }
 }
 
 /** Sube (o vuelve a subir) una capa completa: GeoJSON en partes + su ficha. */

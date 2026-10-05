@@ -12,6 +12,7 @@ import { DonutChart } from '../components/charts/DonutChart';
 import { MultiSelect } from '../components/filters/MultiSelect';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
 import { formatNumero, formatDecimal, MESES_NOMBRES } from '../utils/aggregations';
+import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 
 // ──────────────────────────────────────────────────────────────────────────
 // IRISP1 — Instrumento de Recolección de Información (Policía Nacional).
@@ -532,7 +533,7 @@ export function Irisp1() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [filtros, setFiltros] = useState<FiltrosIrisp>(FILTROS_VACIOS);
 
-  const { backendUrl, supabaseAnonKey, updatePassword } = obtenerConfig();
+  const { backendUrl, supabaseAnonKey } = obtenerConfig();
   const sincronizacionDisponible = !!backendUrl && !!supabaseAnonKey;
 
   useEffect(() => {
@@ -577,9 +578,12 @@ export function Irisp1() {
       if (sincronizacionDisponible) {
         setSincronizando(true);
         try {
-          await subirIrispSupabase(FUNCION_SUBIR_REGISTROS, updatePassword || 'sin-clave', leidos, aniosReemplazados, 'No identificado');
+          const clave = pedirClaveSesion('subir la matriz IRISP1');
+          if (!clave) throw new Error(MENSAJE_SIN_CLAVE);
+          await subirIrispSupabase(FUNCION_SUBIR_REGISTROS, clave, leidos, aniosReemplazados, 'No identificado');
           setAviso(`${resumen} Sincronizado con el servidor central.`);
         } catch (e) {
+          revisarErrorDeClave(e);
           setAviso(`${resumen} Quedó guardado en este navegador, pero no se pudo sincronizar con el servidor: ${e instanceof Error ? e.message : 'error desconocido'}`);
         } finally {
           setSincronizando(false);

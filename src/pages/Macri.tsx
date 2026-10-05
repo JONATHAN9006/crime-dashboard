@@ -10,6 +10,7 @@ import {
 } from '../data/macriStorage';
 import { sincronizarCapaMacriDesdeObjetivos } from '../data/puntosStorage';
 import { formatNumero, formatDecimal } from '../utils/aggregations';
+import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 
 // ──────────────────────────────────────────────────────────────────────────
 // MACRI — seguimiento de objetivos GIOC. Panel principal: UNA tabla, con
@@ -144,7 +145,7 @@ export function Macri() {
   const [filtroAlerta, setFiltroAlerta] = useState<'vencidos' | 'porVencer' | 'cumplidos' | 'noCumplidos' | 'sinEvaluar' | 'prorroga' | null>(null);
   const [busqueda, setBusqueda] = useState('');
 
-  const { backendUrl, supabaseAnonKey, updatePassword } = obtenerConfig();
+  const { backendUrl, supabaseAnonKey } = obtenerConfig();
   const servidor = !!backendUrl && !!supabaseAnonKey;
 
   useEffect(() => {
@@ -192,9 +193,12 @@ export function Macri() {
       setAviso(`${nuevos.length} objetivo(s) cargados.`);
       if (servidor) {
         try {
-          await subirMacriSupabase(FUNCION_SUBIR_REGISTROS, updatePassword || 'sin-clave', nuevos, res, 'No identificado');
+          const clave = pedirClaveSesion('subir la matriz GIOC');
+          if (!clave) throw new Error(MENSAJE_SIN_CLAVE);
+          await subirMacriSupabase(FUNCION_SUBIR_REGISTROS, clave, nuevos, res, 'No identificado');
           setAviso(`${nuevos.length} objetivo(s) cargados y sincronizados con el servidor central.`);
         } catch (e) {
+          revisarErrorDeClave(e);
           setAviso(`${nuevos.length} objetivo(s) cargados en este navegador, pero no se pudo sincronizar: ${e instanceof Error ? e.message : 'error desconocido'}`);
         }
       }
@@ -226,9 +230,12 @@ export function Macri() {
       setBorrador({});
       if (servidor) {
         try {
-          await subirSeguimientoSupabase(FUNCION_SUBIR_REGISTROS, updatePassword || 'sin-clave', cambios, 'Dashboard');
+          const clave = pedirClaveSesion('guardar el seguimiento');
+          if (!clave) throw new Error(MENSAJE_SIN_CLAVE);
+          await subirSeguimientoSupabase(FUNCION_SUBIR_REGISTROS, clave, cambios, 'Dashboard');
           setAviso(`${cambios.length} cambio(s) guardados y sincronizados — todos verán el seguimiento actualizado.`);
         } catch (e) {
+          revisarErrorDeClave(e);
           setAviso(`${cambios.length} cambio(s) guardados en este navegador, pero no se pudieron sincronizar: ${e instanceof Error ? e.message : 'error desconocido'}`);
         }
       } else {

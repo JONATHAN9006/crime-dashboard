@@ -12,7 +12,7 @@ import { maxDe } from '../../utils/mathSeguro';
 // DIF/% con fondo rojo cuando el comportamiento es desfavorable (aumento) y
 // verde cuando es favorable (disminución), igual que en los reportes de Excel.
 export function ComparativoCategoriaTable({
-  data, etiqueta, anioActual, anioAnterior, onRowClick, limite = 10, invertirColores = false,
+  data, etiqueta, anioActual, anioAnterior, onRowClick, limite = 10, invertirColores = false, etiquetaUltimaColumna = 'APORTE %',
 }: {
   data: FilaComparativaCategoria[];
   etiqueta: string;
@@ -24,6 +24,11 @@ export function ComparativoCategoriaTable({
   // incautaciones...) es al revés — más = verde (positivo), menos = rojo
   // (vamos perdiendo) — a pedido explícito. true invierte esa relación.
   invertirColores?: boolean;
+  // Rótulo de la última columna. Su cálculo es casos del año actual ÷ total
+  // del año actual = PARTICIPACIÓN; en Delictividad se rotula así para no
+  // confundirla con el aporte al cambio (ver analitica/cambio.ts). Las
+  // demás tablas conservan su rótulo de siempre.
+  etiquetaUltimaColumna?: string;
 }) {
   const filas = data.slice(0, limite);
   const totalAnterior = filas.reduce((a, f) => a + f.anterior, 0);
@@ -62,7 +67,7 @@ export function ComparativoCategoriaTable({
             <th className="bg-brand-green px-2 py-2 text-center text-[13px] font-semibold text-white">{anioActual}</th>
             <th className="bg-brand-green px-2 py-2 text-center text-[13px] font-semibold text-white">DIF</th>
             <th className="bg-brand-green px-2 py-2 text-center text-[13px] font-semibold text-white">%</th>
-            <th className="rounded-tr-lg bg-brand-green px-2 py-2 text-center text-[13px] font-semibold text-white">APORTE %</th>
+            <th className="rounded-tr-lg bg-brand-green px-2 py-2 text-center text-[13px] font-semibold text-white">{etiquetaUltimaColumna}</th>
           </tr>
         </thead>
         <tbody>

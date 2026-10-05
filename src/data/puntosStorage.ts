@@ -319,6 +319,7 @@ async function actualizarCapaDeFormaSegura(tipo: TipoCapaPuntos, construirNueva:
 // coordenadas, no hace nada (deja lo que ya hubiera, sea lo que sea).
 export async function sincronizarCapaDelitosDesdeRecords(records: {
   lat: number | null; lon: number | null; delito: string; estacion: string; fecha: Date | null; cai: string;
+  barrioHecho?: string; cuadrante?: string;
 }[]): Promise<void> {
   // OJO: se usa una comprobación explícita de tipo/finitud, NO "!== null".
   // Los registros guardados en el navegador ANTES de que existiera este
@@ -339,7 +340,10 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
     // por delito/estación de esta capa usa delitoCorto/estacionCorta
     // directamente (ver capasPuntosProcesadas en MapaGeorreferenciacion),
     // nunca "fila", así que no hace falta más que esto.
-    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai },
+    // BARRIO y ZONA (cuadrante) se agregaron para que los filtros de
+    // Barrio y Zona de Atención del mapa también recorten el mapa de calor
+    // (antes solo lo hacían Delito, Estación y fecha).
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai, BARRIO: r.barrioHecho ?? '', ZONA: r.cuadrante ?? '' },
     delitoCorto: r.delito,
     estacionCorta: r.estacion,
     caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,

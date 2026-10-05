@@ -205,6 +205,11 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
   const [vista, setVista] = useState<Vista>('general');
   const [seleccionados, setSeleccionados] = useState<Map<string, NodoMicrogerencia>>(new Map());
   const [generandoPdf, setGenerandoPdf] = useState(false);
+  // Antes se llamaban DESPUÉS del "if (!datos) return" de abajo: si el modal
+  // se abría antes de que cargaran los datos, React cambiaba el número de
+  // hooks entre renders y la pantalla se caía.
+  const datosOperatividad = useMicrogerenciaOperatividad();
+  const { filteredOperatividadRecords } = useData();
 
   if (!datos) {
     return createPortal(
@@ -289,8 +294,8 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
     return null;
   }
 
-  const datosOperatividad = useMicrogerenciaOperatividad();
-  const { filteredOperatividadRecords } = useData();
+  // (datosOperatividad y filteredOperatividadRecords se leen arriba, antes
+  // del return temprano: los hooks deben llamarse siempre en el mismo orden.)
 
   // Detalle propio de Operatividad que NO cabe en la tarjeta estándar de
   // dibujarTarjetaNodo (pensada para delito/estación) — a pedido

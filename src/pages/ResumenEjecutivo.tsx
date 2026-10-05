@@ -11,6 +11,9 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { DataStatusPanel } from '../components/layout/Header';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
+import { LecturaEjecutiva } from '../components/resumen/LecturaEjecutiva';
+import { ExplicacionCambio } from '../components/resumen/ExplicacionCambio';
+import { construirLecturaEjecutiva } from '../analitica/lectura';
 
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
@@ -49,7 +52,7 @@ function FiltroTendenciaBoton({ activo, color, icono, etiqueta, onClick }: {
 }
 
 export function ResumenEjecutivo() {
-  const { records, filteredRecords, recordsBase, filters, meta, filteredOperatividadRecords, operatividadRecords, operatividadMeta, periodos } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, operatividadRecords, periodos } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
@@ -81,6 +84,17 @@ export function ResumenEjecutivo() {
   // pintar la tabla (ver "filasComparativoMostradas") como para clasificar
   // qué delitos califican en cada checkbox.
   const comparativoTodosLosDelitos = useComparativoCategoria(ventana, (r) => r.delito);
+
+  // Lectura ejecutiva + descomposición del cambio (modelo central en
+  // src/analitica/): mismas ventanas homólogas que el comparativo de arriba.
+  const lectura = useMemo(
+    () => construirLecturaEjecutiva({
+      recsActual: ventana.recsActual, recsAnterior: ventana.recsAnterior,
+      anioActual: ventana.anioActual, anioAnterior: ventana.anioAnterior,
+      inicio: ventana.actualInicio, fin: ventana.actualFin,
+    }),
+    [ventana],
+  );
 
   // Conjunto de delitos que quedan seleccionados según los checkboxes
   // activos — usa el mismo cálculo de DIF que ya muestra la tabla
@@ -221,6 +235,7 @@ export function ResumenEjecutivo() {
               anioAnterior={ventana.anioAnterior}
               anioActual={ventana.anioActual}
               limite={filasComparativoMostradas.length}
+              etiquetaUltimaColumna="PARTICIPACIÓN %"
             />
           ) : (
             <p className="py-8 text-center text-sm text-slate-400">
@@ -282,6 +297,16 @@ export function ResumenEjecutivo() {
           )}
         </Card>
       </div>
+
+      {/* BLOQUE 1b — Lectura ejecutiva y "¿Qué está explicando el cambio?":
+          responden en palabras qué pasó, cuánto, qué delitos lo explican,
+          dónde y cuándo. Debajo de los comparativos, sin tocarlos. */}
+      {ventana.disponible && (
+        <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-5">
+          <LecturaEjecutiva frases={lectura.frases} className="lg:col-span-2" />
+          <ExplicacionCambio cambio={lectura.cambio} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} className="lg:col-span-3" />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -350,35 +375,6 @@ export function ResumenEjecutivo() {
         </Card>
       </div>
 
-      {/* Resumen de Operatividad — mismo espíritu que el de delitos, tabla
-          simple con el total por categoría (capturas, incautaciones,
-          recuperaciones), respetando los mismos filtros generales. */}
-      {operatividadMeta && (
-        <Card title="Operatividad — resumen general" subtitle="Capturas, incautaciones y recuperaciones, con los filtros actuales" descargable="resumen-operatividad-inicio">
-          {(() => {
-            const porCategoria = agruparPor(filteredOperatividadRecords, (r) => r.categoria || 'Sin categoría');
-            const total = filteredOperatividadRecords.length;
-            return porCategoria.length > 0 ? (
-              <table className="w-full text-sm">
-                <tbody>
-                  <tr className="bg-slate-50/60">
-                    <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">Total operatividad</td>
-                    <td className="rounded-r-lg py-2 pr-3 text-right text-base font-bold text-slate-800">{formatNumero(total)}</td>
-                  </tr>
-                  {porCategoria.map((c, i) => (
-                    <tr key={c.key} className={i % 2 !== 0 ? 'bg-slate-50/60' : ''}>
-                      <td className="rounded-l-lg py-2 pl-3 font-medium text-slate-600">{c.key}</td>
-                      <td className="rounded-r-lg py-2 pr-3 text-right text-base font-bold text-slate-800">{formatNumero(c.casos)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="py-4 text-center text-sm text-slate-400">Sin registros de operatividad para el filtro actual.</p>
-            );
-          })()}
-        </Card>
-      )}
     </div>
   );
 }
