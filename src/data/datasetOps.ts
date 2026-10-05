@@ -321,3 +321,69 @@ export function derivarCaiDesdeCuadrante(records: CrimeRecord[]): CrimeRecord[] 
   }
   return resultado;
 }
+
+// ── Detección de información repetida (subir dos veces el mismo periodo) ──
+// La identidad normal (__id) depende del formato del archivo: si el mismo
+// año se sube una vez como descarga DB2 y otra como Matriz Base (o con una
+// columna distinta), los textos crudos cambian y el mismo caso queda con
+// dos identidades — se suma dos veces sin que la fusión lo note. Esta
+// "firma de contenido" usa solo campos YA NORMALIZADOS del caso (fecha,
+// hora, delito, barrio, edad, género, cantidad), que no dependen del
+// formato, para detectar ese caso y AVISAR antes de sumar.
+function normTexto(v: unknown): string {
+  return String(v ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+export function firmaContenido(r: CrimeRecord): string {
+  const f = r.fecha ? `${r.fecha.getFullYear()}-${r.fecha.getMonth() + 1}-${r.fecha.getDate()}` : r.fechaTexto;
+  return [f, r.hora ?? '', normTexto(r.delito), normTexto(r.barrioHecho), r.edad ?? '', normTexto(r.genero), r.cantidad].join('|');
+}
+
+/** Cuántos registros NUEVOS del archivo (no reconocidos por identidad) ya existen por contenido. */
+export function detectarRepetidosPorContenido(existentes: CrimeRecord[], nuevos: CrimeRecord[]): { coincidencias: number; nuevosSinIdentidad: number; anios: number[] } {
+  const ids = new Set(existentes.map((r) => r.__id));
+  const sinIdentidad = nuevos.filter((r) => !ids.has(r.__id));
+  const aniosArchivo = new Set(sinIdentidad.map((r) => r.anio).filter((a): a is number => a != null));
+  // Conteo multiconjunto: si ya hay 2 casos con la misma firma, solo 2
+  // registros del archivo cuentan como "repetidos" (no todos los iguales).
+  const disponibles = new Map<string, number>();
+  for (const r of existentes) {
+    if (r.anio == null || !aniosArchivo.has(r.anio)) continue;
+    const k = firmaContenido(r);
+    disponibles.set(k, (disponibles.get(k) || 0) + 1);
+  }
+  let coincidencias = 0;
+  const anios = new Set<number>();
+  for (const r of sinIdentidad) {
+    const k = firmaContenido(r);
+    const n = disponibles.get(k) || 0;
+    if (n > 0) { coincidencias++; disponibles.set(k, n - 1); if (r.anio != null) anios.add(r.anio); }
+  }
+  return { coincidencias, nuevosSinIdentidad: sinIdentidad.length, anios: [...anios].sort() };
+}
+
+/**
+ * Posibles repetidos YA guardados, por año: registros que comparten la
+ * misma firma de contenido con otro del mismo año. Es solo un indicador —
+ * puede haber coincidencias legítimas (varias víctimas iguales en el mismo
+ * hecho) — pero si un año sale con una proporción alta, casi seguro se
+ * cargó dos veces.
+ */
+export function posiblesRepetidosPorAnio(records: CrimeRecord[]): Map<number, { total: number; repetidos: number }> {
+  const porAnio = new Map<number, Map<string, number>>();
+  const totales = new Map<number, number>();
+  for (const r of records) {
+    if (r.anio == null) continue;
+    totales.set(r.anio, (totales.get(r.anio) || 0) + 1);
+    const m = porAnio.get(r.anio) ?? new Map<string, number>();
+    const k = firmaContenido(r);
+    m.set(k, (m.get(k) || 0) + 1);
+    porAnio.set(r.anio, m);
+  }
+  const res = new Map<number, { total: number; repetidos: number }>();
+  for (const [anio, m] of porAnio) {
+    let repetidos = 0;
+    for (const n of m.values()) if (n > 1) repetidos += n - 1;
+    res.set(anio, { total: totales.get(anio) || 0, repetidos });
+  }
+  return res;
+}

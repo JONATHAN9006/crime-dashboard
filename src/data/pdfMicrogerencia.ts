@@ -5,6 +5,7 @@
 // se pidió — con letra más grande para que se lea bien impreso.
 import { jsPDF } from 'jspdf';
 import type { NodoMicrogerencia } from './microgerencia';
+import { obtenerMotivoSinMapa } from './microgerenciaMapas';
 
 // Vertical (Carta/A4 en pie) en vez de horizontal — a pedido explícito:
 // el contenido de esta tarjeta es naturalmente "alto" (meses apilados,
@@ -516,7 +517,9 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       pdf.setFont('helvetica', 'italic');
       pdf.setFontSize(BASE_FS.mapaNoDisponible * dim.escala);
       pdf.setTextColor(...COLOR_MUTED);
-      pdf.text('Mapa no disponible para este elemento', x0 + ancho / 2, y + alto / 2, { align: 'center', maxWidth: ancho - 8 });
+      // Con el motivo concreto cuando se conoce (ver microgerenciaMapas.ts).
+      const motivo = obtenerMotivoSinMapa(nodo.nombre);
+      pdf.text(motivo ? `Mapa no disponible: ${motivo}.` : 'Mapa no disponible para este elemento', x0 + ancho / 2, y + alto / 2, { align: 'center', maxWidth: ancho - 8 });
       return;
     }
     pdf.setFillColor(...COLOR_TARJETA_FONDO);

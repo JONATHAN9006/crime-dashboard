@@ -235,6 +235,28 @@ async function construirEstacionDesdeCai(estacion: 'NORTE' | 'SUR' | 'AMBAS'): P
 // Popayán), pero sí es la fuente correcta para estas tres.
 const ESTACIONES_RURALES = ['E-Timbio', 'E-Coconuco', 'E-Sotara'] as const;
 
+// Motivo por el que un nodo se quedó sin mapa — el PDF lo muestra en vez
+// del genérico "Mapa no disponible", para que se sepa QUÉ falta (capa de
+// polígonos, puntos con coordenadas, o un error) sin abrir la consola.
+const motivosSinMapa = new Map<string, string>();
+export function obtenerMotivoSinMapa(nombreNodo: string): string | undefined {
+  return motivosSinMapa.get(nombreNodo);
+}
+function registrarMotivo(nombreNodo: string, motivo: string | null) {
+  if (motivo) motivosSinMapa.set(nombreNodo, motivo); else motivosSinMapa.delete(nombreNodo);
+}
+
+// Rectángulo que encierra unos puntos (con un poco de aire) — último
+// recurso para tener un marco donde dibujar el mapa de calor cuando no se
+// encuentra ninguna capa de polígonos para el área.
+function rectanguloAlrededor(puntos: { lat: number; lon: number }[]): any {
+  const lats = puntos.map((p) => p.lat), lons = puntos.map((p) => p.lon);
+  let minLat = Math.min(...lats), maxLat = Math.max(...lats), minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const dLat = Math.max(maxLat - minLat, 0.01) * 0.15, dLon = Math.max(maxLon - minLon, 0.01) * 0.15;
+  minLat -= dLat; maxLat += dLat; minLon -= dLon; maxLon += dLon;
+  return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[minLon, minLat], [maxLon, minLat], [maxLon, maxLat], [minLon, maxLat], [minLon, minLat]]] } };
+}
+
 // Traduce cualquier forma del nombre ("Estación Sotara" larga, "E-Sotara"
 // corta) a la forma corta que usan los puntos guardados.
 function aFormaCortaDeEstacion(nombre: string): string | null {
@@ -600,20 +622,52 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
  * solo los de las estaciones de ese distrito.
  */
 export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
+  const nombreNodo = distrito === 'UNO' ? 'Distrito Uno' : 'Distrito Dos';
+  const clave = tipoCapa ? `${nombreNodo} (${tipoCapa === 'operatividad' ? 'Operatividad' : 'RNMC'})` : nombreNodo;
   try {
     const estaciones: readonly string[] = distrito === 'UNO' ? ['E-Norte', 'E-Sur'] : ESTACIONES_RURALES;
-    const origen = distrito === 'UNO' ? await construirEstacionDesdeCai('AMBAS') : await construirEstacionesRuralesDesdeJurisdiccion(ESTACIONES_RURALES);
-    if (!origen) {
-      console.warn(`[Microgerencia→Mapa] No se encontraron los polígonos del Distrito ${distrito === 'UNO' ? 'Uno (CAI 1-10)' : 'Dos (Timbío, Coconuco, Sotará)'}.`);
-      return undefined;
-    }
     const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estaciones, undefined, fechaInicial, fechaFinal, tipoCapa);
-    if (puntos.length === 0) {
-      console.warn(`[Microgerencia→Mapa] No hay puntos para el Distrito ${distrito === 'UNO' ? 'Uno' : 'Dos'} — revisa la capa de PUNTOS (ej. "Delitos") y que esos registros traigan coordenadas.`, { delitoFiltrado });
+
+    // Contorno del distrito, con respaldos en cadena (antes había UNA sola
+    // fuente para el Distrito Dos — la capa de jurisdicción — y si esa capa
+    // no estaba cargada, o sus nombres no coincidían, el mapa salía
+    // "no disponible" aunque las estaciones sueltas sí tuvieran mapa):
+    //   Distrito Uno: CAI 1-10 unidos.
+    //   Distrito Dos: 1) capa de jurisdicción (Timbío/Coconuco/Sotará),
+    //                 2) los cuadrantes de cada estación rural (la misma
+    //                    fuente que ya usa el mapa de cada estación),
+    //                 3) un rectángulo alrededor de los casos.
+    let origen = distrito === 'UNO' ? await construirEstacionDesdeCai('AMBAS') : await construirEstacionesRuralesDesdeJurisdiccion(ESTACIONES_RURALES);
+    let usaCuadrantes = false;
+    if (!origen && distrito === 'DOS') {
+      const partes = await Promise.all(ESTACIONES_RURALES.map((e) => construirEstacionRuralDesdeCuadrantes(e)));
+      const validas = partes.filter((p): p is { features: any[]; capaId: string } => p != null);
+      if (validas.length > 0) {
+        origen = { features: validas.flatMap((p) => p.features), capaId: validas[0].capaId };
+        usaCuadrantes = true;
+      }
+    }
+    let feature: any;
+    let anillosInternos: Awaited<ReturnType<typeof obtenerAnillosInternos>> = [];
+    if (origen) {
+      feature = { type: 'FeatureCollection', features: origen.features };
+      anillosInternos = usaCuadrantes ? [] : await obtenerAnillosInternos(feature, origen.capaId);
+    } else if (puntos.length > 0) {
+      console.warn(`[Microgerencia→Mapa] Sin polígonos para el ${nombreNodo} — se dibuja el mapa de calor sobre un recuadro alrededor de los casos.`);
+      feature = rectanguloAlrededor(puntos);
+    } else {
+      registrarMotivo(clave, `no se encontró la capa de polígonos del ${nombreNodo} (${distrito === 'UNO' ? 'CAI 1-10' : 'jurisdicción o cuadrantes de Timbío, Coconuco y Sotará'}) ni casos con coordenadas`);
       return undefined;
     }
-    const feature = { type: 'FeatureCollection', features: origen.features };
-    const anillosInternos = await obtenerAnillosInternos(feature, origen.capaId);
+
+    // Sin casos georreferenciados en el periodo/delito elegido: antes eso
+    // también dejaba el recuadro en "Mapa no disponible"; ahora se dibuja
+    // el contorno del distrito igual (sin calor), que es la respuesta real:
+    // no hay casos ubicados ahí en ese periodo.
+    if (puntos.length === 0) {
+      console.warn(`[Microgerencia→Mapa] 0 casos con coordenadas para el ${nombreNodo} en el periodo/delito elegido — se dibuja solo el contorno.`, { delitoFiltrado, fechaInicial, fechaFinal });
+    }
+    registrarMotivo(clave, null);
     return await generarDataUrlPoligonoAislado({
       margen: 0.3,
       aspectoObjetivo: 0.85,
@@ -627,7 +681,8 @@ export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoF
       mostrarCalles: false,
     });
   } catch (err) {
-    console.error(`[Microgerencia→Mapa] Falló generando el mapa del Distrito ${distrito}:`, err);
+    console.error(`[Microgerencia→Mapa] Falló generando el mapa del ${nombreNodo}:`, err);
+    registrarMotivo(clave, `error al generar el mapa (${err instanceof Error ? err.message : 'desconocido'})`);
     return undefined;
   }
 }

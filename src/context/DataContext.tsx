@@ -7,11 +7,11 @@ import { emptyFilterState } from '../types/crime';
 import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
-import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo } from '../data/datasetOps';
+import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo, detectarRepetidosPorContenido } from '../data/datasetOps';
 import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
-import { descargarRegistrosSupabase, consultarMetaSupabase, subirRegistrosSupabase } from '../data/supabaseApi';
+import { descargarRegistrosSupabase, consultarMetaSupabase, subirRegistrosSupabase, borrarRegistrosSupabase } from '../data/supabaseApi';
 // Operatividad sigue en el backend de Apps Script/Drive de siempre — no se
 // migró a Supabase todavía (ver operatividadBackendUrl en config.ts).
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
@@ -48,7 +48,13 @@ interface DataContextValue {
   drillDown: (campo: keyof FilterState, valor: string) => void;
   loading: boolean;
   loadError: string | null;
-  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number }) | { error: string }>;
+  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number; requiereConfirmacionRepetidos?: boolean; coincidenciasRepetidas?: number; aniosRepetidos?: number[] }) | { error: string }>;
+  // Eliminar información de Delictividad (años completos, un rango de
+  // fechas, o todo lo que entró con una carga puntual) — local y servidor.
+  // Todos los registros guardados, SIN el filtro de delitos excluidos (los
+  // usa "Eliminar información" para contar exactamente lo que se borra).
+  registrosCompletos: CrimeRecord[];
+  eliminarRegistros: (criterio: CriterioEliminacion, token?: string, usuario?: string) => Promise<{ eliminados: number; sincronizado: boolean; error?: string }>;
   limpiarTodo: () => Promise<void>;
   lastColumns: string[];
   backendUrl: string;
@@ -71,6 +77,11 @@ interface DataContextValue {
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 
 const DataContext = createContext<DataContextValue | null>(null);
+
+export type CriterioEliminacion =
+  | { tipo: 'anios'; anios: number[] }
+  | { tipo: 'rango'; desde: string; hasta: string }
+  | { tipo: 'lote'; loteId: string };
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [records, setRecords] = useState<CrimeRecord[]>([]);
@@ -297,6 +308,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
         const columnasNuevas = calcularColumnasNuevas(lastColumns, parsed.columnasDetectadas);
 
+        // Cada carga queda "marcada" con su propio lote (archivo, fecha,
+        // usuario) — así, si se sube algo por error, se puede deshacer esa
+        // carga puntual desde "Eliminar información". Los registros que ya
+        // existían conservan su lote original (la fusión mantiene el ya
+        // guardado), así que deshacer una carga solo quita lo que esa carga
+        // AGREGÓ.
+        const lote = { loteId: `L${Date.now().toString(36)}`, loteArchivo: file.name, loteFecha: new Date().toISOString(), loteUsuario: usuario || 'No identificado' };
+        parsed.registros = parsed.registros.map((r) => ({ ...r, ...lote }));
+
+        // Aviso de información REPETIDA (ej. subir dos veces Delitos 2023):
+        // si una buena parte de lo que el archivo trae como "nuevo" ya
+        // existe con el mismo contenido (fecha, hora, delito, barrio, edad,
+        // género), se para y se pregunta antes de sumar — ver
+        // detectarRepetidosPorContenido en datasetOps.ts.
+        if (modo === 'agregar' && records.length > 0 && !forzar) {
+          const rep = detectarRepetidosPorContenido(records, renormalizarCamposParametrizados(renormalizarDelitos(parsed.registros)));
+          if (rep.coincidencias >= 20 && rep.coincidencias >= rep.nuevosSinIdentidad * 0.3) {
+            return { requiereConfirmacionRepetidos: true, coincidenciasRepetidas: rep.coincidencias, aniosRepetidos: rep.anios, registrosDelArchivo: parsed.registros.length } as any;
+          }
+        }
+
         let registrosFinales: CrimeRecord[];
         let registrosParaSincronizar: CrimeRecord[];
         let resumen: UpdateSummary;
@@ -429,6 +461,45 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [records, lastColumns, persistirYActualizar, backendUrl, meta],
+  );
+
+  const eliminarRegistros = useCallback(
+    async (criterio: CriterioEliminacion, token?: string, usuario?: string): Promise<{ eliminados: number; sincronizado: boolean; error?: string }> => {
+      const coincide = (r: CrimeRecord): boolean => {
+        if (criterio.tipo === 'anios') return r.anio != null && criterio.anios.includes(r.anio);
+        if (criterio.tipo === 'lote') return r.loteId === criterio.loteId;
+        if (!r.fecha) return false;
+        const desde = new Date(`${criterio.desde}T00:00:00`);
+        const hasta = new Date(`${criterio.hasta}T23:59:59`);
+        return r.fecha >= desde && r.fecha <= hasta;
+      };
+      const aEliminar = records.filter(coincide);
+      if (aEliminar.length === 0) return { eliminados: 0, sincronizado: true };
+      if (backendUrl && !token) return { eliminados: 0, sincronizado: false, error: 'Falta la clave de actualización — no se eliminó nada.' };
+      // Primero el servidor central: si falla, no se borra nada en este
+      // navegador (para no quedar desincronizados con lo que ven los demás).
+      if (backendUrl && token) {
+        try {
+          await borrarRegistrosSupabase(
+            FUNCION_SUBIR_REGISTROS, token, usuario || 'No identificado',
+            criterio.tipo === 'anios' ? { aniosABorrar: criterio.anios } : { idsABorrar: aEliminar.map((r) => r.__id) },
+          );
+        } catch (e) {
+          return { eliminados: 0, sincronizado: false, error: `No se pudo eliminar en el servidor central: ${e instanceof Error ? e.message : 'error desconocido'}. No se borró nada.` };
+        }
+      }
+      const ids = new Set(aEliminar.map((r) => r.__id));
+      const restantes = records.filter((r) => !ids.has(r.__id));
+      await persistirYActualizar(restantes, meta?.nombreArchivo ?? 'Datos', lastColumns, undefined, meta?.fechaMaxParametro ?? null);
+      if (backendUrl) {
+        await consultarMetaSupabase(backendUrl, supabaseAnonKey).then((m) => {
+          setRemoteMeta({ ultimaActualizacion: m.ultimaActualizacion, ultimoUsuario: m.ultimoUsuario });
+          ultimaCargaRef.current = m.ultimaActualizacion;
+        }).catch(() => {});
+      }
+      return { eliminados: aEliminar.length, sincronizado: !!backendUrl };
+    },
+    [records, backendUrl, persistirYActualizar, meta, lastColumns],
   );
 
   const limpiarTodo = useCallback(async () => {
@@ -639,6 +710,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     loading,
     loadError,
     cargarArchivo,
+    registrosCompletos: records,
+    eliminarRegistros,
     limpiarTodo,
     lastColumns,
     backendUrl,

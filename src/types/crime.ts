@@ -9,6 +9,13 @@ export interface CrimeRecord {
   // Fecha / tiempo
   fecha: Date | null;
   fechaTexto: string;
+  // Carga (archivo) con la que entró este registro — para poder DESHACER
+  // una carga equivocada desde "Eliminar información". Opcional: los
+  // registros cargados antes de que existiera este campo no lo traen.
+  loteId?: string;
+  loteArchivo?: string;
+  loteFecha?: string;
+  loteUsuario?: string;
   anio: number | null;
   mes: number | null; // 1-12
   nombreMes: string;

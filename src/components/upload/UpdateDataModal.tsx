@@ -4,8 +4,9 @@ import { useData } from '../../context/DataContext';
 import type { UpdateMode, UpdateSummary } from '../../types/crime';
 import { formatFechaHora } from '../../utils/aggregations';
 import { obtenerConfig } from '../../config';
+import { EliminarInformacion } from './EliminarInformacion';
 
-type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number }) | { error: string };
+type Resultado = (UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number; requiereConfirmacionRepetidos?: boolean; coincidenciasRepetidas?: number; aniosRepetidos?: number[] }) | { error: string };
 
 export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) {
   const { cargarArchivo, limpiarTodo, meta, records, backendUrl, cargarArchivoOperatividad, operatividadMeta } = useData();
@@ -228,6 +229,17 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
             <FolderOpen size={16} /> {procesando ? 'Procesando...' : 'Cargar y validar archivo'}
           </button>
 
+          {tipoDataset === 'delictividad' && records.length > 0 && (
+            <details className="mt-4 rounded-lg border border-slate-200 p-3">
+              <summary className="flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-slate-700">
+                <Trash2 size={14} className="text-rose-500" /> Eliminar información (año, carga o rango de fechas)
+              </summary>
+              <div className="mt-3">
+                <EliminarInformacion token={token} usuario={usuario} requiereClave={requiereClave} />
+              </div>
+            </details>
+          )}
+
           {tipoDataset === 'delictividad' && (
             <button
               onClick={async () => { if (confirm('¿Eliminar todos los datos de este navegador? (esto no afecta al servidor central)')) { await limpiarTodo(); reiniciar(); } }}
@@ -298,7 +310,56 @@ export function UpdateDataForm({ onCompletado }: { onCompletado?: () => void }) 
         </div>
       )}
 
-      {resultado && !('error' in resultado) && !resultado.requiereConfirmacionAnio && (
+      {resultado && !('error' in resultado) && resultado.requiereConfirmacionRepetidos && (
+        <div className="space-y-3 rounded-lg border border-rose-300 bg-rose-50 p-4">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={18} className="mt-0.5 shrink-0 text-rose-600" />
+            <div className="text-sm text-rose-900">
+              <p className="font-semibold">Este archivo parece repetir información que ya está cargada</p>
+              <p className="mt-1">
+                <strong>{resultado.coincidenciasRepetidas?.toLocaleString('es-CO')}</strong> de los {resultado.registrosDelArchivo?.toLocaleString('es-CO')} registros del archivo coinciden (misma fecha, hora, delito, barrio, edad y género) con casos ya guardados
+                {resultado.aniosRepetidos && resultado.aniosRepetidos.length > 0 ? <> de <strong>{resultado.aniosRepetidos.join(', ')}</strong></> : null}.
+                Si los agregas, esos casos quedarían <strong>sumados dos veces</strong>.
+              </p>
+              <p className="mt-2 text-xs text-rose-700">Si lo que quieres es actualizar ese año con este archivo, usa "Actualizar año completo": reemplaza el año entero sin duplicar.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={async () => {
+                if (!archivo) return;
+                setModo('reemplazarAnio');
+                setProcesando(true);
+                const res = await cargarArchivo(archivo, 'reemplazarAnio', token || undefined, usuario);
+                setResultado(res);
+                setProcesando(false);
+              }}
+              disabled={procesando}
+              className="rounded-lg bg-brand-navy px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              Usar "Actualizar año completo" (recomendado)
+            </button>
+            <button
+              onClick={async () => {
+                if (!archivo) return;
+                setProcesando(true);
+                const res = await cargarArchivo(archivo, 'agregar', token || undefined, usuario, true);
+                setResultado(res);
+                setProcesando(false);
+              }}
+              disabled={procesando}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+            >
+              Agregar de todas formas
+            </button>
+            <button onClick={() => setResultado(null)} disabled={procesando} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {resultado && !('error' in resultado) && !resultado.requiereConfirmacionAnio && !resultado.requiereConfirmacionRepetidos && (
         <div className="space-y-2">
           {resultado.formatoDetectado === 'db2' && (
             <div className="flex items-start gap-2 rounded-lg bg-sky-50 p-3 text-sm text-sky-800">

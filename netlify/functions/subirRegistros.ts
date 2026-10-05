@@ -58,6 +58,10 @@ interface CuerpoSolicitud {
   // nuevo debe desaparecer del servidor. Solo se permite para 'macri' —
   // nunca para delictividad ni para el seguimiento manual.
   reemplazarTodo?: boolean;
+  // Borrado puntual por identidad (llamada aparte, con registros: []) —
+  // lo usa "Eliminar información" del dashboard (rango de fechas o deshacer
+  // una carga), donde no se borra un año completo sino registros concretos.
+  idsABorrar?: string[];
 }
 
 export const handler: Handler = async (event) => {
@@ -87,7 +91,7 @@ export const handler: Handler = async (event) => {
   // Vacío es válido SOLO cuando la solicitud es puramente un borrado por
   // año (aniosABorrar) — el cliente hace esa llamada aparte, ANTES de
   // empezar a subir los lotes normales de registros.
-  if (cuerpo.registros.length === 0 && !(Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0) && !cuerpo.reemplazarTodo) {
+  if (cuerpo.registros.length === 0 && !(Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0) && !cuerpo.reemplazarTodo && !(Array.isArray(cuerpo.idsABorrar) && cuerpo.idsABorrar.length > 0)) {
     return { statusCode: 200, body: JSON.stringify({ ok: false, error: 'No se recibió ningún registro para guardar.' }) };
   }
 
@@ -124,6 +128,19 @@ export const handler: Handler = async (event) => {
       if (errorBorradoTotal) throw new Error(errorBorradoTotal.message);
       if (cuerpo.registros.length === 0) {
         return { statusCode: 200, body: JSON.stringify({ ok: true, mensaje: 'Se borró la matriz MACRI anterior.', fecha: new Date().toISOString() }) };
+      }
+    }
+    if (Array.isArray(cuerpo.idsABorrar) && cuerpo.idsABorrar.length > 0) {
+      // De a 200 por consulta, para no pasarse del largo máximo de la URL
+      // que arma el filtro "in (...)".
+      const ids = cuerpo.idsABorrar.map(String);
+      for (let i = 0; i < ids.length; i += 200) {
+        const { error: errorIds } = await supabase.from('crime_records').delete().eq('dataset', dataset).in('id_identidad', ids.slice(i, i + 200));
+        if (errorIds) throw new Error(errorIds.message);
+      }
+      await supabase.from('dataset_meta').upsert({ dataset, ultima_actualizacion: new Date().toISOString(), ultimo_usuario: cuerpo.usuario || 'No identificado' }, { onConflict: 'dataset' });
+      if (cuerpo.registros.length === 0) {
+        return { statusCode: 200, body: JSON.stringify({ ok: true, mensaje: `Se eliminaron ${ids.length} registro(s) de ${dataset}.`, fecha: new Date().toISOString() }) };
       }
     }
     if (Array.isArray(cuerpo.aniosABorrar) && cuerpo.aniosABorrar.length > 0) {

@@ -127,3 +127,25 @@ export async function subirRegistrosSupabase(
   }
   return { ok: true, mensaje: `El dashboard central fue actualizado correctamente (${registros.length} registro(s)).`, fecha: new Date().toISOString() };
 }
+
+/**
+ * Borra registros del servidor central — por años completos (aniosABorrar)
+ * o por identidad (idsABorrar, enviados en tandas de 2.000 para no armar
+ * solicitudes enormes). Lo usa "Eliminar información".
+ */
+export async function borrarRegistrosSupabase(
+  functionUrl: string,
+  token: string,
+  usuario: string,
+  criterio: { aniosABorrar?: number[]; idsABorrar?: string[] },
+  dataset: DatasetRemoto = 'delictividad',
+): Promise<void> {
+  const enviar = async (cuerpo: Record<string, unknown>) => {
+    const resp = await fetch(functionUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, usuario, dataset, registros: [], ...cuerpo }) });
+    const r = await resp.json().catch(() => null);
+    if (!resp.ok || !r || !r.ok) throw new Error((r && r.error) || `El backend respondió con error ${resp.status} al eliminar.`);
+  };
+  if (criterio.aniosABorrar && criterio.aniosABorrar.length > 0) await enviar({ aniosABorrar: criterio.aniosABorrar });
+  const ids = criterio.idsABorrar ?? [];
+  for (let i = 0; i < ids.length; i += 2000) await enviar({ idsABorrar: ids.slice(i, i + 2000) });
+}
