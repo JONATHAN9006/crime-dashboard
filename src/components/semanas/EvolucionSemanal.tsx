@@ -1,288 +1,293 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, FileText, Minus, Plus, Circle } from 'lucide-react';
-import { Card } from '../ui/Card';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarDays, ChevronDown, FileText, ImageDown, Loader2, Plus, Circle } from 'lucide-react';
 import { formatDecimal, formatNumero } from '../../utils/aggregations';
-import { ETIQUETA_PATRON, type AnalisisSemanal, type AlertaRezago, type EstadoSemanal, type FilaSemanal } from '../../analitica/semanas';
+import { exportarHtmlComoImagen } from '../../utils/exportarImagen';
+import { useRegistrarEnPdf } from '../../context/RegistroPdfContext';
+import type { AnalisisSemanal, AlertaRezago, FilaSemanal } from '../../analitica/semanas';
 
-// "Evolución de la delictividad — últimas semanas": tabla por delito con
-// cada semana, mini-tendencia, cambio (casos | %), APORTE al cambio total,
-// estado con criterio estadístico y patrón; panel lateral con la lectura
-// del periodo y el resumen de la tendencia. Todos los números salen de
-// analitica/semanas.ts (probado en semanas.test.ts).
+// "Evolución de la Delictividad — Últimas 4 Semanas", maquetado igual a la
+// imagen de referencia: encabezado con ícono y chips de filtro, 6
+// indicadores, tabla por delito con la última semana resaltada, mini
+// tendencia, cambio (casos | %), aporte al cambio, estado; y a la derecha
+// "Lectura del periodo" y "Resumen de la tendencia".
+// Cifras: analitica/semanas.ts (probado en semanas.test.ts).
 
 interface Periodo { etiqueta: string; inicio: Date; fin: Date; total: number }
-
-type Filtro = 'todos' | EstadoSemanal;
-type Orden = 'impacto' | 'reduccion' | 'aumento' | 'ultima' | 'variacion' | 'nombre';
+type Sentido = 'aumento' | 'reduccion' | 'estable';
+type Filtro = 'todos' | Sentido;
+type Orden = 'impacto_reduccion' | 'impacto_aumento' | 'impacto' | 'ultima' | 'variacion' | 'nombre';
 
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const rango = (a: Date, b: Date) => (a.getMonth() === b.getMonth()
-  ? `${String(a.getDate()).padStart(2, '0')} – ${String(b.getDate()).padStart(2, '0')} ${MES[b.getMonth()]}`
-  : `${String(a.getDate()).padStart(2, '0')} ${MES[a.getMonth()]} – ${String(b.getDate()).padStart(2, '0')} ${MES[b.getMonth()]}`);
-const corto = (etiqueta: string) => etiqueta.replace(' (más reciente)', '').replace(/^Semana\s+/i, 'S').replace(/\s*\(\d{4}\)$/, '');
+const dd = (d: Date) => String(d.getDate()).padStart(2, '0');
+const rango = (a: Date, b: Date) => (a.getMonth() === b.getMonth() ? `${dd(a)} - ${dd(b)} ${MES[b.getMonth()]}` : `${dd(a)} ${MES[a.getMonth()]} - ${dd(b)} ${MES[b.getMonth()]}`);
+const nombreSemana = (e: string) => e.replace(' (más reciente)', '').replace(/\s*\(\d{4}\)$/, '');
+const numSemana = (e: string) => nombreSemana(e).replace(/^Semana\s+/i, 'S');
 const signo = (n: number) => (n > 0 ? `+${formatNumero(n)}` : formatNumero(n));
-const pct = (n: number | null) => (n === null ? 'nuevo' : `${n > 0 ? '+' : ''}${formatDecimal(n, 1)} %`);
+const pct = (n: number | null) => (n === null ? 'N/A' : `${n > 0 ? '' : ''}${formatDecimal(n, 1)} %`);
+// Estado por el SENTIDO del cambio (como en la imagen: "Estables" = sin cambio).
+const sentido = (dif: number): Sentido => (dif > 0 ? 'aumento' : dif < 0 ? 'reduccion' : 'estable');
 
-const COLOR: Record<EstadoSemanal, { linea: string; relleno: string; texto: string; chip: string }> = {
-  aumento: { linea: '#e11d48', relleno: 'rgba(225,29,72,0.10)', texto: 'text-rose-600', chip: 'bg-rose-50 text-rose-700 ring-rose-200' },
-  reduccion: { linea: '#059669', relleno: 'rgba(5,150,105,0.10)', texto: 'text-emerald-600', chip: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-  estable: { linea: '#64748b', relleno: 'rgba(100,116,139,0.08)', texto: 'text-slate-500', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
-};
-const NOMBRE_ESTADO: Record<EstadoSemanal, string> = { aumento: 'Aumento', reduccion: 'Reducción', estable: 'Estable' };
+const VERDE = '#15803d', ROJO = '#e11d48', GRIS = '#64748b';
 
-function MiniTendencia({ valores, estado, ancho = 112, alto = 30 }: { valores: number[]; estado: EstadoSemanal; ancho?: number; alto?: number }) {
-  const max = Math.max(1, ...valores), n = valores.length;
-  const x = (i: number) => 6 + (i * (ancho - 12)) / Math.max(n - 1, 1);
-  const y = (v: number) => alto - 5 - (v / max) * (alto - 10);
-  const puntos = valores.map((v, i) => `${x(i)},${y(v)}`).join(' ');
-  const c = COLOR[estado];
+function MiniTendencia({ valores, s }: { valores: number[]; s: Sentido }) {
+  const W = 120, H = 34, n = valores.length, max = Math.max(1, ...valores), min = Math.min(...valores);
+  const x = (i: number) => 6 + (i * (W - 12)) / Math.max(n - 1, 1);
+  const y = (v: number) => 6 + (1 - (v - min) / Math.max(max - min, 1)) * (H - 14);
+  const color = s === 'aumento' ? ROJO : s === 'reduccion' ? VERDE : GRIS;
+  const relleno = s === 'aumento' ? 'rgba(225,29,72,0.10)' : s === 'reduccion' ? 'rgba(21,128,61,0.10)' : 'rgba(100,116,139,0.10)';
+  const pts = valores.map((v, i) => `${x(i)},${y(v)}`).join(' ');
   return (
-    <svg width={ancho} height={alto} viewBox={`0 0 ${ancho} ${alto}`} className="mx-auto block" aria-hidden>
-      <polygon points={`${x(0)},${alto - 2} ${puntos} ${x(n - 1)},${alto - 2}`} fill={c.relleno} />
-      <polyline points={puntos} fill="none" stroke={c.linea} strokeWidth="2" strokeLinejoin="round" />
-      {valores.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={2.6} fill={c.linea} />)}
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="mx-auto block" aria-hidden>
+      <polygon points={`${x(0)},${H - 2} ${pts} ${x(n - 1)},${H - 2}`} fill={relleno} />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      {valores.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={2.8} fill={color} />)}
     </svg>
   );
 }
 
-function Estado({ estado, umbral, diferencia }: { estado: EstadoSemanal; umbral: number; diferencia: number }) {
-  const c = COLOR[estado];
-  const ayuda = estado === 'estable'
-    ? `La diferencia (${signo(diferencia)}) está dentro de la variación normal esperada (±${formatDecimal(umbral, 1)} casos, 95 %).`
-    : `La diferencia (${signo(diferencia)}) supera la variación normal esperada (±${formatDecimal(umbral, 1)} casos, 95 %).`;
-  return (
-    <span title={ayuda} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 ${c.chip}`}>
-      {estado === 'aumento' ? <ArrowUp size={12} /> : estado === 'reduccion' ? <ArrowDown size={12} /> : <Minus size={12} />}
-      {NOMBRE_ESTADO[estado]}
-    </span>
-  );
+function ChipEstado({ s, titulo, conPunto }: { s: Sentido; titulo?: string; conPunto?: boolean }) {
+  if (s === 'aumento') return <span title={titulo} className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-[11.5px] font-bold uppercase tracking-wide text-rose-600"><span className="h-2 w-2 rounded-full bg-rose-500" />Aumento</span>;
+  if (s === 'reduccion') return <span title={titulo} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11.5px] font-bold uppercase tracking-wide text-emerald-700">{conPunto ? <span className="h-2 w-2 rounded-full bg-emerald-600" /> : <ArrowDown size={13} strokeWidth={2.5} />}Reducción</span>;
+  return <span title={titulo} className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-bold uppercase tracking-wide text-slate-500"><span className="h-2 w-2 rounded-full bg-slate-400" />Estable</span>;
 }
 
-export function EvolucionSemanal({ periodos, analisis, rezago, onCortarAntesDelRezago, cortado, onQuitarCorte, totalVentana, estacionTop }: {
+function IconoBarras({ size = 34 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 34 34" aria-hidden>
+      <rect x="3" y="18" width="7" height="13" rx="1.5" fill="#2bb3a3" />
+      <rect x="13.5" y="11" width="7" height="20" rx="1.5" fill="#159089" />
+      <rect x="24" y="3" width="7" height="28" rx="1.5" fill="#0b6e66" />
+    </svg>
+  );
+}
+export { IconoBarras };
+
+export function EvolucionSemanal({ periodos, analisis, rezago, onCortarAntesDelRezago, cortado, onQuitarCorte, esUltimas4 }: {
   periodos: Periodo[];
   analisis: AnalisisSemanal;
   rezago: AlertaRezago | null;
   onCortarAntesDelRezago?: () => void;
   cortado: Date | null;
   onQuitarCorte?: () => void;
-  totalVentana: number;
-  estacionTop: { key: string; casos: number } | null;
+  esUltimas4: boolean;
 }) {
   const [filtro, setFiltro] = useState<Filtro>('todos');
-  const [orden, setOrden] = useState<Orden>('impacto');
+  const [orden, setOrden] = useState<Orden>('impacto_reduccion');
+  const [descargando, setDescargando] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useRegistrarEnPdf('evolucion-delictividad-semanas', 'Evolución de la Delictividad', ref);
+
   const n = periodos.length;
   const primero = periodos[0], ultimo = periodos[n - 1];
+  const s1 = numSemana(primero.etiqueta), sN = numSemana(ultimo.etiqueta);
 
   const conteo = useMemo(() => ({
-    aumento: analisis.filas.filter((f) => f.estado === 'aumento').length,
-    reduccion: analisis.filas.filter((f) => f.estado === 'reduccion').length,
-    estable: analisis.filas.filter((f) => f.estado === 'estable').length,
+    aumento: analisis.filas.filter((f) => f.diferencia > 0).length,
+    reduccion: analisis.filas.filter((f) => f.diferencia < 0).length,
+    estable: analisis.filas.filter((f) => f.diferencia === 0).length,
   }), [analisis]);
 
   const filas = useMemo(() => {
-    const base = filtro === 'todos' ? analisis.filas : analisis.filas.filter((f) => f.estado === filtro);
+    const base = filtro === 'todos' ? analisis.filas : analisis.filas.filter((f) => sentido(f.diferencia) === filtro);
     const cmp: Record<Orden, (a: FilaSemanal, b: FilaSemanal) => number> = {
-      impacto: (a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia) || b.valores[n - 1] - a.valores[n - 1],
-      reduccion: (a, b) => a.diferencia - b.diferencia,
-      aumento: (a, b) => b.diferencia - a.diferencia,
+      impacto_reduccion: (a, b) => a.diferencia - b.diferencia || b.valores[n - 1] - a.valores[n - 1],
+      impacto_aumento: (a, b) => b.diferencia - a.diferencia || b.valores[n - 1] - a.valores[n - 1],
+      impacto: (a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia),
       ultima: (a, b) => b.valores[n - 1] - a.valores[n - 1],
-      variacion: (a, b) => (b.variacionPct ?? Infinity) - (a.variacionPct ?? Infinity),
+      variacion: (a, b) => (a.variacionPct ?? Infinity) - (b.variacionPct ?? Infinity),
       nombre: (a, b) => a.delito.localeCompare(b.delito, 'es'),
     };
     return [...base].sort(cmp[orden]);
   }, [analisis, filtro, orden, n]);
 
-  // ── Resumen de la tendencia y lectura ───────────────────────────────────
-  const total = analisis;
-  const sube = total.totalDiferencia > 0;
+  const dif = analisis.totalDiferencia;
+  const sube = dif > 0;
   const mayorReduccion = [...analisis.filas].sort((a, b) => a.diferencia - b.diferencia).find((f) => f.diferencia < 0) ?? null;
   const mayorIncremento = [...analisis.filas].sort((a, b) => b.diferencia - a.diferencia).find((f) => f.diferencia > 0) ?? null;
-  const masCasosUltima = [...analisis.filas].sort((a, b) => b.valores[n - 1] - a.valores[n - 1])[0] ?? null;
-  const explican = analisis.filas
-    .filter((f) => f.aportePct !== null && Math.sign(f.diferencia) === Math.sign(total.totalDiferencia) && f.diferencia !== 0)
-    .sort((a, b) => (b.aportePct ?? 0) - (a.aportePct ?? 0));
-  const mayorAporte = explican[0] ?? null;
-  const significativosOpuestos = analisis.filas.filter((f) => (sube ? f.estado === 'reduccion' : f.estado === 'aumento'));
-  const alzasASeguir = analisis.filas.filter((f) => f.estado === 'aumento' || f.patron === 'abrupto_alza' || f.patron === 'creciente');
+  const masCasos = [...analisis.filas].sort((a, b) => b.valores[n - 1] - a.valores[n - 1])[0] ?? null;
+  const explican = analisis.filas.filter((f) => f.diferencia !== 0 && Math.sign(f.diferencia) === Math.sign(dif)).sort((a, b) => (b.aportePct ?? 0) - (a.aportePct ?? 0));
+  const contrarios = analisis.filas.filter((f) => f.diferencia !== 0 && Math.sign(f.diferencia) === -Math.sign(dif));
+  const rezagoEnUltima = !!rezago && rezago.desde >= ultimo.inicio && !cortado;
 
-  const rezagoEnUltima = rezago && rezago.desde >= ultimo.inicio;
+  async function descargar() {
+    if (!ref.current || descargando) return;
+    setDescargando(true);
+    try { await exportarHtmlComoImagen(ref.current, 'Evolución de la Delictividad', 'evolucion-delictividad-semanas'); } finally { setDescargando(false); }
+  }
+
+  const lista = (items: FilaSemanal[], conPct: boolean) => items.map((f, i, arr) => (
+    <span key={f.delito}><b>{f.delito}</b>{conPct ? ` (${formatDecimal(f.aportePct ?? 0, 1)} %)` : ''}{i < arr.length - 2 ? ', ' : i === arr.length - 2 ? ' y ' : ''}</span>
+  ));
+
+  const kpi = (titulo: ReactNode, valor: ReactNode, unidad: string, icono: ReactNode, fondo: string, colorValor = 'text-slate-900', colorTitulo = 'text-slate-500') => (
+    <div className={`flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-3 ${fondo}`}>
+      {icono}
+      <div className="min-w-0">
+        <p className={`text-[11px] font-bold uppercase tracking-wide ${colorTitulo}`}>{titulo}</p>
+        <p className={`text-[26px] font-extrabold leading-tight ${colorValor}`}>{valor}</p>
+        <p className="text-[12px] text-slate-500">{unidad}</p>
+      </div>
+    </div>
+  );
+  const colorCambio = sube ? 'text-rose-600' : dif < 0 ? 'text-emerald-700' : 'text-slate-700';
+  const fondoCambio = sube ? 'bg-rose-50/70' : dif < 0 ? 'bg-emerald-50/70' : 'bg-white';
+  const flechaCambio = sube ? <ArrowUp size={30} strokeWidth={2.5} className="shrink-0 text-rose-600" /> : <ArrowDown size={30} strokeWidth={2.5} className="shrink-0 text-emerald-700" />;
 
   return (
-    <div className="space-y-4">
-      {/* Alerta de rezago de registro — antes que cualquier cifra. */}
-      {rezagoEnUltima && !cortado && (
-        <div className="flex flex-wrap items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3.5">
-          <AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-600" />
-          <div className="min-w-[260px] flex-1 text-sm text-amber-900">
-            <p className="font-bold">La caída de {corto(ultimo.etiqueta)} puede ser falta de registro, no una reducción real</p>
-            <p className="mt-0.5">
-              Desde el {rezago!.desde.toLocaleDateString('es-CO')} ({rezago!.dias} días) se registran {formatDecimal(rezago!.promedioReciente, 1)} casos/día, frente a {formatDecimal(rezago!.promedioHabitual, 1)} casos/día habituales en las semanas anteriores
-              — faltarían del orden de {formatNumero(rezago!.faltantesEstimados)} casos. Suele pasar cuando los últimos días aún no están cargados en la base.
-            </p>
-          </div>
-          {onCortarAntesDelRezago && (
-            <button onClick={onCortarAntesDelRezago} className="shrink-0 rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700">
-              Analizar hasta el {new Date(rezago!.desde.getTime() - 86400000).toLocaleDateString('es-CO')}
-            </button>
-          )}
+    <div className="space-y-3">
+      {rezagoEnUltima && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5">
+          <AlertTriangle size={18} className="shrink-0 text-amber-600" />
+          <p className="min-w-[260px] flex-1 text-[13px] text-amber-900">
+            <b>Posible rezago de registro en {nombreSemana(ultimo.etiqueta)}:</b> desde el {rezago!.desde.toLocaleDateString('es-CO')} se registran {formatDecimal(rezago!.promedioReciente, 1)} casos/día frente a {formatDecimal(rezago!.promedioHabitual, 1)} habituales (faltarían unos {formatNumero(rezago!.faltantesEstimados)} casos). La caída puede no ser real.
+          </p>
+          {onCortarAntesDelRezago && <button onClick={onCortarAntesDelRezago} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">Analizar hasta el {new Date(rezago!.desde.getTime() - 86400000).toLocaleDateString('es-CO')}</button>}
         </div>
       )}
       {cortado && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-[13px] text-sky-900">
           <span><CalendarDays size={14} className="mr-1 inline" />Análisis cortado al {cortado.toLocaleDateString('es-CO')} para excluir los días con registro incompleto.</span>
           {onQuitarCorte && <button onClick={onQuitarCorte} className="text-xs font-semibold underline">Volver al último dato disponible</button>}
         </div>
       )}
 
-      <Card
-        title={`Evolución de la delictividad — ${n === 4 ? 'últimas 4 semanas' : `${n} periodos`}`}
-        subtitle={`Comparativo ${corto(primero.etiqueta)} (${rango(primero.inicio, primero.fin)}) → ${corto(ultimo.etiqueta)} (${rango(ultimo.inicio, ultimo.fin)})`}
-        descargable="evolucion-semanal"
-        actions={(
-          <div className="flex flex-wrap items-center gap-1.5">
-            {([
-              ['todos', `Todos (${analisis.filas.length})`, 'bg-brand-green'],
-              ['aumento', `Aumentan (${conteo.aumento})`, 'bg-rose-500'],
-              ['reduccion', `Disminuyen (${conteo.reduccion})`, 'bg-emerald-600'],
-              ['estable', `Estables (${conteo.estable})`, 'bg-slate-400'],
-            ] as const).map(([clave, texto, punto]) => (
-              <button
-                key={clave}
-                onClick={() => setFiltro(clave)}
-                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${filtro === clave ? 'border-brand-green bg-brand-green text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'}`}
-              >
-                {clave !== 'todos' && <span className={`h-2 w-2 rounded-full ${filtro === clave ? 'bg-white' : punto}`} />}
-                {texto}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {/* Encabezado */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <IconoBarras />
+            <div>
+              <h2 className="text-[22px] font-bold leading-tight text-[#10233f]">Evolución de la Delictividad — {esUltimas4 ? 'Últimas 4 Semanas' : `${n} periodos`}</h2>
+              <p className="text-[14px] text-slate-500">Comparativo {nombreSemana(primero.etiqueta)} → {nombreSemana(ultimo.etiqueta)}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setFiltro('todos')} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[13px] font-semibold ${filtro === 'todos' ? 'border-[#137a6f] bg-[#137a6f] text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
+              <Plus size={14} strokeWidth={3} /> Todos ({analisis.filas.length})
+            </button>
+            {([['aumento', `Aumentan (${conteo.aumento})`, 'bg-rose-500'], ['reduccion', `Disminuyen (${conteo.reduccion})`, 'bg-emerald-700'], ['estable', `Estables (${conteo.estable})`, 'bg-slate-400']] as const).map(([clave, texto, punto]) => (
+              <button key={clave} onClick={() => setFiltro(clave)} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-semibold ${filtro === clave ? 'border-[#137a6f] bg-emerald-50 text-[#0b4a46]' : 'border-slate-200 bg-white text-slate-700'}`}>
+                <span className={`h-3 w-3 rounded-full ${punto}`} /> {texto}
               </button>
             ))}
-            <select value={orden} onChange={(e) => setOrden(e.target.value as Orden)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600">
-              <option value="impacto">Ordenar: impacto en el total</option>
-              <option value="reduccion">Ordenar: mayor reducción</option>
-              <option value="aumento">Ordenar: mayor aumento</option>
-              <option value="ultima">Ordenar: casos en {corto(ultimo.etiqueta)}</option>
-              <option value="variacion">Ordenar: variación %</option>
-              <option value="nombre">Ordenar: nombre</option>
-            </select>
-          </div>
-        )}
-      >
-        {/* Indicadores */}
-        <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
-          {[
-            { t: `Total ${corto(primero.etiqueta)}`, v: formatNumero(primero.total), s: 'casos', c: 'text-slate-900', fondo: 'bg-slate-50' },
-            { t: `Total ${corto(ultimo.etiqueta)}`, v: formatNumero(ultimo.total), s: rezagoEnUltima && !cortado ? 'casos · posible rezago' : 'casos', c: 'text-slate-900', fondo: 'bg-slate-50' },
-            { t: 'Cambio del periodo', v: signo(total.totalDiferencia), s: 'casos', c: COLOR[total.totalEstado].texto, fondo: total.totalDiferencia > 0 ? 'bg-rose-50' : total.totalDiferencia < 0 ? 'bg-emerald-50' : 'bg-slate-50' },
-            { t: 'Variación del periodo', v: pct(total.totalVariacionPct), s: total.totalEstado === 'estable' ? 'dentro de la variación normal' : 'diferencia significativa', c: COLOR[total.totalEstado].texto, fondo: total.totalDiferencia > 0 ? 'bg-rose-50' : total.totalDiferencia < 0 ? 'bg-emerald-50' : 'bg-slate-50' },
-            { t: 'Delitos que aumentan', v: String(conteo.aumento), s: 'con diferencia significativa', c: 'text-rose-600', fondo: 'bg-rose-50' },
-            { t: 'Delitos que disminuyen', v: String(conteo.reduccion), s: 'con diferencia significativa', c: 'text-emerald-600', fondo: 'bg-emerald-50' },
-          ].map((k) => (
-            <div key={k.t} className={`rounded-xl p-3 ${k.fondo}`}>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{k.t}</p>
-              <p className={`mt-0.5 text-[26px] font-bold leading-tight ${k.c}`}>{k.v}</p>
-              <p className="text-[11px] text-slate-500">{k.s}</p>
+            <span className="ml-1 text-[13px] text-slate-600">Ordenar por:</span>
+            <div className="relative">
+              <select value={orden} onChange={(e) => setOrden(e.target.value as Orden)} className="appearance-none rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-[12.5px] text-slate-700">
+                <option value="impacto_reduccion">Impacto del periodo (mayor reducción)</option>
+                <option value="impacto_aumento">Impacto del periodo (mayor aumento)</option>
+                <option value="impacto">Impacto absoluto</option>
+                <option value="ultima">Casos en {numSemana(ultimo.etiqueta)}</option>
+                <option value="variacion">Variación %</option>
+                <option value="nombre">Nombre del delito</option>
+              </select>
+              <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
             </div>
-          ))}
+            <button onClick={descargar} title="Descargar esta información como imagen" className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:border-brand-green hover:text-brand-green">
+              {descargando ? <Loader2 size={14} className="animate-spin" /> : <ImageDown size={14} />}
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1fr_300px]">
-          {/* Tabla */}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-separate border-spacing-0 text-[13px]">
-              <thead>
-                <tr className="text-[11px] uppercase tracking-wide text-slate-500">
-                  <th className="border-b border-slate-200 py-2 pr-2 text-left font-semibold">Delito</th>
-                  {periodos.map((p, i) => (
-                    <th key={i} className={`border-b border-slate-200 px-2 py-2 text-center font-semibold ${i === n - 1 ? 'rounded-t-lg bg-sky-50 text-sky-900' : ''}`}>
-                      {corto(p.etiqueta)}
-                      <span className="block text-[10px] font-normal normal-case tracking-normal text-slate-400">{rango(p.inicio, p.fin)}</span>
-                      {i === n - 1 && rezagoEnUltima && !cortado && <span className="block text-[10px] font-semibold normal-case tracking-normal text-amber-600">⚠ posible rezago</span>}
-                    </th>
-                  ))}
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-semibold">Tendencia</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-semibold">Cambio {corto(primero.etiqueta)} → {corto(ultimo.etiqueta)}<span className="block text-[10px] font-normal normal-case tracking-normal text-slate-400">casos | variación %</span></th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-semibold">Aporte al cambio</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-semibold">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filas.map((f) => {
-                  return (
-                    <tr key={f.delito} className="hover:bg-slate-50/70">
-                      <td className="border-b border-slate-100 py-2 pr-2 font-semibold text-slate-800">{f.delito}</td>
-                      {f.valores.map((v, i) => (
-                        <td key={i} className={`border-b border-slate-100 px-2 py-2 text-center ${i === n - 1 ? 'bg-sky-50/60 text-[15px] font-bold text-slate-900' : 'text-slate-600'}`}>{formatNumero(v)}</td>
-                      ))}
-                      <td className="border-b border-slate-100 px-2 py-1">
-                        <MiniTendencia valores={f.valores} estado={f.estado} />
-                        <p className="text-center text-[10px] text-slate-400">{ETIQUETA_PATRON[f.patron]}</p>
-                      </td>
-                      <td className={`whitespace-nowrap border-b border-slate-100 px-2 py-2 text-center font-semibold ${f.diferencia > 0 ? 'text-rose-600' : f.diferencia < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                        {f.diferencia > 0 ? <ArrowUp size={13} className="mr-0.5 inline" /> : f.diferencia < 0 ? <ArrowDown size={13} className="mr-0.5 inline" /> : null}
-                        {signo(f.diferencia)} <span className="mx-1 text-slate-300">|</span> {pct(f.variacionPct)}
-                      </td>
-                      <td className="border-b border-slate-100 px-2 py-2 text-center text-slate-700">{f.aportePct === null ? '—' : `${formatDecimal(f.aportePct, 1)} %`}</td>
-                      <td className="border-b border-slate-100 px-2 py-2 text-center"><Estado estado={f.estado} umbral={f.umbral} diferencia={f.diferencia} /></td>
-                    </tr>
-                  );
-                })}
-                <tr className="bg-slate-50 font-bold text-slate-900">
-                  <td className="py-2.5 pr-2 pl-1">TOTAL DELICTIVIDAD</td>
-                  {total.totales.map((v, i) => <td key={i} className={`px-2 py-2.5 text-center ${i === n - 1 ? 'bg-sky-100/60 text-[15px]' : ''}`}>{formatNumero(v)}</td>)}
-                  <td className="px-2 py-1"><MiniTendencia valores={total.totales} estado={total.totalEstado} /><p className="text-center text-[10px] font-normal text-slate-400">{ETIQUETA_PATRON[total.totalPatron]}</p></td>
-                  <td className={`whitespace-nowrap px-2 py-2.5 text-center ${COLOR[total.totalEstado].texto}`}>{signo(total.totalDiferencia)} <span className="mx-1 text-slate-300">|</span> {pct(total.totalVariacionPct)}</td>
-                  <td className="px-2 py-2.5 text-center">{total.totalDiferencia === 0 ? '—' : '100,0 %'}</td>
-                  <td className="px-2 py-2.5 text-center"><Estado estado={total.totalEstado} umbral={Math.sqrt(total.totales[0] + total.totales[n - 1]) * 1.96} diferencia={total.totalDiferencia} /></td>
-                </tr>
-              </tbody>
-            </table>
-            {filas.length === 0 && <p className="py-6 text-center text-sm text-slate-400">Ningún delito en este grupo.</p>}
-            <p className="mt-2 text-[11px] leading-snug text-slate-500">
-              <b>Estado:</b> aumento o reducción solo si la diferencia supera la variación normal de un conteo (|dif.| &gt; 1,96·√(casos inicio + casos fin), 95 % de confianza); si no, <b>estable</b>. Pasa el mouse por cada estado para ver su umbral.
-              <b> Aporte:</b> parte del cambio total que explica cada delito; suma 100 %. <b>Patrón:</b> sostenido = todas las semanas en el mismo sentido; abrupto = la última semana se aparta más de 2 desviaciones del promedio de las anteriores.
-            </p>
+        <div ref={ref} className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_280px]">
+          <div className="min-w-0 space-y-4">
+            {/* Indicadores */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+              {kpi(`Total ${nombreSemana(primero.etiqueta)}`, formatNumero(primero.total), 'casos', <CalendarDays size={30} className="shrink-0 text-[#2f6fd6]" />, 'bg-white')}
+              {kpi(`Total ${nombreSemana(ultimo.etiqueta)}`, formatNumero(ultimo.total), rezagoEnUltima ? 'casos · posible rezago' : 'casos', <CalendarDays size={30} className="shrink-0 text-[#2f6fd6]" />, 'bg-white')}
+              {kpi('Cambio del periodo', signo(dif), 'casos', flechaCambio, fondoCambio, colorCambio, 'text-slate-700')}
+              {kpi('Variación del periodo', pct(analisis.totalVariacionPct), ' ', flechaCambio, fondoCambio, colorCambio, 'text-slate-700')}
+              {kpi('Delitos que aumentan', conteo.aumento, 'delitos', <ArrowUp size={30} strokeWidth={2.5} className="shrink-0 text-rose-600" />, 'bg-rose-50/70', 'text-rose-600', 'text-rose-600')}
+              {kpi('Delitos que disminuyen', conteo.reduccion, 'delitos', <ArrowDown size={30} strokeWidth={2.5} className="shrink-0 text-emerald-700" />, 'bg-emerald-50/70', 'text-emerald-700', 'text-slate-700')}
+            </div>
+
+            {/* Tabla */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full min-w-[920px] border-collapse text-[13.5px]">
+                <thead>
+                  <tr className="text-[12px] font-bold uppercase text-[#10233f]">
+                    <th className="border-b border-slate-200 px-4 py-2.5 text-left">Delito</th>
+                    {periodos.map((p, i) => (
+                      <th key={i} className={`border-b border-slate-200 px-2 py-2.5 text-center ${i === n - 1 ? 'bg-[#dff3f5]' : ''}`}>
+                        {nombreSemana(p.etiqueta)}
+                        <span className="block text-[11.5px] font-normal normal-case text-slate-600">{rango(p.inicio, p.fin)}</span>
+                      </th>
+                    ))}
+                    <th className="border-b border-slate-200 px-2 py-2.5 text-center">Tendencia<span className="block text-[11.5px] font-normal normal-case text-slate-600">({esUltimas4 ? 'Últimas 4 semanas' : `${n} periodos`})</span></th>
+                    <th className="border-b border-slate-200 px-2 py-2.5 text-center">Cambio {s1} → {sN}<span className="block text-[11.5px] font-normal normal-case text-slate-600">Casos | Variación %</span></th>
+                    <th className="border-b border-slate-200 px-2 py-2.5 text-center">Aporte al cambio<span className="block text-[11.5px] font-normal normal-case text-slate-600">%</span></th>
+                    <th className="border-b border-slate-200 px-2 py-2.5 text-center">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => {
+                    const s = sentido(f.diferencia);
+                    const color = s === 'aumento' ? 'text-rose-600' : s === 'reduccion' ? 'text-emerald-700' : 'text-slate-500';
+                    const ayuda = f.estado === 'estable' && f.diferencia !== 0
+                      ? `Diferencia ${signo(f.diferencia)} dentro de la variación normal esperada (±${formatDecimal(f.umbral, 1)} casos, 95 %): cambio no concluyente.`
+                      : f.diferencia !== 0 ? `Diferencia ${signo(f.diferencia)} mayor que la variación normal esperada (±${formatDecimal(f.umbral, 1)} casos, 95 %).` : 'Sin cambio.';
+                    return (
+                      <tr key={f.delito} className="border-b border-slate-100">
+                        <td className="border-b border-slate-100 px-4 py-2 text-slate-800">{f.delito}</td>
+                        {f.valores.map((v, i) => (
+                          <td key={i} className={`border-b border-slate-100 px-2 py-2 text-center ${i === n - 1 ? 'bg-[#eef9fa] font-bold text-slate-900' : 'text-slate-700'}`}>{formatNumero(v)}</td>
+                        ))}
+                        <td className="border-b border-slate-100 px-2 py-1"><MiniTendencia valores={f.valores} s={s} /></td>
+                        <td className={`whitespace-nowrap border-b border-slate-100 px-2 py-2 text-center font-semibold ${color}`}>
+                          {s === 'aumento' ? <ArrowUp size={14} strokeWidth={2.5} className="mr-1 inline" /> : s === 'reduccion' ? <ArrowDown size={14} strokeWidth={2.5} className="mr-1 inline" /> : null}
+                          {signo(f.diferencia)} <span className="mx-1.5 font-normal text-slate-300">|</span> {pct(f.variacionPct)}
+                        </td>
+                        <td className="border-b border-slate-100 px-2 py-2 text-center text-slate-700">{f.aportePct === null ? '—' : `${formatDecimal(f.aportePct, 1)} %`}</td>
+                        <td className="border-b border-slate-100 px-2 py-2 text-center"><ChipEstado s={s} titulo={ayuda} /></td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-slate-50 font-bold text-[#10233f]">
+                    <td className="px-4 py-3">TOTAL DELICTIVIDAD</td>
+                    {analisis.totales.map((v, i) => <td key={i} className={`px-2 py-3 text-center ${i === n - 1 ? 'bg-[#dff3f5]' : ''}`}>{formatNumero(v)}</td>)}
+                    <td className="px-2 py-1"><MiniTendencia valores={analisis.totales} s={sentido(dif)} /></td>
+                    <td className={`whitespace-nowrap px-2 py-3 text-center ${colorCambio}`}>
+                      {sube ? <ArrowUp size={14} strokeWidth={2.5} className="mr-1 inline" /> : dif < 0 ? <ArrowDown size={14} strokeWidth={2.5} className="mr-1 inline" /> : null}
+                      {signo(dif)} <span className="mx-1.5 font-normal text-slate-300">|</span> {pct(analisis.totalVariacionPct)}
+                    </td>
+                    <td className="px-2 py-3 text-center">{dif === 0 ? '—' : '100,0 %'}</td>
+                    <td className="px-2 py-3 text-center"><ChipEstado s={sentido(dif)} conPunto /></td>
+                  </tr>
+                </tbody>
+              </table>
+              {filas.length === 0 && <p className="py-6 text-center text-sm text-slate-400">Ningún delito en este grupo.</p>}
+            </div>
           </div>
 
           {/* Panel lateral */}
           <div className="space-y-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
-              <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-800"><FileText size={15} className="text-brand-green" /> Lectura del periodo</p>
-              <p className="text-[13px] leading-relaxed text-slate-700">
-                Entre {corto(primero.etiqueta)} y {corto(ultimo.etiqueta)} ({rango(primero.inicio, ultimo.fin)}) {total.totalDiferencia === 0 ? 'la delictividad se mantiene' : <>se registra {sube ? 'un aumento' : 'una reducción'} de <b>{formatDecimal(Math.abs(total.totalVariacionPct ?? 0), 1)} %</b></>}, pasando de <b>{formatNumero(primero.total)}</b> a <b>{formatNumero(ultimo.total)}</b> casos
-                {total.totalEstado === 'estable' ? ', una diferencia dentro de la variación normal.' : '.'}
-                {explican.length > 0 && (
-                  <> {sube ? ' El aumento' : ' La reducción'} se explica principalmente por {explican.slice(0, 3).map((f, i, arr) => (
-                    <span key={f.delito}><b>{f.delito}</b> ({formatDecimal(f.aportePct ?? 0, 1)} %){i < arr.length - 2 ? ', ' : i === arr.length - 2 ? ' y ' : ''}</span>
-                  ))}.</>
-                )}
-                {significativosOpuestos.length > 0 && (
-                  <> En sentido contrario, {significativosOpuestos.length === 1
-                    ? (sube ? 'se identifica una reducción significativa' : 'se identifica un incremento significativo')
-                    : (sube ? 'se identifican reducciones significativas' : 'se identifican incrementos significativos')} en {significativosOpuestos.slice(0, 3).map((f, i, arr) => (
-                    <span key={f.delito}><b>{f.delito}</b>{i < arr.length - 2 ? ', ' : i === arr.length - 2 ? ' y ' : ''}</span>
-                  ))}{!sube && ', que requieren seguimiento'}.</>
-                )}
-                {!sube && significativosOpuestos.length === 0 && alzasASeguir.length > 0 && (
-                  <> Aunque el total baja, {alzasASeguir.slice(0, 2).map((f) => f.delito).join(' y ')} {alzasASeguir.length === 1 ? 'muestra' : 'muestran'} alza en las últimas semanas, sin llegar a ser significativa: conviene seguirlos.</>
-                )}
-                {rezagoEnUltima && !cortado && <> <span className="font-semibold text-amber-700">Ojo: parte de la caída de {corto(ultimo.etiqueta)} puede deberse a registros aún no cargados.</span></>}
+            <div className="rounded-xl border border-slate-200 bg-[#f6f9fc] p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#e3eefc]"><FileText size={22} className="text-[#2f6fd6]" /></span>
+                <p className="text-[15px] font-bold text-[#10233f]">Lectura del periodo</p>
+              </div>
+              <p className="text-[12.5px] leading-relaxed text-slate-700">
+                Durante {esUltimas4 ? 'las últimas cuatro semanas' : 'el periodo analizado'} se registra {dif === 0 ? <>un comportamiento <b>estable</b></> : <>{sube ? 'un ' : 'una '}<b>{sube ? 'aumento' : 'reducción'} global de {formatDecimal(Math.abs(analisis.totalVariacionPct ?? 0), 1)} %</b></>} en la delictividad, pasando de <b>{formatNumero(primero.total)}</b> a <b>{formatNumero(ultimo.total)} casos</b>.
+                {explican.length > 0 && <> {sube ? 'El aumento' : 'La reducción'} está explicad{sube ? 'o' : 'a'} principalmente por {lista(explican.slice(0, 3), true)}.</>}
+                {contrarios.length > 0 && <> Se identifican {sube ? 'reducciones' : 'incrementos'} en {lista(contrarios.slice(0, 3), false)}{sube ? '.' : ', los cuales requieren seguimiento.'}</>}
+                {rezagoEnUltima && <> <span className="font-semibold text-amber-700">Parte de la caída de {nombreSemana(ultimo.etiqueta)} puede deberse a registros aún no cargados.</span></>}
               </p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-3.5">
-              <p className="mb-2.5 flex items-center gap-1.5 text-sm font-bold text-slate-800"><BarChart3 size={15} className="text-brand-green" /> Resumen de la tendencia</p>
-              <ul className="space-y-2.5 text-[13px]">
-                {mayorReduccion && <li className="flex gap-2"><ArrowDown size={16} className="mt-0.5 shrink-0 text-emerald-600" /><span><span className="text-slate-500">Mayor reducción:</span><br /><b>{mayorReduccion.delito}</b> ({signo(mayorReduccion.diferencia)} casos)</span></li>}
-                {mayorIncremento && <li className="flex gap-2"><Plus size={16} className="mt-0.5 shrink-0 rounded-full bg-rose-100 text-rose-600" /><span><span className="text-slate-500">Mayor incremento:</span><br /><b>{mayorIncremento.delito}</b> ({signo(mayorIncremento.diferencia)} casos{mayorIncremento.estado === 'estable' ? ', dentro de la variación normal' : ''})</span></li>}
-                {masCasosUltima && <li className="flex gap-2"><Circle size={14} className="mt-1 shrink-0 fill-slate-700 text-slate-700" /><span><span className="text-slate-500">Más casos en {corto(ultimo.etiqueta)}:</span><br /><b>{masCasosUltima.delito}</b> ({formatNumero(masCasosUltima.valores[n - 1])} casos)</span></li>}
-                {mayorAporte && <li className="flex gap-2"><Plus size={16} className="mt-0.5 shrink-0 rounded-full bg-emerald-100 text-emerald-700" /><span><span className="text-slate-500">Mayor aporte {sube ? 'al aumento' : 'a la reducción'}:</span><br /><b>{mayorAporte.delito}</b> ({formatDecimal(mayorAporte.aportePct ?? 0, 1)} %)</span></li>}
-                <li className="border-t border-slate-100 pt-2 text-[12px] text-slate-500">
-                  {formatNumero(totalVentana)} casos en toda la ventana{estacionTop ? <> · estación con más casos: <b className="text-slate-700">{estacionTop.key}</b> ({formatNumero(estacionTop.casos)})</> : null}
-                </li>
+            <div className="rounded-xl border border-slate-200 bg-[#f6f9fc] p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <IconoBarras size={30} />
+                <p className="text-[15px] font-bold text-[#10233f]">Resumen de la tendencia</p>
+              </div>
+              <ul className="space-y-3 text-[12.5px] text-slate-700">
+                {mayorReduccion && <li className="flex gap-3"><ArrowDown size={20} strokeWidth={2.5} className="mt-0.5 shrink-0 text-emerald-700" /><span>Mayor reducción:<br /><b className="text-[#10233f]">{mayorReduccion.delito} ({signo(mayorReduccion.diferencia)} casos)</b></span></li>}
+                {mayorIncremento && <li className="flex gap-3"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-500"><Plus size={13} strokeWidth={3} className="text-white" /></span><span>Mayor incremento:<br /><b className="text-[#10233f]">{mayorIncremento.delito} ({signo(mayorIncremento.diferencia)} casos)</b></span></li>}
+                {masCasos && <li className="flex gap-3"><Circle size={18} className="mt-0.5 shrink-0 fill-[#10233f] text-[#10233f]" /><span>Delito con más casos en {numSemana(ultimo.etiqueta)}:<br /><b className="text-[#10233f]">{masCasos.delito} ({formatNumero(masCasos.valores[n - 1])} casos)</b></span></li>}
+                {explican[0] && <li className="flex gap-3"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600"><Plus size={13} strokeWidth={3} className="text-white" /></span><span>Mayor aporte {sube ? 'al aumento' : 'a la reducción'}:<br /><b className="text-[#10233f]">{explican[0].delito} ({formatDecimal(explican[0].aportePct ?? 0, 1)} %)</b></span></li>}
               </ul>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

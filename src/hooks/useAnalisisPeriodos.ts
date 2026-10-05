@@ -95,13 +95,16 @@ export function useAnalisisPeriodos(records: CrimeRecord[], periodosDef: Periodo
     const variacionTotalPct = totalPrimero > 0 ? ((totalUltimo - totalPrimero) / totalPrimero) * 100 : null;
 
     const porEstacion = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.estacion));
-    const porArma = agruparPor(registrosVentana, (r) => r.armas).filter((a) => a.key !== 'NO REPORTADO');
+    // Valores no reales ("No Reportado", "Pendiente Por Asignar"…) fuera de
+    // los rankings — antes se comparaba solo 'NO REPORTADO' exacto y el
+    // formato de título ("No Reportado") se colaba.
+    const porArma = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.armas));
     const porHora = agruparPor(registrosVentana, (r) => (r.hora !== null ? `${String(r.hora).padStart(2, '0')}:00` : 'NO REPORTADO'));
-    const porCuadrante = agruparPor(registrosVentana, (r) => r.cuadrante).filter((c) => c.key !== 'NO REPORTADO');
-    const porCausaLesion = agruparPor(registrosVentana, (r) => r.causaLesion).filter((c) => c.key !== 'NO REPORTADO');
-    const porClaseSitio = agruparPor(registrosVentana, (r) => r.claseSitio).filter((c) => c.key !== 'NO REPORTADO');
+    const porCuadrante = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.cuadrante));
+    const porCausaLesion = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.causaLesion));
+    const porClaseSitio = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.claseSitio));
     const porBarrio = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.barrioHecho));
-    const porFranja = agruparPor(registrosVentana, (r) => r.franjaHoraria).filter((f) => f.key !== 'NO REPORTADO');
+    const porFranja = sinValoresPendientes(agruparPor(registrosVentana, (r) => r.franjaHoraria));
     const totalParaPct = totalCasos(registrosVentana);
 
     return {
