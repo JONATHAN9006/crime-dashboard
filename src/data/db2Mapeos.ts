@@ -52,6 +52,18 @@ export const MAPA_DELITO: Record<string, string> = {
   'HOMICIDIO EN ACCIDENTE DE TRANSITO': 'Homicidio en AT',
   'LESIONES EN ACCIDENTE DE TRANSITO': 'Lesiones AT',
   'HURTO A CELULAR': 'H. Celular',
+  // Hurto a bancos / entidades financieras — el DB2 lo trae como "HURTO
+  // BANCOS", pero otras descargas y la Matriz Base lo escriben distinto
+  // ("HURTO A BANCOS", "HURTO ENTIDADES FINANCIERAS", con artículo penal…)
+  // y quedaba como un delito suelto que no se sumaba a esta categoría.
+  'HURTO A BANCOS': 'Hurto E. Financieras',
+  'HURTO A BANCO': 'Hurto E. Financieras',
+  'HURTO BANCO': 'Hurto E. Financieras',
+  'HURTO ENTIDADES FINANCIERAS': 'Hurto E. Financieras',
+  'HURTO A ENTIDADES FINANCIERAS': 'Hurto E. Financieras',
+  'HURTO ENTIDAD FINANCIERA': 'Hurto E. Financieras',
+  'HURTO A ENTIDAD FINANCIERA': 'Hurto E. Financieras',
+  'HURTO E. FINANCIERAS': 'Hurto E. Financieras',
 };
 
 export const MAPA_ESTACION: Record<string, string> = {

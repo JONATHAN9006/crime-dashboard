@@ -120,6 +120,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return records.map((r) => {
       const canonico = MAPA_DELITO[r.delito.toUpperCase()];
       if (canonico) return canonico !== r.delito ? { ...r, delito: canonico } : r;
+      // Respaldo por palabra clave para hurto a bancos / entidades
+      // financieras, con cualquier otra redacción (ej. "ARTÍCULO 239.
+      // HURTO A BANCOS", "Hurto Entidades Financieras"): se suma siempre a
+      // la misma categoría en vez de quedar como un delito aparte.
+      const sinTildes = r.delito.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (/HURTO/.test(sinTildes) && /BANC|FINANCIER/.test(sinTildes)) {
+        return r.delito !== 'Hurto E. Financieras' ? { ...r, delito: 'Hurto E. Financieras' } : r;
+      }
       // Sin traducción en la tabla: si quedó en mayúsculas de corrido
       // (ej. "ACOSO SEXUAL"), se le da formato de Título para que no se
       // vea gritando al lado de los que sí están bien formateados.
