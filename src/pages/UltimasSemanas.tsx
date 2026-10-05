@@ -9,7 +9,7 @@ import { semanaIso, totalCasos } from '../utils/aggregations';
 import { analizarSemanas, detectarRezago } from '../analitica/semanas';
 import { EvolucionSemanal, IconoBarras } from '../components/semanas/EvolucionSemanal';
 import { maxDe } from '../utils/mathSeguro';
-import { Card, EmptyState, PageHeader } from '../components/ui/Card';
+import { Card, EmptyState } from '../components/ui/Card';
 import { MultiSelect } from '../components/filters/MultiSelect';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
@@ -95,7 +95,16 @@ export function UltimasSemanas() {
       ]).map((o, i) => (
         <button
           key={o.id}
-          onClick={() => setModo(o.id)}
+          onClick={() => {
+            // Al entrar a "Elegir semanas" sin ninguna elegida, se marcan de
+            // una vez las 4 semanas más recientes: la página sigue mostrando
+            // información mientras se ajusta la selección (antes quedaba en
+            // blanco y el encabezado saltaba a la izquierda).
+            if (o.id === 'semanas' && semanasElegidas.length === 0) {
+              setSemanasElegidas(semanasDisponibles.slice(-4).map((sd) => `${sd.anio}-${sd.semana}`));
+            }
+            setModo(o.id);
+          }}
           className={`flex items-center gap-2 px-4 py-2 text-[13px] font-medium ${i > 0 ? 'border-l border-slate-200' : ''} ${modo === o.id ? 'bg-[#137a6f] text-white' : 'text-slate-700 hover:bg-slate-50'}`}
         >
           {o.id === 'ultimas4' ? <CalendarRange size={15} /> : <CalendarDays size={15} />} {o.label}
@@ -130,17 +139,11 @@ export function UltimasSemanas() {
       )}
     </div>
   );
-  const selectorModo = <div className="mb-4 flex flex-wrap items-center gap-3">{botonesModo}{controlesModo}</div>;
 
-  if (periodos.length === 0 || !r.disponible) {
-    return (
-      <div>
-        <PageHeader title="Comportamiento de los delitos" subtitle="Análisis por semanas o por mes, según lo que selecciones." />
-        {selectorModo}
-        <EmptyState mensaje={modo === 'semanas' ? 'Selecciona al menos una semana para analizar.' : 'No hay suficientes datos con fecha para este análisis.'} />
-      </div>
-    );
-  }
+  // Sin períodos (ej. se desmarcaron todas las semanas): se mantiene el
+  // MISMO encabezado y los botones en su sitio; solo el contenido cambia
+  // por un aviso — nada se mueve de lugar.
+  const sinDatos = periodos.length === 0 || !r.disponible;
 
   const topDelitosGrafico = [...r.porDelito].sort((a, b) => b.valores.reduce((x, y) => x + y, 0) - a.valores.reduce((x, y) => x + y, 0)).slice(0, 5);
   const datosGrafico = r.periodos.map((p, i) => {
@@ -160,7 +163,7 @@ export function UltimasSemanas() {
 
   const tituloVentana = modo === 'mes'
     ? `Mes analizado: ${mesesDisponibles.find((m) => m.anioMes === (mesElegido ?? mesesDisponibles[mesesDisponibles.length - 1]?.anioMes))?.etiqueta ?? ''}`
-    : `Del ${formatFecha(r.periodos[0].inicio)} al ${formatFecha(r.periodos[r.periodos.length - 1].fin)}`;
+    : sinDatos ? 'Elige al menos una semana para ver el análisis' : `Del ${formatFecha(r.periodos[0].inicio)} al ${formatFecha(r.periodos[r.periodos.length - 1].fin)}`;
 
   // ── Primera sección: igual a la imagen de referencia ──────────────────
   const dif = r.periodos.length > 0 ? r.periodos[r.periodos.length - 1].total - r.periodos[0].total : 0;
@@ -183,12 +186,12 @@ export function UltimasSemanas() {
     </>
   );
   const kpiSuperior = (titulo: string, valor: string, sub: string, icono: React.ReactNode, fondoIcono: string, fondo: string, colorValor = 'text-[#10233f]') => (
-    <div className={`flex items-center gap-2.5 overflow-hidden rounded-xl border border-slate-200 px-3 py-3.5 ${fondo}`}>
-      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${fondoIcono}`}>{icono}</span>
+    <div className={`flex items-center gap-2 overflow-hidden rounded-xl border border-slate-200 px-2.5 py-3.5 ${fondo}`}>
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${fondoIcono}`}>{icono}</span>
       <div className="min-w-0">
         <p className="text-[9.5px] font-semibold uppercase leading-tight tracking-wide text-slate-600">{titulo}</p>
         {/* Nombres largos (ej. "H. Comercio", una estación con nombre largo) bajan de tamaño para caber sin cortarse. */}
-        <p title={valor} className={`mt-0.5 break-words font-extrabold leading-tight ${valor.length > 9 ? 'text-[18px]' : 'text-[23px]'} ${colorValor}`}>{valor}</p>
+        <p title={valor} className={`mt-0.5 font-extrabold leading-tight ${valor.length > 9 ? 'break-words text-[18px]' : 'whitespace-nowrap text-[22px]'} ${colorValor}`}>{valor}</p>
         <p className="text-[12px] leading-snug text-slate-500">{sub}</p>
       </div>
     </div>
@@ -210,12 +213,15 @@ export function UltimasSemanas() {
           <div className="flex flex-col items-end gap-2">{botonesModo}{controlesModo}</div>
         </div>
 
+        {sinDatos ? (
+          <EmptyState mensaje={modo === 'semanas' ? 'Selecciona al menos una semana en la lista de arriba para ver el análisis.' : 'No hay suficientes datos con fecha para este análisis.'} />
+        ) : (<>
         {/* Indicadores (izquierda) + gráfica (derecha) */}
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
           <div className="grid grid-cols-1 content-start gap-3 sm:grid-cols-2 2xl:grid-cols-4">
             {kpiSuperior(`Total ${modo === 'mes' ? 'del mes' : 'de la ventana'}`, formatNumero(r.totalVentana), 'casos', <BarChart3 size={22} className="text-[#2f6fd6]" strokeWidth={2.4} />, 'bg-[#e3eefc]', 'bg-[#f3f7fc]')}
             {kpiSuperior('Variación último vs. primer período', r.variacionTotalPct === null ? '—' : `${variacionSube ? '+' : ''}${formatDecimal(r.variacionTotalPct, 1)} %`, `${dif > 0 ? '+' : ''}${formatNumero(dif)} casos`, <Diamond size={20} className="fill-rose-500 text-rose-500" />, 'bg-rose-100', 'bg-[#eef8f2]', variacionSube ? 'text-rose-600' : 'text-emerald-700')}
-            {kpiSuperior('Delito con mayor aumento', r.delitoMayorAumento?.delito ?? '—', r.delitoMayorAumento ? `${r.delitoMayorAumento.variacionAbs >= 0 ? '+' : ''}${r.delitoMayorAumento.variacionAbs} casos` : '', <ArrowUp size={24} className="text-rose-600" strokeWidth={3} />, 'bg-rose-100', 'bg-[#fdf0f2]')}
+            {kpiSuperior('Delito con mayor aumento', r.delitoMayorAumento && r.delitoMayorAumento.variacionAbs > 0 ? r.delitoMayorAumento.delito : 'Ninguno', r.delitoMayorAumento && r.delitoMayorAumento.variacionAbs > 0 ? `+${r.delitoMayorAumento.variacionAbs} casos` : 'ningún delito aumentó', <ArrowUp size={24} className="text-rose-600" strokeWidth={3} />, 'bg-rose-100', 'bg-[#fdf0f2]')}
             {kpiSuperior('Estación que más aporta', r.estacionTop?.key ?? '—', r.estacionTop ? `${formatNumero(r.estacionTop.casos)} casos en la ventana` : '', <Shield size={22} className="fill-[#2f6fd6] text-[#2f6fd6]" />, 'bg-[#e3eefc]', 'bg-[#f3f7fc]')}
           </div>
 
@@ -249,10 +255,11 @@ export function UltimasSemanas() {
           </Card>
           <Card title="Barrios más afectados (Top 5)" descargable="barrios-mas-afectados" icono={iconoVerde(Home)} claseTitulo={tituloTarjeta}>{lista('Barrio', r.barriosTop, true)}</Card>
         </div>
+        </>)}
       </div>
 
       {/* Segunda sección: Evolución de la delictividad (segunda imagen) */}
-      <EvolucionSemanal
+      {!sinDatos && <EvolucionSemanal
         periodos={r.periodos}
         analisis={analisis}
         esUltimas4={modo === 'ultimas4'}
@@ -260,7 +267,7 @@ export function UltimasSemanas() {
         cortado={modo === 'ultimas4' ? corte : null}
         onCortarAntesDelRezago={modo === 'ultimas4' && rezago ? () => setCorte(new Date(rezago.desde.getTime() - 86400000)) : undefined}
         onQuitarCorte={() => setCorte(null)}
-      />
+      />}
     </div>
   );
 }
