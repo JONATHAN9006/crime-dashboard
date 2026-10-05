@@ -11,8 +11,6 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { DataStatusPanel } from '../components/layout/Header';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
-import { ComparativoOperatividadDesglosado } from '../components/tables/ComparativoOperatividadDesglosado';
-import { CONCEPTOS_FIJOS, totalesPorConcepto } from '../utils/desgloseOperatividad';
 
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
@@ -233,7 +231,7 @@ export function ResumenEjecutivo() {
 
         <Card
           title="Comparativo de Operatividad"
-          subtitle={`${ventanaOperatividad.anioAnterior} vs. ${ventanaOperatividad.anioActual}, a la fecha — desglosado por concepto`}
+          subtitle={`${ventanaOperatividad.anioAnterior} vs. ${ventanaOperatividad.anioActual}, por categoría`}
           descargable="comparativo-operatividad-resumen"
           actions={(
             <div className="flex items-center gap-1.5">
@@ -256,37 +254,27 @@ export function ResumenEjecutivo() {
               // diciembre.
               const { conFecha, anioActual: anioActualOp, anioAnterior: anioAnteriorOp, cutoffAnterior: cutoffAnteriorOp } = ventanaOperatividad;
 
-              // Desglosado por CONCEPTO (a pedido, como el informe
-              // institucional): capturas por orden judicial / en
-              // flagrancia, recuperaciones, mercancía, armas con/sin
-              // permiso y cada droga en gramos — ver
-              // utils/desgloseOperatividad.ts.
-              const actual = totalesPorConcepto(operatividadRecords.filter((r) => r.anio === anioActualOp));
-              const anterior = totalesPorConcepto(conFecha.filter((r) => r.fecha.getFullYear() === anioAnteriorOp && r.fecha <= cutoffAnteriorOp));
-              const anteriorCompleto = totalesPorConcepto(operatividadRecords.filter((r) => r.anio === anioAnteriorOp));
-              // Conceptos fijos siempre (aunque estén en cero) + cualquier
-              // concepto extra que traiga el archivo, si tiene datos.
-              const extras = [...actual.values(), ...anterior.values(), ...anteriorCompleto.values()]
-                .map((v) => v.c)
-                .filter((c) => !CONCEPTOS_FIJOS.some((f) => f.concepto === c.concepto));
-              const conceptos = [...CONCEPTOS_FIJOS, ...Array.from(new Map(extras.map((c) => [c.concepto, c])).values())].sort((x, y) => x.orden - y.orden);
-              const filas = conceptos.map((c) => ({
-                concepto: c.concepto,
-                actual: actual.get(c.concepto)?.valor ?? 0,
-                anterior: anterior.get(c.concepto)?.valor ?? 0,
-                totalAnteriorCompleto: anteriorCompleto.get(c.concepto)?.valor ?? 0,
-              }));
-              const filasFiltradas = filas.filter((f) => {
-                const dif = Math.round(f.actual - f.anterior);
+              const categorias = Array.from(new Set(operatividadRecords.map((r) => r.categoria || 'SIN CATEGORÍA')));
+              const filas = categorias.map((cat) => {
+                const actual = operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioActualOp).length;
+                const anteriorALaFecha = conFecha.filter((r) => r.categoria === cat && r.fecha.getFullYear() === anioAnteriorOp && r.fecha <= cutoffAnteriorOp).length;
+                const anteriorCompleto = operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioAnteriorOp).length;
+                const diferencia = actual - anteriorALaFecha;
+                const variacionPct = anteriorALaFecha > 0 ? (diferencia / anteriorALaFecha) * 100 : (actual > 0 ? 100 : null);
+                return { key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior: anteriorALaFecha, diferencia, variacionPct, aportePct: 0, totalAnioAnteriorCompleto: anteriorCompleto };
+              }).filter((f) => f.actual > 0 || f.anterior > 0 || f.totalAnioAnteriorCompleto > 0).sort((a, b) => b.actual - a.actual);
+              const totalActual = filas.reduce((a, f) => a + f.actual, 0);
+              const filasConAporte = filas.map((f) => ({ ...f, aportePct: totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));
+              const filasFiltradas = filasConAporte.filter((f) => {
                 if (!aumentoActivoOperatividad && !disminucionActivoOperatividad) return true;
-                if (aumentoActivoOperatividad && dif > 0) return true;
-                if (disminucionActivoOperatividad && dif < 0) return true;
+                if (aumentoActivoOperatividad && f.diferencia > 0) return true;
+                if (disminucionActivoOperatividad && f.diferencia < 0) return true;
                 return false;
               });
               return filasFiltradas.length > 0 ? (
-                <ComparativoOperatividadDesglosado filas={filasFiltradas} anioAnterior={anioAnteriorOp} anioActual={anioActualOp} />
+                <ComparativoCategoriaTable data={filasFiltradas} etiqueta="Categoría" anioAnterior={anioAnteriorOp} anioActual={anioActualOp} limite={filasFiltradas.length} invertirColores />
               ) : (
-                <p className="py-8 text-center text-sm text-slate-400">Ningún concepto coincide con el filtro seleccionado.</p>
+                <p className="py-8 text-center text-sm text-slate-400">Ninguna categoría coincide con el filtro seleccionado.</p>
               );
             })()
           ) : (

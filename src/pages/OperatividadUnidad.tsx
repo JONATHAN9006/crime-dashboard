@@ -4,7 +4,6 @@ import { agruparPor, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
 import { AporteBarList } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
-import { totalesPorConcepto, type ConceptoOperatividad } from '../utils/desgloseOperatividad';
 
 // Azul rey — SOLO para el recuadro que resalta la barra con más casos, para
 // distinguir Operatividad de Delictividad (que usa recuadro rojo). El
@@ -78,17 +77,10 @@ export function OperatividadUnidad() {
   // explícito. "Orden Judicial Ley 906/600" pasa a "O.J Ley 906"/"O.J Ley
   // 600" (conservando cuál de las dos leyes es, en vez de perder ese dato
   // fusionando ambas en una sola etiqueta "O.J").
-  //
-  // Actualización (a pedido): en Circunstancia de captura, "O.J Ley 906" y
-  // "O.J Ley 600" se juntan en un solo ítem "Orden Judicial".
-  const unificarOrdenJudicial = (v: string) => (/^(ORDEN JUDICIAL|O\.?\s?J\b)/i.test(v.trim()) ? 'Orden Judicial' : v);
-  // "No reportado" y equivalentes NO se muestran como un ítem más (ej. en
-  // Marca). Antes se comparaba contra 'NO REPORTADO' exacto, pero el parser
-  // formatea los valores como título ("No Reportado") y se colaba.
-  const esNoReportado = (v: string) => /^(NO REPORTAD[OA]|SIN REPORTAR|NO REPORTA|SIN INFORMACION|SIN INFORMACIÓN|N\/?A|-)$/i.test(v.trim());
-  const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop, transformar: (v: string) => string = (v) => v) =>
-    conAporte(recortar(agruparPor(registros, (r) => transformar(campo(r) || 'NO REPORTADO')).filter((d) => !esNoReportado(d.key)), top));
-  const porCircunstancia = rankear((r) => r.circunstanciaCaptura, topCircunstancia, unificarOrdenJudicial);
+  const acortarEtiqueta = (v: string) => v.replace(/^ORDEN JUDICIAL\b/i, 'O.J');
+  const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop) =>
+    conAporte(recortar(agruparPor(registros, (r) => acortarEtiqueta(campo(r) || 'NO REPORTADO')).filter((d) => d.key !== 'NO REPORTADO'), top));
+  const porCircunstancia = rankear((r) => r.circunstanciaCaptura, topCircunstancia);
   const porClaseBien = rankear((r) => r.claseBien, topClaseBien);
   const porTipoBien = rankear((r) => r.tipoBien, topTipoBien);
   const porMarca = rankear((r) => r.marca, topMarca);
@@ -97,25 +89,6 @@ export function OperatividadUnidad() {
   const porPaisPersona = rankear((r) => r.paisPersona, topPaisPersona);
   const porPermisoArma = rankear((r) => r.permisoArma, topPermisoArma);
   const porSituacionJuridica = rankear((r) => r.situacionJuridica, topSituacionJuridica);
-
-  // Incautaciones (a pedido): armas de fuego, mercancía incautada y cada
-  // droga con sus gramos — con los filtros generales, mismo criterio de
-  // conceptos que el Comparativo de Operatividad del Resumen.
-  const incautaciones = (() => {
-    const t = totalesPorConcepto(registros);
-    const grupos: { titulo: string; filas: { c: ConceptoOperatividad; valor: number; casos: number }[] }[] = [
-      { titulo: 'Drogas', filas: [] },
-      { titulo: 'Armas de fuego', filas: [] },
-      { titulo: 'Mercancía incautada', filas: [] },
-    ];
-    for (const v of t.values()) {
-      if (v.c.grupo === 'Drogas') grupos[0].filas.push(v);
-      else if (v.c.grupo === 'Armas de fuego') grupos[1].filas.push(v);
-      else if (v.c.concepto === 'Casos mercancía incautada') grupos[2].filas.push(v);
-    }
-    for (const g of grupos) g.filas.sort((a, b) => a.c.orden - b.c.orden);
-    return grupos;
-  })();
 
   const filtrosActivos = [
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
@@ -184,44 +157,6 @@ export function OperatividadUnidad() {
             </Card>
             <Card title="Permiso de arma" descargable="operatividad-permiso-arma" actions={<SelectorTopBotones valor={topPermisoArma} onChange={setTopPermisoArma} />}>
               <AporteBarList data={porPermisoArma} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Incautaciones" subtitle="Drogas (gramos), armas de fuego y mercancía incautada — con los filtros actuales" descargable="operatividad-incautaciones" className="lg:col-span-3">
-              {incautaciones.every((g) => g.filas.length === 0) ? (
-                <p className="py-6 text-center text-xs text-slate-400">No hay incautaciones con los filtros actuales.</p>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  {incautaciones.map((g) => (
-                    <div key={g.titulo}>
-                      <p className="mb-1.5 border-b border-slate-200 pb-1 text-xs font-bold uppercase tracking-wide text-brand-navy">{g.titulo}</p>
-                      {g.filas.length === 0 ? (
-                        <p className="text-xs text-slate-400">Sin registros.</p>
-                      ) : (
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-[11px] text-slate-400">
-                              <th className="pb-1 text-left font-medium">Concepto</th>
-                              <th className="pb-1 text-right font-medium">Cantidad</th>
-                              <th className="pb-1 text-right font-medium">Casos</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {g.filas.map(({ c, valor, casos }) => (
-                              <tr key={c.concepto} className="border-t border-slate-100">
-                                <td className="py-1.5 pr-2 text-[13px] text-slate-700">{c.concepto}</td>
-                                <td className="py-1.5 text-right text-[15px] font-bold text-slate-800">
-                                  {formatNumero(Math.round(valor))}
-                                  {c.medida === 'suma' && !c.concepto.includes('(') && <span className="ml-1 text-[11px] font-medium text-slate-400">{c.unidad}</span>}
-                                </td>
-                                <td className="py-1.5 text-right text-[13px] text-slate-500">{formatNumero(casos)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
             </Card>
           </div>
 
