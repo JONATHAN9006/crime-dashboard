@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Minus, CalendarDays, CalendarRange } from 'lucide-react';
+import { CalendarDays, CalendarRange } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import {
   useAnalisisPeriodos, useSemanasDisponibles, useMesesDisponibles, dividirEnSemanas, type PeriodoDef,
 } from '../hooks/useAnalisisPeriodos';
-import { semanaIso } from '../utils/aggregations';
+import { semanaIso, totalCasos } from '../utils/aggregations';
+import { analizarSemanas, detectarRezago } from '../analitica/semanas';
+import { EvolucionSemanal } from '../components/semanas/EvolucionSemanal';
 import { maxDe } from '../utils/mathSeguro';
 import { Card, EmptyState, PageHeader } from '../components/ui/Card';
-import { KpiCard } from '../components/ui/KpiCard';
 import { MultiSelect } from '../components/filters/MultiSelect';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
-import { formatDecimal, formatFecha, formatNumero, formatPct } from '../utils/aggregations';
+import { formatDecimal, formatFecha } from '../utils/aggregations';
 
 type Modo = 'ultimas4' | 'semanas' | 'mes';
 
@@ -19,6 +20,10 @@ export function UltimasSemanas() {
   const [modo, setModo] = useState<Modo>('ultimas4');
   const [semanasElegidas, setSemanasElegidas] = useState<string[]>([]); // "anio-semana"
   const [mesElegido, setMesElegido] = useState<string | null>(null);
+  // Fecha de corte manual (solo "Últimas 4 semanas"): permite terminar el
+  // análisis ANTES de los días con registro incompleto (rezago). null = el
+  // último dato disponible.
+  const [corte, setCorte] = useState<Date | null>(null);
 
   const semanasDisponibles = useSemanasDisponibles(filteredRecords);
   const mesesDisponibles = useMesesDisponibles(filteredRecords);
@@ -39,7 +44,7 @@ export function UltimasSemanas() {
     }
     // ultimas4 (por defecto): últimas 4 semanas de 7 días terminando en el dato más reciente.
     const maxTs = maxDe(conFecha.map((r) => r.fecha!.getTime()));
-    const diaFin = new Date(maxTs);
+    const diaFin = new Date(corte && corte.getTime() < maxTs ? corte.getTime() : maxTs);
     diaFin.setHours(0, 0, 0, 0);
     const MS_DIA = 86400000;
     const construir = (offInicio: number, offFin: number): PeriodoDef => {
@@ -50,9 +55,35 @@ export function UltimasSemanas() {
       return { etiqueta: `Semana ${semanaIso(fin)}`, inicio, fin };
     };
     return [construir(27, 21), construir(20, 14), construir(13, 7), construir(6, 0)];
-  }, [modo, filteredRecords, semanasElegidas, semanasDisponibles, mesElegido, mesesDisponibles]);
+  }, [modo, filteredRecords, semanasElegidas, semanasDisponibles, mesElegido, mesesDisponibles, corte]);
 
   const r = useAnalisisPeriodos(filteredRecords, periodos);
+
+  // Modelo estadístico de corto plazo (analitica/semanas.ts): estado con
+  // umbral de ruido, patrón, aporte al cambio — y la serie diaria de la
+  // ventana para detectar rezago de registro en los últimos días.
+  const analisis = useMemo(
+    () => analizarSemanas(r.porDelito.map((d) => ({ delito: d.delito, valores: d.valores })), r.periodos.map((p) => p.total)),
+    [r],
+  );
+  const rezago = useMemo(() => {
+    if (!r.disponible || r.periodos.length === 0) return null;
+    const inicio = new Date(r.periodos[0].inicio); inicio.setHours(0, 0, 0, 0);
+    const fin = r.periodos[r.periodos.length - 1].fin;
+    const porDia = new Map<string, typeof r.registrosVentana>();
+    for (const reg of r.registrosVentana) {
+      if (!reg.fecha) continue;
+      const k = reg.fecha.toDateString();
+      const lista = porDia.get(k) ?? [];
+      lista.push(reg);
+      porDia.set(k, lista);
+    }
+    const diarios: { fecha: Date; casos: number }[] = [];
+    for (let d = new Date(inicio); d <= fin; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      diarios.push({ fecha: new Date(d), casos: totalCasos(porDia.get(d.toDateString()) ?? []) });
+    }
+    return detectarRezago(diarios);
+  }, [r]);
 
   const selectorModo = (
     <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -134,55 +165,19 @@ export function UltimasSemanas() {
 
       {selectorModo}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard titulo={`Total ${modo === 'mes' ? 'del mes' : 'de la ventana'}`} valor={formatNumero(r.totalVentana)} />
-        <KpiCard
-          titulo="Variación último vs. primer período"
-          valor={formatPct(r.variacionTotalPct)}
-          acento={r.variacionTotalPct !== null && r.variacionTotalPct > 0 ? 'red' : 'green'}
-          colorValor={r.variacionTotalPct !== null && r.variacionTotalPct > 0 ? 'red' : 'green'}
-        />
-        <KpiCard titulo="Delito con mayor aumento" valor={r.delitoMayorAumento?.delito ?? '—'} subtitulo={r.delitoMayorAumento ? `${r.delitoMayorAumento.variacionAbs >= 0 ? '+' : ''}${r.delitoMayorAumento.variacionAbs} casos` : ''} acento="red" />
-        <KpiCard titulo="Estación que más aporta" valor={r.estacionTop?.key ?? '—'} subtitulo={r.estacionTop ? `${formatNumero(r.estacionTop.casos)} casos en la ventana` : ''} />
-      </div>
+      <EvolucionSemanal
+        periodos={r.periodos}
+        analisis={analisis}
+        rezago={modo === 'ultimas4' ? rezago : null}
+        cortado={modo === 'ultimas4' ? corte : null}
+        onCortarAntesDelRezago={modo === 'ultimas4' && rezago ? () => setCorte(new Date(rezago.desde.getTime() - 86400000)) : undefined}
+        onQuitarCorte={() => setCorte(null)}
+        totalVentana={r.totalVentana}
+        estacionTop={r.estacionTop}
+      />
 
       <Card title={`Evolución ${modo === 'mes' ? 'semanal dentro del mes' : 'por período'} — Top 5 delitos`} subtitle="Cada barra indica el número de semana real del calendario. El delito con mayor incidencia se resalta automáticamente en rojo." descargable="evolucion-top5">
         <GroupedBarChart data={datosGrafico} xKey="periodo" seriesKeys={topDelitosGrafico.map((d) => d.delito)} seriesColors={coloresDelitos} height={300} />
-      </Card>
-
-      <Card title="Delitos: período a período" subtitle="Verde = mejora (disminución). Rojo = comportamiento desfavorable (aumento)." descargable="delitos-periodo">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-2">Delito</th>
-                {r.periodos.map((p, i) => <th key={i} className="py-2 pr-2 text-right">{p.etiqueta.replace(' (más reciente)', '')}</th>)}
-                <th className="py-2 pr-2 text-right">Variación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {r.porDelito.slice(0, 20).map((d) => {
-                const subiendo = d.tendencia === 'aumenta';
-                const bajando = d.tendencia === 'disminuye';
-                return (
-                  <tr key={d.delito} className="border-b border-slate-100 last:border-0">
-                    <td className="py-2 pr-2 font-medium text-slate-800">{d.delito}</td>
-                    {d.valores.map((v, i) => <td key={i} className="py-2 pr-2 text-right text-base text-slate-600">{v}</td>)}
-                    <td className="py-2 pr-2">
-                      <div className={`flex items-center justify-end gap-1 text-base font-semibold ${subiendo ? 'text-rose-600' : bajando ? 'text-emerald-600' : 'text-slate-400'}`}>
-                        {subiendo && <ArrowUp size={13} />}
-                        {bajando && <ArrowDown size={13} />}
-                        {!subiendo && !bajando && <Minus size={13} />}
-                        {d.variacionAbs >= 0 ? '+' : ''}{d.variacionAbs}
-                        {d.variacionPct !== null && ` (${formatDecimal(Math.abs(d.variacionPct))}%)`}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
