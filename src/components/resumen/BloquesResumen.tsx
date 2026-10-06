@@ -33,7 +33,7 @@ export function KpiResumen({ titulo, valor, detalle, nota, icono, fondoIcono, fo
 
 const COLORES_TOP5 = ['#ef3e55', '#1f3a6e', '#14a37f', '#1e4f8f', '#8a86da', '#a3acb9'];
 
-export function Top5Dona({ filas, total, colores, compacta = false }: { filas: { key: string; casos: number }[]; total: number; colores?: string[]; compacta?: boolean }) {
+export function Top5Dona({ filas, total, colores, compacta = false, etiquetaCentro = 'casos', anchoNombre = 110 }: { filas: { key: string; casos: number }[]; total: number; colores?: string[]; compacta?: boolean; etiquetaCentro?: string; anchoNombre?: number }) {
   const paleta = colores ?? COLORES_TOP5;
   const sumaTop = filas.reduce((a, f) => a + f.casos, 0);
   const otros = Math.max(0, total - sumaTop);
@@ -56,13 +56,13 @@ export function Top5Dona({ filas, total, colores, compacta = false }: { filas: {
       <svg width={compacta ? 120 : 160} height={compacta ? 120 : 160} viewBox="0 0 160 160" className="shrink-0" role="img" aria-label="Distribución de los delitos más afectados">
         {arcos.map((a) => <path key={a.key} d={a.d} fill={a.color} stroke="#ffffff" strokeWidth="1.5" />)}
         <text x={C} y={C - 1} textAnchor="middle" fontSize="19" fontWeight="700" fill={AZUL_TINTA}>{formatNumero(total)}</text>
-        <text x={C} y={C + 16} textAnchor="middle" fontSize="11.5" fill="#64748b">casos</text>
+        <text x={C} y={C + 16} textAnchor="middle" fontSize="11.5" fill="#64748b">{etiquetaCentro}</text>
       </svg>
       <table className={compacta ? 'w-full text-[11.5px]' : 'min-w-[200px] flex-1 text-[13px]'}>
         <tbody>
           {items.map((it) => (
             <tr key={it.key}>
-              <td className="max-w-[110px] truncate py-[3px] pr-2" title={it.key}><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: it.color }} /><span className="text-slate-700">{it.key}</span></td>
+              <td className="truncate py-[3px] pr-2" style={{ maxWidth: anchoNombre }} title={it.key}><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: it.color }} /><span className="text-slate-700">{it.key}</span></td>
               <td className="whitespace-nowrap py-[3px] pr-1 text-right font-semibold" style={{ color: AZUL_TINTA }}>{formatNumero(it.casos)}</td>
               <td className="whitespace-nowrap py-[3px] text-right text-slate-500">{compacta ? `${formatDecimal(total > 0 ? (it.casos / total) * 100 : 0, 1)}%` : `(${formatDecimal(total > 0 ? (it.casos / total) * 100 : 0, 1)} %)`}</td>
             </tr>

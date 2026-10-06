@@ -1,14 +1,40 @@
 import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
-import { agruparPor, formatNumero } from '../utils/aggregations';
+import {
+  Bike, Boxes, Building2, Car, ChartPie, ClipboardList, Clock, Crosshair, FileBadge, Gavel, Globe, House,
+  Layers, Leaf, MapPin, Package, PackageCheck, Scale, Shapes, Tags, TrendingUp, UserCheck, type LucideIcon,
+} from 'lucide-react';
+import { agruparPor, formatDecimal, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
-import { AporteBarList } from '../components/charts/AporteBarList';
+import { AporteBarList, type FilaAporte } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
+import { AZUL_TINTA, Top5Dona } from '../components/resumen/BloquesResumen';
+import { EvolucionOperatividad } from '../components/operatividad/EvolucionOperatividad';
 
 // Azul rey — SOLO para el recuadro que resalta la barra con más casos, para
 // distinguir Operatividad de Delictividad (que usa recuadro rojo). El
 // color de las barras en sí se queda igual al institucional de siempre.
 const AZUL_REY = '#1d4ed8';
+
+// Presentación (solo visual) — identidad institucional del dashboard.
+const GRILLA = 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
+const CLASE_TITULO = 'text-[14px] font-semibold leading-snug text-[#10233f]';
+const TEXTO_SIN_REGISTROS = 'No hay registros disponibles para los filtros seleccionados.';
+// Dona: verdes petróleo/turquesa, azul institucional y grises azulados.
+const PALETA_DONA = ['#0f5f57', '#159089', '#1d4ed8', '#5eaaa8', '#64748b', '#94a3b8', '#0e7490', '#cbd5e1', '#334155'];
+
+// Ícono de cada categoría según su nombre (sin escudos ni emblemas).
+function iconoCategoria(nombre: string): LucideIcon {
+  const n = nombre.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/CAPTUR/.test(n)) return UserCheck;
+  if (/AUTOMOTOR|VEHICUL|CARRO/.test(n)) return Car; // antes que MOTO: "AUTOMOTORES" contiene "MOTO"
+  if (/MOTO/.test(n)) return Bike;
+  if (/ARMA/.test(n)) return Crosshair;
+  if (/DROGA|ESTUPEF|MARIHUAN|COCA/.test(n)) return Leaf;
+  if (/RECUPER/.test(n)) return PackageCheck;
+  if (/MERCANC|INCAUT/.test(n)) return Package;
+  return Layers;
+}
 
 function recortar<T extends { casos: number }>(lista: T[], top: ValorTop): T[] {
   return top === 'todas' ? lista : lista.slice(0, top);
@@ -101,11 +127,34 @@ export function OperatividadUnidad() {
 
   const categoriaConMasCasos = conAportePorCategoria[0];
 
+  // Período que realmente se está mostrando (no se agrega ningún selector
+  // nuevo: manda el filtro general, o el año más reciente por defecto).
+  const aniosMostrados = Array.from(new Set(registros.map((r) => r.anio).filter((a): a is number => a != null))).sort();
+  const periodo = filters.anio.length > 0
+    ? `Año ${filters.anio.join(', ')}${filters.mes.length > 0 ? ` · ${filters.mes.join(', ')}` : ''}`
+    : aniosMostrados.length > 0
+      ? `Año ${aniosMostrados.join(', ')} (más reciente)${filters.mes.length > 0 ? ` · ${filters.mes.join(', ')}` : ''}`
+      : undefined;
+
+  // Todas las tarjetas de ranking comparten el mismo aspecto.
+  const tarjeta = (titulo: string, archivo: string, Icono: LucideIcon, data: FilaAporte[], top?: { valor: ValorTop; set: (v: ValorTop) => void }) => (
+    <Card
+      title={titulo}
+      descargable={archivo}
+      icono={<Icono size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
+      claseTitulo={CLASE_TITULO}
+      actions={top ? <SelectorTopBotones valor={top.valor} onChange={top.set} institucional /> : undefined}
+    >
+      <AporteBarList data={data} colorBordeMaximo={AZUL_REY} compacta textoVacio={TEXTO_SIN_REGISTROS} />
+    </Card>
+  );
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageHeader
         title="Operatividad por Unidad"
         subtitle="Capturas, incautaciones y recuperaciones — mismos filtros generales del dashboard, cruzados con el Delito asociado."
+        metric={periodo}
       />
 
       {!operatividadMeta && (
@@ -117,71 +166,109 @@ export function OperatividadUnidad() {
       {operatividadMeta && (
         <>
           {filtrosActivos.length > 0 && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               Filtros activos: <strong>{filtrosActivos.join(' · ')}</strong> ({formatNumero(total)} registros de operatividad)
             </div>
           )}
 
-          <Card title="Resumen general" subtitle="Totales de operatividad con los filtros actuales" descargable="resumen-operatividad" className="mx-auto max-w-xl">
-            <table className="w-full text-sm">
-              <tbody>
-                {[
-                  { etiqueta: 'Total operatividad (todas las categorías)', valor: formatNumero(total) },
-                  { etiqueta: 'Categoría con más casos', valor: categoriaConMasCasos ? `${categoriaConMasCasos.key} (${formatNumero(categoriaConMasCasos.casos)})` : '—' },
-                  ...conAportePorCategoria.map((c) => ({ etiqueta: c.key, valor: `${formatNumero(c.casos)} (${c.aportePct.toFixed(1)}%)` })),
-                ].map((fila, i) => (
-                  <tr key={fila.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/60' : ''}>
-                    <td className="rounded-l-lg py-1.5 pl-3 text-xs font-medium text-slate-600">{fila.etiqueta}</td>
-                    <td className="rounded-r-lg py-1.5 pr-3 text-right text-sm font-bold text-slate-800">{fila.valor}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+          {/* FILA 1 — Resumen ejecutivo · Distribución · Evolución */}
+          <div className={GRILLA}>
+            <Card
+              title="Resumen general"
+              subtitle="Totales de operatividad con los filtros actuales"
+              descargable="resumen-operatividad"
+              icono={<ClipboardList size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
+              claseTitulo={CLASE_TITULO}
+            >
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">Total operatividad</p>
+                    <p className="text-[26px] font-bold leading-tight tabular-nums" style={{ color: AZUL_TINTA }}>{formatNumero(total)}</p>
+                    <p className="whitespace-nowrap text-[11px] text-slate-500">Todas las categorías</p>
+                  </div>
+                  {categoriaConMasCasos && (
+                    <div className="min-w-0 rounded-md px-2.5 py-1.5 text-right" style={{ border: `2px dashed ${AZUL_REY}`, backgroundColor: 'rgba(29, 78, 216, 0.05)' }}>
+                      <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">Categoría principal</p>
+                      <p className="truncate text-[13px] font-bold" style={{ color: AZUL_TINTA }} title={categoriaConMasCasos.key}>{categoriaConMasCasos.key}</p>
+                      <p className="whitespace-nowrap text-[11.5px] tabular-nums text-slate-600">{formatNumero(categoriaConMasCasos.casos)} · {formatDecimal(categoriaConMasCasos.aportePct, 1)} %</p>
+                    </div>
+                  )}
+                </div>
+                {conAportePorCategoria.map((c, i) => {
+                  const Icono = iconoCategoria(c.key);
+                  return (
+                    <div key={c.key} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2">
+                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${i % 2 === 0 ? 'bg-[#0f5f57]/10 text-[#0f5f57]' : 'bg-slate-100 text-slate-600'}`}>
+                        <Icono size={16} strokeWidth={2} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="min-h-[2.5em] break-words text-[10.5px] font-medium leading-tight text-slate-600" title={c.key}>{c.key}</p>
+                        <p className="whitespace-nowrap text-[14px] font-bold leading-tight tabular-nums" style={{ color: AZUL_TINTA }}>
+                          {formatNumero(c.casos)} <span className="text-[11px] font-medium text-slate-500">· {formatDecimal(c.aportePct, 1)} %</span>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <Card title="Por categoría de operatividad" descargable="operatividad-categoria">
-              <AporteBarList data={conAportePorCategoria} colorBordeMaximo={AZUL_REY} />
+            <Card
+              title="Distribución por categoría"
+              subtitle="Aporte de cada tipo de operatividad al total"
+              descargable="operatividad-distribucion"
+              icono={<ChartPie size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
+              claseTitulo={CLASE_TITULO}
+            >
+              {porCategoria.length > 0
+                ? <Top5Dona filas={porCategoria} total={total} colores={PALETA_DONA} etiquetaCentro="operatividad" anchoNombre={150} />
+                : <p className="py-8 text-center text-sm text-slate-400">{TEXTO_SIN_REGISTROS}</p>}
             </Card>
-            <Card title="Por delito asociado" descargable="operatividad-delito" actions={<SelectorTopBotones valor={topDelito} onChange={setTopDelito} />}>
-              <AporteBarList data={porDelito} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Por zona de atención" descargable="operatividad-zona" actions={<SelectorTopBotones valor={topZona} onChange={setTopZona} />}>
-              <AporteBarList data={porCuadrante} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Por barrio" descargable="operatividad-barrio" actions={<SelectorTopBotones valor={topBarrio} onChange={setTopBarrio} />}>
-              <AporteBarList data={porBarrio} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Circunstancia de captura" descargable="operatividad-circunstancia" actions={<SelectorTopBotones valor={topCircunstancia} onChange={setTopCircunstancia} />}>
-              <AporteBarList data={porCircunstancia} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Permiso de arma" descargable="operatividad-permiso-arma" actions={<SelectorTopBotones valor={topPermisoArma} onChange={setTopPermisoArma} />}>
-              <AporteBarList data={porPermisoArma} colorBordeMaximo={AZUL_REY} />
+
+            <Card
+              title="Evolución temporal"
+              subtitle="Operatividad total en el tiempo (mismos filtros)"
+              descargable="operatividad-evolucion"
+              icono={<TrendingUp size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
+              claseTitulo={CLASE_TITULO}
+            >
+              <EvolucionOperatividad registros={registros} />
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <Card title="Clase de bien" descargable="operatividad-clase-bien" actions={<SelectorTopBotones valor={topClaseBien} onChange={setTopClaseBien} />}>
-              <AporteBarList data={porClaseBien} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Tipo de bien" descargable="operatividad-tipo-bien" actions={<SelectorTopBotones valor={topTipoBien} onChange={setTopTipoBien} />}>
-              <AporteBarList data={porTipoBien} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Marca" descargable="operatividad-marca" actions={<SelectorTopBotones valor={topMarca} onChange={setTopMarca} />}>
-              <AporteBarList data={porMarca} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Turno" descargable="operatividad-turno" actions={<SelectorTopBotones valor={topTurno} onChange={setTopTurno} />}>
-              <AporteBarList data={porTurno} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Ciudad" descargable="operatividad-ciudad" actions={<SelectorTopBotones valor={topCiudad} onChange={setTopCiudad} />}>
-              <AporteBarList data={porCiudad} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="País (persona)" descargable="operatividad-pais-persona" actions={<SelectorTopBotones valor={topPaisPersona} onChange={setTopPaisPersona} />}>
-              <AporteBarList data={porPaisPersona} colorBordeMaximo={AZUL_REY} />
-            </Card>
-            <Card title="Situación jurídica" descargable="operatividad-situacion-juridica" actions={<SelectorTopBotones valor={topSituacionJuridica} onChange={setTopSituacionJuridica} />}>
-              <AporteBarList data={porSituacionJuridica} colorBordeMaximo={AZUL_REY} />
-            </Card>
+          {/* FILA 2 — los tres ejes principales de análisis */}
+          <div className={GRILLA}>
+            {/* Sin Top N, como antes: son pocas categorías y siempre se ven todas. */}
+            {tarjeta('Por categoría de operatividad', 'operatividad-categoria', Layers, conAportePorCategoria)}
+            {tarjeta('Por delito asociado', 'operatividad-delito', Scale, porDelito, { valor: topDelito, set: setTopDelito })}
+            {tarjeta('Por zona de atención', 'operatividad-zona', MapPin, porCuadrante, { valor: topZona, set: setTopZona })}
+          </div>
+
+          {/* FILA 3 */}
+          <div className={GRILLA}>
+            {tarjeta('Por barrio', 'operatividad-barrio', House, porBarrio, { valor: topBarrio, set: setTopBarrio })}
+            {tarjeta('Circunstancia de captura', 'operatividad-circunstancia', UserCheck, porCircunstancia, { valor: topCircunstancia, set: setTopCircunstancia })}
+            {tarjeta('Permiso de arma', 'operatividad-permiso-arma', FileBadge, porPermisoArma, { valor: topPermisoArma, set: setTopPermisoArma })}
+          </div>
+
+          {/* FILA 4 */}
+          <div className={GRILLA}>
+            {tarjeta('Clase de bien', 'operatividad-clase-bien', Boxes, porClaseBien, { valor: topClaseBien, set: setTopClaseBien })}
+            {tarjeta('Tipo de bien', 'operatividad-tipo-bien', Shapes, porTipoBien, { valor: topTipoBien, set: setTopTipoBien })}
+            {tarjeta('Marca', 'operatividad-marca', Tags, porMarca, { valor: topMarca, set: setTopMarca })}
+          </div>
+
+          {/* FILA 5 */}
+          <div className={GRILLA}>
+            {tarjeta('Turno', 'operatividad-turno', Clock, porTurno, { valor: topTurno, set: setTopTurno })}
+            {tarjeta('Ciudad', 'operatividad-ciudad', Building2, porCiudad, { valor: topCiudad, set: setTopCiudad })}
+            {tarjeta('País (persona)', 'operatividad-pais-persona', Globe, porPaisPersona, { valor: topPaisPersona, set: setTopPaisPersona })}
+          </div>
+
+          {/* FILA 6 */}
+          <div className={GRILLA}>
+            {tarjeta('Situación jurídica', 'operatividad-situacion-juridica', Gavel, porSituacionJuridica, { valor: topSituacionJuridica, set: setTopSituacionJuridica })}
           </div>
         </>
       )}
