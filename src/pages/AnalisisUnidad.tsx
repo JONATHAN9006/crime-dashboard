@@ -441,13 +441,13 @@ export function AnalisisUnidad() {
               <Card className="h-full 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
                 <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
               </Card>
-              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={210} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={34} tamanoEtiqueta={11} espaciadoCategoria={0.15} />
+              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de lunes a domingo" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={10.5} espaciadoCategoria={0.32} ocultarEjeY abreviarEtiquetas ocultarLeyendaBarras lineaReferencia="tendencia" />
               </Card>
               <Card
                 className="h-full md:col-span-3 2xl:col-span-1"
                 title="Concentración horaria"
-                subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Casos por hora del día — las 3 horas con más casos se resaltan'}
+                subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Las 3 horas con más casos se resaltan · línea naranja: promedio de 3 horas (franjas de mayor actividad)'}
                 descargable="concentracion-horaria"
                 icono={ico(Clock)}
                 claseTitulo="text-[14px] font-bold text-[#10233f]"
@@ -459,7 +459,7 @@ export function AnalisisUnidad() {
                   </div>
                 }
               >
-                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={210} resaltarMaximo resaltarTopN={3} colorPorBarra tamanoEtiqueta={9} />
+                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra tamanoEtiqueta={9} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad ? undefined : 'promedio3'} />
               </Card>
             </div>
           </>

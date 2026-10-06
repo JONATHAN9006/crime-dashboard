@@ -62,9 +62,9 @@ export function Top5Dona({ filas, total, colores, compacta = false }: { filas: {
         <tbody>
           {items.map((it) => (
             <tr key={it.key}>
-              <td className="py-[3px] pr-2"><span className="mr-2 inline-block h-3 w-3 rounded-sm align-[-1px]" style={{ background: it.color }} /><span className="text-slate-700">{it.key}</span></td>
-              <td className="py-[3px] pr-1 text-right font-semibold" style={{ color: AZUL_TINTA }}>{formatNumero(it.casos)}</td>
-              <td className="py-[3px] text-right text-slate-500">({formatDecimal(total > 0 ? (it.casos / total) * 100 : 0, 1)} %)</td>
+              <td className="max-w-[110px] truncate py-[3px] pr-2" title={it.key}><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: it.color }} /><span className="text-slate-700">{it.key}</span></td>
+              <td className="whitespace-nowrap py-[3px] pr-1 text-right font-semibold" style={{ color: AZUL_TINTA }}>{formatNumero(it.casos)}</td>
+              <td className="whitespace-nowrap py-[3px] text-right text-slate-500">{compacta ? `${formatDecimal(total > 0 ? (it.casos / total) * 100 : 0, 1)}%` : `(${formatDecimal(total > 0 ? (it.casos / total) * 100 : 0, 1)} %)`}</td>
             </tr>
           ))}
         </tbody>

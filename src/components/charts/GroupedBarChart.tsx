@@ -47,7 +47,7 @@ function crearFormaBarra(colorBase: string, valoresDestacados: Set<number>, resa
   };
 }
 
-export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria }: {
+export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria, ocultarEjeY = false, lineaReferencia, abreviarEtiquetas = false, ocultarLeyendaBarras = false }: {
   data: Record<string, any>[];
   xKey: string;
   seriesKeys: string[];
@@ -66,6 +66,20 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
   // valor más bajo (ej. 0.1) junta las barras para que ocupen menos espacio
   // horizontal, útil cuando la gráfica se descarga como imagen.
   espaciadoCategoria?: number;
+  // Sin eje Y (los valores ya van encima de cada barra).
+  ocultarEjeY?: boolean;
+  // Línea naranja punteada de referencia sobre las barras (una sola serie):
+  //  'tendencia'   → recta de tendencia (mínimos cuadrados) a lo largo de
+  //                  las categorías: muestra si los casos suben o bajan de
+  //                  la primera a la última (ej. de lunes a domingo).
+  //  'promedio3'   → promedio móvil de 3 categorías (la anterior, la actual
+  //                  y la siguiente, en círculo): suaviza los picos sueltos y
+  //                  deja ver las FRANJAS de mayor actividad (ej. horas).
+  lineaReferencia?: 'tendencia' | 'promedio3';
+  // Etiquetas del eje X en 3 letras (Lun, Mar, Mié…) para que no se monten.
+  abreviarEtiquetas?: boolean;
+  // Oculta la leyenda de las barras (ej. "casos"); la de la línea se mantiene.
+  ocultarLeyendaBarras?: boolean;
 }) {
   const esUnaSolaSerie = seriesKeys.length === 1;
   // Los N valores más altos de toda la gráfica (todas las series juntas) —
@@ -80,9 +94,27 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
       .slice(0, resaltarTopN),
   );
 
+  // Serie de la línea de referencia (si se pidió), calculada sobre los
+  // mismos valores que se dibujan — nada inventado.
+  const valoresSerie = esUnaSolaSerie ? data.map((d) => Number(d[seriesKeys[0]]) || 0) : [];
+  let referencia: number[] | null = null;
+  if (lineaReferencia && valoresSerie.length >= 2) {
+    const n = valoresSerie.length;
+    if (lineaReferencia === 'tendencia') {
+      const mx = (n - 1) / 2, my = valoresSerie.reduce((a, v) => a + v, 0) / n;
+      let num = 0, den = 0;
+      valoresSerie.forEach((v, i) => { num += (i - mx) * (v - my); den += (i - mx) ** 2; });
+      const b = den === 0 ? 0 : num / den;
+      referencia = valoresSerie.map((_, i) => Math.round((my + b * (i - mx)) * 10) / 10);
+    } else {
+      referencia = valoresSerie.map((v, i) => Math.round(((valoresSerie[(i - 1 + n) % n] + v + valoresSerie[(i + 1) % n]) / 3) * 10) / 10);
+    }
+  }
+  const datos = referencia ? data.map((d, i) => ({ ...d, _referencia: referencia![i] })) : data;
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ top: 34, right: 24, left: horizontal ? 8 : 0, bottom: 0 }} barCategoryGap={espaciadoCategoria !== undefined ? `${espaciadoCategoria * 100}%` : undefined}>
+      <ComposedChart data={datos} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ top: 34, right: 24, left: horizontal ? 8 : 0, bottom: 0 }} barCategoryGap={espaciadoCategoria !== undefined ? `${espaciadoCategoria * 100}%` : undefined}>
         {horizontal ? (
           <>
             {/* domain con margen del 12% para no dejar espacio excesivo, pero
@@ -95,8 +127,8 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
             {/* interval={0} fuerza a mostrar TODAS las etiquetas del eje (ej.
                 las 24 horas), en vez de que Recharts oculte automáticamente
                 algunas por falta de espacio. */}
-            <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: '#334155', fontWeight: 500 }} interval={0} />
-            <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+            <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: '#334155', fontWeight: 500 }} interval={0} tickFormatter={abreviarEtiquetas ? (v: any) => String(v).slice(0, 3) : undefined} />
+            <YAxis hide={ocultarEjeY} tick={{ fontSize: 12, fill: '#64748b' }} />
           </>
         )}
         <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13, border: '1px solid #e2e8f0' }} />
@@ -114,6 +146,7 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
               cursor={onBarClick ? 'pointer' : 'default'}
               onClick={onBarClick ? (d: any) => onBarClick(d[xKey]) : undefined}
               maxBarSize={anchoMaximoBarra}
+              legendType={ocultarLeyendaBarras ? 'none' : undefined}
             >
               <LabelList
                 dataKey={k}
@@ -129,6 +162,19 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
             </Bar>
           );
         })}
+        {referencia && (
+          <Line
+            type={lineaReferencia === 'tendencia' ? 'linear' : 'monotone'}
+            dataKey="_referencia"
+            name={lineaReferencia === 'tendencia' ? 'Tendencia' : 'Promedio móvil (3 h)'}
+            stroke="#f97316"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            dot={false}
+            activeDot={false}
+            isAnimationActive={false}
+          />
+        )}
         {mostrarTendencia && esUnaSolaSerie && (
           <Line
             type="monotone"

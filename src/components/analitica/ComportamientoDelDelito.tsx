@@ -40,19 +40,40 @@ type ModoVista = 'mensual' | 'acumulado';
 // como un selector de modo — nunca los dos activos a la vez) — mismo
 // estilo visual que otros pares de checkbox ya usados en el dashboard (ver
 // FiltroTendenciaBoton en ResumenEjecutivo.tsx).
-function CheckboxModo({ etiqueta, activo, onClick }: { etiqueta: string; activo: boolean; onClick: () => void }) {
+// Controles con el aspecto de la referencia visual:
+//  · años   → casilla de verificación con el color de su línea (2025 morado,
+//             2026 verde petróleo), fondo claro;
+//  · modo   → Mensual / Acumulado como opción única (radio), la activa en
+//             verde petróleo relleno.
+function CheckboxModo({ etiqueta, activo, onClick, color, tipo = 'casilla' }: { etiqueta: string; activo: boolean; onClick: () => void; color?: string; tipo?: 'casilla' | 'radio' }) {
+  if (tipo === 'radio') {
+    return (
+      <button
+        type="button"
+        role="radio"
+        aria-checked={activo}
+        onClick={onClick}
+        className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] font-semibold transition-colors ${activo ? 'border-[#0f5f57] bg-[#0f5f57] text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400'}`}
+      >
+        <span className={`flex h-3 w-3 items-center justify-center rounded-full border ${activo ? 'border-white' : 'border-slate-400'}`}>
+          {activo && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+        </span>
+        {etiqueta}
+      </button>
+    );
+  }
+  const c = color ?? '#0f5f57';
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={activo}
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-        activo ? 'border-brand-green bg-brand-green text-white' : 'border-slate-300 text-slate-500 hover:border-brand-green/50 hover:text-brand-green'
-      }`}
+      className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
+      style={{ borderColor: activo ? c : '#cbd5e1', backgroundColor: activo ? `${c}14` : '#ffffff', color: activo ? c : '#64748b' }}
     >
-      <span className={`flex h-3 w-3 items-center justify-center rounded-sm border ${activo ? 'border-white bg-white' : 'border-slate-400 bg-transparent'}`}>
-        {activo && <span className="h-1.5 w-1.5 rounded-[1px] bg-brand-green" />}
+      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border" style={{ borderColor: activo ? c : '#94a3b8', backgroundColor: activo ? c : 'transparent' }}>
+        {activo && <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden><path d="M1.5 5.2 4 7.6 8.6 2.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
       </span>
       {etiqueta}
     </button>
@@ -155,6 +176,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
             <CheckboxModo
               key={anio}
               etiqueta={anio}
+              color={anio === String(minDe(todos)) ? '#7c3aed' : '#0f5f57'}
               activo={!aniosOcultos.has(anio)}
               onClick={() => setAniosOcultos((prev) => {
                 const nuevo = new Set(prev);
@@ -165,8 +187,8 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
             />
           ))}
           <span className="mx-1 h-4 w-px bg-slate-200" />
-          <CheckboxModo etiqueta="Mensual" activo={modo === 'mensual'} onClick={() => setModo('mensual')} />
-          <CheckboxModo etiqueta="Acumulado" activo={modo === 'acumulado'} onClick={() => setModo('acumulado')} />
+          <CheckboxModo tipo="radio" etiqueta="Mensual" activo={modo === 'mensual'} onClick={() => setModo('mensual')} />
+          <CheckboxModo tipo="radio" etiqueta="Acumulado" activo={modo === 'acumulado'} onClick={() => setModo('acumulado')} />
         </div>
       ) : undefined}
     >
