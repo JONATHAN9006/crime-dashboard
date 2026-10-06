@@ -17,7 +17,8 @@ import { AporteBarList } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
 import { DonutChart } from '../components/charts/DonutChart';
 import { ComparativoBarrasConAporte } from '../components/charts/ComparativoBarrasConAporte';
-import { ComparativoCategoriaTable } from '../components/tables/ComparativoCategoriaTable';
+import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
+import { EstadoInformacionCompacto } from '../components/resumen/BloquesResumen';
 import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
 import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
@@ -92,7 +93,8 @@ export function AnalisisUnidad() {
     [filteredRecords, ventana.anioActual, ventana.anioAnterior],
   );
   const diaria = useTendenciaDiaria(registrosParaDiaria);
-  const [vistaDiaria, setVistaDiaria] = useState(false);
+  // Abierta por defecto: la tendencia diaria comparte fila con la mensual.
+  const [vistaDiaria, setVistaDiaria] = useState(true);
 
   // Total General = año COMPLETO (01/01–31/12) de la vigencia anterior.
   const totalGeneralIndicadores = useMemo(
@@ -262,7 +264,7 @@ export function AnalisisUnidad() {
         <IndicadorVigencia ventana={ventana} />
 
       {ventana.disponible && (
-        <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11.5px] leading-snug text-slate-600">
           <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
           <p>
             {ventana.esRangoPersonalizado
@@ -272,10 +274,11 @@ export function AnalisisUnidad() {
         </div>
       )}
 
-      {/* Resumen general — en TABLA (no tarjetas individuales), y COMPACTA
-          (max-w + mx-auto, no todo el ancho de la página) para que se lea
-          de un vistazo sin verse estirada. */}
-      <Card title="Resumen general" subtitle="Comparativo homólogo a la fecha, mismos filtros del resto de la página" descargable="resumen-general-unidad" className="mx-auto max-w-xl">
+      {ventana.disponible && (
+        <>
+          {/* 1. RESUMEN — Resumen general | Proyección | Meta del 5% */}
+          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+      <Card title="Resumen general" subtitle="Comparativo homólogo a la fecha, mismos filtros del resto de la página" descargable="resumen-general-unidad" className="h-full">
         <table className="w-full text-sm">
           <tbody>
             {[
@@ -291,21 +294,105 @@ export function AnalisisUnidad() {
               { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: '1 día' },
             ].map((fila, i) => (
               <tr key={fila.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/60' : ''}>
-                <td className="rounded-l-lg py-1.5 pl-3 text-xs font-medium text-slate-600">{fila.etiqueta}</td>
-                <td className={`py-1.5 text-right text-sm font-bold ${fila.color ?? 'text-slate-800'}`}>{fila.valor}</td>
-                <td className="rounded-r-lg py-1.5 pl-2 pr-3 text-right text-[11px] text-slate-400">{fila.nota ?? ''}</td>
+                <td className="rounded-l-lg py-1 pl-3 text-xs font-medium text-slate-600">{fila.etiqueta}</td>
+                <td className={`py-1 text-right text-sm font-bold ${fila.color ?? 'text-slate-800'}`}>{fila.valor}</td>
+                <td className="rounded-r-lg py-1 pl-2 pr-3 text-right text-[11px] text-slate-400">{fila.nota ?? ''}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+            <Card className="h-full" title="Proyección de delitos" subtitle="Fin de año, según ritmo actual" descargable="proyeccion-delitos">
+              {proyeccion.disponible ? (
+                <div className="space-y-2">
+                  {/* 1) DATOS REALES — casos a la fecha */}
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Casos a la fecha</p>
+                    <p className="text-xl font-bold text-slate-800">{formatNumero(proyeccion.casosActual)} casos</p>
+                  </div>
 
+                  {/* 2) Días transcurridos y ritmo — la base real del cálculo */}
+                  <div className="border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+                    <p>{proyeccion.diasTranscurridos} días transcurridos (01/01/{ventana.anioActual} – {formatFecha(ventana.actualFin)})</p>
+                    <p>Ritmo actual: {formatDecimal(proyeccion.casosPorDia, 2)} casos/día</p>
+                  </div>
+
+                  {/* 3) PROYECCIÓN — estimación matemática, nunca un dato observado */}
+                  <div className="border-t border-slate-100 pt-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-brand-green">Proyección al cierre de {ventana.anioActual}</p>
+                    <p className="text-2xl font-bold text-brand-green">{formatNumero(proyeccion.proyeccionFinAnio)} casos</p>
+                    <p className="text-[11px] text-slate-500">Si se mantiene el ritmo actual, se proyectan aproximadamente {formatNumero(proyeccion.proyeccionFinAnio)} casos al cierre de {ventana.anioActual}.</p>
+                  </div>
+
+                  {/* 4) REFERENCIA — proyección vs. TOTAL REAL de 2025 completo (no el corte homólogo) */}
+                  <div className="flex items-center gap-1.5 border-t border-slate-100 pt-2">
+                    {diferenciaVs2025Completo > 0 ? <TrendingUp size={14} className="text-rose-600" /> : <TrendingDown size={14} className="text-emerald-600" />}
+                    <p className={`text-sm font-semibold ${diferenciaVs2025Completo > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {diferenciaVs2025Completo >= 0 ? '+' : ''}{formatNumero(diferenciaVs2025Completo)} casos vs. {ventana.anioAnterior}
+                      <span className="ml-1 font-normal text-slate-400">
+                        ({pctVs2025Completo === null ? 'N/A' : `${pctVs2025Completo >= 0 ? '+' : ''}${formatDecimal(pctVs2025Completo, 1)}%`})
+                      </span>
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-slate-400">Proyección = (casos ÷ días transcurridos) × {proyeccion.diasEnAnio} días. Comparado contra el total REAL de {ventana.anioAnterior} completo ({formatNumero(totalAnioAnteriorCompleto)} casos) — no contra el mismo corte de fecha.</p>
+
+                  {/* 7) Interpretación dinámica — une los cuatro conceptos en una sola frase, generada de los mismos números de arriba */}
+                  <p className="border-t border-slate-100 pt-2 text-xs leading-relaxed text-slate-600">{textoInterpretacion}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Sin datos suficientes para proyectar.</p>
+              )}
+            </Card>
+            {proyeccion.disponible && (
+              <Card className="h-full" title="Meta de reducción del 5%" subtitle={`Base: ${ventana.anioAnterior} completo`} descargable="meta-reduccion">
+                <div className={`h-full space-y-2 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
+                  <p className="text-[11px] text-slate-500">{formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95</p>
+                  <p className={`text-xl font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos</p>
+                  <p className={`text-xs font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {coincideConMeta
+                      ? 'La proyección coincide con la meta establecida.'
+                      : cumpleMeta
+                        ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
+                        : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
+                  </p>
+                  <p className="border-t border-slate-200/60 pt-2 text-xs text-slate-600">
+                    {casosPermitidosRestantes >= 0
+                      ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
+                      : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año — cumplirla exactamente ya no es posible; cada caso adicional aumenta la brecha.`}
+                  </p>
+                </div>
+              </Card>
+            )}
+          </div>
+
+          {/* Casos por estación — TABLA obligatoria, a todo el ancho, mismo
+              lenguaje visual de las tablas del Inicio (cifras sin cambios:
+              APORTE % = participación de cada estación en el año actual). */}
+          <Card title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha — clic en una estación para filtrar`} descargable="casos-por-estacion">
+            {/* Ancho máximo moderado: legible en pantalla y, al exportar al
+                PDF, la tabla no queda diminuta por ser demasiado ancha. */}
+            <div className="mx-auto max-w-6xl">
+            <TablaComparativaResumen
+              filas={cmpEstacion.slice(0, 10)}
+              etiqueta="Estación"
+              anioAnterior={ventana.anioAnterior}
+              anioActual={ventana.anioActual}
+              aporteTotal="100%"
+              onRowClick={(key) => drillDown('estacion', key)}
+            />
+            </div>
+          </Card>
+
+          {/* 2. EVOLUCIÓN — Tendencia mensual | Tendencia diaria */}
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <div className="min-w-0">
       {accesoTendenciaMensual ? (
         <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
       ) : (
         <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
       )}
-
+            </div>
+            <div className="min-w-0">
       {accesoTendenciaDiaria ? (
         <Card
           title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
@@ -340,81 +427,11 @@ export function AnalisisUnidad() {
       ) : (
         <ComponenteBloqueado titulo="Tendencia diaria" subtitulo="Comportamiento día a día en el periodo filtrado" />
       )}
-
-      {ventana.disponible && (
-        <>
-          {/* FILA 1: Casos por estación / Proyección de delitos / Meta del 5% —
-              cada una en su propia tarjeta, alineadas en una sola fila. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-            <Card title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion">
-              <ComparativoCategoriaTable data={cmpEstacion} etiqueta="Estación" anioActual={ventana.anioActual} anioAnterior={ventana.anioAnterior} onRowClick={(key) => drillDown('estacion', key)} limite={10} />
-            </Card>
-            <Card title="Proyección de delitos" subtitle="Fin de año, según ritmo actual" descargable="proyeccion-delitos">
-              {proyeccion.disponible ? (
-                <div className="space-y-3">
-                  {/* 1) DATOS REALES — casos a la fecha */}
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Casos a la fecha</p>
-                    <p className="text-xl font-bold text-slate-800">{formatNumero(proyeccion.casosActual)} casos</p>
-                  </div>
-
-                  {/* 2) Días transcurridos y ritmo — la base real del cálculo */}
-                  <div className="border-t border-slate-100 pt-3 text-[11px] text-slate-500">
-                    <p>{proyeccion.diasTranscurridos} días transcurridos (01/01/{ventana.anioActual} – {formatFecha(ventana.actualFin)})</p>
-                    <p>Ritmo actual: {formatDecimal(proyeccion.casosPorDia, 2)} casos/día</p>
-                  </div>
-
-                  {/* 3) PROYECCIÓN — estimación matemática, nunca un dato observado */}
-                  <div className="border-t border-slate-100 pt-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-brand-green">Proyección al cierre de {ventana.anioActual}</p>
-                    <p className="text-2xl font-bold text-brand-green">{formatNumero(proyeccion.proyeccionFinAnio)} casos</p>
-                    <p className="text-[11px] text-slate-500">Si se mantiene el ritmo actual, se proyectan aproximadamente {formatNumero(proyeccion.proyeccionFinAnio)} casos al cierre de {ventana.anioActual}.</p>
-                  </div>
-
-                  {/* 4) REFERENCIA — proyección vs. TOTAL REAL de 2025 completo (no el corte homólogo) */}
-                  <div className="flex items-center gap-1.5 border-t border-slate-100 pt-3">
-                    {diferenciaVs2025Completo > 0 ? <TrendingUp size={14} className="text-rose-600" /> : <TrendingDown size={14} className="text-emerald-600" />}
-                    <p className={`text-sm font-semibold ${diferenciaVs2025Completo > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {diferenciaVs2025Completo >= 0 ? '+' : ''}{formatNumero(diferenciaVs2025Completo)} casos vs. {ventana.anioAnterior}
-                      <span className="ml-1 font-normal text-slate-400">
-                        ({pctVs2025Completo === null ? 'N/A' : `${pctVs2025Completo >= 0 ? '+' : ''}${formatDecimal(pctVs2025Completo, 1)}%`})
-                      </span>
-                    </p>
-                  </div>
-                  <p className="text-[10px] text-slate-400">Proyección = (casos ÷ días transcurridos) × {proyeccion.diasEnAnio} días. Comparado contra el total REAL de {ventana.anioAnterior} completo ({formatNumero(totalAnioAnteriorCompleto)} casos) — no contra el mismo corte de fecha.</p>
-
-                  {/* 7) Interpretación dinámica — une los cuatro conceptos en una sola frase, generada de los mismos números de arriba */}
-                  <p className="border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-600">{textoInterpretacion}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400">Sin datos suficientes para proyectar.</p>
-              )}
-            </Card>
-            {proyeccion.disponible && (
-              <Card title="Meta de reducción del 5%" subtitle={`Base: ${ventana.anioAnterior} completo`} descargable="meta-reduccion">
-                <div className={`h-full space-y-2 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
-                  <p className="text-[11px] text-slate-500">{formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95</p>
-                  <p className={`text-xl font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos</p>
-                  <p className={`text-xs font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {coincideConMeta
-                      ? 'La proyección coincide con la meta establecida.'
-                      : cumpleMeta
-                        ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
-                        : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
-                  </p>
-                  <p className="border-t border-slate-200/60 pt-2 text-xs text-slate-600">
-                    {casosPermitidosRestantes >= 0
-                      ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
-                      : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año — cumplirla exactamente ya no es posible; cada caso adicional aumenta la brecha.`}
-                  </p>
-                </div>
-              </Card>
-            )}
+            </div>
           </div>
 
-          {/* FILA 2: CAI más afectados / Turno de Vigilancia / Top delitos —
-              misma vigencia actual, alineadas en una sola fila. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+          {/* 3. OPERATIVIDAD Y CONCENTRACIÓN — CAI | Turno | Top delitos | Cuadrantes */}
+          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 2xl:grid-cols-4">
             <Card
               title="CAI más afectados"
               descargable="cai-mas-afectados"
@@ -442,28 +459,19 @@ export function AnalisisUnidad() {
             >
               <AporteBarList data={porDelitoVigenciaActual} onBarClick={(key) => drillDown('delito', key)} />
             </Card>
-          </div>
-
-
-          {/* Todo lo siguiente reorganizado en filas de máximo 3 (items-start:
-              cada tarjeta usa solo el alto que necesita su propio contenido).
-              10 componentes en total: 3+3+3+1 — el último ("Concentración
-              horaria") queda solo en su propia fila, ya que no sobra ningún
-              otro componente con el que emparejarlo tras reubicar "Análisis
-              de delitos" arriba. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
             <Card title={`Top ${topCuadrante} cuadrantes más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />} descargable="top-cuadrantes">
               <ComparativoBarrasConAporte data={cmpCuadrante} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('cuadrante', key)} limite={topCuadrante} />
             </Card>
+          </div>
+
+          {/* 4. TERRITORIO Y CARACTERIZACIÓN — Barrios | Armas | Modalidades | Sitio | Causa */}
+          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
             <Card title={`Top ${topBarrio} barrios más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} actions={<SelectorTop valor={topBarrio} onChange={(v) => setTopBarrio(v!)} />} descargable="top-barrios">
               <ComparativoBarrasConAporte data={cmpBarrio} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('barrioHecho', key)} limite={topBarrio} />
             </Card>
             <Card title="Armas empleadas" subtitle={`Top ${topArma}, vigencia ${ventana.anioActual}`} actions={<SelectorTop valor={topArma} onChange={(v) => setTopArma(v!)} />} descargable="armas-empleadas">
               <ComparativoBarrasConAporte data={cmpArma} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('armas', key)} limite={topArma} />
             </Card>
-          </div>
-
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
             <Card title="Modalidades principales" subtitle={`Top ${topModalidad}, vigencia ${ventana.anioActual}`} actions={<SelectorTop valor={topModalidad} onChange={(v) => setTopModalidad(v!)} />} descargable="modalidades">
               <ComparativoBarrasConAporte data={cmpModalidad} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('modalidad', key)} limite={topModalidad} />
             </Card>
@@ -475,25 +483,23 @@ export function AnalisisUnidad() {
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+          {/* 5. POBLACIÓN — Zonas | Género | Grupo de edad */}
+          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
             <Card title="Zonas con mayor concentración" descargable="zonas-concentracion">
-              <DonutChart data={urbanoRural} height={340} mostrarCasos umbralEtiqueta={0.005} />
+              <DonutChart data={urbanoRural} height={230} mostrarCasos umbralEtiqueta={1.01} />
             </Card>
             <Card title="Distribución por género" descargable="distribucion-genero">
-              <DonutChart data={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} height={280} mostrarCasos />
+              <DonutChart data={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} height={230} mostrarCasos umbralEtiqueta={1.01} />
             </Card>
             <Card title="Distribución por grupo de edad" descargable="distribucion-edad">
-              <DonutChart data={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} height={280} mostrarCasos />
+              <DonutChart data={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} height={230} mostrarCasos umbralEtiqueta={1.01} />
             </Card>
           </div>
 
-          {/* Sola en su fila (nada quedó para acompañarla) — se usa una
-              cuadrícula de 2 en vez de 3 para que ocupe la mitad del ancho
-              en vez de un tercio, así el gráfico de 24 horas no se ve
-              apretado. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          {/* 6. TIEMPO — Día de la semana | Concentración horaria */}
+          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
             <Card title="Casos por día de la semana" subtitle="Con línea de tendencia — los 3 días con más casos se resaltan automáticamente" descargable="casos-dia-semana">
-              <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={260} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={55} tamanoEtiqueta={14} espaciadoCategoria={0.15} />
+              <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={230} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={55} tamanoEtiqueta={14} espaciadoCategoria={0.15} />
             </Card>
             <Card
               title="Concentración horaria"
@@ -513,9 +519,14 @@ export function AnalisisUnidad() {
               }
               descargable="concentracion-horaria"
             >
-              <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={260} resaltarMaximo resaltarTopN={3} colorPorBarra />
+              <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={230} resaltarMaximo resaltarTopN={3} colorPorBarra />
             </Card>
           </div>
+
+          {/* 7. ESTADO DE LA INFORMACIÓN — compacto, al final */}
+          <Card title="Estado de la información" descargable="estado-informacion-unidad">
+            <EstadoInformacionCompacto horizontal />
+          </Card>
         </>
       )}
       </div>

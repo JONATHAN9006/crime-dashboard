@@ -132,8 +132,8 @@ export function HorarioFranja({ franja, casos, participacion }: { franja: string
 }
 
 /** "Estado de la información" compacto: 8 datos en dos columnas. */
-export function EstadoInformacionCompacto() {
-  const { meta } = useData();
+export function EstadoInformacionCompacto({ horizontal = false }: { horizontal?: boolean } = {}) {
+  const { meta, backendUrl, remoteMeta } = useData();
   if (!meta) return <p className="text-sm text-slate-400">Sin datos cargados.</p>;
   const anios = [...meta.aniosDisponibles].sort();
   const rango = anios.length > 1 ? `${anios[0]} - ${anios[anios.length - 1]}` : String(anios[0] ?? '—');
@@ -146,9 +146,12 @@ export function EstadoInformacionCompacto() {
     ['Estaciones disponibles', String(meta.estacionesDisponibles.length)],
     ['Barrios disponibles', String(meta.barriosDisponibles.length)],
     ['Delitos disponibles', String(meta.delitosDisponibles.length)],
+    // En la versión horizontal (Análisis por Unidad) también el origen y
+    // quién actualizó por última vez, como en el panel original.
+    ...(horizontal ? [['Origen de los datos', backendUrl ? 'Servidor central' : 'Este navegador'], ['Última actualización por', remoteMeta?.ultimoUsuario || '—']] : []),
   ];
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+    <dl className={horizontal ? 'grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3 md:grid-cols-5 2xl:grid-cols-10' : 'grid grid-cols-2 gap-x-4 gap-y-1'}>
       {items.map(([etiqueta, valor]) => (
         <div key={etiqueta} className="min-w-0">
           <dt className="truncate text-[11px] text-slate-400">{etiqueta}</dt>

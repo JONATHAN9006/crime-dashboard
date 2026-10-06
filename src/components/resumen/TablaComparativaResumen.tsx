@@ -16,7 +16,7 @@ export interface FilaComparativaResumen {
   aportePct: number | null;
 }
 
-export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioActual, invertirColores = false, alinearNombre = 'left', aporteTotal }: {
+export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioActual, invertirColores = false, alinearNombre = 'left', aporteTotal, onRowClick }: {
   filas: FilaComparativaResumen[];
   etiqueta: string;
   anioAnterior: number;
@@ -26,6 +26,8 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
   alinearNombre?: 'left' | 'center';
   // Texto de la celda APORTE % en la fila TOTAL (ej. "100%" o la suma visible).
   aporteTotal: string;
+  // Clic en una fila (ej. Casos por estación → filtra por esa estación).
+  onRowClick?: (key: string) => void;
 }) {
   const totalCompleto = filas.reduce((a, f) => a + f.totalAnioAnteriorCompleto, 0);
   const totalAnterior = filas.reduce((a, f) => a + f.anterior, 0);
@@ -71,7 +73,7 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
             // signo lo sigue indicando el número (negativo = el delito bajó).
             const colorBarra = Math.abs(aporte) < 0.0001 ? 'bg-slate-300' : 'bg-sky-400';
             return (
-              <tr key={f.key}>
+              <tr key={f.key} onClick={() => onRowClick?.(f.key)} className={onRowClick ? 'cursor-pointer hover:bg-slate-50' : undefined}>
                 <td className={`truncate border-b border-slate-100 px-3 py-[5px] text-slate-800 ${alinearNombre === 'center' ? 'text-center' : 'text-left'}`} title={f.key}>{f.key}</td>
                 <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-400">{formatNumero(f.totalAnioAnteriorCompleto)}</td>
                 <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{formatNumero(f.anterior)}</td>
