@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Card } from '../ui/Card';
 import { TrendChart } from '../charts/TrendChart';
 import { useAnalisisMensual } from '../../hooks/useAnalisisMensual';
@@ -98,8 +98,11 @@ function construirSerieAcumulada(datos: Record<string, any>[], series: string[],
  * año anterior) empaquetado para poder reutilizarse tanto en Indicadores
  * como en el Resumen, sin duplicar la lógica de cálculo.
  */
-export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'Tendencia mensual', subtitulo = 'Comparación entre los años disponibles' }: {
+export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'Tendencia mensual', subtitulo = 'Comparación entre los años disponibles', mostrarLectura = true, icono }: {
   height?: number;
+  // false = sin los bloques de texto (Tendencia / Comparación / Proyección) debajo de la gráfica.
+  mostrarLectura?: boolean;
+  icono?: ReactNode;
   descargable?: string;
   titulo?: string;
   subtitulo?: string;
@@ -144,6 +147,8 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
       title={tituloConDelito}
       subtitle={subtituloMostrado}
       descargable={descargable}
+      icono={icono}
+      claseTitulo={icono ? 'text-[15px] font-bold text-[#10233f]' : undefined}
       actions={!esDiaria ? (
         <div className="flex flex-wrap items-center gap-1.5">
           {seriesKeys.map((anio) => (
@@ -195,11 +200,13 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
               exportarImagen.ts (el mismo que oculta la cuadrícula de fondo en
               las descargas) y funciona con solo este atributo, sin tocar nada
               más de la lógica de exportación genérica. */}
+{mostrarLectura && (
           <div data-ocultar-en-descarga="1" className="mt-3 flex flex-col gap-3 border-t border-slate-100 pt-3">
             <BloqueResumen bloque={analisisMensual.bloqueTendencia} />
             {analisisMensual.bloqueComparacion && <BloqueResumen bloque={analisisMensual.bloqueComparacion} />}
             {analisisMensual.disponible && analisisMensual.bloqueProyeccion && <BloqueResumen bloque={analisisMensual.bloqueProyeccion} />}
           </div>
+          )}
         </>
       )}
     </Card>

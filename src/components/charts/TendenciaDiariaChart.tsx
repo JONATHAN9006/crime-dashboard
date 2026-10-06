@@ -147,6 +147,7 @@ export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
   // apagarla y volver a encenderla sin que eso afecte los datos, los
   // filtros ni los cálculos, solo lo que se dibuja en el gráfico.
   const [mostrarAnioAnterior, setMostrarAnioAnterior] = useState(true);
+  const [listaAbierta, setListaAbierta] = useState(false);
   const seleccionActiva = mesesElegidos ?? mesesDisponibles.slice(-5).map((m) => m.clave);
 
   function alternarMes(clave: string) {
@@ -248,39 +249,58 @@ export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
 
   return (
     <div>
-      {/* Selector de meses: multi-selección, con el color que le corresponde a cada uno. */}
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        {mesesDisponibles.map((m) => {
-          const activo = seleccionActiva.includes(m.clave);
-          const color = colorPorClave.get(m.clave)!;
-          return (
-            <button
-              key={m.clave}
-              onClick={() => alternarMes(m.clave)}
-              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors"
-              style={activo
-                ? { backgroundColor: color, borderColor: color, color: '#fff' }
-                : { backgroundColor: 'transparent', borderColor: '#cbd5e1', color: '#475569' }}
-            >
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: activo ? '#fff' : color }} />
-              {m.mesNombre.slice(0, 3)} {String(m.anio).slice(2)}
-            </button>
-          );
-        })}
-        {/* Checkbox para mostrar/ocultar la línea de comparación del año
-            anterior — solo aparece si de verdad hay datos con qué comparar.
-            Apagarlo NO borra los datos ni cambia ningún filtro/cálculo,
-            solo deja de dibujar esa línea; se puede volver a activar en
-            cualquier momento. */}
+      {/* Selector de meses (a pedido): LISTA DESPLEGABLE de selección
+          múltiple, y al lado el checkbox del año anterior. Misma lógica de
+          antes (mesesElegidos / mostrarAnioAnterior), solo cambia el control. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setListaAbierta((v) => !v)}
+            className="flex min-w-[220px] items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px] text-slate-700 hover:border-slate-400"
+          >
+            <span className="truncate">
+              <span className="mr-1 font-semibold text-slate-500">Meses:</span>
+              {seleccionActiva.length === 0 ? 'ninguno' : seleccionActiva.length === mesesDisponibles.length ? 'todos' : mesesDisponibles.filter((m) => seleccionActiva.includes(m.clave)).map((m) => m.mesNombre.slice(0, 3)).join(', ')}
+            </span>
+            <span className={`text-slate-400 transition ${listaAbierta ? 'rotate-180' : ''}`}>▾</span>
+          </button>
+          {listaAbierta && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setListaAbierta(false)} />
+              <div className="absolute left-0 z-30 mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                <div className="flex justify-between border-b border-slate-100 px-3 py-1 text-[11px]">
+                  <button type="button" onClick={() => setMesesElegidos(mesesDisponibles.map((m) => m.clave))} className="font-semibold text-[#137a6f] hover:underline">Todos</button>
+                  <button type="button" onClick={() => setMesesElegidos(mesesDisponibles.slice(-5).map((m) => m.clave))} className="font-semibold text-slate-500 hover:underline">Últimos 5</button>
+                  <button type="button" onClick={() => setMesesElegidos([])} className="font-semibold text-slate-500 hover:underline">Ninguno</button>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {mesesDisponibles.map((m) => {
+                    const activo = seleccionActiva.includes(m.clave);
+                    const color = colorPorClave.get(m.clave)!;
+                    return (
+                      <label key={m.clave} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[12.5px] text-slate-700 hover:bg-slate-50">
+                        <input type="checkbox" checked={activo} onChange={() => alternarMes(m.clave)} className="h-3.5 w-3.5" style={{ accentColor: color }} />
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                        {m.mesNombre} {m.anio}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
         {hayComparacionAnioAnterior && (
-          <label className="ml-1 flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+          <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px] font-medium text-slate-700">
             <input
               type="checkbox"
               checked={mostrarAnioAnterior}
               onChange={(e) => setMostrarAnioAnterior(e.target.checked)}
-              className="h-3 w-3 accent-[#7c3aed]"
+              className="h-3.5 w-3.5 accent-[#7c3aed]"
             />
             {anioMasReciente !== null ? anioMasReciente - 1 : ''}
+            <span className="font-normal text-slate-400">· comparar</span>
           </label>
         )}
       </div>

@@ -33,10 +33,11 @@ export function KpiResumen({ titulo, valor, detalle, nota, icono, fondoIcono, fo
 
 const COLORES_TOP5 = ['#ef3e55', '#1f3a6e', '#14a37f', '#1e4f8f', '#8a86da', '#a3acb9'];
 
-export function Top5Dona({ filas, total }: { filas: { key: string; casos: number }[]; total: number }) {
+export function Top5Dona({ filas, total, colores, compacta = false }: { filas: { key: string; casos: number }[]; total: number; colores?: string[]; compacta?: boolean }) {
+  const paleta = colores ?? COLORES_TOP5;
   const sumaTop = filas.reduce((a, f) => a + f.casos, 0);
   const otros = Math.max(0, total - sumaTop);
-  const items = [...filas.map((f, i) => ({ ...f, color: COLORES_TOP5[i] })), ...(otros > 0 ? [{ key: 'Otros', casos: otros, color: COLORES_TOP5[5] }] : [])];
+  const items = [...filas.map((f, i) => ({ ...f, color: paleta[i % paleta.length] })), ...(otros > 0 ? [{ key: 'Otros', casos: otros, color: COLORES_TOP5[5] }] : [])];
   const R = 62, r = 38, C = 80;
   let ang = -Math.PI / 2;
   const arcos = items.map((it) => {
@@ -51,13 +52,13 @@ export function Top5Dona({ filas, total }: { filas: { key: string; casos: number
     return { ...it, d };
   });
   return (
-    <div className="flex flex-wrap items-center gap-4">
-      <svg width={160} height={160} viewBox="0 0 160 160" className="shrink-0" role="img" aria-label="Distribución de los delitos más afectados">
+    <div className={compacta ? 'flex flex-col items-center gap-2' : 'flex flex-wrap items-center gap-4'}>
+      <svg width={compacta ? 120 : 160} height={compacta ? 120 : 160} viewBox="0 0 160 160" className="shrink-0" role="img" aria-label="Distribución de los delitos más afectados">
         {arcos.map((a) => <path key={a.key} d={a.d} fill={a.color} stroke="#ffffff" strokeWidth="1.5" />)}
         <text x={C} y={C - 1} textAnchor="middle" fontSize="19" fontWeight="700" fill={AZUL_TINTA}>{formatNumero(total)}</text>
         <text x={C} y={C + 16} textAnchor="middle" fontSize="11.5" fill="#64748b">casos</text>
       </svg>
-      <table className="min-w-[200px] flex-1 text-[13px]">
+      <table className={compacta ? 'w-full text-[11.5px]' : 'min-w-[200px] flex-1 text-[13px]'}>
         <tbody>
           {items.map((it) => (
             <tr key={it.key}>

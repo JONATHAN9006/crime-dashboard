@@ -4,7 +4,6 @@ import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
 import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria } from '../hooks/useTemporalAnalysis';
 import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral, useProyeccion } from '../hooks/useComparativoHomologo';
 import { useKpis } from '../hooks/useKpis';
-import { identificarMesMasAfectado, generarPrioridad, compararMesMasAfectadoEntreAnios } from '../utils/analisisTendencia';
 import { agruparPor, totalCasos, formatPct } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
 import { ComponenteBloqueado } from '../components/ui/ComponenteBloqueado';
@@ -13,16 +12,14 @@ import { DASHBOARD_ACCESS } from '../config/dashboardAccess';
 import { BotonGenerarPdf } from '../components/ui/BotonGenerarPdf';
 import { ProveedorRegistroPdf } from '../context/RegistroPdfContext';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
-import { AporteBarList } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
-import { DonutChart } from '../components/charts/DonutChart';
-import { ComparativoBarrasConAporte } from '../components/charts/ComparativoBarrasConAporte';
 import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
-import { EstadoInformacionCompacto } from '../components/resumen/BloquesResumen';
+import { Top5Dona } from '../components/resumen/BloquesResumen';
+import { RankingAporte } from '../components/charts/RankingAporte';
 import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
 import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
-import { TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays } from 'lucide-react';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
 import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
 
@@ -103,22 +100,8 @@ export function AnalisisUnidad() {
   );
 
   const [resumenDiario, setResumenDiario] = useState<{ mesesTexto: string; porMes: { mesNombre: string; anio: number; casos: number }[]; porMesAnioAnterior: { mesNombre: string; anio: number; casos: number }[]; mostrarAnioAnterior: boolean } | null>(null);
-  const mesMasAfectado = useMemo(
-    () => (resumenDiario ? identificarMesMasAfectado(resumenDiario.porMes) : null),
-    [resumenDiario],
-  );
-  const casosMesMasAfectadoAnioAnterior = useMemo(() => {
-    if (!mesMasAfectado || !resumenDiario || resumenDiario.porMes.length === 0) return null;
-    const mesEntry = resumenDiario.porMes.find((m) => m.mesNombre === mesMasAfectado.mes);
-    if (!mesEntry) return null;
-    const mesIndexBuscado = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].indexOf(mesMasAfectado.mes) + 1;
-    return filteredRecords.filter((r) => r.anio === ventana.anioAnterior && r.mes === mesIndexBuscado).length;
-  }, [mesMasAfectado, resumenDiario, filteredRecords, ventana.anioAnterior]);
-  const prioridadTexto = mesMasAfectado ? generarPrioridad(mesMasAfectado, casosMesMasAfectadoAnioAnterior) : null;
-  const textoCorrelacionMeses = useMemo(() => {
-    if (!mesMasAfectado || !resumenDiario?.mostrarAnioAnterior) return null;
-    return compararMesMasAfectadoEntreAnios(mesMasAfectado, resumenDiario.porMesAnioAnterior);
-  }, [mesMasAfectado, resumenDiario]);
+  // (Los textos de "mes más afectado", "prioridad" y correlación entre años
+  // se quitaron de la tendencia diaria a pedido.)
   const desfavorableGeneral = cmpGeneral.variacionPct !== null && cmpGeneral.variacionPct > 0;
 
   const urbanoRural = useUrbanoRural(ventana.recsActual);
@@ -253,9 +236,29 @@ export function AnalisisUnidad() {
     return <ComparativoMultifecha />;
   }
 
+  // ── Estilo común de las tarjetas (como la imagen de referencia) ───────
+  const T = 'text-[14px] font-bold leading-tight text-[#10233f]';
+  const ico = (Icono: typeof MapPin, extra = '') => <Icono size={24} strokeWidth={2.3} className={`shrink-0 text-[#137a6f] ${extra}`} />;
+  const filaResumen = [
+    { etiqueta: 'Total general', valor: formatNumero(totalGeneralIndicadores), nota: `Vigencia ${ventana.anioAnterior} completa` },
+    { etiqueta: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: `${formatNumero(cmpGeneral.registrosAnterior)} reg.` },
+    { etiqueta: `Casos año actual (${ventana.anioActual})`, valor: formatNumero(cmpGeneral.casosActual), nota: `${formatNumero(cmpGeneral.registrosActual)} reg.` },
+    { etiqueta: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
+    { etiqueta: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
+    { etiqueta: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable' : 'Favorable', color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600', icono: desfavorableGeneral ? <TrendingUp size={15} className="text-rose-600" /> : <TrendingDown size={15} className="text-emerald-600" /> },
+    { etiqueta: 'Participación del delito principal', valor: `${formatDecimal(kpis.participacionDelitoTop)}%`, nota: kpis.delitoTop?.key ?? '—' },
+    { etiqueta: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos/día' },
+    { etiqueta: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: '1 día' },
+    { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: '1 día' },
+  ];
+  const ranking = (filas: { key: string; actual: number; aportePct: number }[], limite: number) =>
+    [...filas].sort((a, b) => b.actual - a.actual).slice(0, limite).map((f) => ({ key: f.key, casos: f.actual, aportePct: f.aportePct }));
+  const total = (filas: { casos: number }[]) => filas.reduce((a, f) => a + f.casos, 0);
+  const COLORES_DONA = ['#10233f', '#159089', '#f97316', '#8a86da', '#a3acb9'];
+
   return (
     <ProveedorRegistroPdf>
-      <div className="space-y-5">
+      <div className="space-y-4">
         <PageHeader
           title="Análisis por Unidad"
           subtitle="Lectura integral: estaciones, cuadrantes, barrios, zonas, población, arma, modalidad, sitio, causa de lesión y horario."
@@ -263,272 +266,204 @@ export function AnalisisUnidad() {
         />
         <IndicadorVigencia ventana={ventana} />
 
-      {ventana.disponible && (
-        <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11.5px] leading-snug text-slate-600">
-          <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
-          <p>
-            {ventana.esRangoPersonalizado
-              ? <>Comparando el rango <strong>{formatFecha(ventana.actualInicio)} – {formatFecha(ventana.actualFin)}</strong> ({ventana.anioActual}) contra el mismo rango un año atrás: <strong>{formatFecha(ventana.anteriorInicio)} – {formatFecha(ventana.anteriorFin)}</strong> ({ventana.anioAnterior}).</>
-              : <>Por defecto se compara el año {ventana.anioActual} del 1 de enero al {formatFecha(ventana.actualFin)} ("a la fecha") contra el mismo tramo de {ventana.anioAnterior}. "Total General" corresponde al año {ventana.anioAnterior} completo (cierre 31 de diciembre), respetando el delito/estación seleccionados.</>}
-          </p>
-        </div>
-      )}
+        {ventana.disponible && (
+          <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11.5px] leading-snug text-slate-600">
+            <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
+            <p>
+              {ventana.esRangoPersonalizado
+                ? <>Comparando el rango <strong>{formatFecha(ventana.actualInicio)} – {formatFecha(ventana.actualFin)}</strong> ({ventana.anioActual}) contra el mismo rango un año atrás: <strong>{formatFecha(ventana.anteriorInicio)} – {formatFecha(ventana.anteriorFin)}</strong> ({ventana.anioAnterior}).</>
+                : <>Por defecto se compara el año {ventana.anioActual} del 1 de enero al {formatFecha(ventana.actualFin)} ("a la fecha") contra el mismo tramo de {ventana.anioAnterior}. "Total General" corresponde al año {ventana.anioAnterior} completo (cierre 31 de diciembre), respetando el delito/estación seleccionados.</>}
+            </p>
+          </div>
+        )}
 
-      {ventana.disponible && (
-        <>
-          {/* 1. RESUMEN — Resumen general | Proyección | Meta del 5% */}
-          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
-      <Card title="Resumen general" subtitle="Comparativo homólogo a la fecha, mismos filtros del resto de la página" descargable="resumen-general-unidad" className="h-full">
-        <table className="w-full text-sm">
-          <tbody>
-            {[
-              { etiqueta: 'Total general', valor: formatNumero(totalGeneralIndicadores), nota: `Vigencia ${ventana.anioAnterior} completa` },
-              { etiqueta: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: `${formatNumero(cmpGeneral.registrosAnterior)} reg.` },
-              { etiqueta: `Casos año actual (${ventana.anioActual})`, valor: formatNumero(cmpGeneral.casosActual), nota: `${formatNumero(cmpGeneral.registrosActual)} reg.` },
-              { etiqueta: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
-              { etiqueta: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
-              { etiqueta: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable' : 'Favorable', color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
-              { etiqueta: 'Participación del delito principal', valor: `${formatDecimal(kpis.participacionDelitoTop)}%`, nota: kpis.delitoTop?.key ?? '—' },
-              { etiqueta: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos/día' },
-              { etiqueta: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: '1 día' },
-              { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: '1 día' },
-            ].map((fila, i) => (
-              <tr key={fila.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/60' : ''}>
-                <td className="rounded-l-lg py-1 pl-3 text-xs font-medium text-slate-600">{fila.etiqueta}</td>
-                <td className={`py-1 text-right text-sm font-bold ${fila.color ?? 'text-slate-800'}`}>{fila.valor}</td>
-                <td className="rounded-r-lg py-1 pl-2 pr-3 text-right text-[11px] text-slate-400">{fila.nota ?? ''}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-            <Card className="h-full" title="Proyección de delitos" subtitle="Fin de año, según ritmo actual" descargable="proyeccion-delitos">
-              {proyeccion.disponible ? (
-                <div className="space-y-2">
-                  {/* 1) DATOS REALES — casos a la fecha */}
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Casos a la fecha</p>
-                    <p className="text-xl font-bold text-slate-800">{formatNumero(proyeccion.casosActual)} casos</p>
+        {ventana.disponible && (
+          <>
+            {/* ── FILA 1: Resumen general | Proyección | Casos por estación (+ meta del 5 %) ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+              <Card className="h-full" title="Resumen general" descargable="resumen-general-unidad" icono={ico(BarChart3)} claseTitulo={T}>
+                <table className="w-full text-[13px]">
+                  <tbody>
+                    {filaResumen.map((f, i) => (
+                      <tr key={f.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/70' : ''}>
+                        <td className="py-[5px] pl-3 text-slate-600">{f.etiqueta}</td>
+                        <td className={`py-[5px] text-right font-bold ${f.color ?? 'text-[#10233f]'}`}>
+                          <span className="inline-flex items-center gap-1.5">{f.icono}{f.valor}</span>
+                        </td>
+                        <td className="py-[5px] pl-2 pr-3 text-right text-[11px] text-slate-400">{f.nota ?? ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+
+              <Card className="h-full" title="Proyección de delitos" subtitle="Fin de año, según ritmo actual" descargable="proyeccion-delitos" icono={ico(LineChart)} claseTitulo={T}>
+                {proyeccion.disponible ? (
+                  <div className="space-y-2 text-[12.5px]">
+                    <div>
+                      <p className="text-[11px] text-slate-500">Casos a la fecha</p>
+                      <p className="text-[22px] font-bold leading-tight text-[#10233f]">{formatNumero(proyeccion.casosActual)} casos</p>
+                      <p className="text-[11.5px] text-slate-500">{proyeccion.diasTranscurridos} días transcurridos (01/01/{ventana.anioActual} – {formatFecha(ventana.actualFin)}) · Ritmo actual: {formatDecimal(proyeccion.casosPorDia, 2)} casos/día</p>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <p className="text-[11px] font-semibold text-brand-green">Proyección al cierre de {ventana.anioActual}</p>
+                      <p className="text-[22px] font-bold leading-tight text-[#10233f]">{formatNumero(proyeccion.proyeccionFinAnio)} casos</p>
+                      <p className="text-[11.5px] text-slate-500">Si se mantiene el ritmo actual, se proyectan aproximadamente {formatNumero(proyeccion.proyeccionFinAnio)} casos al cierre de {ventana.anioActual}.</p>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <p className={`flex items-center gap-1.5 font-semibold ${diferenciaVs2025Completo > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {diferenciaVs2025Completo > 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        {diferenciaVs2025Completo >= 0 ? '+' : ''}{formatNumero(diferenciaVs2025Completo)} casos vs. {ventana.anioAnterior}
+                        <span className="font-normal text-slate-400">({pctVs2025Completo === null ? 'N/A' : `${pctVs2025Completo >= 0 ? '+' : ''}${formatDecimal(pctVs2025Completo, 1)}%`})</span>
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] leading-snug text-slate-400">Proyección = (casos ÷ días transcurridos) × {proyeccion.diasEnAnio} días. Comparado contra el total REAL de {ventana.anioAnterior} completo ({formatNumero(totalAnioAnteriorCompleto)} casos) — no contra el mismo corte de fecha.</p>
+                    </div>
+                    <p className="border-t border-slate-100 pt-2 text-[11.5px] leading-snug text-slate-600">{textoInterpretacion}</p>
                   </div>
+                ) : (
+                  <p className="text-sm text-slate-400">Sin datos suficientes para proyectar.</p>
+                )}
+              </Card>
 
-                  {/* 2) Días transcurridos y ritmo — la base real del cálculo */}
-                  <div className="border-t border-slate-100 pt-2 text-[11px] text-slate-500">
-                    <p>{proyeccion.diasTranscurridos} días transcurridos (01/01/{ventana.anioActual} – {formatFecha(ventana.actualFin)})</p>
-                    <p>Ritmo actual: {formatDecimal(proyeccion.casosPorDia, 2)} casos/día</p>
-                  </div>
-
-                  {/* 3) PROYECCIÓN — estimación matemática, nunca un dato observado */}
-                  <div className="border-t border-slate-100 pt-2">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-brand-green">Proyección al cierre de {ventana.anioActual}</p>
-                    <p className="text-2xl font-bold text-brand-green">{formatNumero(proyeccion.proyeccionFinAnio)} casos</p>
-                    <p className="text-[11px] text-slate-500">Si se mantiene el ritmo actual, se proyectan aproximadamente {formatNumero(proyeccion.proyeccionFinAnio)} casos al cierre de {ventana.anioActual}.</p>
-                  </div>
-
-                  {/* 4) REFERENCIA — proyección vs. TOTAL REAL de 2025 completo (no el corte homólogo) */}
-                  <div className="flex items-center gap-1.5 border-t border-slate-100 pt-2">
-                    {diferenciaVs2025Completo > 0 ? <TrendingUp size={14} className="text-rose-600" /> : <TrendingDown size={14} className="text-emerald-600" />}
-                    <p className={`text-sm font-semibold ${diferenciaVs2025Completo > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {diferenciaVs2025Completo >= 0 ? '+' : ''}{formatNumero(diferenciaVs2025Completo)} casos vs. {ventana.anioAnterior}
-                      <span className="ml-1 font-normal text-slate-400">
-                        ({pctVs2025Completo === null ? 'N/A' : `${pctVs2025Completo >= 0 ? '+' : ''}${formatDecimal(pctVs2025Completo, 1)}%`})
-                      </span>
+              {/* Casos por estación: TABLA (obligatoria) + debajo el recuadro rojo/verde de la meta del 5 %. */}
+              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T}>
+                <TablaComparativaResumen
+                  filas={cmpEstacion.slice(0, 10)}
+                  etiqueta="Estación"
+                  anioAnterior={ventana.anioAnterior}
+                  anioActual={ventana.anioActual}
+                  aporteTotal="100%"
+                  compacta
+                  onRowClick={(key) => drillDown('estacion', key)}
+                />
+                {proyeccion.disponible && (
+                  <div className={`mt-3 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
+                    <p className={`flex items-center gap-2 text-[16px] font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      <Target size={18} /> Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos
+                    </p>
+                    <p className={`mt-1 text-[12px] font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      {coincideConMeta
+                        ? 'La proyección coincide con la meta establecida.'
+                        : cumpleMeta
+                          ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
+                          : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
+                    </p>
+                    <p className="mt-1.5 border-t border-slate-200/70 pt-1.5 text-[11.5px] text-slate-600">
+                      Base: {formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95.{' '}
+                      {casosPermitidosRestantes >= 0
+                        ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
+                        : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año.`}
                     </p>
                   </div>
-                  <p className="text-[10px] text-slate-400">Proyección = (casos ÷ días transcurridos) × {proyeccion.diasEnAnio} días. Comparado contra el total REAL de {ventana.anioAnterior} completo ({formatNumero(totalAnioAnteriorCompleto)} casos) — no contra el mismo corte de fecha.</p>
-
-                  {/* 7) Interpretación dinámica — une los cuatro conceptos en una sola frase, generada de los mismos números de arriba */}
-                  <p className="border-t border-slate-100 pt-2 text-xs leading-relaxed text-slate-600">{textoInterpretacion}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400">Sin datos suficientes para proyectar.</p>
-              )}
-            </Card>
-            {proyeccion.disponible && (
-              <Card className="h-full" title="Meta de reducción del 5%" subtitle={`Base: ${ventana.anioAnterior} completo`} descargable="meta-reduccion">
-                <div className={`h-full space-y-2 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
-                  <p className="text-[11px] text-slate-500">{formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95</p>
-                  <p className={`text-xl font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos</p>
-                  <p className={`text-xs font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {coincideConMeta
-                      ? 'La proyección coincide con la meta establecida.'
-                      : cumpleMeta
-                        ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
-                        : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
-                  </p>
-                  <p className="border-t border-slate-200/60 pt-2 text-xs text-slate-600">
-                    {casosPermitidosRestantes >= 0
-                      ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
-                      : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año — cumplirla exactamente ya no es posible; cada caso adicional aumenta la brecha.`}
-                  </p>
-                </div>
+                )}
               </Card>
-            )}
-          </div>
-
-          {/* Casos por estación — TABLA obligatoria, a todo el ancho, mismo
-              lenguaje visual de las tablas del Inicio (cifras sin cambios:
-              APORTE % = participación de cada estación en el año actual). */}
-          <Card title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha — clic en una estación para filtrar`} descargable="casos-por-estacion">
-            {/* Ancho máximo moderado: legible en pantalla y, al exportar al
-                PDF, la tabla no queda diminuta por ser demasiado ancha. */}
-            <div className="mx-auto max-w-6xl">
-            <TablaComparativaResumen
-              filas={cmpEstacion.slice(0, 10)}
-              etiqueta="Estación"
-              anioAnterior={ventana.anioAnterior}
-              anioActual={ventana.anioActual}
-              aporteTotal="100%"
-              onRowClick={(key) => drillDown('estacion', key)}
-            />
             </div>
-          </Card>
 
-          {/* 2. EVOLUCIÓN — Tendencia mensual | Tendencia diaria */}
-          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-            <div className="min-w-0">
-      {accesoTendenciaMensual ? (
-        <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
-      ) : (
-        <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
-      )}
+            {/* ── FILA 2: Tendencia mensual | Tendencia diaria ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+              <div className="min-w-0">
+                {accesoTendenciaMensual ? (
+                  <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" mostrarLectura={false} icono={ico(BarChart3)} />
+                ) : (
+                  <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+                )}
+              </div>
+              <div className="min-w-0">
+                {accesoTendenciaDiaria ? (
+                  <Card
+                    className="h-full"
+                    title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
+                    subtitle="Comportamiento día a día en el periodo filtrado"
+                    descargable="tendencia-diaria"
+                    icono={ico(Activity)}
+                    claseTitulo={T}
+                    actions={
+                      <button onClick={() => setVistaDiaria((v) => { if (v) setResumenDiario(null); return !v; })} className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
+                        {vistaDiaria ? 'Ver resumen' : 'Ver serie completa'}
+                      </button>
+                    }
+                  >
+                    {vistaDiaria ? (
+                      <TendenciaDiariaChart data={diaria} height={300} onResumenChange={setResumenDiario} />
+                    ) : (
+                      <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos).</p>
+                    )}
+                  </Card>
+                ) : (
+                  <ComponenteBloqueado titulo="Tendencia diaria" subtitulo="Comportamiento día a día en el periodo filtrado" />
+                )}
+              </div>
             </div>
-            <div className="min-w-0">
-      {accesoTendenciaDiaria ? (
-        <Card
-          title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
-          subtitle="Comportamiento día a día en el periodo filtrado. Pasa el cursor sobre la línea para ver el detalle exacto de cada día."
-          descargable="tendencia-diaria"
-          actions={
-            <button onClick={() => setVistaDiaria((v) => { if (v) setResumenDiario(null); return !v; })} className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
-              {vistaDiaria ? 'Ver resumen' : 'Ver serie completa'}
-            </button>
-          }
-        >
-          {vistaDiaria ? (
-            <>
-              {textoCorrelacionMeses && (
-                <div className="mb-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700">
-                  {textoCorrelacionMeses}
-                </div>
-              )}
-              {mesMasAfectado && (
-                <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                  <span className="font-semibold text-rose-600">🔴 Mes más afectado: {mesMasAfectado.mes.toUpperCase()} — {formatNumero(mesMasAfectado.casos)} casos</span>
-                  {prioridadTexto && <span className="font-semibold text-brand-green">🎯 Prioridad próxima vigencia: {mesMasAfectado.mes.toUpperCase()}</span>}
-                </div>
-              )}
-              <TendenciaDiariaChart data={diaria} height={320} onResumenChange={setResumenDiario} />
-              {prioridadTexto && <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-700">Análisis: {prioridadTexto}</p>}
-            </>
-          ) : (
-            <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos). Para consultar cada caso individual, usa la sección "Tabla de Datos".</p>
-          )}
-        </Card>
-      ) : (
-        <ComponenteBloqueado titulo="Tendencia diaria" subtitulo="Comportamiento día a día en el periodo filtrado" />
-      )}
+
+            {/* ── FILA 3: CAI | Turno | Top delitos | Top cuadrantes ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 2xl:grid-cols-4">
+              <Card className="h-full" title="CAI más afectados" subtitle={`Top ${topCai === 'todas' ? 'todos' : topCai}, vigencia ${ventana.anioActual}`} descargable="cai-mas-afectados" icono={ico(MapPin)} claseTitulo={T} actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}>
+                <RankingAporte data={porCaiVigenciaActual} cabeza="CAI" onClick={(key) => drillDown('cai', key)} />
+              </Card>
+              <Card className="h-full" title="Turno de vigilancia" subtitle={`Exclusivamente vigencia ${ventana.anioActual}`} descargable="turno-vigilancia" icono={ico(Clock)} claseTitulo={T}>
+                <RankingAporte data={porTurnoVigenciaActual} cabeza="Turno" onClick={(key) => drillDown('turno', key)} />
+              </Card>
+              <Card className="h-full" title="Análisis de delitos — Top por cantidad" subtitle={`Exclusivamente vigencia ${ventana.anioActual}`} descargable="top-delitos" icono={ico(BarChart3)} claseTitulo={T} actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}>
+                <RankingAporte data={porDelitoVigenciaActual} cabeza="Delito" onClick={(key) => drillDown('delito', key)} />
+              </Card>
+              <Card className="h-full" title={`Top ${topCuadrante} cuadrantes más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
+                <RankingAporte data={ranking(cmpCuadrante, topCuadrante)} cabeza="Cuadrante" onClick={(key) => drillDown('cuadrante', key)} />
+              </Card>
             </div>
-          </div>
 
-          {/* 3. OPERATIVIDAD Y CONCENTRACIÓN — CAI | Turno | Top delitos | Cuadrantes */}
-          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 2xl:grid-cols-4">
-            <Card
-              title="CAI más afectados"
-              descargable="cai-mas-afectados"
-              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
-              actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}
-            >
-              <AporteBarList data={porCaiVigenciaActual} onBarClick={(key) => drillDown('cai', key)} />
-            </Card>
-            <Card
-              title="Turno de Vigilancia"
-              descargable="turno-vigilancia"
-              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
-            >
-              {porTurnoVigenciaActual.length > 0 ? (
-                <AporteBarList data={porTurnoVigenciaActual} onBarClick={(key) => drillDown('turno', key)} />
-              ) : (
-                <p className="py-6 text-center text-sm text-slate-400">Sin datos de turno para el filtro actual.</p>
-              )}
-            </Card>
-            <Card
-              title="Análisis de delitos — Top por cantidad"
-              descargable="top-delitos"
-              subtitle={`Exclusivamente vigencia ${ventana.anioActual}`}
-              actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}
-            >
-              <AporteBarList data={porDelitoVigenciaActual} onBarClick={(key) => drillDown('delito', key)} />
-            </Card>
-            <Card title={`Top ${topCuadrante} cuadrantes más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />} descargable="top-cuadrantes">
-              <ComparativoBarrasConAporte data={cmpCuadrante} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('cuadrante', key)} limite={topCuadrante} />
-            </Card>
-          </div>
+            {/* ── FILA 4: Barrios | Armas | Modalidades | Clase de sitio | Causa de lesión ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+              <Card className="h-full" title={`Top ${topBarrio} barrios más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-barrios" icono={ico(Home)} claseTitulo={T} actions={<SelectorTop valor={topBarrio} onChange={(v) => setTopBarrio(v!)} />}>
+                <RankingAporte data={ranking(cmpBarrio, topBarrio)} cabeza="Barrio" onClick={(key) => drillDown('barrioHecho', key)} />
+              </Card>
+              <Card className="h-full" title="Armas empleadas" subtitle={`Top ${topArma}, vigencia ${ventana.anioActual}`} descargable="armas-empleadas" icono={ico(Crosshair)} claseTitulo={T} actions={<SelectorTop valor={topArma} onChange={(v) => setTopArma(v!)} />}>
+                <RankingAporte data={ranking(cmpArma, topArma)} cabeza="Arma" onClick={(key) => drillDown('armas', key)} />
+              </Card>
+              <Card className="h-full" title="Modalidades principales" subtitle={`Top ${topModalidad}, vigencia ${ventana.anioActual}`} descargable="modalidades" icono={ico(Timer)} claseTitulo={T} actions={<SelectorTop valor={topModalidad} onChange={(v) => setTopModalidad(v!)} />}>
+                <RankingAporte data={ranking(cmpModalidad, topModalidad)} cabeza="Modalidad" onClick={(key) => drillDown('modalidad', key)} />
+              </Card>
+              <Card className="h-full" title="Clase de sitio" subtitle={`Top ${topClaseSitio}, vigencia ${ventana.anioActual}`} descargable="clase-sitio" icono={ico(Building)} claseTitulo={T} actions={<SelectorTop valor={topClaseSitio} onChange={(v) => setTopClaseSitio(v!)} />}>
+                <RankingAporte data={ranking(cmpClaseSitio, topClaseSitio)} cabeza="Clase de sitio" onClick={(key) => drillDown('claseSitio', key)} />
+              </Card>
+              <Card className="h-full" title="Causa de lesión" subtitle={`Top ${topCausaLesion}, vigencia ${ventana.anioActual}`} descargable="causa-lesion" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} claseTitulo={T} actions={<SelectorTop valor={topCausaLesion} onChange={(v) => setTopCausaLesion(v!)} />}>
+                <RankingAporte data={ranking(cmpCausaLesion, topCausaLesion)} cabeza="Causa" onClick={(key) => drillDown('causaLesion', key)} />
+              </Card>
+            </div>
 
-          {/* 4. TERRITORIO Y CARACTERIZACIÓN — Barrios | Armas | Modalidades | Sitio | Causa */}
-          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-            <Card title={`Top ${topBarrio} barrios más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} actions={<SelectorTop valor={topBarrio} onChange={(v) => setTopBarrio(v!)} />} descargable="top-barrios">
-              <ComparativoBarrasConAporte data={cmpBarrio} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('barrioHecho', key)} limite={topBarrio} />
-            </Card>
-            <Card title="Armas empleadas" subtitle={`Top ${topArma}, vigencia ${ventana.anioActual}`} actions={<SelectorTop valor={topArma} onChange={(v) => setTopArma(v!)} />} descargable="armas-empleadas">
-              <ComparativoBarrasConAporte data={cmpArma} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('armas', key)} limite={topArma} />
-            </Card>
-            <Card title="Modalidades principales" subtitle={`Top ${topModalidad}, vigencia ${ventana.anioActual}`} actions={<SelectorTop valor={topModalidad} onChange={(v) => setTopModalidad(v!)} />} descargable="modalidades">
-              <ComparativoBarrasConAporte data={cmpModalidad} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('modalidad', key)} limite={topModalidad} />
-            </Card>
-            <Card title="Clase de sitio" subtitle={`Top ${topClaseSitio}, vigencia ${ventana.anioActual}`} actions={<SelectorTop valor={topClaseSitio} onChange={(v) => setTopClaseSitio(v!)} />} descargable="clase-sitio">
-              <ComparativoBarrasConAporte data={cmpClaseSitio} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('claseSitio', key)} limite={topClaseSitio} />
-            </Card>
-            <Card title="Causa de lesión" subtitle={`Top ${topCausaLesion}, vigencia ${ventana.anioActual}`} actions={<SelectorTop valor={topCausaLesion} onChange={(v) => setTopCausaLesion(v!)} />} descargable="causa-lesion">
-              <ComparativoBarrasConAporte data={cmpCausaLesion} anioAnterior={ventana.anioAnterior} anioActual={ventana.anioActual} onBarClick={(key) => drillDown('causaLesion', key)} limite={topCausaLesion} />
-            </Card>
-          </div>
-
-          {/* 5. POBLACIÓN — Zonas | Género | Grupo de edad */}
-          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
-            <Card title="Zonas con mayor concentración" descargable="zonas-concentracion">
-              <DonutChart data={urbanoRural} height={230} mostrarCasos umbralEtiqueta={1.01} />
-            </Card>
-            <Card title="Distribución por género" descargable="distribucion-genero">
-              <DonutChart data={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} height={230} mostrarCasos umbralEtiqueta={1.01} />
-            </Card>
-            <Card title="Distribución por grupo de edad" descargable="distribucion-edad">
-              <DonutChart data={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} height={230} mostrarCasos umbralEtiqueta={1.01} />
-            </Card>
-          </div>
-
-          {/* 6. TIEMPO — Día de la semana | Concentración horaria */}
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-            <Card title="Casos por día de la semana" subtitle="Con línea de tendencia — los 3 días con más casos se resaltan automáticamente" descargable="casos-dia-semana">
-              <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={230} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={55} tamanoEtiqueta={14} espaciadoCategoria={0.15} />
-            </Card>
-            <Card
-              title="Concentración horaria"
-              subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Cantidad de casos por hora del día, con línea de tendencia — las 3 horas con más casos se resaltan automáticamente'}
-              actions={
-                <div className="flex gap-1">
-                  {[{ label: 'Top 5', v: 5 }, { label: 'Top 10', v: 10 }, { label: 'Todas', v: undefined }].map((o) => (
-                    <button
-                      key={o.label}
-                      onClick={() => setTopHorasUnidad(o.v)}
-                      className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${topHorasUnidad === o.v ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              }
-              descargable="concentracion-horaria"
-            >
-              <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={230} resaltarMaximo resaltarTopN={3} colorPorBarra />
-            </Card>
-          </div>
-
-          {/* 7. ESTADO DE LA INFORMACIÓN — compacto, al final */}
-          <Card title="Estado de la información" descargable="estado-informacion-unidad">
-            <EstadoInformacionCompacto horizontal />
-          </Card>
-        </>
-      )}
+            {/* ── FILA 5: Zonas | Género | Grupo de edad | Día de la semana | Concentración horaria ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3 2xl:grid-cols-[0.8fr_0.8fr_0.8fr_1.4fr_2.2fr]">
+              <Card className="h-full 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={urbanoRural} total={total(urbanoRural)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full 2xl:col-span-1" title="Distribución por género" descargable="distribucion-genero" icono={ico(Users)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGenero)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={210} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={34} tamanoEtiqueta={11} espaciadoCategoria={0.15} />
+              </Card>
+              <Card
+                className="h-full md:col-span-3 2xl:col-span-1"
+                title="Concentración horaria"
+                subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Casos por hora del día — las 3 horas con más casos se resaltan'}
+                descargable="concentracion-horaria"
+                icono={ico(Clock)}
+                claseTitulo="text-[14px] font-bold text-[#10233f]"
+                actions={
+                  <div className="flex gap-1">
+                    {[{ label: 'Top 5', v: 5 }, { label: 'Top 10', v: 10 }, { label: 'Todas', v: undefined }].map((o) => (
+                      <button key={o.label} onClick={() => setTopHorasUnidad(o.v)} className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${topHorasUnidad === o.v ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{o.label}</button>
+                    ))}
+                  </div>
+                }
+              >
+                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={210} resaltarMaximo resaltarTopN={3} colorPorBarra tamanoEtiqueta={9} />
+              </Card>
+            </div>
+          </>
+        )}
       </div>
     </ProveedorRegistroPdf>
   );

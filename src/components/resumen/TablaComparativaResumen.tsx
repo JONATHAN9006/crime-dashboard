@@ -16,7 +16,7 @@ export interface FilaComparativaResumen {
   aportePct: number | null;
 }
 
-export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioActual, invertirColores = false, alinearNombre = 'left', aporteTotal, onRowClick }: {
+export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioActual, invertirColores = false, alinearNombre = 'left', aporteTotal, onRowClick, compacta = false }: {
   filas: FilaComparativaResumen[];
   etiqueta: string;
   anioAnterior: number;
@@ -28,6 +28,8 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
   aporteTotal: string;
   // Clic en una fila (ej. Casos por estación → filtra por esa estación).
   onRowClick?: (key: string) => void;
+  // Versión angosta (ej. dentro de una columna de 1/3): letra y ancho mínimo menores.
+  compacta?: boolean;
 }) {
   const totalCompleto = filas.reduce((a, f) => a + f.totalAnioAnteriorCompleto, 0);
   const totalAnterior = filas.reduce((a, f) => a + f.anterior, 0);
@@ -45,7 +47,18 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[620px] table-fixed border-separate border-spacing-0 text-[13px]">
+      <table className={`w-full table-fixed border-separate border-spacing-0 ${compacta ? 'min-w-[470px] text-[12px]' : 'min-w-[620px] text-[13px]'}`}>
+        {compacta ? (
+          <colgroup>
+            <col className="w-[16%]" />
+            <col className="w-[11%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[27%]" />
+          </colgroup>
+        ) : (
         <colgroup>
           <col className="w-[22%]" />
           <col className="w-[11%]" />
@@ -55,6 +68,7 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
           <col className="w-[11%]" />
           <col className="w-[26%]" />
         </colgroup>
+        )}
         <thead>
           <tr className="text-[12px] font-semibold uppercase text-white">
             <th className="rounded-tl-md bg-[#0f5f57] px-2 py-2 text-center">{etiqueta}</th>
@@ -78,8 +92,8 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
                 <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-400">{formatNumero(f.totalAnioAnteriorCompleto)}</td>
                 <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{formatNumero(f.anterior)}</td>
                 <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{formatNumero(f.actual)}</td>
-                <td className={`border-b border-white/60 px-2 py-[5px] text-center font-bold ${celda(f.diferencia)}`}>{f.diferencia > 0 ? '+' : ''}{formatNumero(f.diferencia)}</td>
-                <td className={`border-b border-white/60 px-2 py-[5px] text-center font-bold ${celda(f.variacionPct)}`}>{pctTexto(f.variacionPct)}</td>
+                <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.diferencia)}`}>{f.diferencia > 0 ? '+' : ''}{formatNumero(f.diferencia)}</td>
+                <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.variacionPct)}`}>{pctTexto(f.variacionPct)}</td>
                 <td className="border-b border-slate-100 px-2 py-[5px]">
                   <div className="flex items-center gap-2">
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
