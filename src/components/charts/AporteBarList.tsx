@@ -23,9 +23,20 @@ const VERDE_MAXIMO = '#0b4a46';
 // cada columna es un valor fijo y determinista, sin ambigüedad posible al
 // exportar.
 const COLUMNAS_GRID = '130px minmax(0, 1fr) 56px 64px';
-// Variante compacta (Operatividad por Unidad): nombre algo más ancho, valor
-// y aporte en columnas angostas alineadas a la derecha, letra 12–13 px.
-const COLUMNAS_GRID_COMPACTA = 'minmax(96px, 38%) minmax(0, 1fr) 46px 50px';
+// Variante compacta (Operatividad por Unidad): la columna del nombre mide lo
+// que mide el nombre más largo de ESA tarjeta (con tope del 42 %), así la
+// barra empieza justo después del texto, sin un hueco grande en medio.
+// Se calcula aparte (no con "max-content") porque cada fila es su propio
+// grid y todas deben quedar alineadas.
+function anchoTextoAprox(texto: string): number {
+  let px = 0;
+  for (const ch of texto) px += ch === ' ' ? 3.4 : /[A-ZÁÉÍÓÚÑ0-9]/.test(ch) ? 8 : /[iljtfr.,:;'|]/.test(ch) ? 3.6 : 6.6;
+  return px;
+}
+function columnasCompactas(etiquetas: string[]): string {
+  const max = Math.max(60, ...etiquetas.map(anchoTextoAprox));
+  return `min(${Math.ceil(max * 1.1 + 10)}px, 42%) minmax(0, 1fr) 46px 50px`;
+}
 
 /**
  * Lista de barras horizontales con una columna de "Aporte %" REAL — todas
@@ -48,7 +59,7 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMa
   compacta?: boolean; // tipografía y columnas más compactas (solo donde se pide; el resto del dashboard no cambia)
   textoVacio?: string;
 }) {
-  const columnas = compacta ? COLUMNAS_GRID_COMPACTA : COLUMNAS_GRID;
+  const columnas = compacta ? columnasCompactas(data.map((d) => d.key)) : COLUMNAS_GRID;
   const maxCasos = Math.max(1, ...data.map((d) => d.casos));
   const paleta = paletaBarras ?? PALETA_BARRAS;
 
