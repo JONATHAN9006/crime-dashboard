@@ -16,6 +16,8 @@ import { puntoEnFeatureGeoJSON } from './puntoEnPoligono';
 export interface FlechaBarrio {
   rango: number; // 1, 2, 3…
   barrio: string;
+  // true = barrio agregado a mano por el usuario (se suma al Top N, nunca lo reemplaza).
+  manual?: boolean;
   casos: number;
   lat: number;
   lon: number;
@@ -39,6 +41,12 @@ interface RegistroConBarrio {
 // "SIN ASIGNAR", "NO SE ENCONTRÓ", etc. (antes la comparación era exacta y
 // "PENDIENTE POR ASIGNAR" se colaba como si fuera un barrio).
 const NO_ES_BARRIO = /PENDIENTE|POR ASIGNAR|SIN ASIGNAR|NO ASIGNAD|NO REPORTAD|SIN REPORTAR|SIN BARRIO|NO SE ENCONTR|NO ENCONTRAD|SIN INFORMACI|NO REGISTRA|SIN DATO|DESCONOCID|INDETERMINAD|^N\/?A$|^[-.\s]*$/;
+
+/** ¿Es un nombre de barrio real (no "Pendiente por asignar", "Sin dato"…)? */
+export function esBarrioReal(nombre: unknown): boolean {
+  const n = normalizarNombre(nombre);
+  return n !== '' && !NO_ES_BARRIO.test(n);
+}
 
 export function normalizarNombre(v: unknown): string {
   return String(v ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
@@ -66,9 +74,9 @@ function centroPoligono(feature: any): { lat: number; lon: number } | null {
 export function calcularTopBarrios(
   registros: RegistroConBarrio[],
   cantidad: number,
-  opciones: { poligonosBarrio?: Map<string, any>; dentroDe?: any } = {},
+  opciones: { poligonosBarrio?: Map<string, any>; dentroDe?: any; adicionales?: string[] } = {},
 ): FlechaBarrio[] {
-  const { poligonosBarrio, dentroDe } = opciones;
+  const { poligonosBarrio, dentroDe, adicionales = [] } = opciones;
   const porBarrio = new Map<string, { nombre: string; casos: number; lats: number[]; lons: number[] }>();
   for (const r of registros) {
     const nombre = String(r.barrioHecho ?? '').trim();
@@ -83,24 +91,50 @@ export function calcularTopBarrios(
     porBarrio.set(clave, g);
   }
 
-  const resultado: FlechaBarrio[] = [];
-  const ordenados = Array.from(porBarrio.entries()).sort((a, b) => b[1].casos - a[1].casos);
-  for (const [clave, g] of ordenados) {
-    if (resultado.length >= cantidad) break;
+  // Dónde apunta la flecha de un barrio: mediana de sus casos (o el centro
+  // de su polígono si esa mediana cae fuera o no hay casos con coordenadas).
+  const ubicar = (clave: string, g: { lats: number[]; lons: number[] } | undefined): { lat: number; lon: number } | null => {
     const poligono = poligonosBarrio?.get(clave);
     let ubicacion: { lat: number; lon: number } | null = null;
-    if (g.lats.length > 0) {
+    if (g && g.lats.length > 0) {
       ubicacion = { lat: mediana(g.lats), lon: mediana(g.lons) };
       if (poligono && !puntoEnFeatureGeoJSON(ubicacion.lon, ubicacion.lat, poligono)) {
         ubicacion = centroPoligono(poligono) ?? ubicacion;
       }
     } else if (poligono) {
       ubicacion = centroPoligono(poligono);
+      // En la descarga de una zona/CAI, un barrio sin casos dentro solo se
+      // señala si su polígono queda dentro de esa zona.
+      if (ubicacion && dentroDe && !puntoEnFeatureGeoJSON(ubicacion.lon, ubicacion.lat, dentroDe)) ubicacion = null;
     }
+    return ubicacion;
+  };
+
+  const resultado: FlechaBarrio[] = [];
+  const incluidos = new Set<string>();
+  const ordenados = Array.from(porBarrio.entries()).sort((a, b) => b[1].casos - a[1].casos);
+  for (const [clave, g] of ordenados) {
+    if (resultado.length >= cantidad) break;
+    const ubicacion = ubicar(clave, g);
     // Sin coordenadas ni polígono no hay dónde apuntar — se salta y se
     // toma el siguiente barrio, para no dibujar una flecha al vacío.
     if (!ubicacion) continue;
+    incluidos.add(clave);
     resultado.push({ rango: resultado.length + 1, barrio: g.nombre, casos: g.casos, ...ubicacion });
+  }
+
+  // Barrios agregados a mano: SE SUMAN al Top N (que nunca se oculta ni se
+  // reemplaza). Si uno ya está en el Top, no se repite. Sus casos son los
+  // de los mismos registros filtrados (pueden ser 0 si con estos filtros
+  // no tiene casos; entonces se ubica por su polígono, si hay capa).
+  for (const nombre of adicionales) {
+    const clave = normalizarNombre(nombre);
+    if (!clave || incluidos.has(clave) || NO_ES_BARRIO.test(clave)) continue;
+    const g = porBarrio.get(clave);
+    const ubicacion = ubicar(clave, g);
+    if (!ubicacion) continue;
+    incluidos.add(clave);
+    resultado.push({ rango: resultado.length + 1, barrio: g?.nombre ?? String(nombre).trim(), casos: g?.casos ?? 0, manual: true, ...ubicacion });
   }
   return resultado;
 }

@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { calcularKernelDensidad, type PuntoDensidad } from '../../utils/kernelDensity';
+import { calcularKernelDensidad, type PuntoDensidad, type ResultadoKernel } from '../../utils/kernelDensity';
 
 export interface KernelHeatmapLayerProps {
   puntos: PuntoDensidad[];
   colores: (string | null)[];
   opacidad?: number;
+  /** Avisa el resultado del cálculo (máximo, metadatos) — para la leyenda y la consulta por clic. */
+  onResultado?: (resultado: ResultadoKernel | null) => void;
 }
 
 // A diferencia de HeatmapLayer (leaflet.heat, que recalcula el radio en
@@ -15,7 +17,7 @@ export interface KernelHeatmapLayerProps {
 // mapa como una imagen georreferenciada (L.imageOverlay) — el zoom solo
 // escala esa imagen como cualquier otra capa del mapa, nunca vuelve a
 // ejecutar el cálculo del kernel ni cambia su clasificación de colores.
-export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75 }: KernelHeatmapLayerProps) {
+export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75, onResultado }: KernelHeatmapLayerProps) {
   const map = useMap();
   const layerRef = useRef<L.ImageOverlay | null>(null);
 
@@ -36,6 +38,7 @@ export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75 }: KernelH
       layerRef.current = null;
     }
     const resultado = calcularKernelDensidad(puntos, colores);
+    onResultado?.(resultado);
     if (!resultado) return;
     const overlay = L.imageOverlay(resultado.dataUrl, resultado.bounds, {
       opacity: opacidad,

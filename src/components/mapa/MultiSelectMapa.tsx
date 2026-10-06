@@ -6,8 +6,12 @@ import { Check, ChevronDown, Search, X } from 'lucide-react';
 // Barrio). Antes era un <select> de una sola opción; el filtro del mapa ya
 // aceptaba listas (filtrosMapa.delito es un arreglo), solo faltaba poder
 // escoger varias. Vacío = "Todos".
-export function MultiSelectMapa({ etiqueta, opciones, seleccion, onChange }: {
+export function MultiSelectMapa({ etiqueta, opciones, seleccion, onChange, textoVacio = 'Todos', textoQuitar = 'Todos (quitar selección)', textoPie = 'Mostrando todos' }: {
   etiqueta: string;
+  /** Texto cuando no hay nada elegido (por defecto "Todos", porque vacío = sin filtro). */
+  textoVacio?: string;
+  textoQuitar?: string;
+  textoPie?: string;
   opciones: string[];
   seleccion: string[];
   onChange: (valores: string[]) => void;
@@ -33,7 +37,7 @@ export function MultiSelectMapa({ etiqueta, opciones, seleccion, onChange }: {
   }, [opciones, busqueda]);
 
   const alternar = (v: string) => onChange(seleccion.includes(v) ? seleccion.filter((x) => x !== v) : [...seleccion, v]);
-  const resumen = seleccion.length === 0 ? 'Todos' : seleccion.length === 1 ? seleccion[0] : `${seleccion.length} seleccionados`;
+  const resumen = seleccion.length === 0 ? textoVacio : seleccion.length === 1 ? seleccion[0] : `${seleccion.length} seleccionados`;
 
   return (
     <div ref={ref} className="relative">
@@ -71,7 +75,7 @@ export function MultiSelectMapa({ etiqueta, opciones, seleccion, onChange }: {
             </div>
           )}
           <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1 text-[11px]">
-            <button type="button" onClick={() => onChange([])} className="font-semibold text-slate-500 hover:text-slate-800">Todos (quitar selección)</button>
+            <button type="button" onClick={() => onChange([])} className="font-semibold text-slate-500 hover:text-slate-800">{textoQuitar}</button>
             {busqueda && visibles.length > 0 && (
               <button type="button" onClick={() => onChange(Array.from(new Set([...seleccion, ...visibles])))} className="font-semibold text-brand-green hover:underline">
                 Marcar los {visibles.length} encontrados
@@ -96,7 +100,7 @@ export function MultiSelectMapa({ etiqueta, opciones, seleccion, onChange }: {
             )}
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 px-2 py-1.5 text-[11px] text-slate-500">
-            <span>{seleccion.length === 0 ? 'Mostrando todos' : `${seleccion.length} seleccionado(s)`}</span>
+            <span>{seleccion.length === 0 ? textoPie : `${seleccion.length} seleccionado(s)`}</span>
             <button type="button" onClick={() => setAbierto(false)} className="rounded bg-brand-navy px-2 py-0.5 font-semibold text-white">Listo</button>
           </div>
         </div>

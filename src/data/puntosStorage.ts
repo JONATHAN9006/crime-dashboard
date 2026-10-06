@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { esCoordenadaValida } from '../utils/geodesia';
 import { getDb, STORE_PUNTOS } from './db';
 import { MAPA_DELITO_IDX, MAPA_ESTACION_IDX, MAPA_BARRIO_IDX, normalizarClave } from './db2Transform';
 
@@ -384,15 +385,18 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
 export async function sincronizarCapaOperatividadDesdeRecords(records: {
   lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; cuadrante: string; fecha: Date | null; categoria: string;
 }[], cuadranteACai?: Map<string, string>): Promise<void> {
-  const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
-  const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  // Coordenada utilizable: numérica, finita, distinta de (0,0) y dentro de
+  // Colombia (el mismo recuadro que usa construirPuntos para las demás
+  // capas). Cada registro válido es UN punto: no se agrupa ni se duplica.
+  const conCoordenadas = records.filter((r) => esCoordenadaValida(r.lat, r.lon)
+    && (r.lat as number) >= -4.5 && (r.lat as number) <= 13.5 && (r.lon as number) >= -82 && (r.lon as number) <= -66.5);
   console.info(`[Operatividad→Mapa] ${conCoordenadas.length} de ${records.length} registro(s) tienen Latitud/Longitud válidas. Estaciones encontradas: ${JSON.stringify([...new Set(conCoordenadas.map((r) => r.estacion))])}`);
   if (conCoordenadas.length === 0) return;
 
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
     lat: r.lat as number,
     lon: r.lon as number,
-    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria },
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria, CUADRANTE: r.cuadrante },
     delitoCorto: r.delitoAsociado,
     estacionCorta: r.estacion,
     // CAI inferido cruzando el cuadrante con Delictividad (Operatividad no
@@ -411,7 +415,7 @@ export async function sincronizarCapaOperatividadDesdeRecords(records: {
       archivoNombre: 'Actualizar información (automático)',
       cargadoPor: previa?.cargadoPor ?? 'Sistema',
       fechaCarga: new Date().toISOString(),
-      columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD'],
+      columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD', 'CUADRANTE'],
       colLat: 'lat',
       colLon: 'lon',
       colDelito: 'DELITO',

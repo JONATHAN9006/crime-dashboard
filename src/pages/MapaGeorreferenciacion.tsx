@@ -12,9 +12,12 @@ import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
 } from '../data/puntosStorage';
 import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
+import { ConsultaDensidadKernel } from '../components/mapa/ConsultaDensidadKernel';
+import type { ResultadoKernel } from '../utils/kernelDensity';
+import { esCoordenadaValida } from '../utils/geodesia';
 import { MultiSelectMapa } from '../components/mapa/MultiSelectMapa';
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
-import { calcularTopBarrios, normalizarNombre } from '../utils/barriosAfectados';
+import { calcularTopBarrios, esBarrioReal, normalizarNombre } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { maxDe } from '../utils/mathSeguro';
@@ -195,8 +198,11 @@ function AjustarTamanoAlCambiarPantallaCompleta({ activo }: { activo: boolean })
   return null;
 }
 
-function AjustarVistaAPuntos({ puntos }: { puntos: { lat: number; lon: number }[] }) {
+function AjustarVistaAPuntos({ puntos: puntosCrudos }: { puntos: { lat: number; lon: number }[] }) {
   const map = useMap();
+  // Un punto en (0,0) o sin coordenada real mandaría el encuadre al otro
+  // lado del mundo (todo el mapa de calor quedaba del tamaño de un píxel).
+  const puntos = puntosCrudos.filter((p) => esCoordenadaValida(p.lat, p.lon));
   const firma = puntos.map((p) => `${p.lat},${p.lon}`).join('|');
   useEffect(() => {
     if (puntos.length === 0) return;
@@ -235,9 +241,10 @@ function AjustarVistaInicial({ puntos, poligono }: { puntos: { lat: number; lon:
       map.fitBounds(bounds, { padding: [30, 30] });
       return;
     }
-    if (puntos.length === 0) return;
+    const validos = puntos.filter((p) => esCoordenadaValida(p.lat, p.lon));
+    if (validos.length === 0) return;
     yaAjustado.current = true;
-    const bounds = L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number]));
+    const bounds = L.latLngBounds(validos.map((p) => [p.lat, p.lon] as [number, number]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     // Si uno o dos puntos tienen coordenadas muy alejadas del resto (un
     // error de digitación, o algo geocodificado mal), fitBounds igual
@@ -416,6 +423,47 @@ function LeyendaGradiente({ titulo, colores }: { titulo: string; colores: string
         <span className="h-2.5 w-16 rounded-full" style={{ background: `linear-gradient(to right, ${colores.join(', ')})` }} />
         <span className="text-[10px] text-slate-400">Alta</span>
       </div>
+    </div>
+  );
+}
+
+// Leyenda de una superficie Kernel: las 5 bandas fijas de la escala
+// (las dos primeras se leen como "Baja"), la unidad real y el radio.
+function LeyendaDensidadKernel({ titulo, colores, resultado, eventos, consultando, onConsultar }: {
+  titulo: string;
+  colores: (string | null)[];
+  resultado: ResultadoKernel | null;
+  eventos: number;
+  consultando: boolean;
+  onConsultar: () => void;
+}) {
+  const md = resultado?.metadatos;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+      <div className="flex items-center gap-2">
+        <p className="text-[10.5px] font-extrabold uppercase tracking-wide text-slate-700">{titulo}</p>
+        <button
+          type="button"
+          onClick={onConsultar}
+          title="Haz clic en cualquier punto del mapa para ver los eventos y la densidad en un radio de 200 m"
+          className={clsx('rounded px-1.5 py-0.5 text-[10px] font-semibold', consultando ? 'bg-[#0f5f57] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
+        >
+          {consultando ? '✓ Consultando (clic en el mapa)' : '🔎 Consultar zona'}
+        </button>
+      </div>
+      <div className="mt-1 grid w-56 grid-cols-5 gap-px overflow-hidden rounded">
+        {colores.map((c, i) => <span key={i} className="h-2.5" style={{ background: c ?? 'transparent', outline: c ? undefined : '1px dashed #cbd5e1' }} />)}
+      </div>
+      <div className="grid w-56 grid-cols-5 text-[10px] text-slate-500">
+        <span className="col-span-2 text-center">Baja</span>
+        <span className="text-center">Media</span>
+        <span className="text-center">Alta</span>
+        <span className="text-center font-semibold text-red-700">Crítica</span>
+      </div>
+      <p className="mt-0.5 text-[9.5px] leading-tight text-slate-400">
+        {eventos.toLocaleString('es-CO')} eventos · eventos/m² · radio {md?.radioMetros ?? 200} m geodésico · celda {md ? `${md.tamanoCeldaMetros.x.toFixed(1)} m` : '10 m'}
+        {md && md.puntosDescartados > 0 ? ` · ${md.puntosDescartados} sin coordenada válida` : ''}
+      </p>
     </div>
   );
 }
@@ -682,6 +730,12 @@ export function MapaGeorreferenciacion() {
   // sí mantienen ese segundo interruptor (ver modal "Seleccionar fuentes"),
   // porque son fuentes externas que conviene poder desactivar aparte.
   const [fuentesActivas, setFuentesActivas] = useState({ irisp1: true, delitos: true, operatividad: true, macri: true });
+  // Operatividad: filtro propio por categoría (Capturas, Incautaciones…),
+  // máximo de la superficie Kernel ya calculada (para la leyenda y la
+  // consulta) y el modo "consultar zona con clic".
+  const [filtroCategoriaOperatividad, setFiltroCategoriaOperatividad] = useState<string[]>([]);
+  const [kernelOperatividad, setKernelOperatividad] = useState<ResultadoKernel | null>(null);
+  const [consultarOperatividad, setConsultarOperatividad] = useState(false);
 
   // Colores por CAI — configurables a mano, se guardan en localStorage para
   // que se mantengan mientras se use el dashboard (no se pierden al
@@ -1124,6 +1178,7 @@ export function MapaGeorreferenciacion() {
       // subir el archivo.
       const DELITOS_EXCLUIDOS_MAPA = new Set(DELITOS_EXCLUIDOS_CANONICOS.map((d) => d.toUpperCase()));
       const caiPermitidosNorm = new Set(filters.cai.map((c) => normalizar(formatoCaiCanonico(c))));
+      const cuadrantesPermitidosNorm = new Set(filters.cuadrante.map((c) => normalizar(c)));
 
       const puntosFiltrados = capa.puntos.filter((p) => {
         if (esExacto && DELITOS_EXCLUIDOS_MAPA.has((p.delitoCorto ?? '').toUpperCase())) return false;
@@ -1136,6 +1191,14 @@ export function MapaGeorreferenciacion() {
         if (esExacto && filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
         if (esExacto && filters.cuadrante.length > 0 && 'ZONA' in p.fila && !filters.cuadrante.includes(String(p.fila.ZONA ?? ''))) return false;
         if (esExacto && filters.barrioHecho.length > 0 && 'BARRIO' in p.fila && !filters.barrioHecho.includes(String(p.fila.BARRIO ?? ''))) return false;
+        // Operatividad: CAI (inferido por su cuadrante), Zona de Atención
+        // (su cuadrante) y su categoría. La matriz de Operatividad no trae
+        // barrio, así que el filtro de Barrio no puede aplicarse a ella.
+        if (capa.tipo === 'operatividad') {
+          if (filtroCategoriaOperatividad.length > 0 && !filtroCategoriaOperatividad.includes(String(p.fila.OPERATIVIDAD ?? ''))) return false;
+          if (filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
+          if (filters.cuadrante.length > 0 && 'CUADRANTE' in p.fila && !cuadrantesPermitidosNorm.has(normalizar(String(p.fila.CUADRANTE ?? '')))) return false;
+        }
         if (!esExacto && equivalentesDifuso && capa.filtroDelitoPropio.length === 0 && !equivalentesDifuso.has(String(p.fila[capa.colDelito!] ?? ''))) return false;
         if (!esExacto && equivalentesEstacionDifuso && !equivalentesEstacionDifuso.has(String(p.fila[capa.colDependencia!] ?? ''))) return false;
         if (capa.colEstado && capa.filtroEstado.length > 0 && !capa.filtroEstado.includes(String(p.fila[capa.colEstado] ?? ''))) return false;
@@ -1208,7 +1271,7 @@ export function MapaGeorreferenciacion() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
+  }, [capasPuntos, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -1339,6 +1402,9 @@ export function MapaGeorreferenciacion() {
   // estación, CAI, zona, fechas) — si se elige "H. Personas", las flechas
   // apuntan a los barrios con más hurtos a personas.
   const [cantidadFlechasBarrio, setCantidadFlechasBarrio] = useState<0 | 3 | 5>(3);
+  // Barrios que el usuario agrega a mano: se SUMAN a los del Top 3/Top 5
+  // (que siguen visibles), nunca los reemplazan.
+  const [barriosManuales, setBarriosManuales] = useState<string[]>([]);
   // Polígonos de barrio (si hay una capa de barrios cargada en el mapa),
   // por nombre normalizado — solo para ubicar mejor la flecha.
   const poligonosBarrio = useMemo(() => {
@@ -1360,11 +1426,23 @@ export function MapaGeorreferenciacion() {
     [filteredRecords, pantallaCompleta, seleccionDelitos],
   );
   const flechasBarrios = useMemo(() => {
-    if (cantidadFlechasBarrio === 0) return [];
-    return calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: zonaActiva?.feature });
+    if (cantidadFlechasBarrio === 0 && barriosManuales.length === 0) return [];
+    return calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: zonaActiva?.feature, adicionales: barriosManuales });
     // zonaActiva se recalcula en cada render — se compara por su nombre.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registrosParaFlechas, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre, zonaActiva?.capaId]);
+  }, [registrosParaFlechas, cantidadFlechasBarrio, barriosManuales, poligonosBarrio, zonaActiva?.nombre, zonaActiva?.capaId]);
+  // Opciones para agregar a mano: los barrios reales de los datos (sin
+  // "Pendiente por asignar" y similares), ordenados por casos con los
+  // filtros actuales y luego alfabéticamente.
+  const opcionesBarriosManuales = useMemo(() => {
+    const casos = new Map<string, number>();
+    for (const r of registrosParaFlechas) {
+      if (esBarrioReal(r.barrioHecho)) casos.set(r.barrioHecho, (casos.get(r.barrioHecho) ?? 0) + (r.cantidad || 1));
+    }
+    const todos = new Set<string>([...opcionesFiltroMapa.barrioHecho.filter(esBarrioReal), ...casos.keys()]);
+    return Array.from(todos).sort((a, b) => (casos.get(b) ?? 0) - (casos.get(a) ?? 0) || a.localeCompare(b, 'es'));
+  }, [registrosParaFlechas, opcionesFiltroMapa.barrioHecho]);
+  const barriosManualesSinUbicar = barriosManuales.filter((b) => !flechasBarrios.some((f) => normalizarNombre(f.barrio) === normalizarNombre(b)));
   // Dónde dejó el usuario cada rótulo (arrastrándolo), por barrio. Se
   // conserva al cambiar de filtro: si el barrio vuelve a salir, su rótulo
   // aparece donde se había dejado.
@@ -1375,7 +1453,7 @@ export function MapaGeorreferenciacion() {
   const conRotulosDePantalla = (lista: typeof flechasBarrios) =>
     mapaRef.current ? posicionesEfectivasRotulo(lista, mapaRef.current, posicionesRotulo) : lista;
   const flechasDentroDe = (feature: any) =>
-    cantidadFlechasBarrio === 0 ? [] : conRotulosDePantalla(calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: feature }));
+    cantidadFlechasBarrio === 0 && barriosManuales.length === 0 ? [] : conRotulosDePantalla(calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: feature, adicionales: barriosManuales }));
 
   const puntosIrisp1ParaMostrar = useMemo(() => {
     if (pantallaCompleta) {
@@ -1795,7 +1873,12 @@ export function MapaGeorreferenciacion() {
     () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'macri' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
     [capasPuntosProcesadas],
   );
-  const PALETA_CALOR_OPERATIVIDAD = ['#fde68a', '#fbbf24', '#f59e0b', '#d97706', '#92400e'];
+  // Operatividad usa EXACTAMENTE la misma escala de Delitos (verde →
+  // amarillo → naranja → rojo, con los mismos colores activos/apagados).
+  const categoriasOperatividad = useMemo(
+    () => Array.from(new Set(capasPuntos.filter((c) => c.tipo === 'operatividad').flatMap((c) => c.puntos.map((p) => String(p.fila.OPERATIVIDAD ?? '').trim())).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')),
+    [capasPuntos],
+  );
   const PALETA_CALOR_MACRI = ['#ddd6fe', '#a78bfa', '#8b5cf6', '#7c3aed', '#5b21b6'];
 
   // Grilla de correspondencia espacial: se activa con "Comparar" (modo
@@ -1849,6 +1932,14 @@ export function MapaGeorreferenciacion() {
                 onChange={(valores) => setFiltrosMapa((prev) => ({ ...prev, [clave]: valores }))}
               />
             ))}
+            {categoriasOperatividad.length > 0 && (
+              <MultiSelectMapa
+                etiqueta="Categoría de operatividad"
+                opciones={categoriasOperatividad}
+                seleccion={filtroCategoriaOperatividad}
+                onChange={setFiltroCategoriaOperatividad}
+              />
+            )}
           </div>
 
           {/* Rango de fecha — filtra el mapa de calor / puntos por una
@@ -1980,14 +2071,49 @@ export function MapaGeorreferenciacion() {
                 </button>
               ))}
             </div>
-            {cantidadFlechasBarrio > 0 && flechasBarrios.length > 0 && (
+            {/* Agregar barrios a mano: se suman a los del Top (no los reemplazan). */}
+            <div className="mt-2">
+              <MultiSelectMapa
+                etiqueta="Agregar barrios (se suman al Top)"
+                textoVacio="Ninguno — elegir barrios"
+                textoQuitar="Quitar todos los agregados"
+                textoPie="Ninguno agregado"
+                opciones={opcionesBarriosManuales}
+                seleccion={barriosManuales}
+                onChange={setBarriosManuales}
+              />
+            </div>
+            {flechasBarrios.length > 0 && (
               <ol className="mt-2 space-y-0.5 text-[11px] text-slate-200">
                 {flechasBarrios.map((f) => (
-                  <li key={f.barrio} className="flex justify-between gap-2"><span className="truncate">{f.rango}. {f.barrio}</span><b>{f.casos.toLocaleString('es-CO')}</b></li>
+                  <li key={f.barrio} className="flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {f.rango}. {f.barrio}
+                      {f.manual && <span className="ml-1 rounded bg-sky-400/20 px-1 text-[9.5px] font-semibold text-sky-200">agregado</span>}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <b>{f.casos.toLocaleString('es-CO')}</b>
+                      {f.manual && (
+                        <button
+                          type="button"
+                          title={`Quitar ${f.barrio}`}
+                          onClick={() => setBarriosManuales((prev) => prev.filter((b) => normalizarNombre(b) !== normalizarNombre(f.barrio)))}
+                          className="rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-red-300"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </span>
+                  </li>
                 ))}
               </ol>
             )}
-            {cantidadFlechasBarrio > 0 && flechasBarrios.length > 0 && (
+            {barriosManualesSinUbicar.length > 0 && (
+              <p className="mt-1.5 text-[10.5px] leading-snug text-amber-300">
+                Sin ubicación en el mapa (no tienen casos con coordenadas con estos filtros ni polígono de barrio cargado): {barriosManualesSinUbicar.join(', ')}.
+              </p>
+            )}
+            {flechasBarrios.length > 0 && (
               <p className="mt-2 text-[10.5px] leading-snug text-slate-400">
                 Arrastra cualquier rótulo en el mapa para reubicarlo; la flecha lo sigue y la descarga sale igual.
               </p>
@@ -1997,7 +2123,7 @@ export function MapaGeorreferenciacion() {
                 ↺ Reacomodar automáticamente
               </button>
             )}
-            {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && (
+            {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && barriosManuales.length === 0 && (
               <p className="mt-2 text-[11px] text-slate-400">Sin barrios con casos ubicables para estos filtros.</p>
             )}
           </div>
@@ -2005,7 +2131,7 @@ export function MapaGeorreferenciacion() {
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              onClick={() => setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [], fechaInicial: '', fechaFinal: '' })}
+              onClick={() => { setFiltrosMapa({ delito: [], estacion: [], cai: [], cuadrante: [], barrioHecho: [], fechaInicial: '', fechaFinal: '' }); setFiltroCategoriaOperatividad([]); }}
               className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10"
             >
               🔄 Limpiar
@@ -2155,7 +2281,16 @@ export function MapaGeorreferenciacion() {
           <div className="mb-3 flex flex-wrap items-center gap-5 text-xs text-slate-600">
             {mostrarCalorDelitos && <LeyendaGradiente titulo="Delitos" colores={paletaCalorDelitos.filter((c): c is string => c !== null)} />}
             {mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
-            {mostrarCalorOperatividad && <LeyendaGradiente titulo="Operatividad" colores={PALETA_CALOR_OPERATIVIDAD} />}
+            {mostrarCalorOperatividad && (
+              <LeyendaDensidadKernel
+                titulo="Densidad de operatividad"
+                colores={paletaCalorDelitos}
+                resultado={kernelOperatividad}
+                eventos={puntosOperatividadParaMostrar.length}
+                consultando={consultarOperatividad}
+                onConsultar={() => setConsultarOperatividad((v) => !v)}
+              />
+            )}
             {mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
             {modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1 && (
               <span className="flex items-center gap-1.5">
@@ -2486,7 +2621,19 @@ export function MapaGeorreferenciacion() {
                 participación en "Comparar" — eso sigue siendo
                 específicamente IRISP1 vs Delitos. */}
             {mostrarCalorOperatividad && modoVisualizacion === 'calor' && (
-              <KernelHeatmapLayer puntos={puntosOperatividadParaMostrar} colores={PALETA_CALOR_OPERATIVIDAD} opacidad={opacidades.calor / 100} />
+              <KernelHeatmapLayer
+                puntos={puntosOperatividadParaMostrar}
+                colores={paletaCalorDelitos}
+                opacidad={opacidades.calor / 100}
+                onResultado={setKernelOperatividad}
+              />
+            )}
+            {mostrarCalorOperatividad && modoVisualizacion === 'calor' && consultarOperatividad && (
+              <ConsultaDensidadKernel
+                puntos={puntosOperatividadParaMostrar}
+                densidadMaxima={kernelOperatividad?.metadatos.densidadMaxima ?? null}
+                titulo="Operatividad — consulta de zona"
+              />
             )}
             {mostrarCalorMacri && modoVisualizacion === 'calor' && (
               <KernelHeatmapLayer puntos={puntosMacriParaMostrar} colores={PALETA_CALOR_MACRI} opacidad={opacidades.calor / 100} />
