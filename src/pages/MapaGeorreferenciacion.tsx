@@ -17,7 +17,7 @@ import type { ResultadoKernel } from '../utils/kernelDensity';
 import { esCoordenadaValida } from '../utils/geodesia';
 import { MultiSelectMapa } from '../components/mapa/MultiSelectMapa';
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
-import { calcularTopBarrios, esBarrioReal, normalizarNombre } from '../utils/barriosAfectados';
+import { calcularTopBarrios, normalizarNombre } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
 import { maxDe } from '../utils/mathSeguro';
@@ -584,7 +584,7 @@ export function MapaGeorreferenciacion() {
   // ahora viven en utils/fechaPunto.ts — compartidas con Microgerencia,
   // ver import arriba.)
 
-  const filteredRecords = useMemo(() => {
+  const [filteredRecords, registrosSinFiltroBarrio] = useMemo(() => {
     // El CAI se compara normalizado (mismo criterio de formatoCaiCanonico +
     // normalizar) porque la opción elegida es el nombre CANÓNICO, mientras
     // que el registro puede traer una variante con espacios/mayúsculas
@@ -601,12 +601,15 @@ export function MapaGeorreferenciacion() {
       inicio: (() => { const [a, m, d] = p.fechaInicial.split('-').map(Number); const [h, mi] = (p.horaInicial || '00:00').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
       fin: (() => { const [a, m, d] = p.fechaFinal.split('-').map(Number); const [h, mi] = (p.horaFinal || '23:59').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
     }));
-    return records.filter((r) =>
+    // Mismo filtro con o sin la condición de Barrio: la versión SIN barrio
+    // alimenta el Top 3 / Top 5 de flechas, para que elegir barrios en el
+    // filtro los AGREGUE a las flechas sin esconder los del Top.
+    const filtrar = (ignorarBarrio: boolean) => records.filter((r) =>
       (filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
       (filtrosMapa.estacion.length === 0 || filtrosMapa.estacion.includes(r.estacion)) &&
       (caiSeleccionadosNorm.length === 0 || caiSeleccionadosNorm.includes(normalizar(formatoCaiCanonico(r.cai)))) &&
       (filtrosMapa.cuadrante.length === 0 || filtrosMapa.cuadrante.includes(r.cuadrante)) &&
-      (filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
+      (ignorarBarrio || filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
       (!filtrosMapa.fechaInicial || (r.fecha && r.fecha >= new Date(filtrosMapa.fechaInicial))) &&
       (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))) &&
       (!fechaInicialGlobal || (r.fecha && r.fecha >= new Date(fechaInicialGlobal))) &&
@@ -619,6 +622,8 @@ export function MapaGeorreferenciacion() {
         return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
       })()),
     );
+    const conBarrio = filtrar(false);
+    return [conBarrio, filtrosMapa.barrioHecho.length > 0 ? filtrar(true) : conBarrio] as const;
   }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
@@ -1402,9 +1407,6 @@ export function MapaGeorreferenciacion() {
   // estación, CAI, zona, fechas) — si se elige "H. Personas", las flechas
   // apuntan a los barrios con más hurtos a personas.
   const [cantidadFlechasBarrio, setCantidadFlechasBarrio] = useState<0 | 3 | 5>(3);
-  // Barrios que el usuario agrega a mano: se SUMAN a los del Top 3/Top 5
-  // (que siguen visibles), nunca los reemplazan.
-  const [barriosManuales, setBarriosManuales] = useState<string[]>([]);
   // Polígonos de barrio (si hay una capa de barrios cargada en el mapa),
   // por nombre normalizado — solo para ubicar mejor la flecha.
   const poligonosBarrio = useMemo(() => {
@@ -1422,26 +1424,18 @@ export function MapaGeorreferenciacion() {
     return m;
   }, [capas, camposUnionAutoDetectados]);
   const registrosParaFlechas = useMemo(
-    () => (pantallaCompleta && seleccionDelitos ? filteredRecords.filter((r) => r.delito === seleccionDelitos) : filteredRecords),
-    [filteredRecords, pantallaCompleta, seleccionDelitos],
+    () => (pantallaCompleta && seleccionDelitos ? registrosSinFiltroBarrio.filter((r) => r.delito === seleccionDelitos) : registrosSinFiltroBarrio),
+    [registrosSinFiltroBarrio, pantallaCompleta, seleccionDelitos],
   );
+  // Barrios agregados a las flechas = los elegidos en el filtro "Barrio" de
+  // "Filtros de visualización" (no hay una segunda lista aparte).
+  const barriosManuales = filtrosMapa.barrioHecho;
   const flechasBarrios = useMemo(() => {
     if (cantidadFlechasBarrio === 0 && barriosManuales.length === 0) return [];
     return calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: zonaActiva?.feature, adicionales: barriosManuales });
     // zonaActiva se recalcula en cada render — se compara por su nombre.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registrosParaFlechas, cantidadFlechasBarrio, barriosManuales, poligonosBarrio, zonaActiva?.nombre, zonaActiva?.capaId]);
-  // Opciones para agregar a mano: los barrios reales de los datos (sin
-  // "Pendiente por asignar" y similares), ordenados por casos con los
-  // filtros actuales y luego alfabéticamente.
-  const opcionesBarriosManuales = useMemo(() => {
-    const casos = new Map<string, number>();
-    for (const r of registrosParaFlechas) {
-      if (esBarrioReal(r.barrioHecho)) casos.set(r.barrioHecho, (casos.get(r.barrioHecho) ?? 0) + (r.cantidad || 1));
-    }
-    const todos = new Set<string>([...opcionesFiltroMapa.barrioHecho.filter(esBarrioReal), ...casos.keys()]);
-    return Array.from(todos).sort((a, b) => (casos.get(b) ?? 0) - (casos.get(a) ?? 0) || a.localeCompare(b, 'es'));
-  }, [registrosParaFlechas, opcionesFiltroMapa.barrioHecho]);
   const barriosManualesSinUbicar = barriosManuales.filter((b) => !flechasBarrios.some((f) => normalizarNombre(f.barrio) === normalizarNombre(b)));
   // Dónde dejó el usuario cada rótulo (arrastrándolo), por barrio. Se
   // conserva al cambiar de filtro: si el barrio vuelve a salir, su rótulo
@@ -2071,18 +2065,9 @@ export function MapaGeorreferenciacion() {
                 </button>
               ))}
             </div>
-            {/* Agregar barrios a mano: se suman a los del Top (no los reemplazan). */}
-            <div className="mt-2">
-              <MultiSelectMapa
-                etiqueta="Agregar barrios (se suman al Top)"
-                textoVacio="Ninguno — elegir barrios"
-                textoQuitar="Quitar todos los agregados"
-                textoPie="Ninguno agregado"
-                opciones={opcionesBarriosManuales}
-                seleccion={barriosManuales}
-                onChange={setBarriosManuales}
-              />
-            </div>
+            <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">
+              Para señalar más barrios, elígelos en el filtro <b className="text-slate-300">Barrio</b> de arriba: se suman al Top, que sigue visible.
+            </p>
             {flechasBarrios.length > 0 && (
               <ol className="mt-2 space-y-0.5 text-[11px] text-slate-200">
                 {flechasBarrios.map((f) => (
@@ -2097,7 +2082,7 @@ export function MapaGeorreferenciacion() {
                         <button
                           type="button"
                           title={`Quitar ${f.barrio}`}
-                          onClick={() => setBarriosManuales((prev) => prev.filter((b) => normalizarNombre(b) !== normalizarNombre(f.barrio)))}
+                          onClick={() => setFiltrosMapa((prev) => ({ ...prev, barrioHecho: prev.barrioHecho.filter((b) => normalizarNombre(b) !== normalizarNombre(f.barrio)) }))}
                           className="rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-red-300"
                         >
                           <X size={11} />
