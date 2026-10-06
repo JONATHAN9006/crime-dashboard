@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  LayoutDashboard, Gauge, Building2, CalendarRange, Flame,
-  Map, X, GitCompare, Table2, ShieldCheck, ChevronLeft, UserRound, Activity, Package, Eye, Target,
-  Scale, ShieldAlert, Network,
+  Home, Building2, CalendarDays, Flame, Map, X, Table2, Database, ChevronsLeft, ChevronsRight,
+  Activity, Package, Eye, Target, Scale, Shield, Network, LineChart,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
@@ -20,24 +19,47 @@ export type PaginaId =
 const PAGINAS_BLOQUEADAS: PaginaId[] = ['ultimasSemanas', 'matrizCalor', 'mapa', 'tasaCosec', 'comparativo', 'tabla', 'calidad', 'productos'];
 const MENSAJE_BLOQUEADO = 'Este componente se encuentra en análisis y construcción.';
 
-const ITEMS_PRINCIPALES: { id: PaginaId; label: string; icon: React.ElementType }[] = [
-  { id: 'resumen', label: 'Inicio / Resumen', icon: LayoutDashboard },
-  { id: 'unidad', label: 'Delictividad por Unidad', icon: Building2 },
-  { id: 'operatividadUnidad', label: 'Operatividad por Unidad', icon: Target },
-  { id: 'rnmc', label: 'RNMC', icon: Scale },
-  { id: 'irisp1', label: 'IRISP1', icon: ShieldAlert },
-  { id: 'macri', label: 'MACRI', icon: Network },
-  { id: 'ultimasSemanas', label: 'Últimas 4 Semanas', icon: CalendarRange },
-  { id: 'matrizCalor', label: 'Matriz de Calor', icon: Flame },
-  { id: 'mapa', label: 'Mapa / Georreferenciación', icon: Map },
-  { id: 'tasaCosec', label: 'Indicadores Tasa Cosec', icon: Activity },
-];
+type ItemMenu = { id: PaginaId; label: string; icon: React.ElementType };
 
-const ITEMS_ADICIONALES: { id: PaginaId; label: string; icon: React.ElementType }[] = [
-  { id: 'comparativo', label: 'Comparativo Anual', icon: GitCompare },
-  { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
-  { id: 'calidad', label: 'Calidad de Datos', icon: ShieldCheck },
-  { id: 'productos', label: 'Productos Esperados', icon: Package },
+// Mismos módulos de siempre, agrupados por sección (solo cambia la
+// presentación del menú, no qué módulos existen ni sus permisos).
+const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean }[] = [
+  {
+    titulo: 'Análisis principal',
+    items: [
+      { id: 'resumen', label: 'Inicio / Resumen', icon: Home },
+      { id: 'unidad', label: 'Delictividad por Unidad', icon: Building2 },
+      { id: 'operatividadUnidad', label: 'Operatividad por Unidad', icon: Target },
+    ],
+  },
+  {
+    titulo: 'Análisis especializado',
+    items: [
+      { id: 'rnmc', label: 'RNMC', icon: Scale },
+      { id: 'irisp1', label: 'IRISP1', icon: Shield },
+      { id: 'macri', label: 'MACRI', icon: Network },
+    ],
+  },
+  {
+    titulo: 'Seguimiento',
+    items: [
+      { id: 'ultimasSemanas', label: 'Últimas 4 Semanas', icon: CalendarDays },
+      { id: 'matrizCalor', label: 'Matriz de Calor', icon: Flame },
+      { id: 'mapa', label: 'Mapa / Georreferenciación', icon: Map },
+      { id: 'tasaCosec', label: 'Indicadores Tasa Cosec', icon: Activity },
+    ],
+  },
+  {
+    // En modo consulta (solo lectura) esta sección no se muestra, igual que antes.
+    titulo: 'Análisis adicionales',
+    soloCompleto: true,
+    items: [
+      { id: 'comparativo', label: 'Comparativo Anual', icon: LineChart },
+      { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
+      { id: 'calidad', label: 'Calidad de Datos', icon: Database },
+      { id: 'productos', label: 'Productos Esperados', icon: Package },
+    ],
+  },
 ];
 
 // Tres tamaños de pantalla, con los mismos cortes de Tailwind:
@@ -87,7 +109,7 @@ function TooltipLateral({ texto, posicion = 'lateral' }: { texto: string; posici
 }
 
 function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSalir }: {
-  item: { id: PaginaId; label: string; icon: React.ElementType };
+  item: ItemMenu;
   activo: PaginaId;
   onCambiar: (id: PaginaId) => void;
   onCerrar: () => void;
@@ -120,17 +142,19 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
       aria-label={item.label}
       aria-disabled={bloqueado}
       className={clsx(
-        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-        colapsado && 'justify-center px-2',
+        'relative flex w-full items-center rounded-lg text-left text-[14px] font-semibold tracking-[-0.01em] transition-colors',
+        colapsado ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5',
         bloqueado
-          ? 'cursor-not-allowed text-white/35 font-bold'
+          ? 'cursor-not-allowed text-white/35'
           : activeItem
-            ? 'bg-brand-green-dark text-white font-bold shadow-inner'
-            : 'text-white font-bold hover:bg-white/10',
+            ? 'bg-[#1d6f68] text-white shadow-sm'
+            : 'text-white/90 hover:bg-white/[0.07] hover:text-white',
       )}
     >
-      <Icon size={16} className="shrink-0" />
-      {!colapsado && item.label}
+      {/* Elemento activo: barra lateral de color a la izquierda. */}
+      {activeItem && !bloqueado && <span className="absolute inset-y-1 left-0 w-1 rounded-r-full bg-[#5eead4]" />}
+      <Icon size={colapsado ? 21 : 19} strokeWidth={1.9} className="shrink-0" />
+      {!colapsado && <span className="leading-tight">{item.label}</span>}
     </button>
   );
 }
@@ -165,122 +189,117 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
           se reacomoda en el espacio que queda). */}
       <aside
         className={clsx(
-          'fixed inset-y-0 left-0 z-40 shrink-0 transform bg-brand-green-darkest transition-[width,transform] duration-300 ease-in-out md:relative md:translate-x-0',
-          colapsado ? 'w-16' : 'w-64',
+          'fixed inset-y-0 left-0 z-40 flex shrink-0 transform flex-col bg-[#0a3d39] transition-[width,transform] duration-300 ease-in-out md:relative md:translate-x-0',
+          colapsado ? 'w-[68px]' : 'w-[260px]',
           abierto ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* Botón para angostar/expandir el sidebar (flecha animada) */}
-        <button
-          onClick={() => setColapsadoManual((v) => !v)}
-          title={colapsado ? 'Expandir menú' : 'Contraer menú'}
-          className="absolute -right-3 top-8 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition-colors hover:text-brand-green lg:flex"
-        >
-          <ChevronLeft size={14} className={clsx('transition-transform duration-300 ease-in-out', colapsado && 'rotate-180')} />
-        </button>
-
-        <div className={clsx('flex items-center py-5', colapsado ? 'justify-center px-2' : 'justify-between px-5')}>
-          <div className="group relative flex items-center gap-2.5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/95 p-1">
+        {/* ── Encabezado institucional: escudo, nombre del sistema, dependencia y botón contraer ── */}
+        <div className={clsx('flex shrink-0 items-center border-b border-white/10', colapsado ? 'justify-center px-2 py-4' : 'gap-3 px-4 py-4')}>
+          <div className="group relative shrink-0">
+            <div className={clsx('flex items-center justify-center rounded-full bg-white p-1 shadow-sm', colapsado ? 'h-11 w-11' : 'h-12 w-12')}>
               <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" />
             </div>
-            {!colapsado && (
-              <div>
-                <p className="text-sm font-bold leading-tight text-white">Análisis Delictivo</p>
-                <p className="text-[11px] text-emerald-100/70">MEPOY · Popayán</p>
-              </div>
-            )}
             {colapsado && <TooltipLateral texto="Análisis Delictivo — MEPOY · Popayán" />}
           </div>
           {!colapsado && (
-            <button className="text-emerald-100/70 hover:text-white md:hidden" onClick={onCerrar}>
-              <X size={20} />
-            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15.5px] font-bold leading-tight text-white">Análisis Delictivo</p>
+              <p className="truncate text-[12.5px] text-emerald-100/80">MEPOY - Popayán</p>
+            </div>
+          )}
+          {!colapsado && (
+            <>
+              <button
+                onClick={() => setColapsadoManual(true)}
+                title="Contraer menú"
+                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1d6f68] text-white transition-colors hover:bg-[#25857c] lg:flex"
+              >
+                <ChevronsLeft size={18} />
+              </button>
+              <button className="text-emerald-100/70 hover:text-white md:hidden" onClick={onCerrar}>
+                <X size={20} />
+              </button>
+            </>
           )}
         </div>
 
-        <nav className={clsx('mt-1 flex flex-col gap-0.5 overflow-y-auto pb-16', colapsado ? 'px-2' : 'px-3')} style={{ maxHeight: 'calc(100vh - 130px)' }}>
-          {ITEMS_PRINCIPALES.map((item) => (
-            <ItemBoton
-              key={item.id}
-              item={item}
-              activo={activo}
-              onCambiar={onCambiar}
-              onCerrar={onCerrar}
-              colapsado={colapsado}
-              onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
-              onSalir={() => setTooltipItem(null)}
-            />
-          ))}
+        {/* Botón para volver a expandir (solo con el menú contraído en pantalla amplia). */}
+        {colapsado && tamano === 'amplio' && (
+          <button
+            onClick={() => setColapsadoManual(false)}
+            title="Expandir menú"
+            className="absolute -right-5 top-[22px] z-10 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[#0a3d39] shadow-md transition-colors hover:text-brand-green"
+          >
+            <ChevronsRight size={17} />
+          </button>
+        )}
 
-          {!esModoConsulta() && (
-            <>
-              <div className="my-2 border-t border-white/15" />
-              {!colapsado && <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/50">Análisis adicionales</p>}
-              {ITEMS_ADICIONALES.map((item) => (
-                <ItemBoton
-                  key={item.id}
-                  item={item}
-                  activo={activo}
-                  onCambiar={onCambiar}
-                  onCerrar={onCerrar}
-                  colapsado={colapsado}
-                  onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
-                  onSalir={() => setTooltipItem(null)}
-                />
-              ))}
-            </>
-          )}
-          {!colapsado && (
-            <div className="mt-8 flex justify-center">
-              <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className="h-16 w-16 opacity-90" />
+        {/* ── Secciones del menú ── */}
+        <nav className={clsx('flex-1 overflow-y-auto py-3', colapsado ? 'px-2' : 'px-3')}>
+          {GRUPOS.filter((g) => !g.soloCompleto || !esModoConsulta()).map((grupo, gi) => (
+            <div key={grupo.titulo} className={clsx(gi > 0 && (colapsado ? 'mt-2.5 border-t border-white/10 pt-2.5' : 'mt-3 border-t border-white/10 pt-3'))}>
+              {!colapsado && (
+                <p className="mb-1.5 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-100/55">
+                  {grupo.titulo}
+                  <span className="h-px w-6 bg-emerald-100/30" />
+                </p>
+              )}
+              <div className="flex flex-col gap-0.5">
+                {grupo.items.map((item) => (
+                  <ItemBoton
+                    key={item.id}
+                    item={item}
+                    activo={activo}
+                    onCambiar={onCambiar}
+                    onCerrar={onCerrar}
+                    colapsado={colapsado}
+                    onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
+                    onSalir={() => setTooltipItem(null)}
+                  />
+                ))}
+              </div>
             </div>
-          )}
+          ))}
         </nav>
 
-        {/* Tooltip flotante de los ítems: se renderiza FUERA del <nav> con
-            scroll, posicionado según las coordenadas del ítem con el cursor
-            encima, para que nunca quede recortado. Colapsado: aparece para
-            cualquier ítem (reemplaza la etiqueta oculta). Expandido: solo
-            para ítems bloqueados, explicando por qué no se puede entrar. */}
+        {/* Tooltip flotante de los ítems (fuera del <nav> con scroll para que nunca se recorte). */}
         {tooltipItem && (colapsado || tooltipItem.esBloqueo) && (
           <span
             className={clsx(
-              'pointer-events-none absolute z-50 max-w-[220px] -translate-y-1/2 whitespace-normal rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
-              colapsado ? 'left-[68px]' : 'left-[264px]',
+              'pointer-events-none absolute z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#10233f] px-3 py-2 text-[13px] font-semibold text-white shadow-lg',
+              colapsado ? 'left-[76px]' : 'left-[268px]',
             )}
             style={{ top: tooltipItem.top }}
           >
             {tooltipItem.texto}
-            <span className="absolute left-0 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-slate-900" />
+            <span className="absolute left-0 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-[#10233f]" />
           </span>
         )}
 
-        {/* Pie del sidebar: se contrae a un solo ícono con tooltip cuando el
-            menú está angosto, en vez de simplemente perder el texto. */}
-        <div className={clsx('absolute inset-x-0 bottom-0 border-t border-white/15 py-3', colapsado ? 'flex justify-center px-2' : 'px-5')}>
-          {colapsado ? (
-            <div className="group relative flex flex-col items-center gap-1">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-emerald-50">
-                <UserRound size={14} />
-              </div>
-              <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.08.29-t" posicion="arriba" />
+        {/* ── Pie institucional ── */}
+        <div className={clsx('shrink-0 border-t border-white/10', colapsado ? 'flex justify-center px-2 py-3' : 'flex items-center gap-3 px-4 py-3')}>
+          <div className="group relative shrink-0">
+            <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
+              <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-          ) : (
-            <>
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.08.29-t" posicion="arriba" />}
+          </div>
+          {!colapsado && (
+            <div className="min-w-0">
               {esModoConsulta() && (
-                <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                <p className="flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wide text-amber-300">
                   <Eye size={11} /> Modo consulta — solo lectura
                 </p>
               )}
               {obtenerModoAcceso() && (
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">
                   {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : 'Vista interna'}
                 </p>
               )}
-              <p className="text-[11px] text-emerald-100/70">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="mt-0.5 text-[10px] text-emerald-100/50">v2026.08.29-t</p>
-            </>
+              <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.08.29-t</p>
+            </div>
           )}
         </div>
       </aside>
