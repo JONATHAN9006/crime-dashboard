@@ -48,6 +48,19 @@ function normalizarUnColor(expresion: string): string {
     }
     return oklchARgb(L, parseFloat(oklch[2]), parseFloat(oklch[3]), alpha);
   }
+  // oklab(): conversión exacta (es la misma fórmula, con a/b ya dados en
+  // vez de croma/tono). Antes se volvía transparente.
+  const oklab = expresion.match(/^oklab\(\s*([\d.]+)(%?)\s+(-?[\d.]+)\s+(-?[\d.]+)(?:\s*\/\s*([\d.]+)(%?))?/i);
+  if (oklab) {
+    let L = parseFloat(oklab[1]);
+    if (oklab[2] === '%' || L > 1) L = L / 100;
+    const a = parseFloat(oklab[3]), b = parseFloat(oklab[4]);
+    let alpha = 1;
+    if (oklab[5] !== undefined) { alpha = parseFloat(oklab[5]); if (oklab[6] === '%') alpha = alpha / 100; }
+    const C = Math.sqrt(a * a + b * b);
+    const H = (Math.atan2(b, a) * 180) / Math.PI;
+    return oklchARgb(L, C, H, alpha);
+  }
   // oklab()/lab()/lch()/color-mix()/color(): funciones mucho menos usadas en
   // este proyecto (aparecen sobre todo en efectos secundarios como
   // sombras/anillos con transparencia) — en vez de una conversión exacta,
@@ -435,6 +448,14 @@ export function congelarEstilosParaCaptura(original: HTMLElement, clon: HTMLElem
     // descarga exactamente igual que en pantalla (con "...", nunca
     // invadiendo la barra de al lado); el nombre completo queda disponible
     // igual mediante el atributo title (tooltip), que si se conserva.
+    // SIN transiciones ni animaciones en la copia. Causa real del error
+    // "unsupported color function oklab" al descargar (ej. Matriz de
+    // Calor): un elemento con la clase "transition" (o transition-colors)
+    // pasa de su color original al color congelado ANIMANDO el cambio, y
+    // durante esa animación el navegador reporta el color intermedio en
+    // formato oklab() — que html2canvas no sabe leer. Con transition:none
+    // el color congelado (rgba) se aplica de inmediato.
+    textoEstilo += 'transition:none !important;animation:none !important;';
     nodoClon.setAttribute('style', textoEstilo);
     nodoClon.removeAttribute('class');
     nodoClon.removeAttribute(ATRIBUTO_ID_CAPTURA);

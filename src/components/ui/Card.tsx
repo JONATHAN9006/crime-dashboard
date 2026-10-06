@@ -43,6 +43,7 @@ export function Card({ children, className, title, subtitle, actions, descargabl
       // exactamente lo mismo que se ve en pantalla, completo.
       await exportarHtmlComoImagen(contenidoRef.current, title, descargable);
     } catch (e) {
+      console.error('[Descarga de imagen] Falló:', e);
       setErrorDescarga('No se pudo generar la imagen. Inténtalo de nuevo.');
     } finally {
       setDescargando(false);

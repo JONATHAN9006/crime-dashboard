@@ -69,7 +69,7 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
                 {esHora ? label : (
                   <span className="flex items-center justify-center gap-2">
                     <IconoFranja i={c} />
-                    <span className="text-left leading-tight">{label}<span className="block text-[11px] font-normal text-slate-500">{RANGO_FRANJA[c]}</span></span>
+                    <span className="text-left leading-tight">{label}<span className="block whitespace-nowrap text-[11px] font-normal text-slate-500">{RANGO_FRANJA[c]}</span></span>
                   </span>
                 )}
               </th>
@@ -93,8 +93,10 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
                       className={`flex w-full items-center justify-center rounded-md font-semibold transition hover:brightness-95 ${esHora ? 'h-7 text-[13px]' : 'h-9 text-[14px]'} ${celda.nivel === 'crítica' ? 'text-white' : 'text-slate-800'}`}
                       style={{
                         backgroundColor: COLOR_NIVEL[celda.nivel],
-                        // Recuadro rojo: el momento seleccionado (por defecto, la celda máxima).
-                        boxShadow: esSel ? '0 0 0 2.5px #ffffff, 0 0 0 4.5px #dc2626' : undefined,
+                        // Recuadro rojo: el momento seleccionado (por defecto, la celda
+                        // máxima). Con BORDE, no con sombra — la descarga de imagen
+                        // (html2canvas) no dibuja sombras, el borde sí.
+                        border: esSel ? '2.5px solid #dc2626' : '2.5px solid transparent',
                       }}
                     >
                       {celda.valor > 0 ? formatNumero(celda.valor) : ''}
@@ -103,7 +105,7 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
                 );
               })}
               <td
-                className={`rounded-md text-center font-bold ${data.totalesFila[d] === maxFila && maxFila > 0 ? (esHora ? 'bg-rose-100' : 'bg-sky-50 ring-2 ring-[#2aa9b8]') : 'bg-sky-50/60'}`}
+                className={`rounded-md text-center font-bold ${data.totalesFila[d] === maxFila && maxFila > 0 ? (esHora ? 'bg-rose-100' : 'border-2 border-[#2aa9b8] bg-sky-50') : 'border-2 border-transparent bg-sky-50/60'}`}
                 style={{ color: AZUL }}
               >
                 {formatNumero(data.totalesFila[d])}
@@ -115,7 +117,7 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
             {data.totalesColumna.map((t, c) => (
               <td
                 key={c}
-                className={`rounded-md py-1.5 text-center ${t === maxCol && maxCol > 0 ? (esHora ? 'font-bold text-[#1d4f8f]' : 'bg-sky-50 font-bold ring-2 ring-[#2aa9b8]') : 'bg-slate-50 font-semibold'} ${esHora ? 'text-[12.5px]' : 'text-[14px]'}`}
+                className={`rounded-md py-1.5 text-center ${t === maxCol && maxCol > 0 ? (esHora ? 'font-bold text-[#1d4f8f]' : 'border-2 border-[#2aa9b8] bg-sky-50 font-bold') : 'border-2 border-transparent bg-slate-50 font-semibold'} ${esHora ? 'text-[12.5px]' : 'text-[14px]'}`}
                 style={{ color: t === maxCol && esHora ? '#1d4f8f' : AZUL }}
               >
                 {formatNumero(t)}
@@ -133,13 +135,13 @@ function Leyenda({ titulo }: { titulo?: string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
       {titulo && <p className="mb-2 text-[13px] font-semibold" style={{ color: AZUL }}>{titulo}</p>}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-9 gap-y-2">
         {NIVELES_LEYENDA.map((n) => (
           <div key={n.nivel} className="flex items-center gap-2.5">
             <span className="h-5 w-5 shrink-0 rounded" style={{ backgroundColor: n.color }} />
             <span className="leading-tight">
-              <span className="block text-[12.5px] font-semibold" style={{ color: AZUL }}>{n.titulo}</span>
-              <span className="block text-[11.5px] text-slate-500">{n.texto}</span>
+              <span className="block whitespace-nowrap text-[12.5px] font-semibold" style={{ color: AZUL }}>{n.titulo}</span>
+              <span className="block whitespace-nowrap text-[11.5px] text-slate-500">{n.texto}</span>
             </span>
           </div>
         ))}
