@@ -70,6 +70,9 @@ function parseFechaExcel(valor: unknown): Date | null {
   return isNaN(intento.getTime()) ? null : intento;
 }
 
+/** Qué columna se usó para "Funcionario policial" en la última lectura (para avisarlo en pantalla). */
+export let ultimaColumnaFuncionario: { columna: string | null; candidatas: string[] } = { columna: null, candidatas: [] };
+
 export async function leerMatrizComparendos(file: File): Promise<RegistroComparendo[]> {
   const buffer = await file.arrayBuffer();
   const libro = XLSX.read(buffer, { type: 'array', cellDates: true });
@@ -91,6 +94,7 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
   const colFuncionario = columnas.find((c) => /^(POLICIA|FUNCIONARIO|AGENTE|UNIFORMADO)_?(QUE_)?(IMPONE|IMPUSO)$/.test(c))
     ?? columnas.find((c) => !/^ID|IDENTIFICACION|CEDULA|DOCUMENTO/.test(c) && /(POLICIA|FUNCIONARIO)/.test(c) && /(IMPON|IMPUS)/.test(c))
     ?? columnas.find((c) => c === 'POLICIA_INSERTO');
+  ultimaColumnaFuncionario = { columna: colFuncionario ?? null, candidatas: columnas.filter((c) => /POLICIA|FUNCIONARIO|AGENTE|UNIFORMADO/.test(c)) };
 
   return filas.map((fila): RegistroComparendo => {
     const articuloTexto = limpiar(fila.ARTICULO);

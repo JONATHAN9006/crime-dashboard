@@ -7,7 +7,7 @@ import {
 import { useData } from '../context/DataContext';
 import { obtenerConfig } from '../config';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
-import { leerMatrizComparendos, type RegistroComparendo } from '../data/rnmcParser';
+import { leerMatrizComparendos, ultimaColumnaFuncionario, type RegistroComparendo } from '../data/rnmcParser';
 import { guardarComparendos, cargarComparendos, descargarComparendosSupabase, subirComparendosSupabase } from '../data/rnmcStorage';
 import { sincronizarCapaRnmcDesdeComparendos } from '../data/puntosStorage';
 import { Card } from '../components/ui/Card';
@@ -306,22 +306,29 @@ export function Rnmc() {
     try {
       const leidos = await leerMatrizComparendos(file);
       if (leidos.length === 0) throw new Error('El archivo no tiene filas de datos.');
+      // Confirmación visible de dónde salió "Funcionario policial".
+      const conFuncionario = leidos.filter((r) => r.funcionario).length;
+      const { columna, candidatas } = ultimaColumnaFuncionario;
+      const resumenFuncionario = columna
+        ? `Funcionario policial: columna "${columna}" — ${conFuncionario.toLocaleString('es-CO')} de ${leidos.length.toLocaleString('es-CO')} comparendos con funcionario.`
+        : `No se encontró la columna del funcionario que impone (se buscó POLICIA_IMPONE / POLICIA_IMPUSO). Columnas parecidas en el archivo: ${candidatas.join(', ') || 'ninguna'}.`;
       await guardarComparendos(leidos);
       setRegistros(leidos);
       setFechaCarga(new Date().toISOString());
       setModoActivo('todos');
       sincronizarCapaRnmcDesdeComparendos(leidos).catch(() => {});
 
+      if (!sincronizacionDisponible) setAviso(resumenFuncionario);
       if (sincronizacionDisponible) {
         setSincronizando(true);
         try {
           const clave = pedirClaveSesion('subir los comparendos RNMC');
           if (!clave) throw new Error(MENSAJE_SIN_CLAVE);
           await subirComparendosSupabase(FUNCION_SUBIR_REGISTROS, clave, leidos, 'No identificado');
-          setAviso('Sincronizado con el servidor central — todas las personas verán esta actualización.');
+          setAviso(`Sincronizado con el servidor central — todas las personas verán esta actualización. ${resumenFuncionario}`);
         } catch (e) {
           revisarErrorDeClave(e);
-          setAviso(`Los datos quedaron guardados en este navegador, pero no se pudo sincronizar con el servidor: ${e instanceof Error ? e.message : 'error desconocido'}`);
+          setAviso(`Los datos quedaron guardados en este navegador, pero no se pudo sincronizar con el servidor: ${e instanceof Error ? e.message : 'error desconocido'}. ${resumenFuncionario} Mientras no se sincronice, al recargar la página se volverán a ver los datos viejos del servidor.`);
         } finally {
           setSincronizando(false);
         }
