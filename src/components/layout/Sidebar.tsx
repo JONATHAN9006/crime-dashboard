@@ -197,8 +197,11 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
         {/* ── Encabezado institucional: escudo, nombre del sistema, dependencia y botón contraer ── */}
         <div className={clsx('flex shrink-0 items-center border-b border-white/10', colapsado ? 'justify-center px-2 py-4' : 'gap-3 px-4 py-4')}>
           <div className="group relative shrink-0">
-            <div className={clsx('flex items-center justify-center rounded-full bg-white p-1 shadow-sm', colapsado ? 'h-11 w-11' : 'h-12 w-12')}>
-              <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" />
+            {/* Escudo recortado sobre fondo transparente y a mayor resolución
+                (escudo-sidebar.png): ocupa todo el círculo blanco, sin el
+                recuadro blanco pixelado del archivo original. */}
+            <div className={clsx('flex items-center justify-center rounded-full bg-white p-[2px] shadow-[0_2px_6px_rgba(0,0,0,0.25)] ring-2 ring-white/20', colapsado ? 'h-10 w-10' : 'h-[50px] w-[50px]')}>
+              <img src="/assets/escudo-sidebar.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" draggable={false} />
             </div>
             {colapsado && <TooltipLateral texto="Análisis Delictivo — MEPOY · Popayán" />}
           </div>
@@ -209,29 +212,24 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             </div>
           )}
           {!colapsado && (
-            <>
-              <button
-                onClick={() => setColapsadoManual(true)}
-                title="Contraer menú"
-                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1d6f68] text-white transition-colors hover:bg-[#25857c] lg:flex"
-              >
-                <ChevronsLeft size={18} />
-              </button>
-              <button className="text-emerald-100/70 hover:text-white md:hidden" onClick={onCerrar}>
-                <X size={20} />
-              </button>
-            </>
+            <button aria-label="Cerrar menú" className="text-emerald-100/70 hover:text-white md:hidden" onClick={onCerrar}>
+              <X size={20} />
+            </button>
           )}
         </div>
 
-        {/* Botón para volver a expandir (solo con el menú contraído en pantalla amplia). */}
-        {colapsado && tamano === 'amplio' && (
+        {/* Botón contraer / expandir: montado SOBRE la línea del borde derecho
+            del menú (mitad adentro, mitad afuera), a la altura del escudo —
+            el mismo botón y en el mismo lugar con el menú abierto o contraído. */}
+        {tamano === 'amplio' && (
           <button
-            onClick={() => setColapsadoManual(false)}
-            title="Expandir menú"
-            className="absolute -right-5 top-[22px] z-10 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[#0a3d39] shadow-md transition-colors hover:text-brand-green"
+            type="button"
+            onClick={() => setColapsadoManual((v) => !v)}
+            title={colapsado ? 'Expandir menú' : 'Contraer menú'}
+            aria-label={colapsado ? 'Expandir menú' : 'Contraer menú'}
+            className="absolute -right-[15px] top-[27px] z-50 flex h-[30px] w-[30px] items-center justify-center rounded-full border-2 border-[#0a3d39] bg-white text-[#0a3d39] shadow-[0_2px_6px_rgba(0,0,0,0.2)] transition-colors hover:bg-[#e3f2ef] hover:text-[#116762]"
           >
-            <ChevronsRight size={17} />
+            {colapsado ? <ChevronsRight size={16} strokeWidth={2.4} /> : <ChevronsLeft size={16} strokeWidth={2.4} />}
           </button>
         )}
 

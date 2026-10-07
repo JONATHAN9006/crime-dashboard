@@ -3,7 +3,7 @@ import { MAPA_CUADRANTE } from './db2Mapeos';
 
 // Lector de la "MATRIZ_COMPARENDOS" — confirmado contra el archivo real del
 // usuario (Hoja1, 6.619 filas, columnas como ARTICULO/COMPORTAMIENTO/
-// CUADRANTE_HECHOS/LOCALIDAD/POLICIA_IMPUSO). Esta va a ser SIEMPRE la
+// CUADRANTE_HECHOS/LOCALIDAD/POLICIA_IMPONE). Esta va a ser SIEMPRE la
 // misma matriz (así lo indicó explícitamente), así que se lee por nombre
 // de columna exacto, sin heurísticas de detección como las de Delictividad.
 
@@ -21,7 +21,7 @@ export interface RegistroComparendo {
   cuadrantePatrulla: string; // código crudo (CUADRANTE_CARGO_POL)
   zonaAtencionPatrulla: string; // traducido — la "patrulla" que atendió
   unidadPolicial: string; // UNIDAD_LABORA_POL, ej. "MEPOY - CAI COMUNA CUATRO"
-  funcionario: string; // POLICIA_IMPUSO
+  funcionario: string; // POLICIA_IMPONE (antes POLICIA_IMPUSO) — grado + nombre, ej. "SI GARCIA CHICANGANA WILSON"
   barrio: string;
   lat: number | null;
   lon: number | null;
@@ -98,7 +98,10 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
       cuadrantePatrulla,
       zonaAtencionPatrulla: cuadrantePatrulla ? traducirZona(cuadrantePatrulla) : '',
       unidadPolicial: limpiar(fila.UNIDAD_LABORA_POL),
-      funcionario: limpiar(fila.POLICIA_IMPUSO),
+      // La matriz actual trae POLICIA_IMPONE; las anteriores, POLICIA_IMPUSO.
+      // Se aceptan las dos (y POLICIA_INSERTO como último recurso) para que
+      // "Funcionario policial" no quede vacío si el nombre de columna cambia.
+      funcionario: limpiar(fila.POLICIA_IMPONE) || limpiar(fila.POLICIA_IMPUSO) || limpiar(fila.POLICIA_INSERTO),
       barrio: limpiar(fila.BARRIO_HECHOS),
       lat: parseCoordenada(fila.LATITUD) ?? parseCoordenada(fila.LATITUD_GPS),
       lon: parseCoordenada(fila.LONGITUD) ?? parseCoordenada(fila.LONGITUD_GPS),

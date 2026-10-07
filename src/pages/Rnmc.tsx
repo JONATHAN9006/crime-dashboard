@@ -522,10 +522,11 @@ export function Rnmc() {
             <TarjetaRanking titulo="Funcionario policial" icono={<IconoTitulo><UserRound size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.funcionario} encabezado="Funcionario policial" archivo="rnmc-funcionario" />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {/* "Aplicación Ley 1801 CNSCC" se retiró de aquí a pedido: repetía
+              exactamente la tarjeta "Comportamientos más registrados (Art./Num.)". */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <TarjetaRanking titulo="Barrios más afectados" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><House size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.barrio} encabezado="Barrio" archivo="rnmc-barrios" topInicial={5} />
             <TarjetaRanking titulo="Patrulla / Cuadrante" icono={<IconoTitulo><MapPinned size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.zonaAtencionHechos} encabezado="Patrulla / Cuadrante" archivo="rnmc-zonas" topInicial={5} />
-            <TarjetaRanking titulo="Aplicación Ley 1801 CNSCC" icono={<IconoTitulo><FileText size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.articuloNumeral} encabezado="Comportamientos más frecuentes" archivo="rnmc-ley-1801" topInicial={5} />
           </div>
         </>
       )}
