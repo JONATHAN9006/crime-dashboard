@@ -1,16 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Scale, Upload, RefreshCcw, CloudUpload } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  AlertTriangle, ArrowDownCircle, ArrowRight, ArrowUpCircle, BarChart3, Building2, CalendarDays, Car, ChevronRight, CloudUpload,
+  Crosshair, Database, FileText, House, Landmark, ListChecks, Map as MapIcon, MapPin, MapPinned, RefreshCcw, Scale, Smartphone,
+  Sword, Target, TrendingDown, TrendingUp, Upload, UserRound, Users,
+} from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { obtenerConfig } from '../config';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { leerMatrizComparendos, type RegistroComparendo } from '../data/rnmcParser';
 import { guardarComparendos, cargarComparendos, descargarComparendosSupabase, subirComparendosSupabase } from '../data/rnmcStorage';
 import { sincronizarCapaRnmcDesdeComparendos } from '../data/puntosStorage';
-import { AporteBarList } from '../components/charts/AporteBarList';
 import { Card } from '../components/ui/Card';
+import { IconoTitulo, SelectorTop, TarjetaRanking, rankear, type TopModo } from '../components/rnmc/RankingRnmc';
+import { EvolucionTemporalRnmc, SelectorVista, TendenciaAnualDelito, TendenciaMini } from '../components/rnmc/GraficosRnmc';
+import { MapaRnmc } from '../components/rnmc/MapaRnmc';
+import { formatDecimal } from '../utils/aggregations';
 
 const FUNCION_SUBIR_REGISTROS = '/.netlify/functions/subirRegistros';
-type TopModo = 5 | 10 | 'todos';
 
 // Los tres comportamientos que se piden siempre juntos, en un solo
 // componente — confirmados contra el archivo real (Art. 95, no 91: ese
@@ -18,99 +24,94 @@ type TopModo = 5 | 10 | 'todos';
 const COMPORTAMIENTOS_DESTACADOS = ['Art. 27 Num. 6', 'Art. 95 Num. 1', 'Art. 27 Num. 7'];
 
 function conAporte(items: RegistroComparendo[], campo: (r: RegistroComparendo) => string, n: TopModo | number) {
-  const conteo = new Map<string, number>();
-  let total = 0;
-  for (const it of items) {
-    const v = campo(it);
-    if (!v) continue;
-    conteo.set(v, (conteo.get(v) || 0) + 1);
-    total++;
-  }
-  const ordenado = Array.from(conteo.entries())
-    .map(([key, casos]) => ({ key, casos, aportePct: total > 0 ? (casos / total) * 100 : 0 }))
-    .sort((a, b) => b.casos - a.casos);
-  return n === 'todos' ? ordenado : ordenado.slice(0, n);
+  return rankear(items, campo, n);
 }
 
-function BloqueBarras({ titulo, registros, campo, nombreArchivo }: { titulo: string; registros: RegistroComparendo[]; campo: (r: RegistroComparendo) => string; nombreArchivo: string }) {
-  const [topModo, setTopModo] = useState<TopModo>(10);
-  const datos = useMemo(() => conAporte(registros, campo, topModo), [registros, campo, topModo]);
-  return (
-    <Card
-      title={titulo}
-      descargable={nombreArchivo}
-      actions={
-        <div className="flex gap-1 text-[10px]">
-          {([5, 10, 'todos'] as TopModo[]).map((m) => (
-            <button key={String(m)} onClick={() => setTopModo(m)} className={`rounded px-1.5 py-0.5 font-semibold ${topModo === m ? 'bg-brand-navy text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-              {m === 'todos' ? 'Todos' : `Top ${m}`}
-            </button>
-          ))}
-        </div>
-      }
-    >
-      {datos.length === 0 ? <p className="py-6 text-center text-xs text-slate-400">Sin datos suficientes.</p> : <AporteBarList data={datos} />}
-    </Card>
-  );
+const NOMBRE_DELITO: Record<string, string> = { 'H. Personas': 'Hurto a Personas', 'L. Personales': 'Lesiones Personales' };
+
+// Ícono de cada comportamiento (solo presentación).
+function iconoComportamiento(clave: string): ReactNode {
+  if (/Art\. 27 Num\. 6/.test(clave)) return <Sword size={18} />;
+  if (/Art\. 27 Num\. 7/.test(clave)) return <Crosshair size={18} />;
+  if (/Art\. 95/.test(clave)) return <Smartphone size={18} />;
+  if (/Art\. 140/.test(clave)) return <Car size={18} />;
+  if (/Art\. 35/.test(clave)) return <AlertTriangle size={18} />;
+  return <FileText size={18} />;
 }
 
-function BloqueBarrasDelito({ titulo, registros, campo, nombreArchivo }: { titulo: string; registros: import('../types/crime').CrimeRecord[]; campo: (r: import('../types/crime').CrimeRecord) => string; nombreArchivo: string }) {
-  const [topModo, setTopModo] = useState<TopModo>(10);
-  const datos = useMemo(() => {
-    const conteo = new Map<string, number>();
-    let total = 0;
+/**
+ * "Aplicación Ley 1801 CNSCC": primero los 3 comportamientos destacados de
+ * siempre (Art. 27 Num. 6, Art. 95 Num. 1, Art. 27 Num. 7) y luego los más
+ * frecuentes hasta completar 5; "Ver todos" muestra la lista completa.
+ * Casos = conteo real; % = casos / total de comparendos con estos filtros.
+ */
+function AplicacionLey1801({ registros }: { registros: RegistroComparendo[] }) {
+  const [verTodos, setVerTodos] = useState(false);
+  const filas = useMemo(() => {
+    const total = registros.length;
+    const porClave = new Map<string, { casos: number; texto: string }>();
     for (const r of registros) {
-      const v = campo(r);
-      if (!v) continue;
-      conteo.set(v, (conteo.get(v) || 0) + 1);
-      total++;
+      if (!r.articuloNumeral) continue;
+      const v = porClave.get(r.articuloNumeral) ?? { casos: 0, texto: r.comportamientoTexto };
+      v.casos++;
+      porClave.set(r.articuloNumeral, v);
     }
-    const ordenado = Array.from(conteo.entries()).map(([key, casos]) => ({ key, casos, aportePct: total > 0 ? (casos / total) * 100 : 0 })).sort((a, b) => b.casos - a.casos);
-    return topModo === 'todos' ? ordenado : ordenado.slice(0, topModo);
-  }, [registros, campo, topModo]);
+    const destacados = COMPORTAMIENTOS_DESTACADOS.map((clave) => ({ clave, casos: porClave.get(clave)?.casos ?? 0, texto: porClave.get(clave)?.texto ?? '' }));
+    const resto = Array.from(porClave.entries())
+      .filter(([clave]) => !COMPORTAMIENTOS_DESTACADOS.includes(clave))
+      .sort((x, y) => y[1].casos - x[1].casos)
+      .map(([clave, v]) => ({ clave, casos: v.casos, texto: v.texto }));
+    return [...destacados, ...resto].map((f) => ({ ...f, pct: total > 0 ? (f.casos / total) * 100 : 0 }));
+  }, [registros]);
+  const visibles = verTodos ? filas : filas.slice(0, 5);
+  const tonos = ['bg-[#e6f0fb] text-[#1e4f8f]', 'bg-[#eef2f7] text-[#10233f]', 'bg-[#e3f2ef] text-[#116762]', 'bg-[#eef2f7] text-[#10233f]', 'bg-rose-50 text-rose-600'];
   return (
-    <Card
-      title={titulo}
-      descargable={nombreArchivo}
-      actions={
-        <div className="flex gap-1 text-[10px]">
-          {([5, 10, 'todos'] as TopModo[]).map((m) => (
-            <button key={String(m)} onClick={() => setTopModo(m)} className={`rounded px-1.5 py-0.5 font-semibold ${topModo === m ? 'bg-brand-navy text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-              {m === 'todos' ? 'Todos' : `Top ${m}`}
-            </button>
-          ))}
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 bg-[#0f5f57] px-4 py-3 text-white">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15"><Scale size={18} /></span>
+          <div className="min-w-0">
+            <p className="text-[15px] font-bold leading-tight">Aplicación Ley 1801 CNSCC</p>
+            <p className="truncate text-[11.5px] text-white/80">Comportamientos contrarios a la convivencia más frecuentes asociados al delito</p>
+          </div>
         </div>
-      }
-    >
-      {datos.length === 0 ? <p className="py-6 text-center text-xs text-slate-400">Sin datos suficientes.</p> : <AporteBarList data={datos} />}
-    </Card>
-  );
-}
-
-/** Los 3 comportamientos destacados EN UN SOLO componente — a pedido explícito, no como tarjetas separadas. */
-function ComportamientosDestacados({ registros }: { registros: RegistroComparendo[] }) {
-  const filas = COMPORTAMIENTOS_DESTACADOS.map((clave) => {
-    const encontrados = registros.filter((r) => r.articuloNumeral === clave);
-    return { clave, casos: encontrados.length, texto: encontrados[0]?.comportamientoTexto ?? '' };
-  });
-  return (
-    <Card title="Comportamientos contrarios a la convivencia" descargable="rnmc-comportamientos-destacados">
-      <div className="space-y-2">
-        {filas.map((f) => (
-          <div key={f.clave} className="rounded-md bg-emerald-50 p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-800">{f.clave}</span>
-              <span className="text-sm font-bold text-brand-green">{f.casos}</span>
+        <button type="button" onClick={() => setVerTodos((v) => !v)} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/40 px-2.5 py-1 text-[11.5px] font-semibold hover:bg-white/10">
+          <ListChecks size={14} /> {verTodos ? 'Ver menos' : 'Ver todos'} <ArrowRight size={13} />
+        </button>
+      </div>
+      <div className={`space-y-2 p-3 ${verTodos ? 'max-h-[420px] overflow-y-auto' : ''}`}>
+        {visibles.map((f, i) => (
+          <div key={f.clave} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tonos[i % tonos.length]}`}>{iconoComportamiento(f.clave)}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] font-bold text-[#10233f]">{f.clave}</p>
+              {f.texto && <p className="line-clamp-2 text-[11px] leading-snug text-slate-500" title={f.texto}>{f.texto}</p>}
             </div>
-            {f.texto && <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{f.texto}</p>}
+            <div className="w-[64px] shrink-0 rounded-md bg-[#e3f2ef] px-2 py-1 text-center">
+              <p className="text-[15px] font-bold tabular-nums text-[#0b4a46]">{f.casos.toLocaleString('es-CO')}</p>
+              <p className="text-[10.5px] tabular-nums text-[#116762]">{formatDecimal(f.pct, 1)}%</p>
+            </div>
           </div>
         ))}
+        {visibles.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No hay comparendos para los filtros seleccionados.</p>}
       </div>
-    </Card>
+    </section>
   );
 }
 
-/** Vista partida en dos mitades: DELITO (izquierda, Delictividad) + LEY 1801 CNSCC (derecha, RNMC) — a pedido explícito, para comparar lado a lado. */
+function KpiDelito({ valor, etiqueta, icono, tono }: { valor: string; etiqueta: string; icono: ReactNode; tono: string }) {
+  return (
+    <div className={`flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2.5 ${tono}`}>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/70">{icono}</span>
+      <div className="min-w-0">
+        <p className="text-[21px] font-bold leading-tight tabular-nums">{valor}</p>
+        <p className="text-[11.5px] leading-tight text-slate-600">{etiqueta}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Vista "Delitos vs RNMC": el delito (Delictividad) junto a la aplicación de la Ley 1801 (RNMC). */
 function VistaComparativa({ delito, registrosRnmc }: { delito: string; registrosRnmc: RegistroComparendo[] }) {
   const { filteredRecords } = useData();
   const registrosDelito = useMemo(() => filteredRecords.filter((r) => r.delito === delito), [filteredRecords, delito]);
@@ -119,46 +120,127 @@ function VistaComparativa({ delito, registrosRnmc }: { delito: string; registros
   const total2026 = registrosDelito.filter((r) => r.anio === 2026).length;
   const dif = total2026 - total2025;
   const pct = total2025 > 0 ? Math.round((dif / total2025) * 100) : null;
+  const bajo = dif < 0;
 
   const nombreArchivo = delito.toLowerCase().replace(/\s+/g, '-').replace(/\./g, '');
+  const titulo = NOMBRE_DELITO[delito] ?? delito;
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      {/* MITAD IZQUIERDA — Delito */}
-      <div className="space-y-3">
-        <div className="rounded-lg bg-brand-navy px-4 py-2 text-white">
-          <p className="text-sm font-bold">Delito {delito === 'H. Personas' ? 'Hurto a Personas' : 'Lesiones Personales'}</p>
-        </div>
-
-        {/* "Cómo va el delito" — comparativo simple 2025 vs 2026 a la fecha. */}
-        <Card title="Comportamiento del delito" descargable={`${nombreArchivo}-comportamiento`}>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            <div><p className="text-lg font-bold text-slate-700">{total2025}</p><p className="text-[10px] text-slate-500">2025 (a la fecha)</p></div>
-            <div><p className="text-lg font-bold text-brand-navy">{total2026}</p><p className="text-[10px] text-slate-500">2026 (a la fecha)</p></div>
-            <div><p className={`text-lg font-bold ${dif >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{dif >= 0 ? '+' : ''}{dif}</p><p className="text-[10px] text-slate-500">Diferencia</p></div>
-            <div><p className={`text-lg font-bold ${dif >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{pct == null ? 'N/A' : `${pct >= 0 ? '+' : ''}${pct}%`}</p><p className="text-[10px] text-slate-500">Variación</p></div>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.12fr_1fr]">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-3 bg-[#10233f] px-4 py-3 text-white">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15"><UserRound size={18} /></span>
+              <div className="min-w-0">
+                <p className="text-[15px] font-bold leading-tight">Delito {titulo}</p>
+                <p className="truncate text-[11.5px] text-white/80">Comparativo anual y variación del comportamiento del delito</p>
+              </div>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/40 px-2.5 py-1 text-[11.5px] font-semibold">Comparativo anual 2025 vs 2026</span>
           </div>
-        </Card>
+          <div className="p-4">
+            <div>
+              <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+                <KpiDelito valor={total2025.toLocaleString('es-CO')} etiqueta="2025 (a la fecha)" icono={<FileText size={20} className="text-[#1e4f8f]" />} tono="bg-[#eef4fb] text-[#10233f]" />
+                <KpiDelito valor={total2026.toLocaleString('es-CO')} etiqueta="2026 (a la fecha)" icono={<BarChart3 size={20} className="text-[#116762]" />} tono="bg-[#e8f5f1] text-[#10233f]" />
+                <KpiDelito valor={`${dif >= 0 ? '+' : ''}${dif.toLocaleString('es-CO')}`} etiqueta="Diferencia" icono={bajo ? <ArrowDownCircle size={22} className="text-[#0f766e]" /> : <ArrowUpCircle size={22} className="text-rose-600" />} tono={bajo ? 'bg-[#e8f5f1] text-[#0f766e]' : 'bg-rose-50 text-rose-600'} />
+                <KpiDelito valor={pct == null ? 'N/A' : `${pct >= 0 ? '+' : ''}${pct}%`} etiqueta="Variación" icono={bajo ? <TrendingDown size={20} className="text-[#0f766e]" /> : <TrendingUp size={20} className="text-rose-600" />} tono={bajo ? 'bg-[#e8f5f1] text-[#0f766e]' : 'bg-rose-50 text-rose-600'} />
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <p className="text-[13.5px] font-bold text-[#10233f]">Tendencia mensual del delito</p>
+                <span className="flex items-center gap-3 text-[11px] text-slate-600">
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#a5b4cb]" />2025</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#159089]" />2026</span>
+                </span>
+              </div>
+              <TendenciaAnualDelito items={registrosDelito} anioA={2025} anioB={2026} />
+            </div>
+          </div>
+        </section>
 
-        <BloqueBarrasDelito titulo="CAI más afectado" registros={registrosDelito} campo={(r) => r.cai} nombreArchivo={`${nombreArchivo}-cai`} />
-        <BloqueBarrasDelito titulo="Barrios más afectados" registros={registrosDelito} campo={(r) => r.barrioHecho} nombreArchivo={`${nombreArchivo}-barrios`} />
-        <BloqueBarrasDelito titulo="Armas más empleadas" registros={registrosDelito} campo={(r) => r.armas} nombreArchivo={`${nombreArchivo}-armas`} />
-        <BloqueBarrasDelito titulo="Modalidades más presentadas" registros={registrosDelito} campo={(r) => r.modalidad} nombreArchivo={`${nombreArchivo}-modalidades`} />
+        <AplicacionLey1801 registros={registrosRnmc} />
       </div>
 
-      {/* MITAD DERECHA — Ley 1801 CNSCC (RNMC), como contexto paralelo — no
-          filtrado por este delito en particular (la matriz de comparendos
-          no distingue "hurto"/"lesiones" como tal), sino el panorama
-          general de aplicación de la ley en el mismo periodo. */}
-      <div className="space-y-3">
-        <div className="rounded-lg bg-brand-navy px-4 py-2 text-white">
-          <p className="text-sm font-bold">Aplicación Ley 1801 CNSCC</p>
-        </div>
-        <ComportamientosDestacados registros={registrosRnmc} />
-        <BloqueBarras titulo="Patrulla / Cuadrante" registros={registrosRnmc} campo={(r) => r.zonaAtencionHechos} nombreArchivo="rnmc-patrulla-cuadrante" />
-        <BloqueBarras titulo="Unidad policial" registros={registrosRnmc} campo={(r) => r.unidadPolicial} nombreArchivo="rnmc-unidad" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <TarjetaRanking titulo="CAI más afectado" icono={<IconoTitulo><Building2 size={17} /></IconoTitulo>} registros={registrosDelito} campo={(r) => r.cai} archivo={`${nombreArchivo}-cai`} resaltarMaximo />
+        <TarjetaRanking titulo="Barrios más afectados" icono={<IconoTitulo><House size={17} /></IconoTitulo>} registros={registrosDelito} campo={(r) => r.barrioHecho} archivo={`${nombreArchivo}-barrios`} resaltarMaximo />
+        <TarjetaRanking titulo="Patrulla / Cuadrante" icono={<IconoTitulo><MapPinned size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.zonaAtencionHechos} archivo="rnmc-patrulla-cuadrante" resaltarMaximo />
+        <TarjetaRanking titulo="Unidad policial" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><Landmark size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.unidadPolicial} archivo="rnmc-unidad" resaltarMaximo topInicial={5} />
+        <TarjetaRanking titulo="Comuna" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><MapPin size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.comuna} archivo="rnmc-comuna" resaltarMaximo topInicial={5} />
+        <TarjetaRanking titulo="Funcionario policial" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><Users size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.funcionario} archivo="rnmc-funcionario" resaltarMaximo topInicial={5} />
+        {/* Se conservan las dos tarjetas que ya tenía esta vista. */}
+        <TarjetaRanking titulo="Armas más empleadas" icono={<IconoTitulo><Crosshair size={17} /></IconoTitulo>} registros={registrosDelito} campo={(r) => r.armas} archivo={`${nombreArchivo}-armas`} resaltarMaximo topInicial={5} />
+        <TarjetaRanking titulo="Modalidades más presentadas" icono={<IconoTitulo><Target size={17} /></IconoTitulo>} registros={registrosDelito} campo={(r) => r.modalidad} archivo={`${nombreArchivo}-modalidades`} resaltarMaximo topInicial={5} />
       </div>
     </div>
+  );
+}
+
+function KpiGeneral({ valor, titulo, detalle, icono, tono }: { valor: ReactNode; titulo: string; detalle?: string; icono: ReactNode; tono: string }) {
+  return (
+    <div className={`flex min-w-0 items-center gap-2.5 rounded-xl px-2.5 py-2.5 ${tono}`}>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/70">{icono}</span>
+      <div className="min-w-0">
+        <p className="text-[20px] font-bold leading-tight tabular-nums text-[#10233f]">{valor}</p>
+        <p className="text-[11.5px] leading-tight text-slate-700">{titulo}</p>
+        {detalle && <p className="text-[10.5px] leading-tight text-slate-500">{detalle}</p>}
+      </div>
+    </div>
+  );
+}
+
+function TarjetaDistribucion({ registros }: { registros: RegistroComparendo[] }) {
+  const [top, setTop] = useState<TopModo>(10);
+  const filas = useMemo(() => rankear(registros, (r) => r.zonaAtencionHechos, top), [registros, top]);
+  return (
+    <Card title="Distribución geográfica" icono={<IconoTitulo><MapIcon size={17} /></IconoTitulo>} claseTitulo="text-[13.5px] font-bold leading-snug text-[#10233f]" actions={<SelectorTop valor={top} onChange={setTop} />}>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[0.72fr_1.28fr]">
+        <MapaRnmc registros={registros} />
+        <div className="min-w-0">
+          <p className="mb-1.5 text-[11.5px] font-bold text-[#10233f]">{top === 'todos' ? 'Todas las zonas de atención' : `Top ${top} zonas de atención`}</p>
+          <div className={top === 'todos' ? 'max-h-[300px] overflow-y-auto pr-1' : ''}>
+            <TablaTop filas={filas} />
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Tabla compacta sin barras (para la lista junto al mapa). */
+function TablaTop({ filas }: { filas: { key: string; casos: number; aportePct: number }[] }) {
+  if (filas.length === 0) return <p className="py-6 text-center text-xs text-slate-400">Sin datos.</p>;
+  return (
+    <table className="w-full table-fixed text-[11.5px]">
+      <thead>
+        <tr className="text-[10.5px] text-slate-500">
+          <th className="w-[24px] pb-1 text-left font-semibold">#</th>
+          <th className="pb-1 text-left font-semibold">Zona</th>
+          <th className="w-[50px] pb-1 text-right text-[10px] font-semibold">Registros</th>
+          <th className="w-[42px] pb-1 text-right text-[10px] font-semibold">Aporte</th>
+        </tr>
+      </thead>
+      <tbody>
+        {filas.map((f, i) => (
+          <tr key={f.key} className="border-t border-slate-100">
+            <td className="py-[4px]"><span className="flex h-[18px] w-[20px] items-center justify-center rounded border border-slate-200 text-[10.5px] font-semibold text-slate-600">{i + 1}</span></td>
+            <td className="truncate py-[4px] pl-1 text-slate-700" title={f.key}>{f.key}</td>
+            <td className="py-[4px] text-right font-bold tabular-nums text-[#10233f]">{f.casos.toLocaleString('es-CO')}</td>
+            <td className="py-[4px] text-right tabular-nums text-slate-500">{formatDecimal(f.aportePct, 1)}%</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TarjetaEvolucion({ registros }: { registros: RegistroComparendo[] }) {
+  const [vista, setVista] = useState<'mensual' | 'semanal'>('mensual');
+  return (
+    <Card title="Evolución temporal" descargable="rnmc-evolucion" icono={<IconoTitulo><CalendarDays size={17} /></IconoTitulo>} claseTitulo="text-[13.5px] font-bold leading-snug text-[#10233f]" actions={<SelectorVista valor={vista} onChange={setVista} />}>
+      <EvolucionTemporalRnmc items={registros} vista={vista} />
+    </Card>
   );
 }
 
@@ -272,30 +354,112 @@ export function Rnmc() {
     setModoActivo((actual) => (actual === clave ? 'todos' : clave));
   }
 
+  // Variación frente al MISMO periodo del año anterior (mismas fechas, un
+  // año antes). Si la matriz no trae ese año, no se muestra un número.
+  const variacionAnual = useMemo(() => {
+    if (!registros || registrosFiltradosPorFecha.length === 0) return null;
+    let min: Date | null = null, max: Date | null = null;
+    for (const r of registrosFiltradosPorFecha) {
+      if (!r.fecha) continue;
+      if (!min || r.fecha < min) min = r.fecha;
+      if (!max || r.fecha > max) max = r.fecha;
+    }
+    if (!min || !max) return null;
+    const desde = new Date(min.getFullYear() - 1, min.getMonth(), min.getDate());
+    const hasta = new Date(max.getFullYear() - 1, max.getMonth(), max.getDate(), 23, 59, 59);
+    const previo = registros.filter((r) => r.fecha && r.fecha >= desde && r.fecha <= hasta).length;
+    if (previo === 0) return null;
+    return ((registrosFiltradosPorFecha.length - previo) / previo) * 100;
+  }, [registros, registrosFiltradosPorFecha]);
+
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const tituloVista = esModoDelictividad
+    ? 'Análisis comparativo, tendencias y principales comportamientos del registro de medidas correctivas.'
+    : 'Visión general del registro, principales comportamientos y distribución territorial.';
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-2.5">
-        <Scale size={18} className="text-brand-green" />
-        <h2 className="text-base font-bold text-slate-800">RNMC — Registro Nacional de Medidas Correctivas</h2>
-        {fechaCarga && registros && <span className="ml-auto text-[11px] text-slate-500">{registros.length.toLocaleString('es-CO')} comparendo(s) · {new Date(fechaCarga).toLocaleString('es-CO')}</span>}
+      {/* ENCABEZADO */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Scale size={30} className="shrink-0 text-[#116762]" />
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-bold leading-tight text-[#10233f]">RNMC — Registro Nacional de Medidas Correctivas</h1>
+            <p className="text-[13px] text-slate-500">{tituloVista}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {fechaCarga && registros && (esModoDelictividad ? (
+            <div className="flex items-center gap-2.5 rounded-xl border border-[#cfe8e1] bg-[#eef8f5] px-3.5 py-2">
+              <CalendarDays size={18} className="text-[#116762]" />
+              <div className="text-[11.5px] leading-tight text-[#10233f]">
+                <p className="font-semibold">{registros.length.toLocaleString('es-CO')} comparendo(s)</p>
+                <p className="text-slate-600">{new Date(fechaCarga).toLocaleString('es-CO')}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2.5 rounded-xl border border-[#cfe8e1] bg-[#eef8f5] px-3.5 py-2">
+                <CalendarDays size={18} className="text-[#116762]" />
+                <div className="text-[11.5px] leading-tight text-[#10233f]">
+                  <p>Última actualización</p>
+                  <p className="text-slate-600">{new Date(fechaCarga).toLocaleString('es-CO')}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2">
+                <Target size={18} className="text-[#10233f]" />
+                <div className="text-[11.5px] leading-tight text-[#10233f]">
+                  <p className="font-bold">{registrosFiltradosPorFecha.length.toLocaleString('es-CO')} registros</p>
+                  <p className="text-slate-600">según filtros actuales</p>
+                </div>
+              </div>
+            </>
+          ))}
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-[#10233f] px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90">
+            {sincronizando ? <CloudUpload size={16} className="animate-pulse" /> : registros ? <RefreshCcw size={16} /> : <Upload size={16} />}
+            {cargando ? 'Leyendo…' : sincronizando ? 'Sincronizando…' : registros ? 'Actualizar matriz' : 'Cargar matriz de comparendos'}
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={cargando || sincronizando} onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }} />
+          </label>
+        </div>
       </div>
 
       {error && <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
       {aviso && <div className="rounded-lg bg-sky-50 p-3 text-sm text-sky-800">{aviso}</div>}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <div>
-          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-brand-navy">Análisis Delitos vs RNMC</p>
-          <div className="flex flex-wrap gap-1.5">
-            <button onClick={() => alternarModoDelictividad('H. Personas')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${modoActivo === 'H. Personas' ? 'bg-brand-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Análisis Hurto a Personas</button>
-            <button onClick={() => alternarModoDelictividad('L. Personales')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${modoActivo === 'L. Personales' ? 'bg-brand-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Análisis Lesiones Personales</button>
-          </div>
+      {/* PESTAÑAS + COMPORTAMIENTOS */}
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-2.5 flex flex-wrap items-center gap-2">
+          {esModoDelictividad ? (
+            <span className="mr-2 border-b-2 border-[#10233f] pb-0.5 text-[12.5px] font-bold uppercase tracking-wide text-[#10233f]">Análisis Delitos vs RNMC</span>
+          ) : (
+            <button type="button" onClick={() => setModoActivo('todos')} className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12.5px] font-semibold ${!esModoDelictividad ? 'bg-[#0f5f57] text-white' : 'border border-slate-200 bg-white text-[#10233f]'}`}>
+              <Landmark size={15} /> Análisis general
+            </button>
+          )}
+          {(['H. Personas', 'L. Personales'] as const).map((clave) => (
+            <button
+              key={clave}
+              type="button"
+              onClick={() => alternarModoDelictividad(clave)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12.5px] font-semibold ${modoActivo === clave ? 'bg-[#0f5f57] text-white' : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'}`}
+            >
+              <Users size={15} /> Análisis {NOMBRE_DELITO[clave]}
+            </button>
+          ))}
         </div>
-        <label className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand-navy px-3 py-2 text-xs font-semibold text-white hover:opacity-90">
-          {sincronizando ? <CloudUpload size={14} className="animate-pulse" /> : registros ? <RefreshCcw size={14} /> : <Upload size={14} />}
-          {cargando ? 'Leyendo…' : sincronizando ? 'Sincronizando…' : registros ? 'Actualizar matriz' : 'Cargar matriz de comparendos'}
-          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={cargando || sincronizando} onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }} />
-        </label>
+        {registros && (
+          <div className="flex items-center gap-2">
+            <div ref={chipsRef} className="flex min-w-0 flex-1 gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]">
+              <button type="button" onClick={() => setModoActivo('todos')} className={`shrink-0 rounded-lg px-4 py-1.5 text-[12.5px] font-semibold ${modoActivo === 'todos' || esModoDelictividad ? 'bg-[#0f5f57] text-white' : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'}`}>Todos</button>
+              {comportamientosDisponibles.map((c) => (
+                <button key={c} type="button" onClick={() => setModoActivo(c)} className={`shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[12.5px] font-medium ${modoActivo === c ? 'bg-[#0f5f57] text-white' : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'}`}>{c}</button>
+              ))}
+            </div>
+            <button type="button" aria-label="Ver más comportamientos" onClick={() => chipsRef.current?.scrollBy({ left: 300 })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50">
+              <ChevronRight size={17} />
+            </button>
+          </div>
+        )}
       </div>
 
       {!registros ? (
@@ -306,42 +470,52 @@ export function Rnmc() {
         <VistaComparativa delito={modoActivo} registrosRnmc={registrosFiltradosPorFecha} />
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <button onClick={() => setModoActivo('todos')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${modoActivo === 'todos' ? 'bg-brand-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Todos</button>
-            {comportamientosDisponibles.map((c) => (
-              <button key={c} onClick={() => setModoActivo(c)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${modoActivo === c ? 'bg-brand-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{c}</button>
-            ))}
+          {/* INDICADORES */}
+          {resumen && (
+            <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[1.1fr_1fr_1fr_1fr_1fr_1fr_1.3fr]">
+              <KpiGeneral valor={resumen.total.toLocaleString('es-CO')} titulo="Registros RNMC" detalle="Según filtros actuales" icono={<Database size={24} className="text-[#1e4f8f]" />} tono="bg-white" />
+              <KpiGeneral
+                valor={variacionAnual == null ? '—' : `${variacionAnual > 0 ? '+' : ''}${formatDecimal(variacionAnual, 0)}%`}
+                titulo={variacionAnual == null ? 'Sin datos del año anterior' : 'vs. mismo periodo año anterior'}
+                icono={variacionAnual != null && variacionAnual < 0 ? <TrendingDown size={24} className="text-[#0f766e]" /> : <TrendingUp size={24} className="text-[#0f766e]" />}
+                tono="bg-[#eef8f5]"
+              />
+              <KpiGeneral valor={resumen.zonas} titulo="Zonas de atención" detalle="con registros" icono={<Users size={24} className="text-[#1e4f8f]" />} tono="bg-[#eef4fb]" />
+              <KpiGeneral valor={resumen.comunas} titulo="Comunas" detalle="con registros" icono={<Building2 size={24} className="text-indigo-700" />} tono="bg-indigo-50" />
+              <KpiGeneral valor={resumen.funcionarios} titulo="Funcionarios" detalle="relacionados" icono={<UserRound size={24} className="text-amber-700" />} tono="bg-amber-50" />
+              <KpiGeneral valor={resumen.conMediacion} titulo="Mediaciones in situ" icono={<FileText size={24} className="text-rose-600" />} tono="bg-rose-50" />
+              <div className="min-w-0 px-2">
+                <p className="mb-1 text-[12px] font-bold text-[#10233f]">Tendencia general</p>
+                <TendenciaMini items={registrosFiltradosPorFecha} />
+              </div>
+            </div>
+          )}
+
+          {modoActivo !== 'todos' && (
+            <div className="rounded-lg bg-[#10233f] px-4 py-2 text-white">
+              <p className="text-sm font-bold">
+                Análisis RNMC — {modoActivo}
+                <span className="ml-2 font-normal text-slate-300">({registrosVista.length.toLocaleString('es-CO')} comparendo(s))</span>
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+            <TarjetaRanking titulo="Comportamientos más registrados (Art./Num.)" icono={<IconoTitulo><FileText size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.articuloNumeral} encabezado="Artículo" archivo="rnmc-comportamientos" />
+            <TarjetaDistribucion registros={registrosVista} />
+            <TarjetaEvolucion registros={registrosVista} />
           </div>
 
-          <div className="rounded-lg bg-brand-navy px-4 py-2 text-white">
-            <p className="text-sm font-bold">
-              {modoActivo === 'todos' ? 'Análisis general RNMC — todos los comportamientos' : `Análisis RNMC — ${modoActivo}`}
-              <span className="ml-2 font-normal text-slate-300">({registrosVista.length.toLocaleString('es-CO')} comparendo(s))</span>
-            </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <TarjetaRanking titulo="Unidad policial" icono={<IconoTitulo><Landmark size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.unidadPolicial} encabezado="Unidad policial" archivo="rnmc-unidad" />
+            <TarjetaRanking titulo="Comuna" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><MapPin size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.comuna} encabezado="Comuna" archivo="rnmc-comuna" />
+            <TarjetaRanking titulo="Funcionario policial" icono={<IconoTitulo><UserRound size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.funcionario} encabezado="Funcionario policial" archivo="rnmc-funcionario" />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {modoActivo === 'todos' && (
-              <BloqueBarras titulo="Comportamientos más registrados (Art./Num.)" registros={registrosVista} campo={(r) => r.articuloNumeral} nombreArchivo="rnmc-comportamientos" />
-            )}
-
-            {resumen && (
-              <Card title="Resumen general">
-                <div className="grid grid-cols-2 gap-2 text-center">
-                  <div><p className="text-lg font-bold text-brand-navy">{resumen.total.toLocaleString('es-CO')}</p><p className="text-[10px] text-slate-500">Comparendos</p></div>
-                  <div><p className="text-lg font-bold text-brand-navy">{resumen.zonas}</p><p className="text-[10px] text-slate-500">Zonas de atención</p></div>
-                  <div><p className="text-lg font-bold text-brand-navy">{resumen.comunas}</p><p className="text-[10px] text-slate-500">Comunas</p></div>
-                  <div><p className="text-lg font-bold text-brand-navy">{resumen.funcionarios}</p><p className="text-[10px] text-slate-500">Funcionarios</p></div>
-                  <div><p className="text-lg font-bold text-brand-navy">{resumen.conMediacion}</p><p className="text-[10px] text-slate-500">Mediación in situ</p></div>
-                  {resumen.top && <div><p className="text-[10px] text-slate-500">Más frecuente</p><p className="text-[11px] font-semibold text-slate-700">{resumen.top.key}</p></div>}
-                </div>
-              </Card>
-            )}
-
-            <BloqueBarras titulo="Zona de atención / Cuadrante" registros={registrosVista} campo={(r) => r.zonaAtencionHechos} nombreArchivo="rnmc-zonas" />
-            <BloqueBarras titulo="Unidad policial" registros={registrosVista} campo={(r) => r.unidadPolicial} nombreArchivo="rnmc-unidad" />
-            <BloqueBarras titulo="Comuna" registros={registrosVista} campo={(r) => r.comuna} nombreArchivo="rnmc-comuna" />
-            <BloqueBarras titulo="Funcionario policial" registros={registrosVista} campo={(r) => r.funcionario} nombreArchivo="rnmc-funcionario" />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <TarjetaRanking titulo="Barrios más afectados" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><House size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.barrio} encabezado="Barrio" archivo="rnmc-barrios" topInicial={5} />
+            <TarjetaRanking titulo="Patrulla / Cuadrante" icono={<IconoTitulo><MapPinned size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.zonaAtencionHechos} encabezado="Patrulla / Cuadrante" archivo="rnmc-zonas" topInicial={5} />
+            <TarjetaRanking titulo="Aplicación Ley 1801 CNSCC" icono={<IconoTitulo><FileText size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.articuloNumeral} encabezado="Comportamientos más frecuentes" archivo="rnmc-ley-1801" topInicial={5} />
           </div>
         </>
       )}
