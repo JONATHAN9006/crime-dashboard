@@ -1,4 +1,4 @@
-import { Calendar, Plus, X, AlertTriangle } from 'lucide-react';
+import { Plus, X, AlertTriangle, CalendarRange, Info } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import type { PeriodoAnalisis } from '../../types/crime';
 
@@ -52,11 +52,15 @@ export function SelectorMultifecha() {
   }
 
   return (
-    <div className="border-t border-slate-100 pt-3">
-      <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
-        <input type="checkbox" checked={activo} onChange={(e) => activar(e.target.checked)} />
-        <Calendar size={15} className="text-brand-navy" />
-        ¿Desea incluir otras fechas para el análisis? (análisis multifecha)
+    <div>
+      <label className="flex cursor-pointer flex-wrap items-center gap-2 text-[13px] font-medium text-[#10233f]">
+        <input type="checkbox" checked={activo} onChange={(e) => activar(e.target.checked)} className="h-4 w-4 accent-[#116762]" />
+        <CalendarRange size={15} className="text-[#116762]" />
+        ¿Desea incluir otras fechas para el análisis?
+        <span className="rounded-full border border-slate-300 px-2 py-[1px] text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">Análisis multifecha</span>
+        <span title="Permite sumar hasta 6 periodos independientes, cada uno con su fecha y su horario. Mientras esté activo, reemplaza la Fecha inicial y la Fecha final." className="text-slate-400">
+          <Info size={14} aria-label="Qué es el análisis multifecha" />
+        </span>
       </label>
 
       {activo && (

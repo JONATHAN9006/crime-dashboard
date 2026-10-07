@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 
-export function MultiSelect({ label, options, selected, onChange, labels }: {
+export function MultiSelect({ label, options, selected, onChange, labels, institucional = false, icono }: {
   label: string;
+  /** Estilo del panel "Filtros de análisis" (altura fija, borde institucional y resaltado si hay selección). Opcional: las demás páginas no cambian. */
+  institucional?: boolean;
+  icono?: ReactNode;
   options: string[];
   selected: string[];
   onChange: (values: string[]) => void;
@@ -28,12 +31,20 @@ export function MultiSelect({ label, options, selected, onChange, labels }: {
 
   return (
     <div ref={ref} className="relative">
-      <label className="mb-1 block text-xs font-medium text-slate-500">{label}</label>
+      <label className={institucional ? 'mb-1 flex items-center gap-1 text-[11.5px] font-semibold text-slate-600' : 'mb-1 block text-xs font-medium text-slate-500'}>
+        {icono}
+        {label}
+        {institucional && selected.length > 0 && <span className="sr-only"> (filtro activo)</span>}
+      </label>
       <button
+        type="button"
         onClick={() => setAbierto((v) => !v)}
-        className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-left text-sm hover:border-slate-400"
+        aria-expanded={abierto}
+        className={institucional
+          ? `flex h-9 w-full items-center justify-between gap-1 rounded-lg border bg-white px-2.5 text-left text-[13px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#116762]/40 ${selected.length > 0 ? 'border-[#116762] bg-[#116762]/[0.06] font-semibold' : 'border-slate-300 hover:border-[#116762]/60'}`
+          : 'flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-left text-sm hover:border-slate-400'}
       >
-        <span className="truncate text-slate-700">
+        <span className={institucional ? `truncate ${selected.length > 0 ? 'text-[#0b4a46]' : 'text-[#10233f]'}` : 'truncate text-slate-700'} title={institucional && selected.length > 1 ? selected.map((v) => labels?.[v] ?? v).join(', ') : undefined}>
           {selected.length === 0 ? 'Todos' : selected.length === 1 ? (labels?.[selected[0]] ?? selected[0]) : `${selected.length} seleccionados`}
         </span>
         <div className="flex items-center gap-1">
