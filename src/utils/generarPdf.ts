@@ -86,8 +86,9 @@ export async function generarPdfComponentes(
     // que agrandaba artificialmente hasta las tarjetas más pequeñas y las
     // hacía ocupar una página entera cada una en vez de compartir espacio.
     const PX_A_MM = 25.4 / 96;
-    let anchoMm = (canvas.width / 2) * PX_A_MM;
-    let altoMm = (canvas.height / 2) * PX_A_MM;
+    const escalaCaptura = Number(canvasTransparente.dataset.escala) || 2;
+    let anchoMm = (canvas.width / escalaCaptura) * PX_A_MM;
+    let altoMm = (canvas.height / escalaCaptura) * PX_A_MM;
     // Si aun así el componente es más ancho que la página, sí se reduce
     // para que quepa (nunca se agranda más allá de su tamaño natural, solo
     // se achica cuando hace falta).

@@ -112,6 +112,11 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
   }
   const datos = referencia ? data.map((d, i) => ({ ...d, _referencia: referencia![i] })) : data;
 
+  // Todas las etiquetas del eje se muestran siempre (ej. las 24 horas); en
+  // pantallas angostas con muchas categorías se achica la letra para que no
+  // se monten unas sobre otras.
+  const angosta = typeof window !== 'undefined' && window.innerWidth < 640;
+  const tamanoEjeX = angosta && data.length > 12 ? 8.5 : angosta && data.length > 7 ? 10 : 11;
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={datos} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ top: 34, right: 24, left: horizontal ? 8 : 0, bottom: 0 }} barCategoryGap={espaciadoCategoria !== undefined ? `${espaciadoCategoria * 100}%` : undefined}>
@@ -127,7 +132,7 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
             {/* interval={0} fuerza a mostrar TODAS las etiquetas del eje (ej.
                 las 24 horas), en vez de que Recharts oculte automáticamente
                 algunas por falta de espacio. */}
-            <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: '#334155', fontWeight: 500 }} interval={0} tickFormatter={abreviarEtiquetas ? (v: any) => String(v).slice(0, 3) : undefined} />
+            <XAxis dataKey={xKey} tick={{ fontSize: tamanoEjeX, fill: '#334155', fontWeight: 500 }} interval={0} tickFormatter={abreviarEtiquetas ? (v: any) => String(v).slice(0, 3) : angosta ? (v: any) => String(v).replace(/^Semana\s+/i, 'S') : undefined} />
             <YAxis hide={ocultarEjeY} tick={{ fontSize: 12, fill: '#64748b' }} />
           </>
         )}

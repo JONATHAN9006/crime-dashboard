@@ -2183,7 +2183,7 @@ export function MapaGeorreferenciacion() {
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[264px_minmax(0,1fr)]">
         {/* ── PANEL IZQUIERDO: capas, área geográfica, capas cargadas, barrios ── */}
-        <aside className="rounded-2xl bg-[#10233f] text-white shadow-sm lg:sticky lg:top-0 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto [scrollbar-width:thin]">
+        <aside className="order-2 rounded-2xl bg-[#10233f] text-white shadow-sm lg:order-none lg:sticky lg:top-0 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto [scrollbar-width:thin]">
           <SeccionPanelOscuro titulo="Capas de visualización" icono={<Layers size={15} />}>
             <div className="space-y-1">
               {([
@@ -2398,8 +2398,8 @@ export function MapaGeorreferenciacion() {
           </SeccionPanelOscuro>
         </aside>
 
-        {/* ── ÁREA PRINCIPAL ── */}
-        <div className="min-w-0 space-y-4">
+        {/* ── ÁREA PRINCIPAL ── (en tablet/celular va primero: filtros y mapa arriba, el panel de capas después) */}
+        <div className="order-1 min-w-0 space-y-4 lg:order-none">
           {/* Filtros de análisis geográfico — ÚNICA fuente de verdad del módulo */}
           <section className="@container relative z-30 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.05)]">
             <div className="flex flex-wrap items-center justify-between gap-2">

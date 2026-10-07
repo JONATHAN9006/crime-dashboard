@@ -84,17 +84,25 @@ function EtiquetaComparativaPorMes({ tramosPorMes, dataFiltrada }: { tramosPorMe
         if (xIzq === undefined) return null;
         const total = totalDeTramo(t);
         const otroTramo = tramosPorMes.find((t2) => t2.mesNombre === t.mesNombre && t2.anio !== t.anio);
-        const partes: string[] = [];
-        if (otroTramo) {
-          const totalOtro = totalDeTramo(otroTramo);
-          const par = t.anio < otroTramo.anio ? [[t.anio, total], [otroTramo.anio, totalOtro]] : [[otroTramo.anio, totalOtro], [t.anio, total]];
-          for (const [anio, tot] of par) partes.push(`${anio}: ${formatNumero(tot)} casos`);
-        } else {
-          partes.push(`${t.anio}: ${formatNumero(total)} casos`);
-        }
+        const par: [number, number][] = otroTramo
+          ? (t.anio < otroTramo.anio ? [[t.anio, total], [otroTramo.anio, totalDeTramo(otroTramo)]] : [[otroTramo.anio, totalDeTramo(otroTramo)], [t.anio, total]])
+          : [[t.anio, total]];
+        // El texto debe caber en el ancho de SU mes (antes se montaba sobre
+        // el del mes siguiente en pantallas angostas). Se elige la versión
+        // más completa que quepa: "2026: 279 casos" → "2026: 279" → "279".
+        const xDer = xScale(t.idxFin);
+        const anchoTramo = xDer !== undefined ? Math.max(0, xDer - xIzq) : Infinity;
+        const opciones = [
+          par.map(([anio, tot]) => `${anio}: ${formatNumero(tot)} casos`).join('   ·   '),
+          par.map(([anio, tot]) => `${anio}: ${formatNumero(tot)}`).join(' · '),
+          par.map(([, tot]) => formatNumero(tot)).join(' · '),
+        ];
+        const anchoAprox = (txt: string) => txt.length * 6.4;
+        const texto = opciones.find((o) => anchoAprox(o) <= anchoTramo - 6) ?? opciones[opciones.length - 1];
         return (
           <text key={`cmp-${t.mesNombre}-${t.anio}-${i}`} x={xIzq + 4} y={ySuperior} textAnchor="start" fontSize={11} fontWeight={700} fill={t.color} stroke="#ffffff" strokeWidth={3} paintOrder="stroke">
-            {partes.join('   ·   ')}
+            <title>{opciones[0]}</title>
+            {texto}
           </text>
         );
       })}

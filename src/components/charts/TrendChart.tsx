@@ -132,6 +132,14 @@ function CapaEtiquetasSinColision({ data, xKey, seriesKeys, seriesColors }: {
     });
   });
 
+  // En gráficas angostas (celular, tarjetas pequeñas) los números de meses
+  // vecinos se montaban: el tamaño de letra se ajusta a la separación real
+  // entre puntos (14 px en escritorio, hasta 9,5 px en pantallas chicas).
+  const posicionesX = data.map((f) => xScale(f[xKey])).filter((v): v is number => typeof v === 'number').sort((a, b) => a - b);
+  let paso = Infinity;
+  for (let i = 1; i < posicionesX.length; i++) paso = Math.min(paso, posicionesX[i] - posicionesX[i - 1]);
+  const tamanoEtiqueta = Number.isFinite(paso) ? Math.max(9.5, Math.min(14, paso * 0.45)) : 14;
+
   return (
     <g>
       {etiquetas.map((e) => (
@@ -148,11 +156,11 @@ function CapaEtiquetasSinColision({ data, xKey, seriesKeys, seriesColors }: {
           x={e.x}
           y={e.y}
           textAnchor="middle"
-          fontSize={14}
+          fontSize={tamanoEtiqueta}
           fontWeight={700}
           fill={e.color}
           stroke="#ffffff"
-          strokeWidth={4}
+          strokeWidth={tamanoEtiqueta < 12 ? 3 : 4}
           strokeLinejoin="round"
           paintOrder="stroke"
         >

@@ -279,6 +279,18 @@ function etiquetarElementosParaCaptura(original: HTMLElement): () => void {
   return () => nodos.forEach((n) => n.removeAttribute(ATRIBUTO_ID_CAPTURA));
 }
 
+function tieneTextoPropio(el: Element): boolean {
+  return Array.from(el.childNodes).some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim().length > 0);
+}
+function esDeUnaLinea(el: HTMLElement, estilo: CSSStyleDeclaration): boolean {
+  if (estilo.whiteSpace === 'nowrap' || estilo.whiteSpace === 'pre') return false;
+  const tamano = parseFloat(estilo.fontSize) || 12;
+  const interlineado = parseFloat(estilo.lineHeight) || tamano * 1.35;
+  const r = el.getBoundingClientRect();
+  const relleno = (parseFloat(estilo.paddingTop) || 0) + (parseFloat(estilo.paddingBottom) || 0);
+  return r.height > 0 && r.height - relleno < interlineado * 1.6;
+}
+
 export function congelarEstilosParaCaptura(original: HTMLElement, clon: HTMLElement) {
   const nodosOriginales: Element[] = [original, ...Array.from(original.querySelectorAll('*'))];
   // Mapa id -> nodo clonado, construido a partir del atributo estable en vez
@@ -339,6 +351,9 @@ export function congelarEstilosParaCaptura(original: HTMLElement, clon: HTMLElem
     //    "casos" quede más pegado a la barra y "aporte" más pegado a
     //    "casos", tal como se pidió.
     const esFilaDeExportacion = nodoOriginal.hasAttribute('data-export-fila');
+    // Elementos SIN texto (íconos en círculo, puntos de color, separadores,
+    // gráficas): conservan su alto fijo — su forma depende de él.
+    const sinTexto = (nodoOriginal.textContent ?? '').trim().length === 0;
     let textoEstilo = '';
     for (let j = 0; j < estilo.length; j++) {
       const nombre = estilo[j];
@@ -405,16 +420,11 @@ export function congelarEstilosParaCaptura(original: HTMLElement, clon: HTMLElem
         else textoEstilo += 'overflow-x:hidden;overflow-y:visible;';
         continue;
       }
-      if (nombre === 'font-weight' && !truncadoQueDesborda) {
-        textoEstilo += 'font-weight:700;';
-        continue;
-      }
-      if (nombre === 'font-size' && !truncadoQueDesborda) {
-        const pxOriginal = parseFloat(estilo.getPropertyValue('font-size'));
-        const pxNuevo = Number.isFinite(pxOriginal) ? pxOriginal * 1.08 : pxOriginal;
-        textoEstilo += `font-size:${pxNuevo}px;`;
-        continue;
-      }
+      // Antes aquí se forzaba negrilla y +8 % de tamaño a TODO el texto. Eso
+      // hacía que el texto ocupara más ancho que en pantalla y terminara
+      // saliéndose de su celda ("+100,4%"), partiéndose en dos líneas
+      // ("CLASE DE / SITIO") o encimándose con lo de abajo. Ahora se copia
+      // el tamaño y el peso tal cual; la nitidez la da la escala de captura.
       // Al agrandar la letra (arriba) sin tocar "height", el texto más
       // grande ya no cabía dentro del alto YA CONGELADO en píxeles (el que
       // tenía con la letra más chica) — y como "overflow" también se
@@ -422,8 +432,12 @@ export function congelarEstilosParaCaptura(original: HTMLElement, clon: HTMLElem
       // reportado. Se omite "height" para estos elementos (nunca son la
       // barra ni su contenedor, que sí necesitan un alto fijo): así el
       // texto agrandado define su propio alto natural en vez de quedar
-      // encajado a la fuerza en uno más chico.
-      if ((nombre === 'height' || nombre === 'min-height') && !truncadoQueDesborda && !esContenedorDeBarra && !dentroDeBarra) {
+      // encajado a la fuerza en uno más chico. OJO: también "block-size" y
+      // "min-block-size" — son el MISMO alto con otro nombre (propiedades
+      // lógicas) y getComputedStyle las trae aparte; si se copiaban, el alto
+      // quedaba fijo igual y un texto que en la captura ocupara una línea
+      // más se montaba sobre el de abajo.
+      if ((nombre === 'height' || nombre === 'min-height' || nombre === 'block-size' || nombre === 'min-block-size') && !truncadoQueDesborda && !esContenedorDeBarra && !dentroDeBarra && !sinTexto) {
         continue;
       }
       // Se quitó por completo el halo blanco alrededor del texto — a
@@ -455,6 +469,13 @@ export function congelarEstilosParaCaptura(original: HTMLElement, clon: HTMLElem
     // durante esa animación el navegador reporta el color intermedio en
     // formato oklab() — que html2canvas no sabe leer. Con transition:none
     // el color congelado (rgba) se aplica de inmediato.
+    // Textos de UNA sola línea en pantalla se fijan en una línea también en
+    // la imagen: el motor de captura mide el texto unos píxeles más ancho que
+    // el navegador y a veces lo partía en dos ("2025 · / comparar"), y la
+    // segunda línea se montaba sobre lo de abajo.
+    if (!(nodoOriginal instanceof SVGElement) && tieneTextoPropio(nodoOriginal) && esDeUnaLinea(nodoOriginal as HTMLElement, estilo)) {
+      textoEstilo += 'white-space:nowrap;';
+    }
     textoEstilo += 'transition:none !important;animation:none !important;';
     nodoClon.setAttribute('style', textoEstilo);
     nodoClon.removeAttribute('class');
@@ -574,7 +595,9 @@ function ensancharTextosTruncados(raiz: HTMLElement): () => void {
     const estilo = window.getComputedStyle(el);
     return estilo.overflowX === 'auto' || estilo.overflowX === 'scroll';
   });
-  const ANCHO_MINIMO_TABLA = 620;
+  // Ya no se fuerza un ancho mínimo a las tablas: el ancho necesario se
+  // calcula del contenido real (ver ajustarAnchoPorDesbordeHorizontal).
+  const ANCHO_MINIMO_TABLA = 0;
   const tablasAngostas = Array.from(raiz.querySelectorAll<HTMLTableElement>('table')).filter(
     (t) => t.getBoundingClientRect().width < ANCHO_MINIMO_TABLA,
   );
@@ -657,6 +680,184 @@ function asegurarCorreccionMetricasHtml2canvas() {
   document.head.appendChild(estilo);
 }
 
+
+// ── Ajustes de la COPIA antes de capturar (nunca tocan la pantalla) ──────
+// Todo lo de abajo trabaja sobre la copia fuera de pantalla que arma
+// capturarComponenteComoCanvas. Objetivo: que la imagen contenga el
+// componente COMPLETO aunque en pantalla tenga scroll interno, altura
+// máxima, "overflow: hidden" o textos acortados con "…".
+
+const esperarCuadro = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+/** Elementos que nunca se deben "desplegar": mapas Leaflet, SVG y el interior de las barras. */
+function esIntocable(el: Element): boolean {
+  if (el instanceof SVGElement) return true;
+  if (el.closest('.leaflet-container')) return true;
+  if (el.hasAttribute('data-export-track') || el.closest('[data-export-track]')) return true;
+  return false;
+}
+
+/**
+ * Despliega cualquier contenedor que esté escondiendo contenido: listas con
+ * altura máxima y scroll, cajas con alto fijo y overflow hidden/auto, tablas
+ * con scroll horizontal. Usa min-height/min-width con el tamaño REAL del
+ * contenido (scrollHeight/scrollWidth), así nada depende de medidas fijas.
+ * Los textos con "…" no se tocan aquí (ver ensancharHastaQueQuepanLosTextos).
+ */
+function desplegarContenidoOculto(raiz: HTMLElement, permitirHorizontal = false) {
+  // Varias pasadas: al desplegar un contenedor interno, su padre puede
+  // pasar a desbordar también.
+  for (let pasada = 0; pasada < 3; pasada++) {
+    let cambios = 0;
+    for (const el of [raiz, ...Array.from(raiz.querySelectorAll<HTMLElement>('*'))]) {
+      if (esIntocable(el)) continue;
+      const estilo = window.getComputedStyle(el);
+      if (estilo.textOverflow === 'ellipsis') continue;
+      const ocultaY = estilo.overflowY !== 'visible';
+      const ocultaX = estilo.overflowX !== 'visible';
+      if (ocultaY && el.scrollHeight > el.clientHeight + 1) {
+        el.style.maxHeight = 'none';
+        el.style.minHeight = `${el.scrollHeight}px`;
+        el.style.overflowY = 'visible';
+        cambios++;
+      }
+      if (permitirHorizontal && ocultaX && el.scrollWidth > el.clientWidth + 1 && el.tagName !== 'TD' && el.tagName !== 'TH') {
+        el.style.maxWidth = 'none';
+        el.style.minWidth = `${el.scrollWidth}px`;
+        el.style.overflowX = 'visible';
+        cambios++;
+      }
+    }
+    if (cambios === 0) break;
+  }
+}
+
+/** Textos que hoy se ven recortados (con "…" o cortados por su caja). */
+function textosRecortados(raiz: HTMLElement): HTMLElement[] {
+  return Array.from(raiz.querySelectorAll<HTMLElement>('*')).filter((el) => {
+    if (esIntocable(el) || el.hasAttribute('data-ocultar-en-descarga')) return false;
+    if (el.scrollWidth <= el.clientWidth + 1 || el.clientWidth === 0) return false;
+    const estilo = window.getComputedStyle(el);
+    if (estilo.overflowX === 'visible') return false;
+    // Solo cuenta si de verdad contiene texto propio.
+    return Array.from(el.childNodes).some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim().length > 0);
+  });
+}
+
+/**
+ * Listas de barras (AporteBarList): la columna del nombre tiene un ancho
+ * fijo en pantalla y los nombres largos se acortan con "…". En la copia se
+ * ensancha esa columna al nombre más largo de la lista — igual en todas sus
+ * filas, para que las barras sigan alineadas entre sí.
+ */
+function ensancharColumnaDeEtiquetas(raiz: HTMLElement) {
+  // Filas de datos agrupadas por su lista (mismo padre).
+  const listas = new Map<HTMLElement, HTMLElement[]>();
+  raiz.querySelectorAll<HTMLElement>('[data-export-fila]').forEach((fila) => {
+    if (!fila.querySelector('[data-export-texto="etiqueta"]') || !fila.parentElement) return;
+    const filas = listas.get(fila.parentElement) ?? [];
+    filas.push(fila);
+    listas.set(fila.parentElement, filas);
+  });
+  listas.forEach((filas, padre) => {
+    const etiquetas = filas.map((f) => f.querySelector<HTMLElement>('[data-export-texto="etiqueta"]')!);
+    const necesario = Math.ceil(Math.max(...etiquetas.map((e) => e.scrollWidth))) + 4;
+    const actual = Math.min(...etiquetas.map((e) => e.clientWidth));
+    if (necesario <= actual) return;
+    // El encabezado ("Aporte") es hermano de la lista: recibe la misma grilla.
+    const encabezados = padre.parentElement
+      ? Array.from(padre.parentElement.children).filter((h): h is HTMLElement => h instanceof HTMLElement && h.hasAttribute('data-export-fila'))
+      : [];
+    [...filas, ...encabezados].forEach((f) => {
+      const columnas = window.getComputedStyle(f).gridTemplateColumns.split(' ').filter(Boolean);
+      if (columnas.length < 4) return;
+      f.style.gridTemplateColumns = `${necesario}px minmax(90px, 1fr) ${columnas.slice(2).join(' ')}`;
+    });
+  });
+}
+
+/** Cuánto contenido queda escondido a la derecha en contenedores con scroll/hidden horizontal. */
+function deficitHorizontal(raiz: HTMLElement): number {
+  let deficit = 0;
+  for (const el of [raiz, ...Array.from(raiz.querySelectorAll<HTMLElement>('*'))]) {
+    if (esIntocable(el) || el.tagName === 'TD' || el.tagName === 'TH') continue;
+    const estilo = window.getComputedStyle(el);
+    if (estilo.textOverflow === 'ellipsis' || estilo.overflowX === 'visible') continue;
+    if (!tieneTextoPropio(el) || el.children.length > 0) {
+      deficit = Math.max(deficit, el.scrollWidth - el.clientWidth);
+    }
+  }
+  return deficit;
+}
+
+/**
+ * Tablas y bloques con scroll horizontal: en vez de estirar solo ese bloque
+ * (que se montaba encima de lo que tiene al lado, ej. el panel "Resumen de
+ * la tendencia"), se ensancha TODA la copia lo necesario para que el bloque
+ * quepa en su propia columna. Solo si se llega al tope se estira el bloque.
+ */
+async function ajustarAnchoPorDesbordeHorizontal(copia: HTMLElement) {
+  const tope = 3200;
+  for (let intento = 0; intento < 5; intento++) {
+    const deficit = deficitHorizontal(copia);
+    if (deficit <= 1) return;
+    const actual = copia.getBoundingClientRect().width;
+    if (actual >= tope) break;
+    copia.style.width = `${Math.min(tope, Math.ceil(actual + deficit + 2))}px`;
+    await esperarCuadro();
+  }
+  desplegarContenidoOculto(copia, true);
+}
+
+/**
+ * Si después de todo lo anterior todavía quedan textos acortados (columnas
+ * en %, tarjetas en grilla, encabezados), se ensancha la copia por pasos
+ * hasta que quepan — con tope, para no producir imágenes absurdas. Es un
+ * ensanche del lienzo, no un zoom: la letra conserva su tamaño real.
+ */
+async function ensancharHastaQueQuepanLosTextos(copia: HTMLElement, anchoBase: number) {
+  const tope = Math.max(anchoBase, Math.min(2400, anchoBase * 2.2));
+  for (const factor of [1.12, 1.25, 1.4, 1.6, 1.85, 2.2]) {
+    if (textosRecortados(copia).length === 0) return;
+    const nuevo = Math.min(tope, Math.round(anchoBase * factor));
+    if (nuevo <= copia.getBoundingClientRect().width) continue;
+    copia.style.width = `${nuevo}px`;
+    await esperarCuadro();
+    desplegarContenidoOculto(copia);
+  }
+}
+
+/** Borde derecho real del contenido (lo que sobresale también cuenta). */
+function medirAnchoRealDelContenido(raiz: HTMLElement): number {
+  const rectRaiz = raiz.getBoundingClientRect();
+  let maxDerecha = Math.max(rectRaiz.width, raiz.scrollWidth);
+  raiz.querySelectorAll<HTMLElement>('*').forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return;
+    maxDerecha = Math.max(maxDerecha, r.right - rectRaiz.left);
+  });
+  return Math.ceil(maxDerecha);
+}
+
+/** Parte un texto en líneas que quepan en "anchoMax" (para título/subtítulo). */
+function partirEnLineas(ctx: CanvasRenderingContext2D, texto: string, anchoMax: number): string[] {
+  const palabras = texto.split(/\s+/).filter(Boolean);
+  const lineas: string[] = [];
+  let actual = '';
+  for (const p of palabras) {
+    const prueba = actual ? `${actual} ${p}` : p;
+    if (ctx.measureText(prueba).width <= anchoMax || !actual) actual = prueba;
+    else { lineas.push(actual); actual = p; }
+  }
+  if (actual) lineas.push(actual);
+  return lineas;
+}
+
+export interface OpcionesExportacion {
+  /** Texto pequeño bajo el título (ej. el subtítulo de la tarjeta). */
+  subtitulo?: string;
+}
+
 /**
  * Núcleo de captura reutilizado tanto por la descarga en PNG como por la
  * generación de PDF — así ambas rutas comparten EXACTAMENTE la misma
@@ -664,7 +865,7 @@ function asegurarCorreccionMetricasHtml2canvas() {
  * truncado, alto/ancho medidos con margen de seguridad) en vez de mantener
  * dos implementaciones distintas que puedan desincronizarse.
  */
-export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo: string | undefined): Promise<HTMLCanvasElement> {
+export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo: string | undefined, opciones: OpcionesExportacion = {}): Promise<HTMLCanvasElement> {
   const html2canvas = (await import('html2canvas')).default;
   asegurarCorreccionMetricasHtml2canvas();
 
@@ -703,7 +904,27 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   }
   await new Promise((resolve) => requestAnimationFrame(resolve));
 
-  const ESCALA = 2;
+  // Mostrar TODO el contenido antes de medir: contenedores con scroll o
+  // altura máxima, columnas de nombres de las barras y, si aún hace falta,
+  // un lienzo más ancho para que ningún texto quede con "…".
+  desplegarContenidoOculto(copia);
+  await esperarCuadro();
+  await ajustarAnchoPorDesbordeHorizontal(copia);
+  ensancharColumnaDeEtiquetas(copia);
+  await esperarCuadro();
+  await ensancharHastaQueQuepanLosTextos(copia, copia.getBoundingClientRect().width);
+  await ajustarAnchoPorDesbordeHorizontal(copia);
+  desplegarContenidoOculto(copia);
+  await esperarCuadro();
+
+  // Resolución: mínimo 2× (o la densidad de la pantalla); los componentes
+  // pequeños se capturan a más resolución para que la imagen tenga al menos
+  // ~1400 px de ancho y se lea bien en informes, PDF o PowerPoint. Con tope
+  // para no exceder el tamaño máximo de lienzo del navegador.
+  const anchoMedido = medirAnchoRealDelContenido(copia);
+  const altoMedido = Math.max(1, copia.getBoundingClientRect().height);
+  let ESCALA = Math.min(4, Math.max(2, window.devicePixelRatio || 1, 1400 / Math.max(1, anchoMedido)));
+  ESCALA = Math.max(1, Math.min(ESCALA, 12000 / Math.max(1, anchoMedido), 14000 / Math.max(1, altoMedido)));
   let canvasContenido: HTMLCanvasElement;
   let textosManuales: TextoManual[];
   let especificacionLeyenda: { texto: string; color: string }[];
@@ -795,7 +1016,7 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
     // recortar el final de ningún componente descargable.
     const MARGEN_SEGURIDAD_PX = 24;
     const alturaReal = medirAltoRealDelContenido(copia) + MARGEN_SEGURIDAD_PX;
-    const anchoReal = Math.ceil(copia.scrollWidth) + 4;
+    const anchoReal = medirAnchoRealDelContenido(copia) + 4;
     canvasContenido = await html2canvas(copia, {
       // null (en vez de blanco) para que la imagen exportada tenga fondo
       // null = fondo transparente real (RGBA), a pedido explícito — el
@@ -838,8 +1059,21 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   // Los textos manuales (etiquetas, valores, aporte) se dibujan más abajo,
   // sobre el canvas FINAL — ver justo antes de "return canvasFinal".
 
-  const altoTitulo = titulo ? 40 : 0;
-  const relleno = 16;
+  const relleno = Math.round(10 * ESCALA);
+  // Título (y subtítulo) partidos en líneas según el ancho real de la imagen
+  // — nunca se salen por los lados aunque sean más largos que el componente.
+  const ctxTitulo = document.createElement('canvas').getContext('2d')!;
+  const FUENTE_TITULO = `700 ${Math.round(15 * ESCALA)}px Inter, system-ui, sans-serif`;
+  const FUENTE_SUBTITULO = `400 ${Math.round(11.5 * ESCALA)}px Inter, system-ui, sans-serif`;
+  const anchoTexto = Math.max(canvasContenido.width, 200 * ESCALA);
+  ctxTitulo.font = FUENTE_TITULO;
+  const lineasTitulo = titulo ? partirEnLineas(ctxTitulo, titulo, anchoTexto) : [];
+  ctxTitulo.font = FUENTE_SUBTITULO;
+  const lineasSubtitulo = opciones.subtitulo ? partirEnLineas(ctxTitulo, opciones.subtitulo, anchoTexto) : [];
+  const ALTO_LINEA_TITULO = Math.round(21 * ESCALA);
+  const ALTO_LINEA_SUBTITULO = Math.round(16 * ESCALA);
+  const altoTitulo = lineasTitulo.length * ALTO_LINEA_TITULO + lineasSubtitulo.length * ALTO_LINEA_SUBTITULO
+    + (lineasTitulo.length + lineasSubtitulo.length > 0 ? Math.round(8 * ESCALA) : 0);
 
   // Leyenda propia (solo si el componente trajo especificacionLeyenda):
   // se calcula el ancho real de cada texto con measureText (nunca un ancho
@@ -875,25 +1109,29 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   const altoLeyenda = especificacionLeyenda.length > 0 ? lineasLeyenda.length * ALTO_POR_LINEA + 10 * ESCALA : 0;
 
   const canvasFinal = document.createElement('canvas');
-  canvasFinal.width = canvasContenido.width + relleno * 2;
+  canvasFinal.width = Math.max(canvasContenido.width, anchoTexto) + relleno * 2;
   canvasFinal.height = canvasContenido.height + altoTitulo + relleno * 2 + altoLeyenda;
   const ctx = canvasFinal.getContext('2d', { willReadFrequently: true })!;
   // Sin fillRect: el canvas queda transparente donde no se dibuje nada
   // encima (fondo transparente real, a pedido explícito) — el título y el
   // contenido capturado sí se pintan normalmente encima.
-  if (titulo) {
-    ctx.fillStyle = '#1e293b';
-    ctx.font = 'bold 30px system-ui, sans-serif';
-    ctx.textBaseline = 'top';
+  if (lineasTitulo.length > 0 || lineasSubtitulo.length > 0) {
     // Centrado horizontal SOLO en la imagen descargada — en pantalla el
-    // título sigue exactamente donde estaba (alineado a la izquierda,
-    // junto a sus botones); esto es un dibujo aparte, hecho a mano sobre
-    // el canvas final, que no toca el DOM real del dashboard en absoluto.
+    // título sigue exactamente donde estaba; esto es un dibujo aparte sobre
+    // el canvas final, que no toca el DOM real del dashboard.
+    ctx.textBaseline = 'top';
     ctx.textAlign = 'center';
-    ctx.fillText(titulo, canvasFinal.width / 2, relleno);
+    let yTexto = relleno;
+    ctx.fillStyle = '#10233f';
+    ctx.font = FUENTE_TITULO;
+    for (const linea of lineasTitulo) { ctx.fillText(linea, canvasFinal.width / 2, yTexto); yTexto += ALTO_LINEA_TITULO; }
+    ctx.fillStyle = '#64748b';
+    ctx.font = FUENTE_SUBTITULO;
+    for (const linea of lineasSubtitulo) { ctx.fillText(linea, canvasFinal.width / 2, yTexto); yTexto += ALTO_LINEA_SUBTITULO; }
     ctx.textAlign = 'left';
   }
-  ctx.drawImage(canvasContenido, relleno, altoTitulo + relleno);
+  const xContenido = Math.round((canvasFinal.width - canvasContenido.width) / 2);
+  ctx.drawImage(canvasContenido, xContenido, altoTitulo + relleno);
 
   // Dibuja la leyenda propia, línea por línea, cada una centrada
   // horizontalmente respecto al ancho TOTAL de la imagen final — con el
@@ -929,17 +1167,27 @@ export async function capturarComponenteComoCanvas(elemento: HTMLElement, titulo
   // coordenadas sumando el mismo desplazamiento (relleno, altoTitulo) que
   // ya se usa para pegar canvasContenido en su lugar.
   if (textosManuales.length > 0) {
-    dibujarTextosManuales(ctx, textosManuales, ESCALA, relleno, altoTitulo + relleno);
+    dibujarTextosManuales(ctx, textosManuales, ESCALA, xContenido, altoTitulo + relleno);
   }
+  // La escala usada viaja con el lienzo (la usa el PDF para calcular el tamaño de impresión).
+  canvasFinal.dataset.escala = String(ESCALA);
   return canvasFinal;
 }
 
-export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: string | undefined, nombreArchivo: string): Promise<void> {
-  const canvasFinal = await capturarComponenteComoCanvas(elemento, titulo);
+export async function exportarHtmlComoImagen(elemento: HTMLElement, titulo: string | undefined, nombreArchivo: string, opciones: OpcionesExportacion = {}): Promise<void> {
+  const canvasFinal = await capturarComponenteComoCanvas(elemento, titulo, opciones);
   const enlace = document.createElement('a');
   enlace.download = `${nombreArchivo}.png`;
   enlace.href = canvasFinal.toDataURL('image/png');
   enlace.click();
+}
+
+/**
+ * Punto de entrada único para descargar cualquier componente como PNG.
+ * (exportarHtmlComoImagen sigue existiendo con la misma firma de siempre.)
+ */
+export function exportarComponenteComoImagen(elemento: HTMLElement, opciones: OpcionesExportacion & { titulo?: string; nombreArchivo: string }): Promise<void> {
+  return exportarHtmlComoImagen(elemento, opciones.titulo, opciones.nombreArchivo, { subtitulo: opciones.subtitulo });
 }
 
 // Exportación DEDICADA para el mapa (Georreferenciación) — separada del

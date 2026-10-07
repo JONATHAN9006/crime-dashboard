@@ -41,7 +41,7 @@ export function Card({ children, className, title, subtitle, actions, descargabl
       // en algunos casos encontraba un ícono pequeño en vez de la gráfica.
       // Capturando todo el contenedor con el motor ya verificado, se trae
       // exactamente lo mismo que se ve en pantalla, completo.
-      await exportarHtmlComoImagen(contenidoRef.current, title, descargable);
+      await exportarHtmlComoImagen(contenidoRef.current, title, descargable, { subtitulo: subtitle });
     } catch (e) {
       console.error('[Descarga de imagen] Falló:', e);
       setErrorDescarga('No se pudo generar la imagen. Inténtalo de nuevo.');
@@ -53,15 +53,17 @@ export function Card({ children, className, title, subtitle, actions, descargabl
   return (
     <div className={clsx('rounded-xl border border-slate-200 bg-white p-4 shadow-sm', className)}>
       {(title || actions || descargable) && (
-        <div className="mb-3 flex items-start justify-between gap-2">
-          <div className={icono ? 'flex items-center gap-2' : undefined}>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div className={clsx('min-w-0 flex-[1_1_12rem]', icono && 'flex items-center gap-2')}>
             {icono}
             <div>
               {title && <h3 className={claseTitulo ?? 'text-sm font-semibold text-slate-800'}>{title}</h3>}
               {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          {/* En pantallas angostas los controles bajan a su propia línea en
+              vez de salirse de la tarjeta. */}
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             {actions}
             {descargable && (
               <button
