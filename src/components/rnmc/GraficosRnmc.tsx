@@ -149,12 +149,12 @@ export function EvolucionTemporalRnmc({ items, vista }: { items: ConFecha[]; vis
 
   return (
     <div>
-      <div className="h-[170px]">
+      <div className="h-[200px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={datos} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+          <ComposedChart data={datos} margin={{ top: 24, right: 16, left: 16, bottom: 0 }}>
             <CartesianGrid stroke="#eef2f7" vertical={false} />
             <XAxis dataKey="etiqueta" tick={{ fontSize: 10.5, fill: '#475569' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} interval="preserveStartEnd" minTickGap={8} />
-            <YAxis tick={{ fontSize: 10.5, fill: '#64748b' }} tickLine={false} axisLine={false} width={44} />
+            <YAxis hide domain={[0, (max: number) => Math.ceil(max * 1.12)]} />
             <Tooltip content={<TooltipSimple />} />
             <Area type="linear" dataKey="casos" stroke="none" fill={TEAL} fillOpacity={0.14} isAnimationActive={false} tooltipType="none" legendType="none" />
             <Line type="linear" dataKey="casos" name="Registros" stroke={TEAL} strokeWidth={2.2} dot={{ r: 3.5, fill: TEAL, stroke: '#fff', strokeWidth: 1 }} activeDot={{ r: 5 }} isAnimationActive={false}>
@@ -167,7 +167,7 @@ export function EvolucionTemporalRnmc({ items, vista }: { items: ConFecha[]; vis
         </ResponsiveContainer>
       </div>
       {trimestres.length > 0 && (
-        <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           {trimestres.map((q, i) => (
             <div key={q.k} className={`rounded-lg border px-2.5 py-2 ${i === 0 ? 'border-rose-100 bg-rose-50/50' : i === 1 ? 'border-sky-100 bg-sky-50/50' : 'border-teal-100 bg-teal-50/50'}`}>
               <div className="flex flex-wrap items-baseline gap-x-2">
