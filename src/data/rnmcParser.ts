@@ -74,7 +74,23 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
   const buffer = await file.arrayBuffer();
   const libro = XLSX.read(buffer, { type: 'array', cellDates: true });
   const hoja = libro.Sheets[libro.SheetNames[0]];
-  const filas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
+  const filasCrudas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
+  // Encabezados normalizados (sin tildes, mayúsculas, espacios → "_") para
+  // que una variación menor del nombre de columna no deje un campo vacío.
+  const normalizarEncabezado = (k: string) => k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const filas = filasCrudas.map((f) => {
+    const n: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(f)) n[normalizarEncabezado(k)] = v;
+    return n;
+  });
+  // Columna del funcionario que IMPONE el comparendo: POLICIA_IMPONE en la
+  // matriz actual, POLICIA_IMPUSO en las anteriores; se acepta cualquier
+  // encabezado equivalente ("FUNCIONARIO IMPONE", "POLICÍA QUE IMPUSO"…).
+  // Nunca se toma la cédula (ID_…). Último recurso: POLICIA_INSERTO.
+  const columnas = filas.length > 0 ? Object.keys(filas[0]) : [];
+  const colFuncionario = columnas.find((c) => /^(POLICIA|FUNCIONARIO|AGENTE|UNIFORMADO)_?(QUE_)?(IMPONE|IMPUSO)$/.test(c))
+    ?? columnas.find((c) => !/^ID|IDENTIFICACION|CEDULA|DOCUMENTO/.test(c) && /(POLICIA|FUNCIONARIO)/.test(c) && /(IMPON|IMPUS)/.test(c))
+    ?? columnas.find((c) => c === 'POLICIA_INSERTO');
 
   return filas.map((fila): RegistroComparendo => {
     const articuloTexto = limpiar(fila.ARTICULO);
@@ -98,10 +114,7 @@ export async function leerMatrizComparendos(file: File): Promise<RegistroCompare
       cuadrantePatrulla,
       zonaAtencionPatrulla: cuadrantePatrulla ? traducirZona(cuadrantePatrulla) : '',
       unidadPolicial: limpiar(fila.UNIDAD_LABORA_POL),
-      // La matriz actual trae POLICIA_IMPONE; las anteriores, POLICIA_IMPUSO.
-      // Se aceptan las dos (y POLICIA_INSERTO como último recurso) para que
-      // "Funcionario policial" no quede vacío si el nombre de columna cambia.
-      funcionario: limpiar(fila.POLICIA_IMPONE) || limpiar(fila.POLICIA_IMPUSO) || limpiar(fila.POLICIA_INSERTO),
+      funcionario: (colFuncionario ? limpiar(fila[colFuncionario]) : '') || limpiar(fila.POLICIA_INSERTO),
       barrio: limpiar(fila.BARRIO_HECHOS),
       lat: parseCoordenada(fila.LATITUD) ?? parseCoordenada(fila.LATITUD_GPS),
       lon: parseCoordenada(fila.LONGITUD) ?? parseCoordenada(fila.LONGITUD_GPS),

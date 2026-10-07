@@ -18,6 +18,11 @@ import { formatDecimal } from '../utils/aggregations';
 
 const FUNCION_SUBIR_REGISTROS = '/.netlify/functions/subirRegistros';
 
+// "NO APLICA LOCALIDAD - COMUNA" (comparendos fuera de las comunas de
+// Popayán) no es una comuna: se deja por fuera de la tarjeta Comuna y del
+// conteo de comunas. Los comparendos siguen contando en todo lo demás.
+const comunaValida = (r: RegistroComparendo) => (/NO\s*APLICA/i.test(r.comuna) ? '' : r.comuna);
+
 // Los tres comportamientos que se piden siempre juntos, en un solo
 // componente — confirmados contra el archivo real (Art. 95, no 91: ese
 // artículo no existe en la matriz, "Art. 95 Num. 1" sí, con 457 casos).
@@ -167,7 +172,7 @@ function VistaComparativa({ delito, registrosRnmc }: { delito: string; registros
         <TarjetaRanking titulo="Barrios más afectados" icono={<IconoTitulo><House size={17} /></IconoTitulo>} registros={registrosDelito} campo={(r) => r.barrioHecho} archivo={`${nombreArchivo}-barrios`} resaltarMaximo />
         <TarjetaRanking titulo="Patrulla / Cuadrante" icono={<IconoTitulo><MapPinned size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.zonaAtencionHechos} archivo="rnmc-patrulla-cuadrante" resaltarMaximo />
         <TarjetaRanking titulo="Unidad policial" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><Landmark size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.unidadPolicial} archivo="rnmc-unidad" resaltarMaximo topInicial={5} />
-        <TarjetaRanking titulo="Comuna" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><MapPin size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.comuna} archivo="rnmc-comuna" resaltarMaximo topInicial={5} />
+        <TarjetaRanking titulo="Comuna" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><MapPin size={17} /></IconoTitulo>} registros={registrosRnmc} campo={comunaValida} archivo="rnmc-comuna" resaltarMaximo topInicial={5} />
         <TarjetaRanking titulo="Funcionario policial" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><Users size={17} /></IconoTitulo>} registros={registrosRnmc} campo={(r) => r.funcionario} archivo="rnmc-funcionario" resaltarMaximo topInicial={5} />
         {/* Se conservan las dos tarjetas que ya tenía esta vista. */}
         <TarjetaRanking titulo="Armas más empleadas" icono={<IconoTitulo><Crosshair size={17} /></IconoTitulo>} registros={registrosDelito} campo={(r) => r.armas} archivo={`${nombreArchivo}-armas`} resaltarMaximo topInicial={5} />
@@ -262,7 +267,19 @@ export function Rnmc() {
     (async () => {
       if (sincronizacionDisponible) {
         try {
-          const remotos = await descargarComparendosSupabase(backendUrl, supabaseAnonKey);
+          const remotosCrudos = await descargarComparendosSupabase(backendUrl, supabaseAnonKey);
+          // Los comparendos del servidor que se subieron con una versión
+          // anterior del lector no traen el funcionario (la columna cambió de
+          // POLICIA_IMPUSO a POLICIA_IMPONE). Si este navegador ya tiene esa
+          // información (mismo expediente), se completa con ella en vez de
+          // mostrar la tarjeta vacía.
+          const localPrevio = await cargarComparendos();
+          const funcionarioLocal = new Map((localPrevio?.registros ?? []).filter((r) => r.funcionario).map((r) => [r.__id, r.funcionario]));
+          const remotos = remotosCrudos.map((r) => (r.funcionario || !funcionarioLocal.has(r.__id) ? r : { ...r, funcionario: funcionarioLocal.get(r.__id)! }));
+          const sinFuncionario = remotos.filter((r) => !r.funcionario).length;
+          if (remotos.length > 0 && sinFuncionario / remotos.length > 0.5) {
+            setAviso('Los comparendos guardados en el servidor no traen el funcionario que impone (se subieron con una versión anterior). Vuelve a cargar la matriz RNMC para actualizarlos.');
+          }
           if (remotos.length > 0) {
             setRegistros(remotos);
             setFechaCarga(new Date().toISOString());
@@ -339,7 +356,7 @@ export function Rnmc() {
   const resumen = useMemo(() => {
     if (!registrosFiltradosPorFecha.length) return null;
     const zonas = new Set(registrosFiltradosPorFecha.map((r) => r.zonaAtencionHechos).filter(Boolean));
-    const comunas = new Set(registrosFiltradosPorFecha.map((r) => r.comuna).filter(Boolean));
+    const comunas = new Set(registrosFiltradosPorFecha.map(comunaValida).filter(Boolean));
     const funcionarios = new Set(registrosFiltradosPorFecha.map((r) => r.funcionario).filter(Boolean));
     const conMediacion = registrosFiltradosPorFecha.filter((r) => r.mediacionInSitu).length;
     const top = conAporte(registrosFiltradosPorFecha, (r) => r.articuloNumeral, 1)[0];
@@ -518,7 +535,7 @@ export function Rnmc() {
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             <TarjetaRanking titulo="Unidad policial" icono={<IconoTitulo><Landmark size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.unidadPolicial} encabezado="Unidad policial" archivo="rnmc-unidad" />
-            <TarjetaRanking titulo="Comuna" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><MapPin size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.comuna} encabezado="Comuna" archivo="rnmc-comuna" />
+            <TarjetaRanking titulo="Comuna" icono={<IconoTitulo tono="bg-[#e3f2ef] text-[#116762]"><MapPin size={17} /></IconoTitulo>} registros={registrosVista} campo={comunaValida} encabezado="Comuna" archivo="rnmc-comuna" />
             <TarjetaRanking titulo="Funcionario policial" icono={<IconoTitulo><UserRound size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.funcionario} encabezado="Funcionario policial" archivo="rnmc-funcionario" />
           </div>
 
