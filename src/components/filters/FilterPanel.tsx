@@ -127,13 +127,22 @@ export function FilterPanel() {
   }
 
   // ── Secciones (solo presentación; los campos y su lógica son los mismos) ──
-  const campo = (key: CampoFiltro, icono: ReactNode) => {
+  // Cada sección tiene su propio tono (azul, verde petróleo, azul pizarra)
+  // para leerse de un vistazo, siempre dentro de la paleta institucional.
+  const TONOS = {
+    fecha: { banda: 'bg-[#eaf2fb] border-[#d3e3f4]', tile: 'bg-[#1e4f8f] text-white', campo: 'bg-[#e8f0fa] text-[#1e4f8f]' },
+    ubicacion: { banda: 'bg-[#e6f4f0] border-[#cfe8e1]', tile: 'bg-[#116762] text-white', campo: 'bg-[#e3f2ef] text-[#116762]' },
+    hecho: { banda: 'bg-[#eef1f8] border-[#dde3ef]', tile: 'bg-[#10233f] text-white', campo: 'bg-[#eceff6] text-[#10233f]' },
+  } as const;
+  type Tono = keyof typeof TONOS;
+  const campo = (key: CampoFiltro, icono: ReactNode, tono: Tono) => {
     const def = [...CAMPOS_PRINCIPALES, ...CAMPOS_ADICIONALES].find((c) => c.key === key)!;
     return (
       <MultiSelect
         key={key}
         institucional
         icono={icono}
+        tonoIcono={TONOS[tono].campo}
         label={etiquetaDe.get(key) ?? key}
         options={opcionesPara(def.key, def.getter)}
         selected={filters[key] as string[]}
@@ -141,34 +150,38 @@ export function FilterPanel() {
       />
     );
   };
-  const claseFecha = (activa: boolean) => `h-9 w-full rounded-lg border bg-white px-2 text-[13px] text-[#10233f] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#116762]/40 disabled:bg-slate-100 disabled:text-slate-400 ${activa ? 'border-[#116762] bg-[#116762]/[0.06] font-semibold' : 'border-slate-300 hover:border-[#116762]/60'}`;
-  const etiquetaCampo = 'mb-1 flex items-center gap-1 text-[11.5px] font-semibold text-slate-600';
-  const ICO = 'shrink-0 text-[#116762]';
+  const claseFecha = (activa: boolean) => `h-10 w-full rounded-lg border bg-white px-2.5 text-[13px] text-[#10233f] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#116762]/40 disabled:bg-slate-100 disabled:text-slate-400 ${activa ? 'border-[#116762] bg-[#116762]/[0.06] font-semibold' : 'border-slate-300 hover:border-[#116762]/60'}`;
   const adicionalesActivos = CAMPOS_ADICIONALES.filter((c) => (filters[c.key] as string[]).length > 0).length;
-  const columnasUbicacion = mostrarAdicionales ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-3';
-  const columnasHecho = mostrarAdicionales ? 'sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7' : 'grid-cols-1';
+  const columnasUbicacion = mostrarAdicionales ? 'sm:grid-cols-2 lg:grid-cols-5' : 'sm:grid-cols-3';
+  const columnasHecho = mostrarAdicionales ? 'sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7' : 'grid-cols-1';
+  const textoPeriodo = multifechaActiva
+    ? 'Análisis multifecha'
+    : rapidoActivo ? RAPIDOS.find((r) => r.id === rapidoActivo)!.texto
+      : personalizadoActivo ? 'Personalizado'
+        : filters.anio.length > 0 || filters.mes.length > 0 ? 'Año / mes elegidos' : 'Todo el periodo';
+  const botonRapido = (activo: boolean) => `rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${activo ? 'border-[#10233f] bg-[#10233f] text-white shadow-sm' : 'border-slate-300 bg-white text-[#10233f] hover:border-[#1e4f8f] hover:bg-[#eaf2fb]'}`;
 
   return (
-    <section aria-label="Filtros de análisis" className="rounded-xl border border-slate-200 bg-white shadow-sm">
+    <section aria-label="Filtros de análisis" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       {/* Encabezado */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
         <button type="button" onClick={() => setExpandido((v) => !v)} aria-expanded={expandido} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#116762]/10 text-[#116762]">
-            <Filter size={18} strokeWidth={2.2} />
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#e3f2ef] text-[#116762]">
+            <Filter size={24} strokeWidth={2.2} fill="currentColor" />
           </span>
           <span className="min-w-0">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="text-[15px] font-bold text-[#10233f]">Filtros de análisis</span>
+              <span className="text-[20px] font-bold leading-tight text-[#10233f]">Filtros de análisis</span>
               {activos > 0 && (
-                <span className="rounded-full bg-[#116762] px-2 py-[1px] text-[10.5px] font-semibold text-white">{activos} {activos === 1 ? 'activo' : 'activos'}</span>
+                <span className="rounded-full bg-[#116762] px-2.5 py-[2px] text-[11px] font-semibold text-white">{activos} {activos === 1 ? 'activo' : 'activos'}</span>
               )}
             </span>
-            <span className="block text-[12px] text-slate-500">Seleccione los criterios de análisis. Los gráficos, tablas y mapas se actualizarán automáticamente.</span>
+            <span className="block text-[12.5px] text-slate-500">Seleccione los criterios de análisis. Los gráficos, tablas y mapas se actualizarán automáticamente.</span>
           </span>
         </button>
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#116762]/20 bg-[#116762]/[0.06] px-2.5 py-1.5 text-[12px] font-semibold text-[#0b4a46]" aria-live="polite">
-            <Database size={13} />
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#e3f2ef] px-3 py-2 text-[12.5px] font-semibold text-[#0b4a46]" aria-live="polite">
+            <Database size={15} />
             {filteredRecords.length.toLocaleString('es-CO')} de {records.length.toLocaleString('es-CO')} registros
           </span>
           <button
@@ -176,24 +189,24 @@ export function FilterPanel() {
             onClick={() => { if (accesoMicrogerencia) setMostrarMicrogerencia(true); }}
             disabled={!accesoMicrogerencia}
             title={accesoMicrogerencia ? undefined : 'Próximamente — en desarrollo.'}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors ${accesoMicrogerencia ? 'border-[#10233f]/25 bg-white text-[#10233f] hover:bg-[#10233f]/5' : 'cursor-not-allowed border-slate-200 text-slate-300'}`}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition-colors ${accesoMicrogerencia ? 'border-[#10233f]/25 bg-white text-[#10233f] shadow-sm hover:bg-[#eaf2fb]' : 'cursor-not-allowed border-slate-200 text-slate-300'}`}
           >
-            <MapIcon size={14} />
+            <MapIcon size={16} />
             Microgerencia
             {!accesoMicrogerencia && <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-400">Próx.</span>}
           </button>
-          <button type="button" onClick={() => setExpandido((v) => !v)} aria-label={expandido ? 'Contraer filtros' : 'Expandir filtros'} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100">
-            {expandido ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
+          <button type="button" onClick={() => setExpandido((v) => !v)} aria-label={expandido ? 'Contraer filtros' : 'Expandir filtros'} className="rounded-md p-1.5 text-[#10233f] hover:bg-slate-100">
+            {expandido ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
         </div>
       </div>
 
       {/* Filtros activos — cada chip quita solo ese filtro */}
       {chips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 px-4 py-2">
-          <span className="mr-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Filtros activos</span>
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-[#f7faf9] px-4 py-2">
+          <span className="mr-1 text-[10.5px] font-bold uppercase tracking-wide text-[#116762]">Filtros activos</span>
           {chips.map((c) => (
-            <span key={c.id} className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#116762]/30 bg-[#116762]/[0.07] py-[2px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0b4a46]">
+            <span key={c.id} className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#116762]/30 bg-white py-[3px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0b4a46] shadow-sm">
               <span className="truncate" title={c.texto}>{c.texto}</span>
               <button type="button" onClick={c.quitar} aria-label={`Quitar ${c.texto}`} className="rounded-full p-0.5 hover:bg-[#116762]/15"><X size={12} /></button>
             </span>
@@ -206,10 +219,14 @@ export function FilterPanel() {
       {expandido && (
         <div className="space-y-3 border-t border-slate-100 p-4">
           {/* A. FECHA Y PERIODO */}
-          <div className="rounded-lg border border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-lg border-b border-slate-200 bg-slate-50 px-3 py-2">
-              <EncabezadoSeccion icono={<CalendarDays size={16} />} titulo="Fecha y periodo" descripcion="Seleccione el rango de fechas y la temporalidad del análisis" />
-              <div className="flex flex-wrap gap-1" role="group" aria-label="Accesos rápidos de fecha">
+          <div className="overflow-visible rounded-xl border border-[#d3e3f4]">
+            <div className={`flex flex-wrap items-center justify-between gap-2 rounded-t-xl border-b px-3 py-2.5 ${TONOS.fecha.banda}`}>
+              <EncabezadoSeccion tono={TONOS.fecha.tile} icono={<CalendarDays size={18} />} titulo="Fecha y periodo" descripcion="Seleccione el rango de fechas y la temporalidad del análisis" />
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Accesos rápidos de fecha">
+                <span className="mr-1 inline-flex items-center gap-1.5 rounded-lg border border-[#d3e3f4] bg-white px-3 py-1.5 text-[12px] font-bold text-[#10233f] shadow-sm">
+                  <CalendarRange size={15} className="text-[#1e4f8f]" />
+                  {textoPeriodo}
+                </span>
                 {RAPIDOS.map((r) => (
                   <button
                     key={r.id}
@@ -218,7 +235,7 @@ export function FilterPanel() {
                     onClick={() => aplicarRapido(r.desde)}
                     aria-pressed={rapidoActivo === r.id}
                     title={corte ? `Hasta la fecha de corte de los datos (${corte.toLocaleDateString('es-CO')}). Llena Fecha inicial y Fecha final, y quita Año y Mes.` : undefined}
-                    className={`rounded-md border px-2.5 py-1 text-[11.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${rapidoActivo === r.id ? 'border-[#10233f] bg-[#10233f] text-white' : 'border-slate-300 bg-white text-[#10233f] hover:border-[#10233f]/50'}`}
+                    className={botonRapido(rapidoActivo === r.id)}
                   >
                     {r.texto}
                   </button>
@@ -229,17 +246,16 @@ export function FilterPanel() {
                   onClick={() => fechaInicialRef.current?.focus()}
                   aria-pressed={personalizadoActivo}
                   title="Elija usted mismo la fecha inicial y la final"
-                  className={`rounded-md border px-2.5 py-1 text-[11.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${personalizadoActivo ? 'border-[#10233f] bg-[#10233f] text-white' : 'border-slate-300 bg-white text-[#10233f] hover:border-[#10233f]/50'}`}
+                  className={botonRapido(personalizadoActivo)}
                 >
                   Personalizado
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-3 lg:grid-cols-6">
-              <MultiSelect institucional icono={<CalendarDays size={13} className={ICO} />} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
-              <MultiSelect institucional icono={<CalendarDays size={13} className={ICO} />} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
-              <div>
-                <label htmlFor="filtro-fecha-inicial" className={etiquetaCampo}><CalendarRange size={13} className={ICO} />Fecha inicial{multifechaActiva && <span className="font-normal text-slate-400">(multifecha)</span>}</label>
+            <div className="grid grid-cols-1 gap-3 bg-white p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 rounded-b-xl">
+              <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
+              <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
+              <CampoFecha id="filtro-fecha-inicial" etiqueta="Fecha inicial" tono={TONOS.fecha.campo} multifecha={multifechaActiva} activa={!!filters.fechaInicial}>
                 <input
                   id="filtro-fecha-inicial"
                   ref={fechaInicialRef}
@@ -251,9 +267,8 @@ export function FilterPanel() {
                   onChange={(e) => setFilters((prev) => ({ ...prev, fechaInicial: e.target.value || null }))}
                   className={claseFecha(!!filters.fechaInicial)}
                 />
-              </div>
-              <div>
-                <label htmlFor="filtro-fecha-final" className={etiquetaCampo}><CalendarRange size={13} className={ICO} />Fecha final{multifechaActiva && <span className="font-normal text-slate-400">(multifecha)</span>}</label>
+              </CampoFecha>
+              <CampoFecha id="filtro-fecha-final" etiqueta="Fecha final" tono={TONOS.fecha.campo} multifecha={multifechaActiva} activa={!!filters.fechaFinal}>
                 <input
                   id="filtro-fecha-final"
                   type="date"
@@ -264,60 +279,66 @@ export function FilterPanel() {
                   onChange={(e) => setFilters((prev) => ({ ...prev, fechaFinal: e.target.value || null }))}
                   className={claseFecha(!!filters.fechaFinal)}
                 />
-              </div>
-              {campo('franjaHoraria', <Clock size={13} className={ICO} />)}
-              {campo('turno', <Hourglass size={13} className={ICO} />)}
+              </CampoFecha>
+              {campo('franjaHoraria', <Clock size={18} />, 'fecha')}
+              {campo('turno', <Hourglass size={18} />, 'fecha')}
             </div>
           </div>
 
           {/* B. UBICACIÓN + C. CARACTERÍSTICAS — lado a lado mientras los adicionales están cerrados */}
-          <div className={`grid grid-cols-1 gap-3 ${mostrarAdicionales ? '' : 'xl:grid-cols-[3fr_1.15fr]'}`}>
-            <div className="rounded-lg border border-slate-200">
-              <div className="rounded-t-lg border-b border-slate-200 bg-slate-50 px-3 py-2">
-                <EncabezadoSeccion icono={<MapPinned size={16} />} titulo="Ubicación geográfica" descripcion="Filtre por la ubicación de los eventos" />
+          <div className={`grid grid-cols-1 gap-3 ${mostrarAdicionales ? '' : 'xl:grid-cols-[3fr_1.2fr]'}`}>
+            <div className="rounded-xl border border-[#cfe8e1]">
+              <div className={`rounded-t-xl border-b px-3 py-2.5 ${TONOS.ubicacion.banda}`}>
+                <EncabezadoSeccion tono={TONOS.ubicacion.tile} icono={<MapPinned size={18} />} titulo="Ubicación geográfica" descripcion="Filtre por la ubicación de los eventos" />
               </div>
-              <div className={`grid grid-cols-1 gap-3 p-3 ${columnasUbicacion}`}>
-                {campo('estacion', <Building2 size={13} className={ICO} />)}
-                {campo('cuadrante', <MapIcon size={13} className={ICO} />)}
-                {campo('barrioHecho', <House size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('zona', <MapPin size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('cai', <Landmark size={13} className={ICO} />)}
+              <div className={`grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 ${columnasUbicacion}`}>
+                {campo('estacion', <Building2 size={18} />, 'ubicacion')}
+                {campo('cuadrante', <MapIcon size={18} />, 'ubicacion')}
+                {campo('barrioHecho', <House size={18} />, 'ubicacion')}
+                {mostrarAdicionales && campo('zona', <MapPin size={18} />, 'ubicacion')}
+                {mostrarAdicionales && campo('cai', <Landmark size={18} />, 'ubicacion')}
               </div>
             </div>
-            <div className="rounded-lg border border-slate-200">
-              <div className="rounded-t-lg border-b border-slate-200 bg-slate-50 px-3 py-2">
-                <EncabezadoSeccion icono={<ClipboardList size={16} />} titulo="Características del hecho" descripcion="Filtre por las características de los eventos" />
+            <div className="rounded-xl border border-[#dde3ef]">
+              <div className={`rounded-t-xl border-b px-3 py-2.5 ${TONOS.hecho.banda}`}>
+                <EncabezadoSeccion tono={TONOS.hecho.tile} icono={<ClipboardList size={18} />} titulo="Características del hecho" descripcion="Filtre por las características de los eventos" />
               </div>
-              <div className={`grid grid-cols-1 gap-3 p-3 ${columnasHecho}`}>
-                {campo('delito', <FileText size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('genero', <Users size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('armas', <Crosshair size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('modalidad', <Target size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('claseSitio', <Store size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('causaLesion', <Activity size={13} className={ICO} />)}
-                {mostrarAdicionales && campo('grupoEdad', <UsersRound size={13} className={ICO} />)}
+              <div className={`grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 ${columnasHecho}`}>
+                {campo('delito', <FileText size={18} />, 'hecho')}
+                {mostrarAdicionales && campo('genero', <Users size={18} />, 'hecho')}
+                {mostrarAdicionales && campo('armas', <Crosshair size={18} />, 'hecho')}
+                {mostrarAdicionales && campo('modalidad', <Target size={18} />, 'hecho')}
+                {mostrarAdicionales && campo('claseSitio', <Store size={18} />, 'hecho')}
+                {mostrarAdicionales && campo('causaLesion', <Activity size={18} />, 'hecho')}
+                {mostrarAdicionales && campo('grupoEdad', <UsersRound size={18} />, 'hecho')}
               </div>
             </div>
           </div>
 
-          {/* Filtros adicionales (expandir / contraer) */}
+          {/* Filtros adicionales (interruptor para expandir / contraer) */}
           <button
             type="button"
+            role="switch"
             onClick={() => setMostrarAdicionales((v) => !v)}
-            aria-expanded={mostrarAdicionales}
-            className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:bg-slate-50"
+            aria-checked={mostrarAdicionales}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-[#f8fafc] px-3 py-2.5 text-left hover:bg-slate-100"
           >
             <span className="flex flex-wrap items-center gap-2">
-              <SlidersHorizontal size={15} className="text-[#116762]" />
-              <span className="text-[13px] font-semibold text-[#10233f]">Filtros adicionales</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#10233f] ring-1 ring-slate-200"><SlidersHorizontal size={16} /></span>
+              <span className="text-[13.5px] font-bold text-[#10233f]">Filtros adicionales</span>
               <span className="text-[11.5px] text-slate-500">Zona, CAI, género, arma, modalidad, clase de sitio, causa de lesión y grupo de edad</span>
               {adicionalesActivos > 0 && <span className="rounded-full bg-[#116762] px-2 py-[1px] text-[10.5px] font-semibold text-white">{adicionalesActivos} activo{adicionalesActivos === 1 ? '' : 's'}</span>}
             </span>
-            {mostrarAdicionales ? <ChevronUp size={17} className="shrink-0 text-slate-500" /> : <ChevronDown size={17} className="shrink-0 text-slate-500" />}
+            <span className="flex shrink-0 items-center gap-2">
+              <span className={`relative inline-block h-5 w-9 rounded-full transition-colors ${mostrarAdicionales ? 'bg-[#116762]' : 'bg-slate-300'}`}>
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${mostrarAdicionales ? 'left-[18px]' : 'left-0.5'}`} />
+              </span>
+              {mostrarAdicionales ? <ChevronUp size={17} className="text-[#10233f]" /> : <ChevronDown size={17} className="text-[#10233f]" />}
+            </span>
           </button>
 
           {/* Análisis multifecha (opción avanzada) */}
-          <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2">
+          <div className="rounded-xl border border-dashed border-[#1e4f8f]/30 bg-[#f7f9fd] px-3 py-2.5">
             <SelectorMultifecha />
           </div>
 
@@ -326,12 +347,14 @@ export function FilterPanel() {
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#10233f] hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50"
             >
-              <RotateCcw size={14} /> Limpiar filtros
+              <RotateCcw size={15} /> Limpiar filtros
             </button>
-            <span className="text-[11.5px] text-slate-500">
-              Mostrando <b className="text-[#0b4a46]">{filteredRecords.length.toLocaleString('es-CO')}</b> de {records.length.toLocaleString('es-CO')} registros · se actualiza automáticamente
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#e3f2ef] px-3 py-2 text-[12.5px] font-semibold text-[#0b4a46]">
+              <Database size={15} />
+              {filteredRecords.length.toLocaleString('es-CO')} de {records.length.toLocaleString('es-CO')} registros
+              <span className="font-normal text-[#116762]">· se actualiza automáticamente</span>
             </span>
           </div>
         </div>
@@ -340,13 +363,28 @@ export function FilterPanel() {
   );
 }
 
-function EncabezadoSeccion({ icono, titulo, descripcion }: { icono: ReactNode; titulo: string; descripcion: string }) {
+function EncabezadoSeccion({ icono, titulo, descripcion, tono }: { icono: ReactNode; titulo: string; descripcion: string; tono: string }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#116762]/10 text-[#116762]">{icono}</span>
+    <div className="flex items-center gap-3">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ${tono}`}>{icono}</span>
       <div className="min-w-0">
-        <p className="text-[13px] font-bold leading-tight text-[#10233f]">{titulo}</p>
-        <p className="text-[11px] leading-tight text-slate-500">{descripcion}</p>
+        <p className="text-[15px] font-bold leading-tight text-[#10233f]">{titulo}</p>
+        <p className="text-[11.5px] leading-tight text-slate-600">{descripcion}</p>
+      </div>
+    </div>
+  );
+}
+
+// Fecha inicial / final con el mismo aspecto que las listas (recuadro de ícono a la izquierda).
+function CampoFecha({ id, etiqueta, tono, multifecha, activa, children }: { id: string; etiqueta: string; tono: string; multifecha: boolean; activa: boolean; children: ReactNode }) {
+  return (
+    <div className="flex items-end gap-2">
+      <span aria-hidden="true" className={`mb-[1px] flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${activa ? 'bg-[#116762] text-white' : tono}`}><CalendarRange size={18} /></span>
+      <div className="min-w-0 flex-1">
+        <label htmlFor={id} className="mb-1 block truncate text-[12px] font-semibold text-[#10233f]">
+          {etiqueta}{multifecha && <span className="font-normal text-slate-400"> (multifecha)</span>}
+        </label>
+        {children}
       </div>
     </div>
   );
