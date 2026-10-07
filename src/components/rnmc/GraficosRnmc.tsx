@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, CartesianGrid, ComposedChart, LabelList, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
 import { formatDecimal, formatNumero } from '../../utils/aggregations';
 
@@ -93,6 +93,15 @@ const TooltipSimple = ({ active, payload, label }: { active?: boolean; payload?:
   );
 };
 
+// En series largas solo se rotula uno de cada "cada" puntos (y el último).
+function EtiquetaEspaciada(cada: number) {
+  return function Etiqueta(props: { x?: unknown; y?: unknown; value?: unknown; index?: number }) {
+    const { x, y, value, index = 0 } = props;
+    if (index % cada !== 0) return null;
+    return <text x={Number(x)} y={Number(y) - 7} textAnchor="middle" fontSize={10} fontWeight={700} fill={AZUL_TINTA}>{formatNumero(Number(value))}</text>;
+  };
+}
+
 function Variacion({ pct }: { pct: number | null }) {
   if (pct == null) return <span className="text-[11px] text-slate-400">—</span>;
   const Icono = Math.abs(pct) < 0.5 ? Minus : pct > 0 ? ArrowUpRight : ArrowDownRight;
@@ -147,8 +156,13 @@ export function EvolucionTemporalRnmc({ items, vista }: { items: ConFecha[]; vis
             <XAxis dataKey="etiqueta" tick={{ fontSize: 10.5, fill: '#475569' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} interval="preserveStartEnd" minTickGap={8} />
             <YAxis tick={{ fontSize: 10.5, fill: '#64748b' }} tickLine={false} axisLine={false} width={44} />
             <Tooltip content={<TooltipSimple />} />
-            <Area type="linear" dataKey="casos" name="Registros" stroke="none" fill={TEAL} fillOpacity={0.14} isAnimationActive={false} />
-            <Line type="linear" dataKey="casos" name="Registros" stroke={TEAL} strokeWidth={2.2} dot={{ r: 3, fill: TEAL, stroke: '#fff', strokeWidth: 1 }} isAnimationActive={false} />
+            <Area type="linear" dataKey="casos" stroke="none" fill={TEAL} fillOpacity={0.14} isAnimationActive={false} tooltipType="none" legendType="none" />
+            <Line type="linear" dataKey="casos" name="Registros" stroke={TEAL} strokeWidth={2.2} dot={{ r: 3.5, fill: TEAL, stroke: '#fff', strokeWidth: 1 }} activeDot={{ r: 5 }} isAnimationActive={false}>
+              {/* Valor sobre cada punto (en vista semanal, uno de cada pocos para que no se monten). */}
+              <LabelList dataKey="casos" position="top" offset={7} fontSize={10} fontWeight={700} fill={AZUL_TINTA}
+                formatter={(v: unknown) => formatNumero(Number(v))}
+                content={datos.length > 16 ? EtiquetaEspaciada(Math.ceil(datos.length / 12)) : undefined} />
+            </Line>
           </ComposedChart>
         </ResponsiveContainer>
       </div>

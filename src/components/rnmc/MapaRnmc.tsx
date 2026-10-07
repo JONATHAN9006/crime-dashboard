@@ -3,7 +3,8 @@ import { GeoJSON as GeoJSONLayer, MapContainer, TileLayer, useMap } from 'react-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { KernelHeatmapLayer } from '../mapa/KernelHeatmapLayer';
-import { cargarCapas } from '../../data/geoStorage';
+import { cargarCapas, type CapaGeografica } from '../../data/geoStorage';
+import { sincronizarCapasDesdeServidor } from '../../data/geoSync';
 import { esCoordenadaValida } from '../../utils/geodesia';
 
 // Mini mapa de la "Distribución geográfica" de RNMC: la MISMA superficie
@@ -31,27 +32,62 @@ function featuresDe(geojson: unknown): Feature[] {
 function Encuadrar({ contorno, puntos }: { contorno: Feature[]; puntos: { lat: number; lon: number }[] }) {
   const map = useMap();
   useEffect(() => {
+    // El contenedor puede tomar su tamaño final después de montarse
+    // (grilla de la página): se recalcula y se vuelve a encuadrar.
+    const encuadrar = () => {
+      map.invalidateSize();
+      try {
+        if (contorno.length > 0) { map.fitBounds(L.geoJSON({ type: 'FeatureCollection', features: contorno } as never).getBounds(), { padding: [4, 4] }); return; }
+        if (puntos.length > 1) map.fitBounds(L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [10, 10], maxZoom: 14 });
+      } catch { /* geometría inválida */ }
+    };
+    const t = window.setTimeout(encuadrar, 250);
+    const obs = new ResizeObserver(() => encuadrar());
+    obs.observe(map.getContainer());
+    return () => { window.clearTimeout(t); obs.disconnect(); };
+  }, [contorno, map]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (contorno.length > 0) return;
     try {
       if (contorno.length > 0) {
-        map.fitBounds(L.geoJSON(contorno as unknown as GeoJSON.FeatureCollection['features']).getBounds(), { padding: [6, 6] });
+        map.fitBounds(L.geoJSON({ type: 'FeatureCollection', features: contorno } as never).getBounds(), { padding: [4, 4] });
         return;
       }
       if (puntos.length > 1) map.fitBounds(L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [10, 10], maxZoom: 14 });
     } catch { /* geometría inválida: se queda en Popayán */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contorno.length, puntos.length > 1]);
+  }, [contorno.length, puntos.length > 1, map]);
   return null;
 }
 
 export function MapaRnmc({ registros }: { registros: { lat: number | null; lon: number | null }[] }) {
+  // Las MISMAS capas (shapefiles) del Mapa / Georreferenciación: primero
+  // las guardadas en este equipo y, si no hay, las compartidas del servidor.
+  // Se dibujan todas las capas visibles (contorno oscuro, sin relleno), y el
+  // mapa se encuadra en ellas — así se ve la ciudad completa como en el
+  // mapa principal, no un recuadro alrededor de los puntos.
   const [contorno, setContorno] = useState<Feature[]>([]);
+  const [encuadre, setEncuadre] = useState<Feature[]>([]);
   useEffect(() => {
-    cargarCapas().then((capas) => {
-      for (const capa of capas) {
-        const feats = featuresDe(capa.geojson).filter((f) => Object.values(f.properties ?? {}).some((v) => ESTACIONES.has(normalizar(v))));
-        if (feats.length > 0) { setContorno(feats); return; }
-      }
-    }).catch(() => {});
+    let cancelado = false;
+    const usar = (capas: CapaGeografica[] | null | undefined) => {
+      if (cancelado || !capas || capas.length === 0) return false;
+      const visibles = capas.filter((c) => c.visible !== false);
+      const todas = (visibles.length > 0 ? visibles : capas).flatMap((c) => featuresDe(c.geojson));
+      // Si existe la capa de estaciones (E-Norte / E-Sur), encuadra con ella.
+      const estaciones = todas.filter((f) => Object.values(f.properties ?? {}).some((v) => ESTACIONES.has(normalizar(v))));
+      setContorno(todas.length > 0 ? todas : estaciones);
+      setEncuadre(estaciones.length > 0 ? estaciones : todas);
+      return todas.length > 0;
+    };
+    (async () => {
+      try {
+        const locales = await cargarCapas();
+        if (usar(locales)) return;
+        usar(await sincronizarCapasDesdeServidor());
+      } catch { /* sin capas: queda el mapa base */ }
+    })();
+    return () => { cancelado = true; };
   }, []);
 
   const puntos = useMemo(
@@ -60,17 +96,17 @@ export function MapaRnmc({ registros }: { registros: { lat: number | null; lon: 
   );
 
   return (
-    <div className="relative h-full min-h-[250px] overflow-hidden rounded-lg border border-slate-200">
-      <MapContainer center={CENTRO_POPAYAN} zoom={12} zoomControl={false} attributionControl={false} scrollWheelZoom={false} className="h-full w-full" style={{ minHeight: 250 }}>
+    <div className="relative h-full min-h-[300px] overflow-hidden rounded-lg border border-slate-200">
+      <MapContainer center={CENTRO_POPAYAN} zoom={13} zoomControl={false} attributionControl={false} scrollWheelZoom className="h-full w-full" style={{ minHeight: 300 }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         {contorno.length > 0 && (
-          <GeoJSONLayer key={contorno.length} data={{ type: 'FeatureCollection', features: contorno } as never} style={{ color: '#111827', weight: 2, fillOpacity: 0.03 }} />
+          <GeoJSONLayer key={contorno.length} data={{ type: 'FeatureCollection', features: contorno } as never} style={{ color: '#1f2937', weight: 1.4, fillColor: '#ffffff', fillOpacity: 0.04 }} />
         )}
         <KernelHeatmapLayer puntos={puntos} colores={PALETA} opacidad={0.75} />
-        <Encuadrar contorno={contorno} puntos={puntos} />
+        <Encuadrar contorno={encuadre} puntos={puntos} />
       </MapContainer>
       <span className="pointer-events-none absolute bottom-1.5 left-1.5 z-[400] rounded bg-white/85 px-1.5 py-0.5 text-[10px] text-slate-600">
-        {puntos.length.toLocaleString('es-CO')} con coordenadas · Kernel 200 m
+        {puntos.length.toLocaleString('es-CO')} con coordenadas
       </span>
     </div>
   );

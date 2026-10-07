@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, ArrowDownCircle, ArrowRight, ArrowUpCircle, BarChart3, Building2, CalendarDays, Car, ChevronRight, CloudUpload,
+  AlertTriangle, ArrowDown, ArrowRight, ArrowUp, BarChart3, Building2, CalendarDays, Car, ChevronRight, CloudUpload,
   Crosshair, Database, FileText, House, Landmark, ListChecks, Map as MapIcon, MapPin, MapPinned, RefreshCcw, Scale, Smartphone,
   Sword, Target, TrendingDown, TrendingUp, Upload, UserRound, Users,
 } from 'lucide-react';
@@ -99,10 +99,10 @@ function AplicacionLey1801({ registros }: { registros: RegistroComparendo[] }) {
   );
 }
 
-function KpiDelito({ valor, etiqueta, icono, tono }: { valor: string; etiqueta: string; icono: ReactNode; tono: string }) {
+function KpiDelito({ valor, etiqueta, icono, tono, fondoIcono }: { valor: string; etiqueta: string; icono: ReactNode; tono: string; fondoIcono: string }) {
   return (
-    <div className={`flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2.5 ${tono}`}>
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/70">{icono}</span>
+    <div className={`flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-3 ${tono}`}>
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg shadow-sm ${fondoIcono}`}>{icono}</span>
       <div className="min-w-0">
         <p className="text-[21px] font-bold leading-tight tabular-nums">{valor}</p>
         <p className="text-[11.5px] leading-tight text-slate-600">{etiqueta}</p>
@@ -142,10 +142,10 @@ function VistaComparativa({ delito, registrosRnmc }: { delito: string; registros
           <div className="p-4">
             <div>
               <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-                <KpiDelito valor={total2025.toLocaleString('es-CO')} etiqueta="2025 (a la fecha)" icono={<FileText size={20} className="text-[#1e4f8f]" />} tono="bg-[#eef4fb] text-[#10233f]" />
-                <KpiDelito valor={total2026.toLocaleString('es-CO')} etiqueta="2026 (a la fecha)" icono={<BarChart3 size={20} className="text-[#116762]" />} tono="bg-[#e8f5f1] text-[#10233f]" />
-                <KpiDelito valor={`${dif >= 0 ? '+' : ''}${dif.toLocaleString('es-CO')}`} etiqueta="Diferencia" icono={bajo ? <ArrowDownCircle size={22} className="text-[#0f766e]" /> : <ArrowUpCircle size={22} className="text-rose-600" />} tono={bajo ? 'bg-[#e8f5f1] text-[#0f766e]' : 'bg-rose-50 text-rose-600'} />
-                <KpiDelito valor={pct == null ? 'N/A' : `${pct >= 0 ? '+' : ''}${pct}%`} etiqueta="Variación" icono={bajo ? <TrendingDown size={20} className="text-[#0f766e]" /> : <TrendingUp size={20} className="text-rose-600" />} tono={bajo ? 'bg-[#e8f5f1] text-[#0f766e]' : 'bg-rose-50 text-rose-600'} />
+                <KpiDelito valor={total2025.toLocaleString('es-CO')} etiqueta="2025 (a la fecha)" icono={<FileText size={20} className="text-[#2563eb]" />} fondoIcono="bg-white" tono="bg-[#eaf2fd] text-[#10233f]" />
+                <KpiDelito valor={total2026.toLocaleString('es-CO')} etiqueta="2026 (a la fecha)" icono={<BarChart3 size={20} className="text-[#10b981]" />} fondoIcono="bg-white" tono="bg-[#e7f6ef] text-[#10233f]" />
+                <KpiDelito valor={`${dif >= 0 ? '+' : ''}${dif.toLocaleString('es-CO')}`} etiqueta="Diferencia" icono={bajo ? <ArrowDown size={20} className="text-white" /> : <ArrowUp size={20} className="text-white" />} fondoIcono="rounded-full bg-[#ef4444]" tono="bg-[#fdeceb] text-[#dc2626]" />
+                <KpiDelito valor={pct == null ? 'N/A' : `${pct >= 0 ? '+' : ''}${pct}%`} etiqueta="Variación" icono={bajo ? <TrendingDown size={20} className="text-[#0f766e]" /> : <TrendingUp size={20} className="text-[#0f766e]" />} fondoIcono="bg-white" tono="bg-[#e7f6ef] text-[#0f766e]" />
               </div>
               <div className="mt-4 flex items-center justify-between">
                 <p className="text-[13.5px] font-bold text-[#10233f]">Tendencia mensual del delito</p>
@@ -177,15 +177,16 @@ function VistaComparativa({ delito, registrosRnmc }: { delito: string; registros
   );
 }
 
-function KpiGeneral({ valor, titulo, detalle, icono, tono }: { valor: ReactNode; titulo: string; detalle?: string; icono: ReactNode; tono: string }) {
+function KpiGeneral({ valor, titulo, detalle, icono, tono, fondoIcono, extra }: { valor: ReactNode; titulo: string; detalle?: string; icono: ReactNode; tono: string; fondoIcono: string; extra?: ReactNode }) {
   return (
-    <div className={`flex min-w-0 items-center gap-2.5 rounded-xl px-2.5 py-2.5 ${tono}`}>
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/70">{icono}</span>
+    <div className={`relative flex min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-3 ${tono}`}>
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${fondoIcono}`}>{icono}</span>
       <div className="min-w-0">
-        <p className="text-[20px] font-bold leading-tight tabular-nums text-[#10233f]">{valor}</p>
-        <p className="text-[11.5px] leading-tight text-slate-700">{titulo}</p>
+        <p className="text-[21px] font-extrabold leading-none tabular-nums text-[#10233f]">{valor}</p>
+        <p className="mt-1 text-[11.5px] font-medium leading-tight text-[#1f3352]">{titulo}</p>
         {detalle && <p className="text-[10.5px] leading-tight text-slate-500">{detalle}</p>}
       </div>
+      {extra && <span className="absolute right-2 top-2 opacity-80">{extra}</span>}
     </div>
   );
 }
@@ -195,7 +196,7 @@ function TarjetaDistribucion({ registros }: { registros: RegistroComparendo[] })
   const filas = useMemo(() => rankear(registros, (r) => r.zonaAtencionHechos, top), [registros, top]);
   return (
     <Card title="Distribución geográfica" icono={<IconoTitulo><MapIcon size={17} /></IconoTitulo>} claseTitulo="text-[13.5px] font-bold leading-snug text-[#10233f]" actions={<SelectorTop valor={top} onChange={setTop} />}>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[0.72fr_1.28fr]">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
         <MapaRnmc registros={registros} />
         <div className="min-w-0">
           <p className="mb-1.5 text-[11.5px] font-bold text-[#10233f]">{top === 'todos' ? 'Todas las zonas de atención' : `Top ${top} zonas de atención`}</p>
@@ -212,21 +213,21 @@ function TarjetaDistribucion({ registros }: { registros: RegistroComparendo[] })
 function TablaTop({ filas }: { filas: { key: string; casos: number; aportePct: number }[] }) {
   if (filas.length === 0) return <p className="py-6 text-center text-xs text-slate-400">Sin datos.</p>;
   return (
-    <table className="w-full table-fixed text-[11.5px]">
+    <table className="text-[11.5px]">
       <thead>
         <tr className="text-[10.5px] text-slate-500">
-          <th className="w-[24px] pb-1 text-left font-semibold">#</th>
-          <th className="pb-1 text-left font-semibold">Zona</th>
-          <th className="w-[50px] pb-1 text-right text-[10px] font-semibold">Registros</th>
-          <th className="w-[42px] pb-1 text-right text-[10px] font-semibold">Aporte</th>
+          <th className="pb-1 pr-2 text-left font-semibold">#</th>
+          <th className="pb-1 pr-3 text-left font-semibold">Zona</th>
+          <th className="pb-1 pr-3 text-right text-[10px] font-semibold">Registros</th>
+          <th className="pb-1 text-right text-[10px] font-semibold">Aporte</th>
         </tr>
       </thead>
       <tbody>
         {filas.map((f, i) => (
           <tr key={f.key} className="border-t border-slate-100">
-            <td className="py-[4px]"><span className="flex h-[18px] w-[20px] items-center justify-center rounded border border-slate-200 text-[10.5px] font-semibold text-slate-600">{i + 1}</span></td>
-            <td className="truncate py-[4px] pl-1 text-slate-700" title={f.key}>{f.key}</td>
-            <td className="py-[4px] text-right font-bold tabular-nums text-[#10233f]">{f.casos.toLocaleString('es-CO')}</td>
+            <td className="py-[4px] pr-2 font-semibold tabular-nums text-slate-600">{i + 1}</td>
+            <td className="max-w-[118px] truncate whitespace-nowrap py-[4px] pr-3 text-slate-700" title={f.key}>{f.key}</td>
+            <td className="py-[4px] pr-3 text-right font-bold tabular-nums text-[#10233f]">{f.casos.toLocaleString('es-CO')}</td>
             <td className="py-[4px] text-right tabular-nums text-slate-500">{formatDecimal(f.aportePct, 1)}%</td>
           </tr>
         ))}
@@ -472,18 +473,27 @@ export function Rnmc() {
         <>
           {/* INDICADORES */}
           {resumen && (
-            <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[1.1fr_1fr_1fr_1fr_1fr_1fr_1.3fr]">
-              <KpiGeneral valor={resumen.total.toLocaleString('es-CO')} titulo="Registros RNMC" detalle="Según filtros actuales" icono={<Database size={24} className="text-[#1e4f8f]" />} tono="bg-white" />
+            <div className="grid grid-cols-1 gap-2.5 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[1.15fr_1.1fr_1fr_1fr_1fr_1fr_1.2fr]">
+              <div className="flex min-w-0 items-center gap-3 border-slate-200 px-2 py-2 2xl:border-r">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#2563eb] shadow-sm"><Database size={28} className="text-white" /></span>
+                <div className="min-w-0">
+                  <p className="text-[26px] font-extrabold leading-none tabular-nums text-[#10233f]">{resumen.total.toLocaleString('es-CO')}</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-tight text-[#10233f]">Registros RNMC</p>
+                  <p className="text-[11px] leading-tight text-slate-500">Según filtros actuales</p>
+                </div>
+              </div>
               <KpiGeneral
                 valor={variacionAnual == null ? '—' : `${variacionAnual > 0 ? '+' : ''}${formatDecimal(variacionAnual, 0)}%`}
-                titulo={variacionAnual == null ? 'Sin datos del año anterior' : 'vs. mismo periodo año anterior'}
-                icono={variacionAnual != null && variacionAnual < 0 ? <TrendingDown size={24} className="text-[#0f766e]" /> : <TrendingUp size={24} className="text-[#0f766e]" />}
-                tono="bg-[#eef8f5]"
+                titulo={variacionAnual == null ? 'Sin datos del año anterior' : 'vs. mismo periodo del año anterior'}
+                icono={variacionAnual != null && variacionAnual < 0 ? <TrendingDown size={24} className="text-white" /> : <TrendingUp size={24} className="text-white" />}
+                fondoIcono="rounded-full bg-[#10b981]"
+                tono="border-emerald-100 bg-emerald-50/70"
+                extra={<BarChart3 size={14} className="text-emerald-500" />}
               />
-              <KpiGeneral valor={resumen.zonas} titulo="Zonas de atención" detalle="con registros" icono={<Users size={24} className="text-[#1e4f8f]" />} tono="bg-[#eef4fb]" />
-              <KpiGeneral valor={resumen.comunas} titulo="Comunas" detalle="con registros" icono={<Building2 size={24} className="text-indigo-700" />} tono="bg-indigo-50" />
-              <KpiGeneral valor={resumen.funcionarios} titulo="Funcionarios" detalle="relacionados" icono={<UserRound size={24} className="text-amber-700" />} tono="bg-amber-50" />
-              <KpiGeneral valor={resumen.conMediacion} titulo="Mediaciones in situ" icono={<FileText size={24} className="text-rose-600" />} tono="bg-rose-50" />
+              <KpiGeneral valor={resumen.zonas} titulo="Zonas de atención" detalle="con registros" icono={<Users size={24} className="text-white" />} fondoIcono="bg-[#3b82f6]" tono="border-blue-100 bg-blue-50/70" />
+              <KpiGeneral valor={resumen.comunas} titulo="Comunas" detalle="con registros" icono={<Building2 size={24} className="text-white" />} fondoIcono="bg-[#6d5bd0]" tono="border-indigo-100 bg-indigo-50/70" />
+              <KpiGeneral valor={resumen.funcionarios} titulo="Funcionarios" detalle="relacionados" icono={<UserRound size={24} className="text-white" />} fondoIcono="bg-[#d4a017]" tono="border-amber-100 bg-amber-50/70" />
+              <KpiGeneral valor={resumen.conMediacion} titulo="Mediaciones in situ" icono={<FileText size={24} className="text-white" />} fondoIcono="bg-[#ef4444]" tono="border-rose-100 bg-rose-50/70" />
               <div className="min-w-0 px-2">
                 <p className="mb-1 text-[12px] font-bold text-[#10233f]">Tendencia general</p>
                 <TendenciaMini items={registrosFiltradosPorFecha} />
@@ -500,7 +510,7 @@ export function Rnmc() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1.4fr_1fr]">
             <TarjetaRanking titulo="Comportamientos más registrados (Art./Num.)" icono={<IconoTitulo><FileText size={17} /></IconoTitulo>} registros={registrosVista} campo={(r) => r.articuloNumeral} encabezado="Artículo" archivo="rnmc-comportamientos" />
             <TarjetaDistribucion registros={registrosVista} />
             <TarjetaEvolucion registros={registrosVista} />

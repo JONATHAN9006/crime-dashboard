@@ -58,7 +58,7 @@ export function TablaRanking({ filas, encabezado, resaltarMaximo = false, conEnc
   if (filas.length === 0) return <p className="py-6 text-center text-xs text-slate-400">No hay registros disponibles para los filtros seleccionados.</p>;
   const max = Math.max(1, ...filas.map((f) => f.casos));
   return (
-    <div className="grid items-center gap-x-2.5 gap-y-[5px] text-[12.5px]" style={{ gridTemplateColumns: '22px minmax(70px, max-content) minmax(50px, 1fr) auto 46px' }}>
+    <div className="grid items-center gap-x-2.5 gap-y-[5px] text-[12.5px]" style={{ gridTemplateColumns: '18px minmax(70px, max-content) minmax(50px, 1fr) auto 46px' }}>
       {conEncabezados && (
         <>
           <span className="text-[10.5px] font-semibold text-slate-500">#</span>
@@ -72,7 +72,7 @@ export function TablaRanking({ filas, encabezado, resaltarMaximo = false, conEnc
         const esMax = resaltarMaximo && i === 0 && f.casos === max;
         return (
           <Fragment key={f.key}>
-            <span className="flex h-[18px] w-[20px] items-center justify-center rounded border border-slate-200 text-[10.5px] font-semibold text-slate-600">{i + 1}</span>
+            <span className="text-[12px] font-semibold tabular-nums text-slate-600">{i + 1}</span>
             <span className="max-w-[210px] truncate text-slate-700" title={f.key}>{f.key}</span>
             <span className={`block rounded ${esMax ? 'p-[2px]' : ''}`} style={esMax ? { border: '2px dashed #dc2626' } : undefined}>
               <span className="block h-[11px] overflow-hidden rounded bg-slate-100">
