@@ -56,7 +56,7 @@ export function Top5Dona({ filas, total, colores, compacta = false, etiquetaCent
       <svg width={compacta ? 120 : 160} height={compacta ? 120 : 160} viewBox="0 0 160 160" className="shrink-0" role="img" aria-label="Distribución de los delitos más afectados">
         {arcos.map((a) => <path key={a.key} d={a.d} fill={a.color} stroke="#ffffff" strokeWidth="1.5" />)}
         <text x={C} y={C - 1} textAnchor="middle" fontSize="19" fontWeight="700" fill={AZUL_TINTA}>{formatNumero(total)}</text>
-        <text x={C} y={C + 16} textAnchor="middle" fontSize="11.5" fill="#64748b">{etiquetaCentro}</text>
+        <text x={C} y={C + 16} textAnchor="middle" fontSize={etiquetaCentro.length > 9 ? 9 : 11.5} fill="#64748b">{etiquetaCentro}</text>
       </svg>
       <table className={compacta ? 'w-full text-[11.5px]' : 'min-w-[200px] flex-1 text-[13px]'}>
         <tbody>

@@ -60,7 +60,23 @@ function Encuadrar({ contorno, puntos }: { contorno: Feature[]; puntos: { lat: n
   return null;
 }
 
-export function MapaRnmc({ registros }: { registros: { lat: number | null; lon: number | null }[] }) {
+export type CapaReferencia = 'zona' | 'comuna' | 'barrio';
+
+function esCapaDe(capa: CapaGeografica, tipo: CapaReferencia): boolean {
+  const n = normalizar(capa.nombre);
+  if (tipo === 'zona') return capa.dimension === 'cuadrante' || /CUADRANTE|ZONA|ATENCION/.test(n);
+  if (tipo === 'comuna') return /COMUNA/.test(n);
+  return capa.dimension === 'barrioHecho' || /BARRIO/.test(n);
+}
+
+export function MapaRnmc({ registros, capaReferencia = null, conZoom = false, alto = 300 }: {
+  registros: { lat: number | null; lon: number | null }[];
+  /** Si se indica, se dibuja solo la capa de ese tipo (zona de atención, comuna o barrio), si existe. */
+  capaReferencia?: CapaReferencia | null;
+  conZoom?: boolean;
+  alto?: number;
+}) {
+  const [capasCargadas, setCapasCargadas] = useState<CapaGeografica[]>([]);
   // Las MISMAS capas (shapefiles) del Mapa / Georreferenciación: primero
   // las guardadas en este equipo y, si no hay, las compartidas del servidor.
   // Se dibujan todas las capas visibles (contorno oscuro, sin relleno), y el
@@ -76,6 +92,7 @@ export function MapaRnmc({ registros }: { registros: { lat: number | null; lon: 
       const todas = (visibles.length > 0 ? visibles : capas).flatMap((c) => featuresDe(c.geojson));
       // Si existe la capa de estaciones (E-Norte / E-Sur), encuadra con ella.
       const estaciones = todas.filter((f) => Object.values(f.properties ?? {}).some((v) => ESTACIONES.has(normalizar(v))));
+      setCapasCargadas(capas);
       setContorno(todas.length > 0 ? todas : estaciones);
       setEncuadre(estaciones.length > 0 ? estaciones : todas);
       return todas.length > 0;
@@ -90,17 +107,24 @@ export function MapaRnmc({ registros }: { registros: { lat: number | null; lon: 
     return () => { cancelado = true; };
   }, []);
 
+  // Contorno según la capa de referencia elegida (si existe esa capa).
+  const contornoVisible = useMemo(() => {
+    if (!capaReferencia) return contorno;
+    const elegidas = capasCargadas.filter((c) => esCapaDe(c, capaReferencia));
+    return elegidas.length > 0 ? elegidas.flatMap((c) => featuresDe(c.geojson)) : contorno;
+  }, [capaReferencia, capasCargadas, contorno]);
+
   const puntos = useMemo(
     () => registros.filter((r): r is { lat: number; lon: number } => esCoordenadaValida(r.lat, r.lon)).map((r) => ({ lat: r.lat, lon: r.lon })),
     [registros],
   );
 
   return (
-    <div className="relative h-full min-h-[300px] overflow-hidden rounded-lg border border-slate-200">
-      <MapContainer center={CENTRO_POPAYAN} zoom={13} zoomControl={false} attributionControl={false} scrollWheelZoom className="h-full w-full" style={{ minHeight: 300 }}>
+    <div className="relative h-full overflow-hidden rounded-lg border border-slate-200" style={{ minHeight: alto }}>
+      <MapContainer center={CENTRO_POPAYAN} zoom={13} zoomControl={conZoom} attributionControl={false} scrollWheelZoom className="h-full w-full" style={{ minHeight: alto }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        {contorno.length > 0 && (
-          <GeoJSONLayer key={contorno.length} data={{ type: 'FeatureCollection', features: contorno } as never} style={{ color: '#1f2937', weight: 1.4, fillColor: '#ffffff', fillOpacity: 0.04 }} />
+        {contornoVisible.length > 0 && (
+          <GeoJSONLayer key={`${capaReferencia ?? 'todas'}-${contornoVisible.length}`} data={{ type: 'FeatureCollection', features: contornoVisible } as never} style={{ color: '#1f2937', weight: 1.4, fillColor: '#ffffff', fillOpacity: 0.04 }} />
         )}
         <KernelHeatmapLayer puntos={puntos} colores={PALETA} opacidad={0.75} />
         <Encuadrar contorno={encuadre} puntos={puntos} />
