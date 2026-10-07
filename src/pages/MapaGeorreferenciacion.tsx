@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import shp from 'shpjs';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Calendar, Maximize2, Minimize2, Download, Cloud,
-  Map as MapIcon, CalendarDays, CalendarRange, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
-  SlidersHorizontal, FilterX, ChevronDown, ChevronRight, ShieldAlert, Building2, Shield, ClipboardList, Target, FileText, Crosshair,
+  AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
+  Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
+  SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
   Scale, Sparkles, ChartColumn, Landmark, Grid3x3,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -20,7 +20,6 @@ import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
 import { ConsultaDensidadKernel } from '../components/mapa/ConsultaDensidadKernel';
 import type { ResultadoKernel } from '../utils/kernelDensity';
 import { esCoordenadaValida } from '../utils/geodesia';
-import { MultiSelect } from '../components/filters/MultiSelect';
 import {
   IconoCaja, SelectorTopMapa, recortarTop, TarjetaTerritorial, KpiMapa, IndicadorEncabezado, SeccionPanelOscuro, type ValorTopMapa,
 } from '../components/mapa/PanelesMapa';
@@ -42,7 +41,8 @@ import type { Horizonte } from '../utils/analisisPredictivo';
 import { useData } from '../context/DataContext';
 import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
-import type { CrimeRecord } from '../types/crime';
+import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
+import { aplicarFiltros } from '../utils/filters';
 import { esModoConsulta } from '../utils/modoConsulta';
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
@@ -578,7 +578,7 @@ const FILTROS_MAPA_VACIOS = {
 };
 
 export function MapaGeorreferenciacion() {
-  const { records, periodos, filters: filtrosPrincipales, meta, remoteMeta } = useData();
+  const { records, periodos, filters: filtrosPrincipales, setFilters, meta, remoteMeta } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
   // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
@@ -587,7 +587,49 @@ export function MapaGeorreferenciacion() {
   // Año y Mes se suman aquí (antes el mapa no los tenía propios): así el
   // panel superior es la ÚNICA fuente de verdad de todo el módulo — mapa,
   // calor, KPI, barrios y análisis territorial leen este mismo estado.
-  const [filtrosMapa, setFiltrosMapa] = useState(FILTROS_MAPA_VACIOS);
+  // UNA SOLA FUENTE DE VERDAD: el mapa ya no tiene filtro propio. Lee y
+  // escribe el FILTRO PRINCIPAL del dashboard (DataContext), así lo que se
+  // elija allí —delito, estación, barrio, fechas…— se ve de inmediato en el
+  // mapa, el calor y el análisis territorial, y viceversa (clic en un
+  // polígono o en una fila del análisis también actualiza el filtro
+  // principal). La forma del objeto se conserva para no tocar el resto del
+  // archivo.
+  const filtrosMapa = useMemo(() => ({
+    anio: filtrosPrincipales.anio,
+    mes: filtrosPrincipales.mes,
+    delito: filtrosPrincipales.delito,
+    estacion: filtrosPrincipales.estacion,
+    cai: filtrosPrincipales.cai,
+    cuadrante: filtrosPrincipales.cuadrante,
+    barrioHecho: filtrosPrincipales.barrioHecho,
+    fechaInicial: filtrosPrincipales.fechaInicial ?? '',
+    fechaFinal: filtrosPrincipales.fechaFinal ?? '',
+  }), [filtrosPrincipales]);
+  type FiltrosMapa = typeof FILTROS_MAPA_VACIOS;
+  const setFiltrosMapa = useCallback((cambio: FiltrosMapa | ((prev: FiltrosMapa) => FiltrosMapa)) => {
+    setFilters((prev: FilterState) => {
+      const actual: FiltrosMapa = {
+        anio: prev.anio, mes: prev.mes, delito: prev.delito, estacion: prev.estacion, cai: prev.cai,
+        cuadrante: prev.cuadrante, barrioHecho: prev.barrioHecho, fechaInicial: prev.fechaInicial ?? '', fechaFinal: prev.fechaFinal ?? '',
+      };
+      const nuevo = typeof cambio === 'function' ? cambio(actual) : cambio;
+      return { ...prev, ...nuevo, fechaInicial: nuevo.fechaInicial || null, fechaFinal: nuevo.fechaFinal || null };
+    });
+  }, [setFilters]);
+
+  // Filtros "adicionales" del filtro principal (modalidad, arma, género,
+  // clase de sitio, franja, turno…): también recortan el mapa. Se resuelven
+  // con la MISMA función del dashboard (aplicarFiltros) y se guardan como el
+  // conjunto de registros que los cumplen. null = ninguno activo.
+  const CAMPOS_ADICIONALES_MAPA = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad', 'franjaHoraria', 'turno', 'diaSemana', 'horaExacta'] as const;
+  const idsFiltrosAdicionales = useMemo(() => {
+    const activos = CAMPOS_ADICIONALES_MAPA.filter((k) => (filtrosPrincipales[k] ?? []).length > 0);
+    if (activos.length === 0) return null;
+    const parcial: FilterState = { ...emptyFilterState };
+    for (const k of activos) parcial[k] = filtrosPrincipales[k];
+    return new Set(aplicarFiltros(records, parcial).map((r) => r.__id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, filtrosPrincipales]);
   const filters = filtrosMapa; // alias interno — así el resto del archivo, que ya usa "filters.delito" etc., no hay que reescribirlo entero.
 
   // Fecha inicial/final del filtro PRINCIPAL (arriba del dashboard) — a
@@ -630,7 +672,7 @@ export function MapaGeorreferenciacion() {
   // ahora viven en utils/fechaPunto.ts — compartidas con Microgerencia,
   // ver import arriba.)
 
-  const [filteredRecords, registrosSinFiltroBarrio, cumpleFiltrosMapa] = useMemo(() => {
+  const [filteredRecords, registrosSinFiltroBarrio] = useMemo(() => {
     // El CAI se compara normalizado (mismo criterio de formatoCaiCanonico +
     // normalizar) porque la opción elegida es el nombre CANÓNICO, mientras
     // que el registro puede traer una variante con espacios/mayúsculas
@@ -651,6 +693,7 @@ export function MapaGeorreferenciacion() {
     // alimenta el Top 3 / Top 5 de flechas, para que elegir barrios en el
     // filtro los AGREGUE a las flechas sin esconder los del Top.
     const cumple = (r: CrimeRecord, ignorar: ReadonlySet<string> = SIN_IGNORAR) =>
+      (!idsFiltrosAdicionales || idsFiltrosAdicionales.has(r.__id)) &&
       (ignorar.has('anio') || filtrosMapa.anio.length === 0 || (r.anio !== null && filtrosMapa.anio.includes(String(r.anio)))) &&
       (ignorar.has('mes') || filtrosMapa.mes.length === 0 || (r.mes !== null && filtrosMapa.mes.includes(String(r.mes)))) &&
       (ignorar.has('delito') || filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
@@ -675,7 +718,7 @@ export function MapaGeorreferenciacion() {
     };
     const conBarrio = filtrar(false);
     return [conBarrio, filtrosMapa.barrioHecho.length > 0 ? filtrar(true) : conBarrio, cumple] as const;
-  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual]);
+  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, idsFiltrosAdicionales]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).
@@ -723,7 +766,6 @@ export function MapaGeorreferenciacion() {
   const [tipoMapa, setTipoMapa] = useState<'mapa' | 'satelite' | 'hibrido'>('mapa');
   // Abierto de entrada solo en pantallas anchas (≥1536 px), donde va al lado del mapa.
   const [configAbierta, setConfigAbierta] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1536);
-  const [filtrosAbiertos, setFiltrosAbiertos] = useState(true);
   const [leyendaAbierta, setLeyendaAbierta] = useState(true);
   const [topBarriosPanel, setTopBarriosPanel] = useState<ValorTopMapa>(10);
 
@@ -796,7 +838,9 @@ export function MapaGeorreferenciacion() {
   // Operatividad: filtro propio por categoría (Capturas, Incautaciones…),
   // máximo de la superficie Kernel ya calculada (para la leyenda y la
   // consulta) y el modo "consultar zona con clic".
-  const [filtroCategoriaOperatividad, setFiltroCategoriaOperatividad] = useState<string[]>([]);
+  // Categoría de operatividad: ahora también vive en el filtro principal.
+  const filtroCategoriaOperatividad = useMemo(() => filtrosPrincipales.categoriaOperatividad ?? [], [filtrosPrincipales.categoriaOperatividad]);
+  const setFiltroCategoriaOperatividad = (valores: string[]) => setFilters((prev: FilterState) => ({ ...prev, categoriaOperatividad: valores }));
   const [kernelOperatividad, setKernelOperatividad] = useState<ResultadoKernel | null>(null);
   const [consultarOperatividad, setConsultarOperatividad] = useState(false);
 
@@ -1204,6 +1248,24 @@ export function MapaGeorreferenciacion() {
     return [];
   }, [capas]);
 
+  // Puntos de la capa "Delitos" tomados de los MISMOS registros filtrados
+  // (filteredRecords): así el mapa de calor respeta TODOS los filtros del
+  // filtro principal —incluidos modalidad, arma, género, franja…, que la
+  // capa de puntos guardada no trae— y coincide siempre con las tablas.
+  const puntosDelitosDesdeRegistros = useMemo(
+    (): CapaPuntos['puntos'] => filteredRecords
+      .filter((r) => esCoordenadaValida(r.lat, r.lon))
+      .map((r) => ({
+        lat: r.lat as number,
+        lon: r.lon as number,
+        fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai, BARRIO: r.barrioHecho, ZONA: r.cuadrante } as Record<string, any>,
+        delitoCorto: r.delito,
+        estacionCorta: r.estacion,
+        caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,
+      })),
+    [filteredRecords],
+  );
+
   const capasPuntosProcesadas = useMemo(() => {
     // Ventanas del análisis multifecha, en el mismo formato que el resto
     // del archivo (ver filteredRecords más arriba) — se recalculan aquí
@@ -1253,7 +1315,7 @@ export function MapaGeorreferenciacion() {
       const caiPermitidosNorm = new Set(filters.cai.map((c) => normalizar(formatoCaiCanonico(c))));
       const cuadrantesPermitidosNorm = new Set(filters.cuadrante.map((c) => normalizar(c)));
 
-      const puntosFiltrados = capa.puntos.filter((p) => {
+      const puntosFiltrados = capa.tipo === 'delitos' ? puntosDelitosDesdeRegistros : capa.puntos.filter((p) => {
         if (esExacto && DELITOS_EXCLUIDOS_MAPA.has((p.delitoCorto ?? '').toUpperCase())) return false;
         if (esExacto && capa.colDelito && delitosCortosAMostrar && !delitosCortosAMostrar.has(p.delitoCorto ?? '')) return false;
         if (esExacto && capa.colDependencia && filters.estacion.length > 0 && !filters.estacion.includes(p.estacionCorta ?? '')) return false;
@@ -1269,6 +1331,7 @@ export function MapaGeorreferenciacion() {
         // barrio, así que el filtro de Barrio no puede aplicarse a ella.
         if (capa.tipo === 'operatividad') {
           if (filtroCategoriaOperatividad.length > 0 && !filtroCategoriaOperatividad.includes(String(p.fila.OPERATIVIDAD ?? ''))) return false;
+          if (filters.estacion.length > 0 && p.estacionCorta && !filters.estacion.includes(p.estacionCorta)) return false;
           if (filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
           if (filters.cuadrante.length > 0 && 'CUADRANTE' in p.fila && !cuadrantesPermitidosNorm.has(normalizar(String(p.fila.CUADRANTE ?? '')))) return false;
         }
@@ -1350,7 +1413,7 @@ export function MapaGeorreferenciacion() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad]);
+  }, [capasPuntos, puntosDelitosDesdeRegistros, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -1943,10 +2006,6 @@ export function MapaGeorreferenciacion() {
   );
   // Operatividad usa EXACTAMENTE la misma escala de Delitos (verde →
   // amarillo → naranja → rojo, con los mismos colores activos/apagados).
-  const categoriasOperatividad = useMemo(
-    () => Array.from(new Set(capasPuntos.filter((c) => c.tipo === 'operatividad').flatMap((c) => c.puntos.map((p) => String(p.fila.OPERATIVIDAD ?? '').trim())).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')),
-    [capasPuntos],
-  );
   const PALETA_CALOR_MACRI = ['#ddd6fe', '#a78bfa', '#8b5cf6', '#7c3aed', '#5b21b6'];
 
   // Grilla de correspondencia espacial: se activa con "Comparar" (modo
@@ -1960,47 +2019,6 @@ export function MapaGeorreferenciacion() {
       : []),
     [modoComparacion, pantallaCompleta, seleccionIrisp1, seleccionDelitos, puntosDelitosParaMostrar, puntosIrisp1ParaMostrar],
   );
-
-  // ── Opciones EN CASCADA del panel de filtros ───────────────────────────
-  // Cada lista ofrece solo los valores que existen con los DEMÁS filtros ya
-  // aplicados (Estación E-Norte → solo sus CAI, zonas, barrios, delitos…).
-  // Usa el mismo predicado de filteredRecords (cumpleFiltrosMapa) ignorando
-  // su propio campo; lo ya elegido siempre se conserva en la lista.
-  const opcionesCascada = useMemo(() => {
-    const claves = ['anio', 'mes', 'delito', 'estacion', 'cai', 'cuadrante', 'barrioHecho'] as const;
-    const resultado = {} as Record<(typeof claves)[number], string[]>;
-    for (const clave of claves) {
-      // Año y Mes no se limitan a la vigencia por defecto: si no, solo
-      // aparecería el año en curso.
-      const ignorar = new Set<string>(clave === 'anio' || clave === 'mes' ? [clave, 'vigencia'] : [clave]);
-      const valores = new Set<string>();
-      for (const r of records) {
-        if (!cumpleFiltrosMapa(r, ignorar)) continue;
-        if (clave === 'anio') { if (r.anio !== null) valores.add(String(r.anio)); continue; }
-        if (clave === 'mes') { if (r.mes !== null) valores.add(String(r.mes)); continue; }
-        if (clave === 'cai') {
-          if (!esValorReal(r.cai)) continue;
-          const canonico = formatoCaiCanonico(r.cai);
-          if (/^CAI\s+\S/i.test(canonico)) valores.add(canonico);
-          continue;
-        }
-        const v = r[clave];
-        if (esValorReal(v)) valores.add(v);
-      }
-      for (const elegido of filtrosMapa[clave]) valores.add(elegido);
-      let lista = Array.from(valores);
-      if (clave === 'anio') lista.sort((a, b) => Number(b) - Number(a));
-      else if (clave === 'mes') lista.sort((a, b) => Number(a) - Number(b));
-      else if (clave === 'cai') {
-        // Mismo orden de opcionesFiltroMapa.cai (numérico, luego alfabético).
-        const orden = new Map(opcionesFiltroMapa.cai.map((c, idx) => [c, idx]));
-        lista.sort((a, b) => (orden.get(a) ?? 9999) - (orden.get(b) ?? 9999) || a.localeCompare(b));
-      } else lista = lista.sort();
-      resultado[clave] = lista;
-    }
-    return resultado;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, cumpleFiltrosMapa, opcionesFiltroMapa.cai]);
 
   // ── Análisis territorial (tarjetas inferiores y "Barrios más afectados")
   // Todo sale de filteredRecords — los MISMOS registros que alimentan el
@@ -2129,6 +2147,10 @@ export function MapaGeorreferenciacion() {
   // Chips de filtros activos — cada uno se quita con su ×.
   const quitarFiltroMapa = (clave: keyof typeof FILTROS_MAPA_VACIOS) =>
     setFiltrosMapa((prev) => ({ ...prev, [clave]: FILTROS_MAPA_VACIOS[clave] }));
+  const ETIQUETA_ADICIONAL: Record<(typeof CAMPOS_ADICIONALES_MAPA)[number], string> = {
+    zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio', causaLesion: 'Causa de lesión',
+    grupoEdad: 'Grupo de edad', franjaHoraria: 'Franja', turno: 'Turno', diaSemana: 'Día', horaExacta: 'Hora',
+  };
   const resumirLista = (v: string[]) => (v.length <= 2 ? v.join(', ') : `${v.slice(0, 2).join(', ')} +${v.length - 2}`);
   const chipsFiltros: { id: string; texto: string; quitar?: () => void }[] = [
     filtrosMapa.anio.length > 0 && { id: 'anio', texto: `Año: ${resumirLista(filtrosMapa.anio)}`, quitar: () => quitarFiltroMapa('anio') },
@@ -2141,10 +2163,9 @@ export function MapaGeorreferenciacion() {
     filtrosMapa.cai.length > 0 && { id: 'cai', texto: `CAI: ${resumirLista(filtrosMapa.cai)}`, quitar: () => quitarFiltroMapa('cai') },
     filtrosMapa.barrioHecho.length > 0 && { id: 'barrio', texto: `Barrio: ${resumirLista(filtrosMapa.barrioHecho)}`, quitar: () => quitarFiltroMapa('barrioHecho') },
     filtroCategoriaOperatividad.length > 0 && { id: 'op', texto: `Operatividad: ${resumirLista(filtroCategoriaOperatividad)}`, quitar: () => setFiltroCategoriaOperatividad([]) },
-    (fechaInicialGlobal || fechaFinalGlobal) && { id: 'global-fecha', texto: `Filtro principal: ${fechaInicialGlobal || '…'} a ${fechaFinalGlobal || '…'}` },
+    ...CAMPOS_ADICIONALES_MAPA.filter((k) => (filtrosPrincipales[k] ?? []).length > 0).map((k) => ({ id: k, texto: `${ETIQUETA_ADICIONAL[k]}: ${resumirLista(filtrosPrincipales[k])}` })),
     periodos.length > 0 && { id: 'global-periodos', texto: `Multifecha: ${periodos.length} periodo(s)` },
   ].filter(Boolean) as { id: string; texto: string; quitar?: () => void }[];
-  const limpiarFiltrosMapa = () => { setFiltrosMapa(FILTROS_MAPA_VACIOS); setFiltroCategoriaOperatividad([]); };
   // Clic en una fila del análisis territorial = sumar/quitar ese valor del
   // filtro (el mapa y todo lo demás reaccionan con el mismo estado).
   const alternarValorFiltro = (clave: 'delito' | 'cai' | 'cuadrante' | 'barrioHecho', valor: string) =>
@@ -2400,83 +2421,15 @@ export function MapaGeorreferenciacion() {
 
         {/* ── ÁREA PRINCIPAL ── (en tablet/celular va primero: filtros y mapa arriba, el panel de capas después) */}
         <div className="order-1 min-w-0 space-y-4 lg:order-none">
-          {/* Filtros de análisis geográfico — ÚNICA fuente de verdad del módulo */}
-          <section className="@container relative z-30 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.05)]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <IconoCaja><SlidersHorizontal size={17} /></IconoCaja>
-                <div className="min-w-0">
-                  <h2 className="text-[15px] font-bold text-[#10233f]">Filtros de análisis geográfico</h2>
-                  <p className="text-[12px] text-slate-500">Selecciona los criterios: el mapa, los indicadores y el análisis territorial se actualizan juntos. Propios de este mapa, no afectan a otros módulos.</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={limpiarFiltrosMapa}
-                  disabled={chipsFiltros.every((c) => !c.quitar)}
-                  className="flex items-center gap-1.5 rounded-lg border border-[#116762]/40 px-3 py-1.5 text-[12.5px] font-semibold text-[#0f5f57] hover:bg-[#116762]/5 disabled:opacity-40"
-                >
-                  <FilterX size={14} /> Limpiar filtros
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFiltrosAbiertos((v) => !v)}
-                  aria-expanded={filtrosAbiertos}
-                  aria-label={filtrosAbiertos ? 'Plegar filtros' : 'Desplegar filtros'}
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50"
-                >
-                  <ChevronDown size={15} className={clsx('transition', filtrosAbiertos && 'rotate-180')} />
-                </button>
-              </div>
-            </div>
-
-            {filtrosAbiertos && (
-              <>
-                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 @min-[640px]:grid-cols-4 @min-[1180px]:grid-cols-8">
-                  <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Año" options={opcionesCascada.anio} selected={filtrosMapa.anio} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, anio: v }))} />
-                  <MultiSelect institucional icono={<Calendar size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Mes" options={opcionesCascada.mes} selected={filtrosMapa.mes} labels={etiquetasMes} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, mes: v }))} />
-                  <MultiSelect institucional icono={<ShieldAlert size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Delito" options={opcionesCascada.delito} selected={filtrosMapa.delito} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, delito: v }))} />
-                  <MultiSelect institucional icono={<MapPin size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Zona de atención" options={opcionesCascada.cuadrante} selected={filtrosMapa.cuadrante} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, cuadrante: v }))} />
-                  <MultiSelect institucional icono={<Building2 size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Estación" options={opcionesCascada.estacion} selected={filtrosMapa.estacion} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, estacion: v }))} />
-                  <MultiSelect institucional icono={<Shield size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="CAI" options={opcionesCascada.cai} selected={filtrosMapa.cai} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, cai: v }))} />
-                  <MultiSelect institucional icono={<Home size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Barrio" options={opcionesCascada.barrioHecho} selected={filtrosMapa.barrioHecho} onChange={(v) => setFiltrosMapa((prev) => ({ ...prev, barrioHecho: v }))} />
-                  <MultiSelect institucional icono={<ClipboardList size={18} />} tonoIcono="bg-[#e3f2ef] text-[#116762]" label="Categoría de operatividad" options={categoriasOperatividad} selected={filtroCategoriaOperatividad} onChange={setFiltroCategoriaOperatividad} />
-                </div>
-
-                <div className="mt-2.5 flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-slate-100 pt-2.5">
-                  {([['fechaInicial', 'Fecha inicial'], ['fechaFinal', 'Fecha final']] as const).map(([clave, etiqueta]) => (
-                    <label key={clave} className="flex items-end gap-2">
-                      <IconoCaja tono={filtrosMapa[clave] ? 'bg-[#116762] text-white' : 'bg-[#e3f2ef] text-[#116762]'}><CalendarRange size={17} /></IconoCaja>
-                      <span>
-                        <span className="mb-1 block text-[12px] font-semibold text-[#10233f]">{etiqueta}</span>
-                        <input
-                          type="date"
-                          value={filtrosMapa[clave]}
-                          onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, [clave]: e.target.value }))}
-                          className={clsx('h-9 rounded-lg border px-2 text-[13px] text-[#10233f]', filtrosMapa[clave] ? 'border-[#116762] bg-[#116762]/[0.06]' : 'border-slate-300')}
-                        />
-                      </span>
-                    </label>
-                  ))}
-                  <div className="flex min-w-[260px] flex-1 flex-wrap items-center gap-1.5 pb-1">
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Filtros activos:</span>
-                    {chipsFiltros.length === 0 ? (
-                      <span className="text-[12px] text-slate-400">Ninguno{limiteVigenciaActual ? ` — vigencia ${limiteVigenciaActual.inicio.getFullYear()}` : ''}</span>
-                    ) : chipsFiltros.map((c) => (
-                      <span key={c.id} className={clsx('flex max-w-[280px] items-center gap-1 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold', c.quitar ? 'bg-[#e3f2ef] text-[#0b4a46]' : 'bg-slate-100 text-slate-600')} title={c.quitar ? c.texto : `${c.texto} (se cambia desde el filtro principal)`}>
-                        <span className="truncate">{c.texto}</span>
-                        {c.quitar && (
-                          <button type="button" onClick={c.quitar} aria-label={`Quitar ${c.texto}`} className="rounded-full p-0.5 hover:bg-[#116762]/15"><X size={11} /></button>
-                        )}
-                      </span>
-                    ))}
-                    <span className="ml-auto text-[11.5px] text-slate-500"><b className="text-[#10233f]">{formatNumero(filteredRecords.length)}</b> registros de delitos con estos filtros</span>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
+          {/* Los filtros del mapa son los del FILTRO PRINCIPAL (arriba de la
+              página): no hay un segundo panel. Aquí solo se recuerda qué está
+              aplicado, con acceso directo para limpiar. */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#cfe8e1] bg-[#f3faf8] px-3 py-2 text-[12.5px] text-[#0b4a46]">
+            <SlidersHorizontal size={15} className="shrink-0" />
+            <span className="font-semibold">El mapa usa el filtro principal.</span>
+            <span className="text-slate-600">{chipsFiltros.length > 0 ? chipsFiltros.map((c) => c.texto).join(' · ') : 'Sin filtros'}{limiteVigenciaActual ? ` · solo vigencia ${limiteVigenciaActual.inicio.getFullYear()} (elige Año o Fecha para otro periodo)` : ''}</span>
+            <span className="ml-auto text-slate-600"><b className="text-[#10233f]">{formatNumero(filteredRecords.length)}</b> registros de delitos</span>
+          </div>
 
           <div className={clsx('grid grid-cols-1 items-start gap-4', configAbierta ? '2xl:grid-cols-[minmax(0,1fr)_272px]' : '2xl:grid-cols-[minmax(0,1fr)_48px]')}>
             <div className="min-w-0 space-y-4">

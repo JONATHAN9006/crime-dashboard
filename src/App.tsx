@@ -48,7 +48,9 @@ const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc',
 // tiene el suyo propio, IRISP1 también (sus campos — Estado, Existencia,
 // Fuente, Clase — no existen en Delictividad) y MACRI es una tabla de
 // seguimiento de objetivos que cruza Delictividad por su cuenta.
-const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['mapa', 'irisp1', 'macri'];
+// El mapa YA usa el filtro principal (una sola fuente de verdad): lo que se
+// filtra aquí —delito, modalidad, estación, fechas…— se ve también en el mapa.
+const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['irisp1', 'macri'];
 
 function Shell() {
   const [pagina, setPagina] = useState<PaginaId>('resumen');

@@ -692,6 +692,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // tienen equivalente en este dataset (armas, modalidad, género, etc.).
   const filteredOperatividadRecords = useMemo(() => {
     return operatividadRecords.filter((r) => {
+      if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;

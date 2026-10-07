@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity, Building2, CalendarDays, CalendarRange, ChevronDown, ChevronUp, ClipboardList, Clock, Crosshair, Database,
   FileText, Filter, Hourglass, House, Landmark, Map as MapIcon, MapPin, MapPinned, RotateCcw, SlidersHorizontal, Store, Target,
-  Users, UsersRound, X,
+  ShieldCheck, Users, UsersRound, X,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import type { CrimeRecord, FilterState } from '../../types/crime';
@@ -44,7 +44,13 @@ export const CAMPOS_ADICIONALES: { key: CampoFiltro; label: string; getter: (r: 
 ];
 
 export function FilterPanel() {
-  const { records, filters, setFilters, clearFilters, filteredRecords, meta, periodos } = useData();
+  const { records, filters, setFilters, clearFilters, filteredRecords, meta, periodos, operatividadRecords } = useData();
+  // Categorías de operatividad que existen en los datos cargados (nunca una lista inventada).
+  const categoriasOperatividad = useMemo(
+    () => Array.from(new Set(operatividadRecords.map((r) => (r.categoria ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')),
+    [operatividadRecords],
+  );
+  const categoriaOperatividadSel = filters.categoriaOperatividad ?? [];
   const [expandido, setExpandido] = useState(true);
   const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
   const modoAcceso = obtenerModoAcceso();
@@ -121,6 +127,7 @@ export function FilterPanel() {
       quitar: () => setFilters((prev) => ({ ...prev, fechaInicial: null, fechaFinal: null })),
     });
   }
+  if (categoriaOperatividadSel.length > 0) chips.push({ id: 'categoriaOperatividad', texto: `Operatividad: ${resumirValores(categoriaOperatividadSel)}`, quitar: () => setFilters((prev) => ({ ...prev, categoriaOperatividad: [] })) });
   for (const c of [...CAMPOS_PRINCIPALES, ...CAMPOS_ADICIONALES]) {
     const vals = filters[c.key] as string[];
     if (vals.length > 0) chips.push({ id: c.key, texto: `${c.label}: ${resumirValores(vals)}`, quitar: () => actualizar(c.key, []) });
@@ -305,6 +312,17 @@ export function FilterPanel() {
               </div>
               <div className={`grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 ${columnasHecho}`}>
                 {campo('delito', <FileText size={18} />, 'hecho')}
+                {categoriasOperatividad.length > 0 && (
+                  <MultiSelect
+                    institucional
+                    icono={<ShieldCheck size={18} />}
+                    tonoIcono={TONOS.hecho.campo}
+                    label="Categoría de operatividad"
+                    options={categoriasOperatividad}
+                    selected={categoriaOperatividadSel}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, categoriaOperatividad: v }))}
+                  />
+                )}
                 {mostrarAdicionales && campo('genero', <Users size={18} />, 'hecho')}
                 {mostrarAdicionales && campo('armas', <Crosshair size={18} />, 'hecho')}
                 {mostrarAdicionales && campo('modalidad', <Target size={18} />, 'hecho')}

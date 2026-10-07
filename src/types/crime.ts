@@ -112,6 +112,10 @@ export interface FilterState {
   mes: string[];
   fechaInicial: string | null;
   fechaFinal: string | null;
+  /** Categoría de operatividad (CAPTURAS, INCAUTACIONES…). Solo filtra la
+   *  operatividad (página de Operatividad, Resumen y la capa del mapa); los
+   *  registros de delitos no tienen este campo y no se ven afectados. */
+  categoriaOperatividad: string[];
 }
 
 // Un "periodo de análisis" es una ventana independiente dentro del análisis
@@ -150,6 +154,7 @@ export const emptyFilterState: FilterState = {
   mes: [],
   fechaInicial: null,
   fechaFinal: null,
+  categoriaOperatividad: [],
 };
 
 export type UpdateMode = 'reemplazar' | 'agregar' | 'reemplazarAnio';
