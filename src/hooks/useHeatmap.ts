@@ -47,7 +47,7 @@ export interface HeatmapResumen {
 // (distintos de cero) del conjunto filtrado actual, no en números fijos. Esto
 // evita que un solo valor extremo "aplaste" la escala y deja que los colores
 // reflejen la distribución real de los datos vigentes.
-function calcularNiveles(valores: number[]): (v: number) => CeldaHeatmap['nivel'] {
+export function calcularNiveles(valores: number[]): (v: number) => CeldaHeatmap['nivel'] {
   const positivos = valores.filter((v) => v > 0).sort((a, b) => a - b);
   if (positivos.length === 0) return () => 'sin datos';
   const cuantil = (p: number) => positivos[Math.min(positivos.length - 1, Math.floor(p * (positivos.length - 1)))];

@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { CalendarDays, Clock, FileText, Target, BarChart3, X, Maximize2, Minimize2, MousePointer2, Filter, Moon, Sun, SearchCheck, Flame, AlertCircle, Info } from 'lucide-react';
+import { CalendarDays, Clock, FileText, Target, BarChart3, X, Maximize2, Minimize2, MousePointer2, Filter, Moon, Sun, SearchCheck, Flame, AlertCircle, Info, Building2, MapPin, ShieldAlert } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { useHeatmap, type VistaHeatmap, type CeldaHeatmap, type HeatmapResumen } from '../hooks/useHeatmap';
+import { useHeatmap, calcularNiveles, type VistaHeatmap, type CeldaHeatmap, type HeatmapResumen } from '../hooks/useHeatmap';
+import type { CrimeRecord, FilterState } from '../types/crime';
 import { Card } from '../components/ui/Card';
 import { formatDecimal, formatNumero } from '../utils/aggregations';
 import { maxDe } from '../utils/mathSeguro';
@@ -58,6 +59,7 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
   const esHora = data.vista === 'hora';
   const maxFila = maxDe(data.totalesFila);
   const maxCol = maxDe(data.totalesColumna);
+  const nivelTotal = calcularNiveles(data.totalesColumna);
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-separate text-[13px]" style={{ borderSpacing: esHora ? 3 : 4 }}>
@@ -114,15 +116,25 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
           ))}
           <tr>
             <td className="whitespace-nowrap rounded-md bg-slate-100 px-3 py-1.5 text-[12px] font-bold uppercase" style={{ color: AZUL }}>Total {esHora ? 'hora' : 'franja'}</td>
-            {data.totalesColumna.map((t, c) => (
-              <td
-                key={c}
-                className={`rounded-md py-1.5 text-center ${t === maxCol && maxCol > 0 ? (esHora ? 'font-bold text-[#1d4f8f]' : 'border-2 border-[#2aa9b8] bg-sky-50 font-bold') : 'border-2 border-transparent bg-slate-50 font-semibold'} ${esHora ? 'text-[12.5px]' : 'text-[14px]'}`}
-                style={{ color: t === maxCol && esHora ? '#1d4f8f' : AZUL }}
-              >
-                {formatNumero(t)}
-              </td>
-            ))}
+            {data.totalesColumna.map((t, c) => {
+              // Total por hora/franja pintado con la MISMA escala de
+              // concentración de las celdas (cuantiles de los totales).
+              const nivel = nivelTotal(t);
+              return (
+                <td
+                  key={c}
+                  title={`Total ${esHora ? 'hora' : 'franja'} ${etiquetaColumna(data.vista, data.columnasLabel[c])}: ${formatNumero(t)} casos — concentración ${nivel}`}
+                  className={`rounded-md py-1.5 text-center font-bold ${esHora ? 'text-[12.5px]' : 'text-[14px]'}`}
+                  style={{
+                    backgroundColor: COLOR_NIVEL[nivel],
+                    color: nivel === 'crítica' ? '#ffffff' : AZUL,
+                    border: t === maxCol && maxCol > 0 ? '2.5px solid #10233f' : '2.5px solid transparent',
+                  }}
+                >
+                  {formatNumero(t)}
+                </td>
+              );
+            })}
             <td className="rounded-md bg-slate-100 py-1.5 text-center font-bold" style={{ color: AZUL }}>{formatNumero(data.totalGeneral)}</td>
           </tr>
         </tbody>
@@ -178,8 +190,82 @@ function LecturaRapida({ data, vista }: { data: HeatmapResumen; vista: VistaHeat
   );
 }
 
+/**
+ * "Focos del comportamiento": misma lectura que "Lectura rápida" / "Momentos
+ * críticos", pero por territorio y delito — estación y zona de atención más
+ * afectadas y los 3 delitos con más casos, sobre los MISMOS registros de la
+ * matriz. Clic = filtrar por ese valor (otro clic lo quita).
+ */
+function FocosComportamiento({ records, filters, onFiltrar }: {
+  records: CrimeRecord[];
+  filters: FilterState;
+  onFiltrar: (campo: 'estacion' | 'cuadrante' | 'delito', valor: string) => void;
+}) {
+  const total = records.length;
+  const ranking = (getter: (r: CrimeRecord) => string) => {
+    const m = new Map<string, number>();
+    for (const r of records) {
+      const k = (getter(r) ?? '').trim();
+      if (!k || /^(NO REPORTADO|SIN DATO|N\/A)$/i.test(k)) continue;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return Array.from(m.entries()).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos);
+  };
+  const estacion = ranking((r) => r.estacion)[0];
+  const zona = ranking((r) => r.cuadrante)[0];
+  const delitos = ranking((r) => r.delito).slice(0, 3);
+  const detalle = (casos: number) => `${formatNumero(casos)} casos · ${formatDecimal(pct(casos, total), 1)}% del total`;
+  const marcado = (campo: 'estacion' | 'cuadrante' | 'delito', v: string) => (filters[campo] as string[]).includes(v);
+  const bloque = (campo: 'estacion' | 'cuadrante', titulo: string, item: { key: string; casos: number } | undefined, icono: ReactNode) => (
+    <button
+      type="button"
+      disabled={!item}
+      onClick={() => item && onFiltrar(campo, item.key)}
+      title={item ? (marcado(campo, item.key) ? 'Quitar este filtro' : 'Filtrar por este valor (otro clic lo quita)') : undefined}
+      className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition hover:bg-slate-50 ${item && marcado(campo, item.key) ? 'border-[#116762] bg-[#e3f2ef]' : 'border-slate-100'}`}
+    >
+      {icono}
+      <div className="min-w-0">
+        <p className="text-[12.5px] text-slate-500">{titulo}</p>
+        <p className="truncate text-[18px] font-bold leading-tight" style={{ color: AZUL }}>{item?.key ?? '—'}</p>
+        <p className="text-[12.5px] text-slate-500">{item ? detalle(item.casos) : 'Sin datos'}</p>
+      </div>
+    </button>
+  );
+  return (
+    <Card title="Focos del comportamiento" subtitle="Estación, zona de atención y delitos con más casos dentro del mismo conjunto de la matriz. Clic para filtrar; otro clic lo quita." descargable="focos-comportamiento" icono={<ShieldAlert size={24} className="text-[#137a6f]" />} claseTitulo="text-[15px] font-bold text-[#10233f]">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.4fr]">
+        {bloque('estacion', 'Estación más afectada', estacion, <IconoCuadro fondo="bg-teal-50"><Building2 size={24} className="text-[#137a6f]" /></IconoCuadro>)}
+        {bloque('cuadrante', 'Zona de atención más afectada', zona, <IconoCuadro fondo="bg-sky-50"><MapPin size={24} className="text-[#1d4f8f]" /></IconoCuadro>)}
+        <div className="rounded-lg border border-slate-100 px-3 py-2.5 md:col-span-2 xl:col-span-1">
+          <p className="mb-1.5 text-[12.5px] text-slate-500">3 delitos más afectados</p>
+          {delitos.length === 0 ? <p className="text-sm text-slate-400">Sin datos.</p> : (
+            <ul className="space-y-1.5">
+              {delitos.map((d, i) => (
+                <li key={d.key}>
+                  <button
+                    type="button"
+                    onClick={() => onFiltrar('delito', d.key)}
+                    title={marcado('delito', d.key) ? 'Quitar este filtro' : 'Filtrar por este delito (otro clic lo quita)'}
+                    className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left text-[13px] hover:bg-slate-50 ${marcado('delito', d.key) ? 'border-[#116762] bg-[#e3f2ef]' : 'border-rose-100 bg-rose-50/50'}`}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-[12px] font-bold text-white">{i + 1}</span>
+                    <span className="flex-1 truncate font-semibold" style={{ color: AZUL }}>{d.key}</span>
+                    <span className="whitespace-nowrap font-bold" style={{ color: AZUL }}>{formatNumero(d.casos)} casos</span>
+                    <span className="w-12 text-right text-slate-500">{formatDecimal(pct(d.casos, total), 1)}%</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function MatrizCalor() {
-  const { filteredRecords, filters, setFilters, meta } = useData();
+  const { filteredRecords, filters, setFilters, meta, drillDown } = useData();
   const [vista, setVista] = useState<VistaHeatmap>('hora');
   const [ampliada, setAmpliada] = useState(false);
   const [seleccionManual, setSeleccionManual] = useState<{ dia: number; col: number; vista: VistaHeatmap } | null>(null);
@@ -308,6 +394,7 @@ export function MatrizCalor() {
         <>
           {tarjetaMatriz}
           <LecturaRapida data={data} vista={vista} />
+          <FocosComportamiento records={recordsParaMatriz} filters={filters} onFiltrar={(campo, valor) => drillDown(campo, valor)} />
           <Card title="Momentos críticos" subtitle="Los periodos con mayor concentración de casos dentro del conjunto filtrado, calculados automáticamente." descargable="momentos-criticos" icono={<Flame size={24} className="fill-rose-500 text-rose-500" />} claseTitulo="text-[15px] font-bold text-[#10233f]">
             {data.momentosCriticos.length === 0 ? (
               <p className="text-sm text-slate-400">No hay suficientes datos para identificar momentos críticos.</p>
@@ -332,6 +419,7 @@ export function MatrizCalor() {
           <div className="min-w-0 space-y-4">
             {tarjetaMatriz}
             <LecturaRapida data={data} vista={vista} />
+            <FocosComportamiento records={recordsParaMatriz} filters={filters} onFiltrar={(campo, valor) => drillDown(campo, valor)} />
           </div>
           <div className="space-y-4">
             <Card title="Momento seleccionado" descargable="momento-seleccionado" icono={<MousePointer2 size={22} className="text-[#137a6f]" />} claseTitulo="text-[15px] font-bold text-[#10233f]">
