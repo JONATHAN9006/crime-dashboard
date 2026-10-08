@@ -47,6 +47,7 @@ export function aplicarFiltros(records: CrimeRecord[], f: FilterState): CrimeRec
     if (!matchMulti(r.turno, f.turno)) return false;
     if (!matchMulti(r.diaSemana, f.diaSemana)) return false;
     if (f.horaExacta.length > 0 && !f.horaExacta.includes(String(r.hora))) return false;
+    if ((f.diaMes ?? []).length > 0 && (r.dia === null || !f.diaMes.includes(String(r.dia)))) return false;
     if (f.anio.length > 0 && !f.anio.includes(String(r.anio))) return false;
     if (f.mes.length > 0 && !f.mes.includes(String(r.mes))) return false;
     if (fechaIni && (!r.fecha || r.fecha < fechaIni)) return false;

@@ -79,6 +79,7 @@ function etiquetasFiltrosActivos(filters: FilterState): string[] {
     claseSitio: 'Clase de sitio', causaLesion: 'Causa de lesión', grupoEdad: 'Grupo de edad',
     franjaHoraria: 'Hora (intervalo)', anio: 'Año', mes: 'Mes', diaSemana: 'Día de la semana',
     horaExacta: 'Hora exacta',
+    diaMes: 'Día del mes',
   };
   const salida: string[] = [];
   for (const [key, label] of Object.entries(etiquetas)) {

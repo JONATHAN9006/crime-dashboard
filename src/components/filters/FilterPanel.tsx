@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Activity, Building2, CalendarDays, CalendarRange, ChevronDown, ChevronUp, ClipboardList, Clock, Crosshair, Database,
+  Activity, Building2, CalendarCheck, CalendarDays, CalendarRange, ChevronDown, ChevronUp, ClipboardList, Clock, Crosshair, Database,
   FileText, Filter, Hourglass, House, Landmark, Map as MapIcon, MapPin, MapPinned, RotateCcw, SlidersHorizontal, Store, Target,
   ShieldCheck, Users, UsersRound, X,
 } from 'lucide-react';
@@ -29,6 +29,8 @@ export const CAMPOS_PRINCIPALES: { key: CampoFiltro; label: string; getter: (r: 
   { key: 'barrioHecho', label: 'Barrio', getter: (r) => r.barrioHecho },
   { key: 'franjaHoraria', label: 'Hora (intervalo)', getter: (r) => r.franjaHoraria },
   { key: 'turno', label: 'Turno de vigilancia', getter: (r) => r.turno },
+  { key: 'diaSemana', label: 'Día de la semana', getter: (r) => r.diaSemana },
+  { key: 'diaMes', label: 'Día del mes', getter: (r) => (r.dia != null ? String(r.dia) : '') },
 ];
 
 // Filtros adicionales, agrupados debajo (colapsables) para no saturar la vista principal.
@@ -66,6 +68,7 @@ export function FilterPanel() {
   const activos = contarFiltrosActivos(filters);
 
   // El intervalo horario debe listarse en orden cronológico, no alfabético.
+  const ORDEN_DIAS = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO'];
   const ORDEN_FRANJA = ['Madrugada (00:00-05:59)', 'Mañana (06:00-11:59)', 'Tarde (12:00-17:59)', 'Noche (18:00-23:59)'];
 
   function opcionesPara(campo: CampoFiltro, getter: (r: CrimeRecord) => string) {
@@ -77,6 +80,12 @@ export function FilterPanel() {
     if (campo === 'franjaHoraria') {
       return ORDEN_FRANJA.filter((f) => opciones.includes(f));
     }
+    // Días en orden de calendario (lunes → domingo; 1 → 31), no alfabético.
+    if (campo === 'diaSemana') {
+      const orden = (d: string) => ORDEN_DIAS.indexOf(d.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase());
+      return [...opciones].filter(Boolean).sort((a, b) => (orden(a) === -1 ? 99 : orden(a)) - (orden(b) === -1 ? 99 : orden(b)));
+    }
+    if (campo === 'diaMes') return opciones.filter(Boolean).sort((a, b) => Number(a) - Number(b));
     return opciones;
   }
 
@@ -259,7 +268,7 @@ export function FilterPanel() {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 bg-white p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 rounded-b-xl">
+            <div className="grid grid-cols-1 gap-3 bg-white p-3 sm:grid-cols-2 lg:grid-cols-4 rounded-b-xl">
               <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
               <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
               <CampoFecha id="filtro-fecha-inicial" etiqueta="Fecha inicial" tono={TONOS.fecha.campo} multifecha={multifechaActiva} activa={!!filters.fechaInicial}>
@@ -289,6 +298,8 @@ export function FilterPanel() {
               </CampoFecha>
               {campo('franjaHoraria', <Clock size={18} />, 'fecha')}
               {campo('turno', <Hourglass size={18} />, 'fecha')}
+              {campo('diaSemana', <CalendarCheck size={18} />, 'fecha')}
+              {campo('diaMes', <CalendarDays size={18} />, 'fecha')}
             </div>
           </div>
 

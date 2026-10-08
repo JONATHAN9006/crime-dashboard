@@ -108,6 +108,8 @@ export interface FilterState {
   turno: string[];
   diaSemana: string[];
   horaExacta: string[];
+  /** Día del mes (1–31) como texto. */
+  diaMes: string[];
   anio: string[];
   mes: string[];
   fechaInicial: string | null;
@@ -150,6 +152,7 @@ export const emptyFilterState: FilterState = {
   turno: [],
   diaSemana: [],
   horaExacta: [],
+  diaMes: [],
   anio: [],
   mes: [],
   fechaInicial: null,
