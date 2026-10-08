@@ -3,8 +3,7 @@ import { useData } from '../context/DataContext';
 import { aplicarFiltros } from '../utils/filters';
 import { Card, PageHeader } from '../components/ui/Card';
 import { KpiCard } from '../components/ui/KpiCard';
-import { GroupedBarChart } from '../components/charts/GroupedBarChart';
-import { formatNumero, formatDecimal } from '../utils/aggregations';
+import { formatNumero } from '../utils/aggregations';
 import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
 import { RankingAporte } from '../components/charts/RankingAporte';
 import { BarChart3, Building2, Clock, Crosshair, Home, Hourglass, MapPin, MapPinned, Plus, Store, Timer } from 'lucide-react';
@@ -13,7 +12,6 @@ import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 import { esValorPendiente } from '../utils/valoresPendientes';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const COLORES_PERIODO = ['#159089', '#64748b', '#0f766e', '#94a3b8', '#134e4a', '#cbd5e1'];
 const OPCIONES_TOP = [{ label: 'Top 5', valor: 5 }, { label: 'Top 10', valor: 10 }, { label: 'Todos', valor: undefined as number | undefined }];
 
 function diaSemanaDe(fechaIso: string): string {
@@ -44,24 +42,6 @@ function registrosDelPeriodo(records: CrimeRecord[], p: PeriodoAnalisis): CrimeR
   });
 }
 
-// "limite" undefined = Todos, sin recortar. El aporte % se calcula sobre lo
-// que efectivamente queda mostrado (igual criterio que ya usa Delictividad
-// por Unidad) — cambia si se pasa de "Top 5" a "Todos", a propósito.
-function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) => string, limite: number | undefined) {
-  const claves = new Set<string>();
-  for (const recs of porPeriodo) for (const r of recs) claves.add(getter(r) || 'No reportado');
-  const todas = Array.from(claves)
-    .filter((c) => !esValorPendiente(c))
-    .map((clave) => {
-      const porcada = porPeriodo.map((recs) => recs.filter((r) => (getter(r) || 'No reportado') === clave).length);
-      const total = porcada.reduce((a, b) => a + b, 0);
-      return { clave, porcada, total };
-    })
-    .sort((a, b) => b.total - a.total);
-  const filas = limite ? todas.slice(0, limite) : todas;
-  const totalMostrado = filas.reduce((a, f) => a + f.total, 0);
-  return filas.map((f) => ({ ...f, aportePct: totalMostrado > 0 ? (f.total / totalMostrado) * 100 : 0 }));
-}
 
 // Se muestra en vez del Comparativo homólogo (año actual vs año anterior)
 // únicamente cuando hay periodos de análisis multifecha activos — el
@@ -69,7 +49,6 @@ function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) =>
 // Comparativo.tsx).
 export function ComparativoMultifecha() {
   const { filters, records, periodos, drillDown } = useData();
-  const [topN, setTopN] = useState<number | undefined>(5);
 
   // Los filtros normales (delito, estación, CAI, etc. — TODO menos la
   // fecha) se aplican primero, igual que en el resto del dashboard; cada
@@ -81,7 +60,7 @@ export function ComparativoMultifecha() {
   const totalGeneral = useMemo(() => {
     // Unión real (sin duplicar) para el KPI de total — un registro que
     // calce con dos periodos a la vez se cuenta una sola vez aquí, aunque
-    // en las tablas/gráficos por periodo aparezca en ambas columnas.
+    // en el KPI de cada periodo cuente en ambos.
     const vistos = new Set<string>();
     for (const recs of porPeriodo) for (const r of recs) vistos.add(r.__id);
     return vistos.size;
@@ -111,90 +90,11 @@ export function ComparativoMultifecha() {
   const [tops, setTops] = useState<Record<string, number | undefined>>({});
   const topDe = (id: string, defecto: number | undefined = 10) => (id in tops ? tops[id] : defecto);
 
-  const tablaDelito = useMemo(() => construirTabla(porPeriodo, (r) => r.delito, topN), [porPeriodo, topN]);
-  const tablaEstacion = useMemo(() => construirTabla(porPeriodo, (r) => r.estacion, topN), [porPeriodo, topN]);
-  const tablaBarrio = useMemo(() => construirTabla(porPeriodo, (r) => r.barrioHecho, topN), [porPeriodo, topN]);
-  const tablaModalidad = useMemo(() => construirTabla(porPeriodo, (r) => r.modalidad, topN), [porPeriodo, topN]);
-  const tablaArmas = useMemo(() => construirTabla(porPeriodo, (r) => r.armas, topN), [porPeriodo, topN]);
-
   const encabezados = periodos.map((p, i) => {
     const dia = diaSemanaDe(p.fechaInicial);
     const anio = anioDe(p.fechaInicial);
     return { id: p.id, titulo: `Periodo ${i + 1}`, subtitulo: [dia, anio].filter(Boolean).join(' '), etiquetaSerie: [dia, anio].filter(Boolean).join(' ') || `Periodo ${i + 1}` };
   });
-  const seriesKeys = encabezados.map((e) => e.etiquetaSerie);
-  const seriesColors = Object.fromEntries(encabezados.map((e, i) => [e.etiquetaSerie, COLORES_PERIODO[i % COLORES_PERIODO.length]]));
-
-  function datosParaGrafico(filas: ReturnType<typeof construirTabla>) {
-    return filas.map((f) => {
-      const fila: Record<string, any> = { x: f.clave };
-      encabezados.forEach((e, i) => { fila[e.etiquetaSerie] = f.porcada[i]; });
-      return fila;
-    });
-  }
-
-  // Cada sección: gráfico de barras agrupadas (una barra por periodo, lado
-  // a lado, por cada categoría) + la tabla exacta debajo, con el mismo
-  // orden y las mismas cifras — así se puede leer el número exacto o solo
-  // mirar el tamaño de la barra, sin que ninguna de las dos formas quede
-  // "coja". Esto es justo lo que faltaba: antes solo había tablas de
-  // números, sin ninguna representación visual por barras.
-  function Seccion({ titulo, columna, filas, campo }: { titulo: string; columna: string; filas: ReturnType<typeof construirTabla>; campo?: keyof FilterState }) {
-    const datos = datosParaGrafico(filas);
-    return (
-      <Card title={titulo} descargable={`multifecha-${columna.toLowerCase().replace(/\s+/g, '-')}`}>
-        {filas.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">Sin casos en los periodos seleccionados.</p>
-        ) : (
-          <>
-            <GroupedBarChart
-              data={datos}
-              xKey="x"
-              seriesKeys={seriesKeys}
-              seriesColors={seriesColors}
-              horizontal
-              height={Math.max(220, filas.length * 32)}
-            />
-            <div className="mt-4 overflow-x-auto border-t border-slate-100 pt-3">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="py-2 pr-3">{columna}</th>
-                    {encabezados.map((e) => (
-                      <th key={e.id} className="px-2 py-2 text-center">
-                        <div>{e.titulo}</div>
-                        <div className="text-[10px] font-normal normal-case text-slate-400">{e.subtitulo}</div>
-                      </th>
-                    ))}
-                    <th className="px-2 py-2 text-center">Total</th>
-                    <th className="px-2 py-2 text-center">Aporte %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filas.map((f) => (
-                    <tr
-                      key={f.clave}
-                      onClick={campo ? () => drillDown(campo, f.clave) : undefined}
-                      title={campo ? 'Clic para filtrar por este valor; otro clic lo quita' : undefined}
-                      className={`border-b border-slate-100 ${campo ? 'cursor-pointer hover:bg-slate-50' : ''} ${campo && ((filters[campo] as string[]) ?? []).includes(f.clave) ? 'bg-[#e3f2ef] font-semibold' : ''}`}
-                    >
-                      <td className="py-1.5 pr-3 text-slate-700">{f.clave}</td>
-                      {f.porcada.map((v, i) => (
-                        <td key={encabezados[i]?.id ?? i} className="px-2 py-1.5 text-center text-slate-600">{formatNumero(v)}</td>
-                      ))}
-                      <td className="px-2 py-1.5 text-center font-semibold text-brand-navy">{formatNumero(f.total)}</td>
-                      <td className="px-2 py-1.5 text-center text-slate-500">{formatDecimal(f.aportePct, 1)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </Card>
-    );
-  }
-
   const T = 'text-[14px] font-bold leading-tight text-[#10233f]';
   const ico = (Icono: typeof MapPin) => <Icono size={22} strokeWidth={2.3} className="shrink-0 text-[#137a6f]" />;
   function TarjetaConsolidada({ id, titulo, icono, cabeza, campo, getter, defecto = 10, etiqueta, valorFiltro }: {
@@ -233,20 +133,7 @@ export function ComparativoMultifecha() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader title="Comparativo multifecha" subtitle="Análisis de eventos/jornadas comparables — cada periodo es una ventana independiente." />
-        <div className="flex gap-1.5 rounded-lg border border-slate-200 p-1">
-          {OPCIONES_TOP.map((o) => (
-            <button
-              key={o.label}
-              onClick={() => setTopN(o.valor)}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${topN === o.valor ? 'bg-brand-navy text-white' : 'text-slate-500 hover:bg-slate-100'}`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader title="Comparativo multifecha" subtitle="Análisis de eventos/jornadas comparables — cada periodo es una ventana independiente." />
       <IndicadorMultifecha />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -274,14 +161,6 @@ export function ComparativoMultifecha() {
           <TarjetaConsolidada id="causa" titulo="Causa de lesión" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} cabeza="Causa" campo="causaLesion" getter={(r) => r.causaLesion} defecto={5} />
         </div>
       </div>
-
-      {/* Comparación lado a lado entre periodos (lo que ya existía) */}
-      <p className="pt-2 text-[15px] font-extrabold text-[#10233f]">Comparación entre periodos</p>
-      <Seccion titulo="Delitos por periodo" columna="Delito" campo="delito" filas={tablaDelito} />
-      <Seccion titulo="Casos por estación por periodo" columna="Estación" campo="estacion" filas={tablaEstacion} />
-      <Seccion titulo="Barrios más afectados por periodo" columna="Barrio" campo="barrioHecho" filas={tablaBarrio} />
-      <Seccion titulo="Modalidad por periodo" columna="Modalidad" campo="modalidad" filas={tablaModalidad} />
-      <Seccion titulo="Armas empleadas por periodo" columna="Arma" campo="armas" filas={tablaArmas} />
     </div>
   );
 }
