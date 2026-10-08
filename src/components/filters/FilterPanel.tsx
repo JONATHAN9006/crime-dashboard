@@ -136,6 +136,7 @@ export function FilterPanel() {
       quitar: () => setFilters((prev) => ({ ...prev, fechaInicial: null, fechaFinal: null })),
     });
   }
+  if (filters.horaExacta.length > 0) chips.push({ id: 'horaExacta', texto: `Hora: ${resumirValores([...filters.horaExacta].sort((a, b) => Number(a) - Number(b)).map((h) => `${h.padStart(2, '0')}:00`))}`, quitar: () => actualizar('horaExacta', []) });
   if (categoriaOperatividadSel.length > 0) chips.push({ id: 'categoriaOperatividad', texto: `Operatividad: ${resumirValores(categoriaOperatividadSel)}`, quitar: () => setFilters((prev) => ({ ...prev, categoriaOperatividad: [] })) });
   for (const c of [...CAMPOS_PRINCIPALES, ...CAMPOS_ADICIONALES]) {
     const vals = filters[c.key] as string[];

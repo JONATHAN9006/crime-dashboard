@@ -21,6 +21,17 @@ const FUNCION_SUBIR_REGISTROS = '/.netlify/functions/subirRegistros';
 // "NO APLICA LOCALIDAD - COMUNA" (comparendos fuera de las comunas de
 // Popayán) no es una comuna: se deja por fuera de la tarjeta Comuna y del
 // conteo de comunas. Los comparendos siguen contando en todo lo demás.
+// Fecha del comparendo: la que viene del servidor llega como medianoche UTC
+// ("2026-05-10") y en Colombia caería el día anterior — se lee en UTC en
+// ese caso, y en hora local cuando la fecha salió del Excel.
+function partesFecha(f: Date | null): { mes: number; dia: number; diaSemana: number } | null {
+  if (!f || isNaN(f.getTime())) return null;
+  const utc = f.getUTCHours() === 0 && f.getUTCMinutes() === 0 && f.getHours() !== 0;
+  return utc
+    ? { mes: f.getUTCMonth() + 1, dia: f.getUTCDate(), diaSemana: f.getUTCDay() }
+    : { mes: f.getMonth() + 1, dia: f.getDate(), diaSemana: f.getDay() };
+}
+const DIAS_RNMC = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'];
 const comunaValida = (r: RegistroComparendo) => (/NO\s*APLICA/i.test(r.comuna) ? '' : r.comuna);
 
 // Los tres comportamientos que se piden siempre juntos, en un solo
@@ -344,11 +355,20 @@ export function Rnmc() {
     if (!registros) return [];
     return registros.filter((r) => {
       if (filters.anio.length > 0 && (r.anio == null || !filters.anio.includes(String(r.anio)))) return false;
+      // Mes, día de la semana y día del mes del filtro principal también aplican a RNMC.
+      const p = partesFecha(r.fecha);
+      if (filters.mes.length > 0 && (!p || !filters.mes.includes(String(p.mes)))) return false;
+      if ((filters.diaMes ?? []).length > 0 && (!p || !filters.diaMes.includes(String(p.dia)))) return false;
+      if (filters.diaSemana.length > 0) {
+        if (!p) return false;
+        const dia = DIAS_RNMC[p.diaSemana];
+        if (!filters.diaSemana.some((d) => d.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase() === dia)) return false;
+      }
       if (filters.fechaInicial && (!r.fecha || r.fecha < new Date(filters.fechaInicial))) return false;
       if (filters.fechaFinal && (!r.fecha || r.fecha > new Date(`${filters.fechaFinal}T23:59:59`))) return false;
       return true;
     });
-  }, [registros, filters.anio, filters.fechaInicial, filters.fechaFinal]);
+  }, [registros, filters.anio, filters.mes, filters.diaMes, filters.diaSemana, filters.fechaInicial, filters.fechaFinal]);
 
   const comportamientosDisponibles = useMemo(
     () => conAporte(registrosFiltradosPorFecha, (r) => r.articuloNumeral, 12).map((c) => c.key),

@@ -13,28 +13,33 @@ import { formatDecimal, formatNumero } from '../../utils/aggregations';
 const VERDE_MAXIMO = '#0b4a46';
 const PALETA = ['#159089', '#94a3b8'];
 
-export function RankingAporte({ data, cabeza, onClick }: {
+export function RankingAporte({ data, cabeza, onClick, seleccionados = [] }: {
   data: { key: string; casos: number; aportePct: number }[];
   cabeza: string;
+  /** Clic = filtrar por ese valor; segundo clic = quitar el filtro (lo maneja quien llama). */
   onClick?: (key: string) => void;
+  /** Valores hoy filtrados: se marcan en la lista. */
+  seleccionados?: string[];
 }) {
   const max = Math.max(1, ...data.map((d) => d.casos));
   if (data.length === 0) return <p className="py-4 text-center text-sm text-slate-400">Sin datos.</p>;
   return (
     <div className="grid items-center gap-x-2.5 text-[12.5px]" style={{ gridTemplateColumns: 'minmax(0, max-content) minmax(70px, 1fr) auto auto' }}>
-      <div className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{cabeza}</div>
+      <div className="pb-1 pl-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{cabeza}</div>
       <div />
       <div className="pb-1 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400">Casos</div>
       <div className="pb-1 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400">Aporte</div>
       {data.map((d, i) => {
         const esMaximo = d.casos === max;
         const color = esMaximo ? VERDE_MAXIMO : PALETA[i % PALETA.length];
-        const fila = onClick ? 'cursor-pointer' : '';
+        const marcado = seleccionados.includes(d.key);
+        const fila = onClick ? `cursor-pointer ${marcado ? 'bg-[#e3f2ef]' : 'hover:bg-slate-50'}` : '';
+        const titulo = onClick ? (marcado ? `Quitar el filtro "${d.key}"` : `Filtrar por "${d.key}" (otro clic lo quita)`) : d.key;
         return (
           // Fragment (no un div "display: contents") — la exportación a
           // imagen no maneja bien ese modo; cada celda recibe su propio clic.
           <Fragment key={d.key}>
-            <div onClick={() => onClick?.(d.key)} className={`max-w-[170px] truncate py-[4px] text-slate-700 ${fila}`} title={d.key}>{d.key}</div>
+            <div onClick={() => onClick?.(d.key)} className={`max-w-[170px] truncate rounded-l py-[4px] pl-1 ${marcado ? 'font-bold text-[#0b4a46]' : 'text-slate-700'} ${fila}`} title={titulo}>{marcado ? '✓ ' : ''}{d.key}</div>
             <div onClick={() => onClick?.(d.key)} className={`py-[4px] ${fila}`}>
               <div className="rounded" style={esMaximo ? { border: '2.5px dashed #dc2626', padding: '1px' } : undefined}>
                 <div className="h-3 w-full overflow-hidden rounded bg-slate-100">
@@ -43,7 +48,7 @@ export function RankingAporte({ data, cabeza, onClick }: {
               </div>
             </div>
             <div onClick={() => onClick?.(d.key)} className={`py-[4px] text-right font-bold text-[#10233f] ${fila}`}>{formatNumero(d.casos)}</div>
-            <div onClick={() => onClick?.(d.key)} className={`py-[4px] pl-1 text-right text-slate-500 ${fila}`}>{formatDecimal(d.aportePct, 1)}%</div>
+            <div onClick={() => onClick?.(d.key)} className={`rounded-r py-[4px] pl-1 pr-1 text-right text-slate-500 ${fila}`}>{formatDecimal(d.aportePct, 1)}%</div>
           </Fragment>
         );
       })}

@@ -520,8 +520,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const clearFilters = useCallback(() => setFilters(emptyFilterState), []);
 
+  // Clic en una barra/fila = filtrar por ese valor; un SEGUNDO clic sobre
+  // el mismo valor lo quita y la información vuelve a mostrarse completa
+  // (comportamiento de interruptor, igual en todos los componentes).
   const drillDown = useCallback((campo: keyof FilterState, valor: string) => {
-    setFilters((prev) => ({ ...prev, [campo]: [valor] }));
+    setFilters((prev) => {
+      const actual = prev[campo];
+      if (Array.isArray(actual) && actual.includes(valor)) {
+        return { ...prev, [campo]: actual.filter((v) => v !== valor) };
+      }
+      return { ...prev, [campo]: [valor] };
+    });
   }, []);
 
   const sincronizar = useCallback(async () => {

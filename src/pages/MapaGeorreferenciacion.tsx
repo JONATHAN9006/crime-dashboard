@@ -7,7 +7,7 @@ import {
   AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
   Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
   SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
-  Scale, Sparkles, ChartColumn, Landmark, Grid3x3,
+  Scale, Sparkles, ChartColumn, Landmark,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card } from '../components/ui/Card';
@@ -2095,14 +2095,19 @@ export function MapaGeorreferenciacion() {
     return { filas: conAporte(porCai), nota: 'Comuna N ↔ CAI N (misma equivalencia de MACRI). Carga la capa de comunas para calcularlo por ubicación.' };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRecords, capas, camposUnionAutoDetectados]);
-  const rankingCuadrantes = useMemo(() => {
-    const espacial = conteoEspacialPorCapa(/cuadrante/i, /CUADRANTE|COD|NOMBRE|NOM_|^NOM/i);
-    if (espacial && espacial.filas.length > 0) {
-      return { filas: conAporte(espacial.filas), nota: `Por ubicación del hecho en la capa "${espacial.capa}" (${formatNumero(espacial.conCoordenada)} de ${formatNumero(totalFiltrado)} registros con coordenadas).` };
-    }
-    return { filas: [] as { key: string; casos: number; aportePct: number }[], nota: 'Carga o activa la capa de cuadrantes para ubicar cada hecho en su cuadrante.' };
+  // Horas más afectadas: mismos registros filtrados que el mapa (r.hora).
+  const etiquetaHoraMapa = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
+  const rankingHoras = useMemo(() => {
+    const conteo = new Map<number, number>();
+    for (const r of filteredRecords) if (r.hora !== null && r.hora !== undefined) conteo.set(r.hora, (conteo.get(r.hora) ?? 0) + 1);
+    return conAporte(Array.from(conteo.entries()).sort((x, y) => y[1] - x[1] || x[0] - y[0]).map(([h, casos]) => ({ key: etiquetaHoraMapa(String(h)), casos })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredRecords, capas, camposUnionAutoDetectados]);
+  }, [filteredRecords]);
+  // Clic en una hora = filtrar por esa hora en el filtro principal; otro clic la quita.
+  const alternarHora = (hora: string) => setFilters((prev: FilterState) => ({
+    ...prev,
+    horaExacta: prev.horaExacta.includes(hora) ? prev.horaExacta.filter((h) => h !== hora) : [hora],
+  }));
 
   // ── KPI: mismos conjuntos que ya usa el mapa ───────────────────────────
   // Delitos = registros filtrados (lo mismo que cuentan las tarjetas de
@@ -3175,7 +3180,15 @@ export function MapaGeorreferenciacion() {
                   <TarjetaTerritorial titulo="Tipos de delito" icono={<ShieldAlert size={15} />} filas={rankingDelitos} topInicial={5} onFila={(k) => alternarValorFiltro('delito', k)} seleccionados={filtrosMapa.delito} />
                   <TarjetaTerritorial titulo="CAI más afectados" icono={<Shield size={15} />} filas={rankingCai} topInicial={10} onFila={(k) => alternarValorFiltro('cai', k)} seleccionados={filtrosMapa.cai} />
                   <TarjetaTerritorial titulo="Zonas de atención" icono={<MapPin size={15} />} filas={rankingZonas} topInicial={10} onFila={(k) => alternarValorFiltro('cuadrante', k)} seleccionados={filtrosMapa.cuadrante} />
-                  <TarjetaTerritorial titulo="Cuadrantes" icono={<Grid3x3 size={15} />} filas={rankingCuadrantes.filas} topInicial={10} nota={rankingCuadrantes.nota} textoVacio="Sin cuadrantes para mostrar." />
+                  {/* "Cuadrantes" se reemplazó por "Horas más afectadas" (a pedido). */}
+                  <TarjetaTerritorial
+                    titulo="Horas más afectadas"
+                    icono={<Clock size={15} />}
+                    filas={rankingHoras}
+                    topInicial={5}
+                    onFila={(etiqueta) => alternarHora(String(parseInt(etiqueta, 10)))}
+                    seleccionados={filtrosPrincipales.horaExacta.map(etiquetaHoraMapa)}
+                  />
                 </div>
               </section>
 

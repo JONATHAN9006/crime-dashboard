@@ -29,6 +29,9 @@ const OPCIONES_TOP = [
   { label: 'Todos', valor: undefined },
 ];
 
+// "14" → "14:00 – 14:59"
+const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
+
 const OPCIONES_TOP_5_10 = [
   { label: 'Top 5', valor: 5 },
   { label: 'Top 10', valor: 10 },
@@ -111,6 +114,17 @@ export function AnalisisUnidad() {
   // no filteredRecords directo (que mezclaba los 23 años sin filtro).
   const porHora = useDistribucionHoraria(ventana.recsActual);
   const [topHorasUnidad, setTopHorasUnidad] = useState<number | undefined>(undefined);
+  // "Horas más afectadas": las 24 horas como ranking (mismas barras y aporte
+  // de las demás tarjetas). Clic = filtrar por esa hora; otro clic la quita.
+  const [topHorasRanking, setTopHorasRanking] = useState<number | undefined>(5);
+  const horasMasAfectadas = useMemo(() => {
+    const totalHoras = porHora.reduce((a, h) => a + h.casos, 0);
+    const filas = [...porHora]
+      .filter((h) => h.casos > 0)
+      .sort((a, b) => b.casos - a.casos || a.horaNum - b.horaNum)
+      .map((h) => ({ key: String(h.horaNum), casos: h.casos, aportePct: totalHoras > 0 ? (h.casos / totalHoras) * 100 : 0 }));
+    return topHorasRanking ? filas.slice(0, topHorasRanking) : filas;
+  }, [porHora, topHorasRanking]);
   const porHoraFiltrada = useMemo(() => {
     if (!topHorasUnidad) return porHora;
     return [...porHora].sort((a, b) => b.casos - a.casos).slice(0, topHorasUnidad);
@@ -396,37 +410,45 @@ export function AnalisisUnidad() {
             </div>
 
             {/* ── FILA 3: CAI | Turno | Top delitos | Top cuadrantes ── */}
-            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 2xl:grid-cols-4">
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               <Card className="h-full" title="CAI más afectados" subtitle={`Top ${topCai === 'todas' ? 'todos' : topCai}, vigencia ${ventana.anioActual}`} descargable="cai-mas-afectados" icono={ico(MapPin)} claseTitulo={T} actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}>
-                <RankingAporte data={porCaiVigenciaActual} cabeza="CAI" onClick={(key) => drillDown('cai', key)} />
+                <RankingAporte data={porCaiVigenciaActual} cabeza="CAI" onClick={(key) => drillDown('cai', key)} seleccionados={filters.cai as string[]} />
               </Card>
               <Card className="h-full" title="Turno de vigilancia" subtitle={`Exclusivamente vigencia ${ventana.anioActual}`} descargable="turno-vigilancia" icono={ico(Clock)} claseTitulo={T}>
-                <RankingAporte data={porTurnoVigenciaActual} cabeza="Turno" onClick={(key) => drillDown('turno', key)} />
+                <RankingAporte data={porTurnoVigenciaActual} cabeza="Turno" onClick={(key) => drillDown('turno', key)} seleccionados={filters.turno as string[]} />
               </Card>
               <Card className="h-full" title="Análisis de delitos — Top por cantidad" subtitle={`Exclusivamente vigencia ${ventana.anioActual}`} descargable="top-delitos" icono={ico(BarChart3)} claseTitulo={T} actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}>
-                <RankingAporte data={porDelitoVigenciaActual} cabeza="Delito" onClick={(key) => drillDown('delito', key)} />
+                <RankingAporte data={porDelitoVigenciaActual} cabeza="Delito" onClick={(key) => drillDown('delito', key)} seleccionados={filters.delito as string[]} />
               </Card>
               <Card className="h-full" title={`Top ${topCuadrante} cuadrantes más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
-                <RankingAporte data={ranking(cmpCuadrante, topCuadrante)} cabeza="Cuadrante" onClick={(key) => drillDown('cuadrante', key)} />
+                <RankingAporte data={ranking(cmpCuadrante, topCuadrante)} cabeza="Cuadrante" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
+              </Card>
+              <Card className="h-full" title="Horas más afectadas" subtitle={`${topHorasRanking ? `Top ${topHorasRanking}` : 'Las 24 horas'}, vigencia ${ventana.anioActual}`} descargable="horas-mas-afectadas" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTop valor={topHorasRanking} onChange={setTopHorasRanking} opciones={OPCIONES_TOP} />}>
+                <RankingAporte
+                  data={horasMasAfectadas.map((h) => ({ ...h, key: etiquetaHora(h.key) }))}
+                  cabeza="Hora"
+                  onClick={(etiqueta) => drillDown('horaExacta', String(parseInt(etiqueta, 10)))}
+                  seleccionados={filters.horaExacta.map(etiquetaHora)}
+                />
               </Card>
             </div>
 
             {/* ── FILA 4: Barrios | Armas | Modalidades | Clase de sitio | Causa de lesión ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               <Card className="h-full" title={`Top ${topBarrio} barrios más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-barrios" icono={ico(Home)} claseTitulo={T} actions={<SelectorTop valor={topBarrio} onChange={(v) => setTopBarrio(v!)} />}>
-                <RankingAporte data={ranking(cmpBarrio, topBarrio)} cabeza="Barrio" onClick={(key) => drillDown('barrioHecho', key)} />
+                <RankingAporte data={ranking(cmpBarrio, topBarrio)} cabeza="Barrio" onClick={(key) => drillDown('barrioHecho', key)} seleccionados={filters.barrioHecho as string[]} />
               </Card>
               <Card className="h-full" title="Armas empleadas" subtitle={`Top ${topArma}, vigencia ${ventana.anioActual}`} descargable="armas-empleadas" icono={ico(Crosshair)} claseTitulo={T} actions={<SelectorTop valor={topArma} onChange={(v) => setTopArma(v!)} />}>
-                <RankingAporte data={ranking(cmpArma, topArma)} cabeza="Arma" onClick={(key) => drillDown('armas', key)} />
+                <RankingAporte data={ranking(cmpArma, topArma)} cabeza="Arma" onClick={(key) => drillDown('armas', key)} seleccionados={filters.armas as string[]} />
               </Card>
               <Card className="h-full" title="Modalidades principales" subtitle={`Top ${topModalidad}, vigencia ${ventana.anioActual}`} descargable="modalidades" icono={ico(Timer)} claseTitulo={T} actions={<SelectorTop valor={topModalidad} onChange={(v) => setTopModalidad(v!)} />}>
-                <RankingAporte data={ranking(cmpModalidad, topModalidad)} cabeza="Modalidad" onClick={(key) => drillDown('modalidad', key)} />
+                <RankingAporte data={ranking(cmpModalidad, topModalidad)} cabeza="Modalidad" onClick={(key) => drillDown('modalidad', key)} seleccionados={filters.modalidad as string[]} />
               </Card>
               <Card className="h-full" title="Clase de sitio" subtitle={`Top ${topClaseSitio}, vigencia ${ventana.anioActual}`} descargable="clase-sitio" icono={ico(Building)} claseTitulo={T} actions={<SelectorTop valor={topClaseSitio} onChange={(v) => setTopClaseSitio(v!)} />}>
-                <RankingAporte data={ranking(cmpClaseSitio, topClaseSitio)} cabeza="Clase de sitio" onClick={(key) => drillDown('claseSitio', key)} />
+                <RankingAporte data={ranking(cmpClaseSitio, topClaseSitio)} cabeza="Clase de sitio" onClick={(key) => drillDown('claseSitio', key)} seleccionados={filters.claseSitio as string[]} />
               </Card>
               <Card className="h-full" title="Causa de lesión" subtitle={`Top ${topCausaLesion}, vigencia ${ventana.anioActual}`} descargable="causa-lesion" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} claseTitulo={T} actions={<SelectorTop valor={topCausaLesion} onChange={(v) => setTopCausaLesion(v!)} />}>
-                <RankingAporte data={ranking(cmpCausaLesion, topCausaLesion)} cabeza="Causa" onClick={(key) => drillDown('causaLesion', key)} />
+                <RankingAporte data={ranking(cmpCausaLesion, topCausaLesion)} cabeza="Causa" onClick={(key) => drillDown('causaLesion', key)} seleccionados={filters.causaLesion as string[]} />
               </Card>
             </div>
 

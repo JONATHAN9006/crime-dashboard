@@ -6,6 +6,9 @@ import { KpiCard } from '../components/ui/KpiCard';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { formatNumero, formatDecimal } from '../utils/aggregations';
 import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
+import { RankingAporte } from '../components/charts/RankingAporte';
+import { BarChart3, Building2, Clock, Crosshair, Home, Hourglass, MapPin, MapPinned, Plus, Store, Timer } from 'lucide-react';
+import type { FilterState } from '../types/crime';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 import { esValorPendiente } from '../utils/valoresPendientes';
 
@@ -65,7 +68,7 @@ function construirTabla(porPeriodo: CrimeRecord[][], getter: (r: CrimeRecord) =>
 // Comparativo de siempre sigue intacto para el caso de una sola fecha (ver
 // Comparativo.tsx).
 export function ComparativoMultifecha() {
-  const { filters, records, periodos } = useData();
+  const { filters, records, periodos, drillDown } = useData();
   const [topN, setTopN] = useState<number | undefined>(5);
 
   // Los filtros normales (delito, estación, CAI, etc. — TODO menos la
@@ -83,6 +86,30 @@ export function ComparativoMultifecha() {
     for (const recs of porPeriodo) for (const r of recs) vistos.add(r.__id);
     return vistos.size;
   }, [porPeriodo]);
+
+  // ── Vista consolidada con la MISMA lógica de Delictividad por Unidad ──
+  // Todos los periodos juntos (sin duplicar un registro que caiga en dos),
+  // con las mismas barras (RankingAporte), el mismo aporte % (sobre el total
+  // de los periodos) y el mismo clic para filtrar / quitar el filtro.
+  const unionPeriodos = useMemo(() => {
+    const vistos = new Map<string, CrimeRecord>();
+    for (const recs of porPeriodo) for (const r of recs) if (!vistos.has(r.__id)) vistos.set(r.__id, r);
+    return Array.from(vistos.values());
+  }, [porPeriodo]);
+  const rankingDe = (getter: (r: CrimeRecord) => string, limite: number | undefined) => {
+    const conteo = new Map<string, number>();
+    for (const r of unionPeriodos) {
+      const k = getter(r);
+      if (!k || esValorPendiente(k)) continue;
+      conteo.set(k, (conteo.get(k) ?? 0) + 1);
+    }
+    const total = unionPeriodos.length;
+    const filas = Array.from(conteo.entries()).map(([key, casos]) => ({ key, casos, aportePct: total > 0 ? (casos / total) * 100 : 0 })).sort((a, b) => b.casos - a.casos);
+    return limite ? filas.slice(0, limite) : filas;
+  };
+  const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
+  const [tops, setTops] = useState<Record<string, number | undefined>>({});
+  const topDe = (id: string, defecto: number | undefined = 10) => (id in tops ? tops[id] : defecto);
 
   const tablaDelito = useMemo(() => construirTabla(porPeriodo, (r) => r.delito, topN), [porPeriodo, topN]);
   const tablaEstacion = useMemo(() => construirTabla(porPeriodo, (r) => r.estacion, topN), [porPeriodo, topN]);
@@ -112,7 +139,7 @@ export function ComparativoMultifecha() {
   // mirar el tamaño de la barra, sin que ninguna de las dos formas quede
   // "coja". Esto es justo lo que faltaba: antes solo había tablas de
   // números, sin ninguna representación visual por barras.
-  function Seccion({ titulo, columna, filas }: { titulo: string; columna: string; filas: ReturnType<typeof construirTabla> }) {
+  function Seccion({ titulo, columna, filas, campo }: { titulo: string; columna: string; filas: ReturnType<typeof construirTabla>; campo?: keyof FilterState }) {
     const datos = datosParaGrafico(filas);
     return (
       <Card title={titulo} descargable={`multifecha-${columna.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -145,7 +172,12 @@ export function ComparativoMultifecha() {
                 </thead>
                 <tbody>
                   {filas.map((f) => (
-                    <tr key={f.clave} className="border-b border-slate-100">
+                    <tr
+                      key={f.clave}
+                      onClick={campo ? () => drillDown(campo, f.clave) : undefined}
+                      title={campo ? 'Clic para filtrar por este valor; otro clic lo quita' : undefined}
+                      className={`border-b border-slate-100 ${campo ? 'cursor-pointer hover:bg-slate-50' : ''} ${campo && ((filters[campo] as string[]) ?? []).includes(f.clave) ? 'bg-[#e3f2ef] font-semibold' : ''}`}
+                    >
                       <td className="py-1.5 pr-3 text-slate-700">{f.clave}</td>
                       {f.porcada.map((v, i) => (
                         <td key={encabezados[i]?.id ?? i} className="px-2 py-1.5 text-center text-slate-600">{formatNumero(v)}</td>
@@ -159,6 +191,42 @@ export function ComparativoMultifecha() {
             </div>
           </>
         )}
+      </Card>
+    );
+  }
+
+  const T = 'text-[14px] font-bold leading-tight text-[#10233f]';
+  const ico = (Icono: typeof MapPin) => <Icono size={22} strokeWidth={2.3} className="shrink-0 text-[#137a6f]" />;
+  function TarjetaConsolidada({ id, titulo, icono, cabeza, campo, getter, defecto = 10, etiqueta, valorFiltro }: {
+    id: string; titulo: string; icono: React.ReactNode; cabeza: string; campo: keyof FilterState;
+    getter: (r: CrimeRecord) => string; defecto?: number | undefined;
+    etiqueta?: (k: string) => string; valorFiltro?: (k: string) => string;
+  }) {
+    const limite = topDe(id, defecto);
+    const filas = rankingDe(getter, limite).map((f) => ({ ...f, key: etiqueta ? etiqueta(f.key) : f.key }));
+    const seleccion = ((filters[campo] as string[]) ?? []).map((v) => (etiqueta ? etiqueta(v) : v));
+    return (
+      <Card
+        className="h-full"
+        title={titulo}
+        subtitle={`${limite ? `Top ${limite}` : 'Todos'} · ${periodos.filter((p) => p.fechaInicial && p.fechaFinal).length} periodo(s)`}
+        descargable={`multifecha-${id}`}
+        icono={icono}
+        claseTitulo={T}
+        actions={
+          <div className="flex gap-1">
+            {OPCIONES_TOP.map((o) => (
+              <button key={o.label} onClick={() => setTops((prev) => ({ ...prev, [id]: o.valor }))} className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${limite === o.valor ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{o.label}</button>
+            ))}
+          </div>
+        }
+      >
+        <RankingAporte
+          data={filas}
+          cabeza={cabeza}
+          seleccionados={seleccion}
+          onClick={(k) => drillDown(campo, valorFiltro ? valorFiltro(k) : k)}
+        />
       </Card>
     );
   }
@@ -188,11 +256,32 @@ export function ComparativoMultifecha() {
         ))}
       </div>
 
-      <Seccion titulo="Delitos por periodo" columna="Delito" filas={tablaDelito} />
-      <Seccion titulo="Casos por estación por periodo" columna="Estación" filas={tablaEstacion} />
-      <Seccion titulo="Barrios más afectados por periodo" columna="Barrio" filas={tablaBarrio} />
-      <Seccion titulo="Modalidad por periodo" columna="Modalidad" filas={tablaModalidad} />
-      <Seccion titulo="Armas empleadas por periodo" columna="Arma" filas={tablaArmas} />
+      {/* Consolidado de todos los periodos — mismas tarjetas de Delictividad por Unidad */}
+      <div>
+        <p className="mb-2 text-[15px] font-extrabold text-[#10233f]">Análisis consolidado de los periodos</p>
+        <p className="mb-3 text-[12px] text-slate-500">Mismas barras y aporte % de Delictividad por Unidad. Clic en una fila para filtrar por ese valor; otro clic lo quita.</p>
+        <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <TarjetaConsolidada id="delito" titulo="Análisis de delitos — Top por cantidad" icono={ico(BarChart3)} cabeza="Delito" campo="delito" getter={(r) => r.delito} />
+          <TarjetaConsolidada id="estacion" titulo="Casos por estación" icono={ico(Building2)} cabeza="Estación" campo="estacion" getter={(r) => r.estacion} />
+          <TarjetaConsolidada id="cai" titulo="CAI más afectados" icono={ico(MapPin)} cabeza="CAI" campo="cai" getter={(r) => r.cai} />
+          <TarjetaConsolidada id="cuadrante" titulo="Cuadrantes más afectados" icono={ico(MapPinned)} cabeza="Cuadrante" campo="cuadrante" getter={(r) => r.cuadrante} />
+          <TarjetaConsolidada id="barrio" titulo="Barrios más afectados" icono={ico(Home)} cabeza="Barrio" campo="barrioHecho" getter={(r) => r.barrioHecho} />
+          <TarjetaConsolidada id="hora" titulo="Horas más afectadas" icono={ico(Clock)} cabeza="Hora" campo="horaExacta" defecto={5} getter={(r) => (r.hora !== null && r.hora !== undefined ? String(r.hora) : '')} etiqueta={etiquetaHora} valorFiltro={(k) => String(parseInt(k, 10))} />
+          <TarjetaConsolidada id="turno" titulo="Turno de vigilancia" icono={ico(Hourglass)} cabeza="Turno" campo="turno" getter={(r) => r.turno} />
+          <TarjetaConsolidada id="armas" titulo="Armas empleadas" icono={ico(Crosshair)} cabeza="Arma" campo="armas" getter={(r) => r.armas} defecto={5} />
+          <TarjetaConsolidada id="modalidad" titulo="Modalidades principales" icono={ico(Timer)} cabeza="Modalidad" campo="modalidad" getter={(r) => r.modalidad} defecto={5} />
+          <TarjetaConsolidada id="sitio" titulo="Clase de sitio" icono={ico(Store)} cabeza="Clase de sitio" campo="claseSitio" getter={(r) => r.claseSitio} defecto={5} />
+          <TarjetaConsolidada id="causa" titulo="Causa de lesión" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} cabeza="Causa" campo="causaLesion" getter={(r) => r.causaLesion} defecto={5} />
+        </div>
+      </div>
+
+      {/* Comparación lado a lado entre periodos (lo que ya existía) */}
+      <p className="pt-2 text-[15px] font-extrabold text-[#10233f]">Comparación entre periodos</p>
+      <Seccion titulo="Delitos por periodo" columna="Delito" campo="delito" filas={tablaDelito} />
+      <Seccion titulo="Casos por estación por periodo" columna="Estación" campo="estacion" filas={tablaEstacion} />
+      <Seccion titulo="Barrios más afectados por periodo" columna="Barrio" campo="barrioHecho" filas={tablaBarrio} />
+      <Seccion titulo="Modalidad por periodo" columna="Modalidad" campo="modalidad" filas={tablaModalidad} />
+      <Seccion titulo="Armas empleadas por periodo" columna="Arma" campo="armas" filas={tablaArmas} />
     </div>
   );
 }
