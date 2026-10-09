@@ -104,8 +104,8 @@ export function ComparativoCategoriaTable({
             <td className="px-2 py-2 text-center">{formatNumero(totalAnioAnteriorCompletoGeneral)}</td>
             <td className="px-2 py-2 text-center">{formatNumero(totalAnterior)}</td>
             <td className="px-2 py-2 text-center">{formatNumero(totalActual)}</td>
-            <td className="px-2 py-2 text-center">{totalDif >= 0 ? '+' : ''}{formatNumero(totalDif)}</td>
-            <td className="px-2 py-2 text-center">{totalPct === null ? 'N/A' : `${totalPct >= 0 ? '+' : ''}${formatDecimal(totalPct, 0)}%`}</td>
+            <td className={`px-2 py-2 text-center ${colorCelda(totalDif)}`}>{totalDif >= 0 ? '+' : ''}{formatNumero(totalDif)}</td>
+            <td className={`px-2 py-2 text-center ${colorCelda(totalPct)}`}>{totalPct === null ? 'N/A' : `${totalPct >= 0 ? '+' : ''}${formatDecimal(totalPct, 0)}%`}</td>
             <td className="rounded-br-lg px-2 py-2 text-center">100%</td>
           </tr>
         </tfoot>

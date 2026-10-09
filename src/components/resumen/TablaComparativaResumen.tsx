@@ -112,8 +112,10 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
             <td className="bg-[#0f5f57] px-2 py-2 text-center">{formatNumero(totalCompleto)}</td>
             <td className="bg-[#0f5f57] px-2 py-2 text-center">{formatNumero(totalAnterior)}</td>
             <td className="bg-[#0f5f57] px-2 py-2 text-center">{formatNumero(totalActual)}</td>
-            <td className="bg-[#0f5f57] px-2 py-2 text-center">{totalDif > 0 ? '+' : ''}{formatNumero(totalDif)}</td>
-            <td className="bg-[#0f5f57] px-2 py-2 text-center">{pctTexto(totalPct)}</td>
+            {/* DIF y % del TOTAL con el mismo semáforo de las filas: verde si se
+                va ganando, rojo si se va perdiendo (Operatividad invierte). */}
+            <td className={`border-x border-[#0f5f57] px-2 py-2 text-center ${celda(totalDif)}`}>{totalDif > 0 ? '+' : ''}{formatNumero(totalDif)}</td>
+            <td className={`border-x border-[#0f5f57] px-2 py-2 text-center ${celda(totalPct)}`}>{pctTexto(totalPct)}</td>
             <td className="rounded-br-md bg-[#0f5f57] px-2 py-2 text-center">{aporteTotal}</td>
           </tr>
         </tfoot>

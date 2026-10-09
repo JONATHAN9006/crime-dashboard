@@ -2022,6 +2022,21 @@ export function MapaGeorreferenciacion() {
     () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'macri' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
     [capasPuntosProcesadas],
   );
+  // Convenciones automáticas dentro del mapa: los delitos que de verdad
+  // están dibujados (con el filtro de delito actual o todos), con el mismo
+  // color de su punto y su cantidad. Solo lee los puntos ya filtrados.
+  const convencionesDelitos = useMemo(() => {
+    const contar = (puntos: typeof puntosDelitosParaMostrar) => {
+      const m = new Map<string, number>();
+      for (const p of puntos) { const d = (p as any).delitoCorto || 'Sin delito'; m.set(d, (m.get(d) ?? 0) + 1); }
+      return Array.from(m.entries()).map(([delito, casos]) => ({ delito, casos })).sort((x, y) => y.casos - x.casos);
+    };
+    return {
+      delitos: mostrarCalorDelitos ? contar(puntosDelitosParaMostrar) : [],
+      irisp1: mostrarCalorIrisp1 ? contar(puntosIrisp1ParaMostrar) : [],
+    };
+  }, [mostrarCalorDelitos, mostrarCalorIrisp1, puntosDelitosParaMostrar, puntosIrisp1ParaMostrar]);
+
   // Operatividad usa EXACTAMENTE la misma escala de Delitos (verde →
   // amarillo → naranja → rojo, con los mismos colores activos/apagados).
   const PALETA_CALOR_MACRI = ['#ddd6fe', '#a78bfa', '#8b5cf6', '#7c3aed', '#5b21b6'];
@@ -3116,6 +3131,39 @@ export function MapaGeorreferenciacion() {
                             <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
                           </div>
                         )}
+                        {([['delitos', 'Delitos'], ['irisp1', 'IRISP1']] as const).filter(([fuente]) => convencionesDelitos[fuente].length > 0).map(([fuente, nombre]) => {
+                          const lista = convencionesDelitos[fuente];
+                          const fijo = estiloDe(fuente).color;
+                          const conColor = modoVisualizacion === 'puntos';
+                          return (
+                            <div key={fuente}>
+                              <p className="font-semibold text-[#10233f]">{nombre} en el mapa</p>
+                              <p className="mb-1 text-[10px] text-slate-500">{filters.delito.length > 0 ? `Filtro: ${filters.delito.join(', ')}` : 'Todos los delitos'}</p>
+                              <div className="space-y-0.5">
+                                {lista.map(({ delito, casos }) => (
+                                  <div key={delito} className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                                    {conColor
+                                      ? <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white" style={{ backgroundColor: fijo ?? colorPorDelitoSimple(delito) }} />
+                                      : <span className="h-[3px] w-2.5 shrink-0 rounded-full bg-slate-400" />}
+                                    <span className="min-w-0 flex-1 truncate" title={delito}>{delito}</span>
+                                    <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(casos)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {modoVisualizacion === 'puntos' && ([
+                          ['operatividad', 'Operatividad', '#d97706', mostrarCalorOperatividad, puntosOperatividadParaMostrar.length],
+                          ['macri', 'Macri', '#7c3aed', mostrarCalorMacri, puntosMacriParaMostrar.length],
+                          ['rnmc', 'RNMC', '#db2777', mostrarCalorRnmc, puntosRnmcParaMostrar.length],
+                        ] as const).filter(([, , , activo, n]) => activo && n > 0).map(([clave, nombre, color, , n]) => (
+                          <div key={clave} className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white" style={{ backgroundColor: estiloDe(clave).color ?? color }} />
+                            <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{nombre}</span>
+                            <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(n)}</span>
+                          </div>
+                        ))}
                         <div>
                           <p className="mb-1 font-semibold text-[#10233f]">Límites geográficos</p>
                           {capas.length === 0 ? (
