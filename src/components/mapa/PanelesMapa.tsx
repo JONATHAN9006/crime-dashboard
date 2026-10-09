@@ -215,3 +215,84 @@ export function SeccionPanelOscuro({ titulo, icono, children, abiertaInicial = t
     </section>
   );
 }
+
+// ── Estilo de los puntos (color y tamaño) ─────────────────────────────────
+// Solo cambia CÓMO se dibuja cada punto en el mapa; no toca qué puntos se
+// muestran ni ningún conteo. color = null → color automático de siempre
+// (por delito o el color propio de la fuente).
+export interface EstiloPuntos {
+  color: string | null;
+  /** Multiplicador del radio de siempre (1 = tamaño original). */
+  escala: number;
+}
+export const ESTILO_PUNTOS_POR_DEFECTO: EstiloPuntos = { color: null, escala: 1 };
+const COLORES_RAPIDOS = ['#dc2626', '#d97706', '#facc15', '#16a34a', '#0f5f57', '#0891b2', '#2563eb', '#7c3aed', '#db2777', '#10233f', '#000000', '#ffffff'];
+const ESCALA_MIN = 0.5;
+const ESCALA_MAX = 3;
+
+/** Editor compacto de color + tamaño de los puntos de una capa. */
+export function ControlEstiloPuntos({ estilo, onChange, textoAuto = 'Automático', colorAuto, oscuro = false }: {
+  estilo: EstiloPuntos;
+  onChange: (e: EstiloPuntos) => void;
+  /** Texto del botón que vuelve al color de siempre (ej. "Por delito"). */
+  textoAuto?: string;
+  /** Color que se ve cuando está en automático (para la muestra). */
+  colorAuto: string;
+  oscuro?: boolean;
+}) {
+  const escala = Math.min(ESCALA_MAX, Math.max(ESCALA_MIN, estilo.escala || 1));
+  const cambiarEscala = (v: number) => onChange({ ...estilo, escala: Math.round(Math.min(ESCALA_MAX, Math.max(ESCALA_MIN, v)) * 4) / 4 });
+  const texto = oscuro ? 'text-slate-200' : 'text-slate-600';
+  const botonTam = clsx('flex h-6 w-6 shrink-0 items-center justify-center rounded text-[14px] font-bold leading-none', oscuro ? 'bg-white/10 text-white hover:bg-white/20' : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50');
+  return (
+    <div className={clsx('space-y-2 rounded-lg p-2 text-[11px]', oscuro ? 'bg-white/5' : 'border border-slate-200 bg-white')}>
+      <div>
+        <p className={clsx('mb-1 font-semibold', texto)}>Color de los puntos</p>
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onChange({ ...estilo, color: null })}
+            aria-pressed={estilo.color == null}
+            title="Volver al color de siempre"
+            className={clsx('rounded px-1.5 py-[3px] font-semibold', estilo.color == null
+              ? (oscuro ? 'bg-white text-[#10233f]' : 'bg-[#10233f] text-white')
+              : (oscuro ? 'bg-white/10 text-slate-200 hover:bg-white/20' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'))}
+          >
+            {textoAuto}
+          </button>
+          {COLORES_RAPIDOS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onChange({ ...estilo, color: c })}
+              aria-label={`Color ${c}`}
+              aria-pressed={estilo.color === c}
+              className={clsx('h-[18px] w-[18px] rounded-full ring-1', estilo.color === c ? 'ring-2 ring-offset-1 ' + (oscuro ? 'ring-white ring-offset-[#10233f]' : 'ring-[#10233f]') : oscuro ? 'ring-white/30' : 'ring-slate-300')}
+              style={{ background: c }}
+            />
+          ))}
+          <label title="Elegir otro color" className={clsx('relative flex h-[18px] w-[18px] cursor-pointer items-center justify-center overflow-hidden rounded-full ring-1', oscuro ? 'ring-white/30' : 'ring-slate-300')} style={{ background: 'conic-gradient(#ef4444,#f59e0b,#22c55e,#06b6d4,#6366f1,#ec4899,#ef4444)' }}>
+            <input type="color" value={estilo.color ?? colorAuto} onChange={(e) => onChange({ ...estilo, color: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
+          </label>
+        </div>
+      </div>
+      <div>
+        <p className={clsx('mb-1 flex items-center justify-between font-semibold', texto)}>
+          <span>Tamaño de los puntos</span>
+          <span className="tabular-nums">{Math.round(escala * 100)}%</span>
+        </p>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={botonTam} onClick={() => cambiarEscala(escala - 0.25)} aria-label="Puntos más pequeños">−</button>
+          <input type="range" min={ESCALA_MIN} max={ESCALA_MAX} step={0.25} value={escala} onChange={(e) => cambiarEscala(Number(e.target.value))} className="min-w-0 flex-1 accent-[#22a67a]" aria-label="Tamaño de los puntos" />
+          <button type="button" className={botonTam} onClick={() => cambiarEscala(escala + 0.25)} aria-label="Puntos más grandes">+</button>
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center" aria-hidden>
+            <span className="rounded-full ring-1 ring-white" style={{ width: Math.max(3, 8 * escala), height: Math.max(3, 8 * escala), background: estilo.color ?? colorAuto }} />
+          </span>
+        </div>
+        {escala !== 1 && (
+          <button type="button" onClick={() => cambiarEscala(1)} className={clsx('mt-1 underline', oscuro ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-[#10233f]')}>Tamaño original</button>
+        )}
+      </div>
+    </div>
+  );
+}

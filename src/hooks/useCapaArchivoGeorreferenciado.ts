@@ -1,3 +1,4 @@
+import { ESTILO_PUNTOS_POR_DEFECTO, type EstiloPuntos } from '../components/mapa/PanelesMapa';
 import { useEffect, useMemo, useState } from 'react';
 import { leerArchivoGenerico, descargarRegistrosCorregidos } from '../utils/archivoGenericoParser';
 import { detectarColumnasCandidatas, parsearCoordenada, coordenadaEnRangoValido, detectarColumnasInvertidas, inferirSignoParaCauca } from '../utils/coordenadasParser';
@@ -57,6 +58,8 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
   const [modoVisualizacion, setModoVisualizacion] = useState<'puntos' | 'calor'>('calor');
   const [coloresActivos, setColoresActivos] = useState<(string | null)[]>(PALETA_ARCHIVO_CARGADO);
   const [opacidad, setOpacidad] = useState(70);
+  // Color y tamaño de los puntos del archivo (solo dibujo; null = azul de siempre).
+  const [estiloPuntos, setEstiloPuntos] = useState<EstiloPuntos>(ESTILO_PUNTOS_POR_DEFECTO);
 
   const [filtroDelito, setFiltroDelito] = useState('Todos');
   const [filtroCai, setFiltroCai] = useState('Todos');
@@ -200,7 +203,7 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
     archivo, cargando, error, manejarArchivo, limpiarTodo,
     encabezados, colLat, setColLat, colLon, setColLon, pidiendoColumnas, setPidiendoColumnas,
     invertidasConfirmadas, setInvertidasConfirmadas, avisoInvertidas, setAvisoInvertidas,
-    modoVisualizacion, setModoVisualizacion, coloresActivos, setColoresActivos, opacidad, setOpacidad,
+    modoVisualizacion, setModoVisualizacion, coloresActivos, setColoresActivos, opacidad, setOpacidad, estiloPuntos, setEstiloPuntos,
     filtroDelito, setFiltroDelito, filtroCai, setFiltroCai,
     formatoDescarga, setFormatoDescarga, formatoDecimal, setFormatoDecimal, descargarCorregido,
     registros, registrosValidos, registrosInvalidos, registrosFiltrados,

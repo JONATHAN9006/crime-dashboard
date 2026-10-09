@@ -3,6 +3,7 @@ import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Upload, X, Eye, AlertTriangle, Trash2, Download } from 'lucide-react';
 import { calcularKernelDensidad, type PuntoDensidad } from '../../utils/kernelDensity';
+import { ControlEstiloPuntos } from './PanelesMapa';
 import { PALETA_ARCHIVO_CARGADO, ETIQUETAS_BANDA_ARCHIVO, type CapaArchivoGeorreferenciadoState } from '../../hooks/useCapaArchivoGeorreferenciado';
 
 // ---------------------------------------------------------------------------
@@ -31,7 +32,7 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
     archivo, cargando, error, manejarArchivo, limpiarTodo,
     encabezados, colLat, setColLat, colLon, setColLon, pidiendoColumnas, setPidiendoColumnas,
     invertidasConfirmadas, setInvertidasConfirmadas, avisoInvertidas, setAvisoInvertidas,
-    modoVisualizacion, setModoVisualizacion, coloresActivos, setColoresActivos, opacidad, setOpacidad,
+    modoVisualizacion, setModoVisualizacion, coloresActivos, setColoresActivos, opacidad, setOpacidad, estiloPuntos, setEstiloPuntos,
     filtroDelito, setFiltroDelito, filtroCai, setFiltroCai,
     formatoDescarga, setFormatoDescarga, formatoDecimal, setFormatoDecimal, descargarCorregido,
     registros, registrosValidos, registrosInvalidos,
@@ -158,6 +159,10 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
                 </div>
               )}
 
+              {modoVisualizacion === 'puntos' && (
+                <ControlEstiloPuntos estilo={estiloPuntos} onChange={setEstiloPuntos} colorAuto="#3b82f6" textoAuto="Original" />
+              )}
+
               <div className="text-xs text-slate-600">
                 <label className="mb-1 block">Transparencia — archivo cargado ({opacidad}%)</label>
                 <input type="range" min={10} max={100} value={opacidad} onChange={(e) => setOpacidad(Number(e.target.value))} className="w-full" />
@@ -229,7 +234,7 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
 }
 
 /** La capa que de verdad se dibuja en Leaflet — DEBE ir dentro de <MapContainer>. Sin UI propia, solo pinta puntos o el mapa de calor según el estado del hook. */
-export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad'>) {
+export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos'>) {
   const map = useMap();
   const capaRef = useRef<L.Layer | null>(null);
 
@@ -238,7 +243,7 @@ export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVis
     if (registrosFiltrados.length === 0) return;
 
     if (modoVisualizacion === 'puntos') {
-      const grupo = L.layerGroup(registrosFiltrados.map((r) => L.circleMarker([r.lat, r.lon], { radius: 4, color: '#1d4ed8', fillColor: '#3b82f6', fillOpacity: opacidad / 100, weight: 1 })));
+      const grupo = L.layerGroup(registrosFiltrados.map((r) => L.circleMarker([r.lat, r.lon], { radius: Math.max(1.5, 4 * (estiloPuntos?.escala ?? 1)), color: estiloPuntos?.color ?? '#1d4ed8', fillColor: estiloPuntos?.color ?? '#3b82f6', fillOpacity: opacidad / 100, weight: 1 })));
       grupo.addTo(map);
       capaRef.current = grupo;
       return;
@@ -250,7 +255,7 @@ export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVis
     const overlay = L.imageOverlay(resultado.dataUrl, resultado.bounds, { opacity: opacidad / 100, interactive: false });
     overlay.addTo(map);
     capaRef.current = overlay;
-  }, [map, registrosFiltrados, modoVisualizacion, coloresActivos, opacidad]);
+  }, [map, registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos]);
 
   useEffect(() => () => { if (capaRef.current) map.removeLayer(capaRef.current); }, [map]);
 
