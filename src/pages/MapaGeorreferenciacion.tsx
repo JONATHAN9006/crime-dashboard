@@ -22,7 +22,7 @@ import type { ResultadoKernel } from '../utils/kernelDensity';
 import { esCoordenadaValida } from '../utils/geodesia';
 import {
   IconoCaja, SelectorTopMapa, recortarTop, TarjetaTerritorial, KpiMapa, IndicadorEncabezado, SeccionPanelOscuro, type ValorTopMapa,
-  ControlEstiloPuntos, ESTILO_PUNTOS_POR_DEFECTO, type EstiloPuntos,
+  ControlEstiloPuntos, SelectorColorRapido, ESTILO_PUNTOS_POR_DEFECTO, type EstiloPuntos,
 } from '../components/mapa/PanelesMapa';
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
 import { calcularTopBarrios, normalizarNombre, esBarrioReal } from '../utils/barriosAfectados';
@@ -820,6 +820,25 @@ export function MapaGeorreferenciacion() {
   const cambiarEstilo = (clave: string, e: EstiloPuntos) => setEstilosPuntos((prev) => ({ ...prev, [clave]: e }));
   const radioDe = (clave: string, base: number) => Math.max(1.5, base * estiloDe(clave).escala);
   const [editandoEstilo, setEditandoEstilo] = useState<string | null>(null);
+  // Color propio de un delito puntual (ej. solo H. Motos en rojo). Gana sobre
+  // el color de la capa y sobre el automático. Se recuerda en este navegador.
+  const [coloresDelito, setColoresDelito] = useState<Record<string, string>>(() => {
+    try {
+      const g = JSON.parse(localStorage.getItem('mepoy-colores-delito') || '{}');
+      return g && typeof g === 'object' ? g : {};
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-colores-delito', JSON.stringify(coloresDelito)); } catch { /* queda en memoria */ }
+  }, [coloresDelito]);
+  const cambiarColorDelito = (delito: string, color: string | null) => setColoresDelito((prev) => {
+    const n = { ...prev };
+    if (color) n[delito] = color; else delete n[delito];
+    return n;
+  });
+  const colorDelitoFinal = (fuente: string, delito: string | null | undefined, auto: string) =>
+    coloresDelito[delito || 'Sin delito'] ?? estiloDe(fuente).color ?? auto;
+  const [delitoEditandoColor, setDelitoEditandoColor] = useState<string | null>(null);
 
   const [coloresSeleccionadosCalor, setColoresSeleccionadosCalor] = useState<string[]>(() => {
     try {
@@ -2634,18 +2653,18 @@ export function MapaGeorreferenciacion() {
                     {/* Modo "Puntos" — color de cada delito realmente presente. */}
                     {modoVisualizacion === 'puntos' && ([
                       ['delitos', 'Delitos', mostrarCalorDelitos], ['irisp1', 'IRISP1', mostrarCalorIrisp1], ['operatividad', 'Operatividad', mostrarCalorOperatividad], ['macri', 'Macri', mostrarCalorMacri], ['rnmc', 'RNMC', mostrarCalorRnmc],
-                    ] as const).filter(([clave, , activo]) => activo && estiloDe(clave).color).map(([clave, etiqueta]) => (
+                    ] as const).filter(([clave, , activo]) => activo && clave !== 'delitos' && clave !== 'irisp1' && estiloDe(clave).color).map(([clave, etiqueta]) => (
                       <span key={`fijo-${clave}`} className="flex items-center gap-1.5">
                         <span className="h-2.5 w-2.5 rounded-full ring-1 ring-slate-300" style={{ backgroundColor: estiloDe(clave).color ?? undefined }} />
                         {etiqueta}
                       </span>
                     ))}
                     {modoVisualizacion === 'puntos' && Array.from(new Set([
-                      ...(mostrarCalorDelitos && !estiloDe('delitos').color ? puntosDelitosParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
-                      ...(mostrarCalorIrisp1 && !estiloDe('irisp1').color ? puntosIrisp1ParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
+                      ...(mostrarCalorDelitos ? puntosDelitosParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
+                      ...(mostrarCalorIrisp1 ? puntosIrisp1ParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
                     ])).sort().map((delito) => (
                       <span key={delito} className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorPorDelitoSimple(delito) }} />
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorDelitoFinal(mostrarCalorDelitos ? 'delitos' : 'irisp1', delito, colorPorDelitoSimple(delito)) }} />
                         {delito}
                       </span>
                     ))}
@@ -2952,7 +2971,7 @@ export function MapaGeorreferenciacion() {
                 fuente), respetando los mismos checkboxes de arriba. */}
             {modoVisualizacion === 'puntos' && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => {
               const delito = (p as any).delitoCorto ?? null;
-              const color = estiloDe('delitos').color ?? colorPorDelitoSimple(delito);
+              const color = colorDelitoFinal('delitos', delito, colorPorDelitoSimple(delito));
               return (
                 <CircleMarker key={`pd-${i}`} center={[p.lat, p.lon]} radius={radioDe('delitos', 4)} pathOptions={{ color, weight: 1, fillColor: color, fillOpacity: 0.75 }}>
                   <Popup>{delito ?? 'Delito'}</Popup>
@@ -2961,7 +2980,7 @@ export function MapaGeorreferenciacion() {
             })}
             {modoVisualizacion === 'puntos' && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => {
               const delito = (p as any).delitoCorto ?? null;
-              const color = estiloDe('irisp1').color ?? colorPorDelitoSimple(delito);
+              const color = colorDelitoFinal('irisp1', delito, colorPorDelitoSimple(delito));
               return (
                 <CircleMarker key={`pi-${i}`} center={[p.lat, p.lon]} radius={radioDe('irisp1', 4)} pathOptions={{ color, weight: 2, fillColor: color, fillOpacity: 0.4 }}>
                   <Popup>{delito ?? 'IRISP1'}</Popup>
@@ -3048,7 +3067,7 @@ export function MapaGeorreferenciacion() {
                 // Vista normal (sin comparar): cada delito con su propio
                 // color, igual que semaforiza el resto del dashboard.
                 const claveEstilo = capa.tipo === 'generico' ? capa.id : capa.tipo;
-                const color = estiloDe(claveEstilo).color ?? (capa.colDelito ? colorPorDelito(p.delitoCorto ?? '', ordenDelitos, capa.tipo) : (capa.tipo === 'irisp1' ? '#2563eb' : capa.tipo === 'delitos' ? '#dc2626' : '#116762'));
+                const color = (capa.colDelito ? coloresDelito[p.delitoCorto || 'Sin delito'] : undefined) ?? estiloDe(claveEstilo).color ?? (capa.colDelito ? colorPorDelito(p.delitoCorto ?? '', ordenDelitos, capa.tipo) : (capa.tipo === 'irisp1' ? '#2563eb' : capa.tipo === 'delitos' ? '#dc2626' : '#116762'));
                 return (
                   <CircleMarker
                     key={`${capa.id}-${i}`}
@@ -3133,22 +3152,42 @@ export function MapaGeorreferenciacion() {
                         )}
                         {([['delitos', 'Delitos'], ['irisp1', 'IRISP1']] as const).filter(([fuente]) => convencionesDelitos[fuente].length > 0).map(([fuente, nombre]) => {
                           const lista = convencionesDelitos[fuente];
-                          const fijo = estiloDe(fuente).color;
                           const conColor = modoVisualizacion === 'puntos';
                           return (
                             <div key={fuente}>
                               <p className="font-semibold text-[#10233f]">{nombre} en el mapa</p>
                               <p className="mb-1 text-[10px] text-slate-500">{filters.delito.length > 0 ? `Filtro: ${filters.delito.join(', ')}` : 'Todos los delitos'}</p>
                               <div className="space-y-0.5">
-                                {lista.map(({ delito, casos }) => (
-                                  <div key={delito} className="flex items-center gap-2 text-[11.5px] text-slate-600">
-                                    {conColor
-                                      ? <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white" style={{ backgroundColor: fijo ?? colorPorDelitoSimple(delito) }} />
-                                      : <span className="h-[3px] w-2.5 shrink-0 rounded-full bg-slate-400" />}
-                                    <span className="min-w-0 flex-1 truncate" title={delito}>{delito}</span>
-                                    <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(casos)}</span>
-                                  </div>
-                                ))}
+                                {lista.map(({ delito, casos }) => {
+                                  const auto = colorPorDelitoSimple(delito);
+                                  const colorActual = colorDelitoFinal(fuente, delito, auto);
+                                  const idEdicion = `${fuente}:${delito}`;
+                                  const abierto = conColor && delitoEditandoColor === idEdicion;
+                                  return (
+                                    <div key={delito}>
+                                      <div className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                                        {conColor ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => setDelitoEditandoColor((v) => (v === idEdicion ? null : idEdicion))}
+                                            aria-expanded={abierto}
+                                            title={`Cambiar el color de ${delito}`}
+                                            className={clsx('h-3.5 w-3.5 shrink-0 rounded-full ring-1 transition hover:scale-125', abierto || coloresDelito[delito] ? 'ring-2 ring-[#10233f]' : 'ring-white')}
+                                            style={{ backgroundColor: colorActual }}
+                                          />
+                                        ) : <span className="h-[3px] w-2.5 shrink-0 rounded-full bg-slate-400" />}
+                                        <span className="min-w-0 flex-1 truncate" title={delito}>{delito}</span>
+                                        <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(casos)}</span>
+                                      </div>
+                                      {abierto && (
+                                        <div className="my-1">
+                                          <SelectorColorRapido valor={coloresDelito[delito] ?? null} colorAuto={colorActual} onChange={(c) => cambiarColorDelito(delito, c)} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {conColor && <p className="pt-0.5 text-[10px] text-slate-400">Clic en el color de un delito para cambiarlo.</p>}
                               </div>
                             </div>
                           );

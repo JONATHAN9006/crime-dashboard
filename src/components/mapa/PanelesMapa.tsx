@@ -296,3 +296,32 @@ export function ControlEstiloPuntos({ estilo, onChange, textoAuto = 'Automático
     </div>
   );
 }
+
+/** Fila compacta de colores (rápidos + cualquier otro + volver al original). */
+export function SelectorColorRapido({ valor, colorAuto, onChange }: {
+  valor: string | null;
+  colorAuto: string;
+  onChange: (c: string | null) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1.5">
+      {COLORES_RAPIDOS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onChange(c)}
+          aria-label={`Color ${c}`}
+          aria-pressed={valor === c}
+          className={clsx('h-4 w-4 rounded-full ring-1', valor === c ? 'ring-2 ring-[#10233f] ring-offset-1' : 'ring-slate-300')}
+          style={{ background: c }}
+        />
+      ))}
+      <label title="Elegir otro color" className="relative flex h-4 w-4 cursor-pointer overflow-hidden rounded-full ring-1 ring-slate-300" style={{ background: 'conic-gradient(#ef4444,#f59e0b,#22c55e,#06b6d4,#6366f1,#ec4899,#ef4444)' }}>
+        <input type="color" value={valor ?? colorAuto} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
+      </label>
+      {valor != null && (
+        <button type="button" onClick={() => onChange(null)} className="ml-auto rounded px-1 text-[10.5px] font-semibold text-slate-500 underline hover:text-[#10233f]">Original</button>
+      )}
+    </div>
+  );
+}
