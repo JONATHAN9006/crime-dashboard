@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { X, FileText, Loader2 } from 'lucide-react';
 import { useListaComponentesPdf } from '../../context/RegistroPdfContext';
 import { generarPdfComponentes } from '../../utils/generarPdf';
+import { puedeDescargar } from '../../utils/permisos';
 
 export function BotonGenerarPdf({ nombreArchivo }: { nombreArchivo: string }) {
   const [abierto, setAbierto] = useState(false);
+  if (!puedeDescargar()) return null;
   return (
     <>
       <button

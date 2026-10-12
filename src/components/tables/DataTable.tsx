@@ -1,3 +1,4 @@
+import { puedeDescargar } from '../../utils/permisos';
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, Download, Search } from 'lucide-react';
 import type { CrimeRecord } from '../../types/crime';
@@ -124,12 +125,14 @@ export function DataTable({ records }: { records: CrimeRecord[] }) {
             </div>
           )}
         </div>
+{puedeDescargar() && (
         <button
           onClick={exportarCsv}
           className="flex items-center gap-1.5 rounded-lg bg-brand-navy px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-navy-light"
         >
           <Download size={14} /> Exportar CSV
         </button>
+        )}
       </div>
 
       <p className="mb-2 text-xs text-slate-500">{ordenados.length.toLocaleString('es-CO')} registros encontrados</p>

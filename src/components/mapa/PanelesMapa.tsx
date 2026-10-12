@@ -325,3 +325,23 @@ export function SelectorColorRapido({ valor, colorAuto, onChange }: {
     </div>
   );
 }
+
+/** Tamaño de los puntos (versión clara, para la leyenda del mapa). */
+export function ControlTamanoPuntos({ escala, onChange }: { escala: number; onChange: (v: number) => void }) {
+  const cambiar = (v: number) => onChange(Math.round(Math.min(ESCALA_MAX, Math.max(ESCALA_MIN, v)) * 4) / 4);
+  const boton = 'flex h-6 w-6 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-[14px] font-bold leading-none text-[#10233f] hover:bg-slate-50';
+  return (
+    <div>
+      <p className="mb-1 flex items-center justify-between font-semibold text-[#10233f]">
+        <span>Tamaño de los puntos</span>
+        <span className="tabular-nums text-[11px] font-semibold text-slate-500">{Math.round(escala * 100)}%</span>
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button type="button" className={boton} onClick={() => cambiar(escala - 0.25)} aria-label="Puntos más pequeños">−</button>
+        <input type="range" min={ESCALA_MIN} max={ESCALA_MAX} step={0.25} value={escala} onChange={(e) => cambiar(Number(e.target.value))} className="min-w-0 flex-1 accent-[#116762]" aria-label="Tamaño de los puntos" />
+        <button type="button" className={boton} onClick={() => cambiar(escala + 0.25)} aria-label="Puntos más grandes">+</button>
+      </div>
+      {escala !== 1 && <button type="button" onClick={() => cambiar(1)} className="mt-0.5 text-[10.5px] text-slate-500 underline hover:text-[#10233f]">Tamaño original</button>}
+    </div>
+  );
+}

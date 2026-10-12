@@ -22,7 +22,7 @@ import type { ResultadoKernel } from '../utils/kernelDensity';
 import { esCoordenadaValida } from '../utils/geodesia';
 import {
   IconoCaja, SelectorTopMapa, recortarTop, TarjetaTerritorial, KpiMapa, IndicadorEncabezado, SeccionPanelOscuro, type ValorTopMapa,
-  ControlEstiloPuntos, SelectorColorRapido, ESTILO_PUNTOS_POR_DEFECTO, type EstiloPuntos,
+  SelectorColorRapido, ControlTamanoPuntos,
 } from '../components/mapa/PanelesMapa';
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
 import { calcularTopBarrios, normalizarNombre, esBarrioReal } from '../utils/barriosAfectados';
@@ -44,7 +44,7 @@ import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
 import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
 import { aplicarFiltros } from '../utils/filters';
-import { esModoConsulta } from '../utils/modoConsulta';
+import { esSoloConsulta } from '../utils/permisos';
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -804,40 +804,32 @@ export function MapaGeorreferenciacion() {
     try { localStorage.setItem('mepoy-colorear-zonas-cai', colorearZonasPorCai ? '1' : '0'); } catch { /* ver comentario arriba */ }
   }, [colorearZonasPorCai]);
 
-  // Color y tamaño elegidos para los puntos de cada fuente (Delitos,
-  // Operatividad, IRISP1, Macri, RNMC y capas de puntos genéricas). Solo
-  // cambia el dibujo; se recuerda en este navegador.
-  const [estilosPuntos, setEstilosPuntos] = useState<Record<string, EstiloPuntos>>(() => {
-    try {
-      const g = JSON.parse(localStorage.getItem('mepoy-estilo-puntos') || '{}');
-      return g && typeof g === 'object' ? g : {};
-    } catch { return {}; }
+  // Convenciones del mapa (Leyenda): color propio de Operatividad, Macri y
+  // RNMC, color propio de cada delito y tamaño de TODOS los puntos. Solo
+  // cambia el dibujo (nunca qué puntos se muestran ni los conteos); se
+  // recuerda en este navegador.
+  const leerJson = <T,>(clave: string, defecto: T): T => {
+    try { const v = JSON.parse(localStorage.getItem(clave) || 'null'); return v ?? defecto; } catch { return defecto; }
+  };
+  const [coloresCapa, setColoresCapa] = useState<Record<string, string>>(() => leerJson('mepoy-colores-capa', {}));
+  const [coloresDelito, setColoresDelito] = useState<Record<string, string>>(() => leerJson('mepoy-colores-delito', {}));
+  const [escalaPuntos, setEscalaPuntos] = useState<number>(() => {
+    const v = Number(leerJson('mepoy-escala-puntos', 1));
+    return Number.isFinite(v) && v >= 0.5 && v <= 3 ? v : 1;
   });
-  useEffect(() => {
-    try { localStorage.setItem('mepoy-estilo-puntos', JSON.stringify(estilosPuntos)); } catch { /* sin almacenamiento: queda en memoria */ }
-  }, [estilosPuntos]);
-  const estiloDe = (clave: string): EstiloPuntos => ({ ...ESTILO_PUNTOS_POR_DEFECTO, ...(estilosPuntos[clave] ?? {}) });
-  const cambiarEstilo = (clave: string, e: EstiloPuntos) => setEstilosPuntos((prev) => ({ ...prev, [clave]: e }));
-  const radioDe = (clave: string, base: number) => Math.max(1.5, base * estiloDe(clave).escala);
-  const [editandoEstilo, setEditandoEstilo] = useState<string | null>(null);
-  // Color propio de un delito puntual (ej. solo H. Motos en rojo). Gana sobre
-  // el color de la capa y sobre el automático. Se recuerda en este navegador.
-  const [coloresDelito, setColoresDelito] = useState<Record<string, string>>(() => {
-    try {
-      const g = JSON.parse(localStorage.getItem('mepoy-colores-delito') || '{}');
-      return g && typeof g === 'object' ? g : {};
-    } catch { return {}; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('mepoy-colores-delito', JSON.stringify(coloresDelito)); } catch { /* queda en memoria */ }
-  }, [coloresDelito]);
-  const cambiarColorDelito = (delito: string, color: string | null) => setColoresDelito((prev) => {
+  useEffect(() => { try { localStorage.setItem('mepoy-colores-capa', JSON.stringify(coloresCapa)); } catch { /* queda en memoria */ } }, [coloresCapa]);
+  useEffect(() => { try { localStorage.setItem('mepoy-colores-delito', JSON.stringify(coloresDelito)); } catch { /* queda en memoria */ } }, [coloresDelito]);
+  useEffect(() => { try { localStorage.setItem('mepoy-escala-puntos', JSON.stringify(escalaPuntos)); } catch { /* queda en memoria */ } }, [escalaPuntos]);
+  const cambiarEnMapa = (set: typeof setColoresDelito) => (clave: string, color: string | null) => set((prev) => {
     const n = { ...prev };
-    if (color) n[delito] = color; else delete n[delito];
+    if (color) n[clave] = color; else delete n[clave];
     return n;
   });
-  const colorDelitoFinal = (fuente: string, delito: string | null | undefined, auto: string) =>
-    coloresDelito[delito || 'Sin delito'] ?? estiloDe(fuente).color ?? auto;
+  const cambiarColorDelito = cambiarEnMapa(setColoresDelito);
+  const cambiarColorCapa = cambiarEnMapa(setColoresCapa);
+  const colorCapa = (tipo: string, auto: string) => coloresCapa[tipo] ?? auto;
+  const radioDe = (_clave: string, base: number) => Math.max(1.5, base * escalaPuntos);
+  const colorDelitoFinal = (_fuente: string, delito: string | null | undefined, auto: string) => coloresDelito[delito || 'Sin delito'] ?? auto;
   const [delitoEditandoColor, setDelitoEditandoColor] = useState<string | null>(null);
 
   const [coloresSeleccionadosCalor, setColoresSeleccionadosCalor] = useState<string[]>(() => {
@@ -994,7 +986,7 @@ export function MapaGeorreferenciacion() {
     if (estacionDelCai && filters.estacion.some((e) => normalizar(e) === normalizar(estacionDelCai))) return true;
     return false;
   }
-  const soloLectura = esModoConsulta();
+  const soloLectura = esSoloConsulta();
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
 
   // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
@@ -2269,78 +2261,28 @@ export function MapaGeorreferenciacion() {
               ] as const).map(([tipo, etiqueta, color]) => {
                 const cargada = capasPuntos.some((c) => c.tipo === tipo);
                 const n = tipo === 'delitos' ? kpisFuentes.enMapaDelitos : kpisFuentes.valores[tipo];
-                const estilo = estiloDe(tipo);
-                const personalizado = estilo.color != null || estilo.escala !== 1;
                 return (
-                  <div key={tipo}>
-                    <div className="flex items-center gap-1 rounded-md hover:bg-white/5">
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-1 py-1 text-[13px]">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-[#22a67a]"
-                          checked={capasPuntos.some((c) => c.tipo === tipo && c.visible)}
-                          onChange={(e) => alternarVisibilidadPorTipo(tipo, e.target.checked)}
-                        />
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: estilo.color ?? color }} />
-                        <span className="flex-1 truncate">{etiqueta}</span>
-                        <span className="text-[11px] tabular-nums text-slate-400">{cargada && n != null ? formatNumero(n) : 'sin capa'}</span>
-                      </label>
-                      {cargada && (
-                        <button
-                          type="button"
-                          onClick={() => setEditandoEstilo((v) => (v === tipo ? null : tipo))}
-                          aria-expanded={editandoEstilo === tipo}
-                          title={`Color y tamaño de los puntos de ${etiqueta}`}
-                          className={clsx('shrink-0 rounded p-1 hover:bg-white/10', editandoEstilo === tipo || personalizado ? 'text-emerald-300' : 'text-slate-400')}
-                        >
-                          <Palette size={13} />
-                        </button>
-                      )}
-                    </div>
-                    {editandoEstilo === tipo && (
-                      <div className="mb-1 ml-6 mt-0.5">
-                        <ControlEstiloPuntos
-                          oscuro
-                          estilo={estilo}
-                          onChange={(e) => cambiarEstilo(tipo, e)}
-                          colorAuto={color}
-                          textoAuto={tipo === 'delitos' || tipo === 'irisp1' ? 'Por delito' : 'Original'}
-                        />
-                        {modoVisualizacion === 'calor' && <p className="mt-1 text-[10.5px] leading-snug text-slate-400">Se ve en el modo «Puntos» (el mapa de calor conserva su paleta).</p>}
-                      </div>
-                    )}
-                  </div>
+                  <label key={tipo} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-white/5">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-[#22a67a]"
+                      checked={capasPuntos.some((c) => c.tipo === tipo && c.visible)}
+                      onChange={(e) => alternarVisibilidadPorTipo(tipo, e.target.checked)}
+                    />
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: colorCapa(tipo, color) }} />
+                    <span className="flex-1 truncate">{etiqueta}</span>
+                    <span className="text-[11px] tabular-nums text-slate-400">{cargada && n != null ? formatNumero(n) : 'sin capa'}</span>
+                  </label>
                 );
               })}
-              {capasPuntos.filter((c) => c.tipo === 'generico').map((capa) => {
-                const estilo = estiloDe(capa.id);
-                return (
-                  <div key={capa.id}>
-                    <div className="flex items-center gap-1 rounded-md hover:bg-white/5">
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-1 py-1 text-[13px]">
-                        <input type="checkbox" className="h-4 w-4 accent-[#22a67a]" checked={capa.visible} onChange={(e) => actualizarCapaPuntos(capa.id, { visible: e.target.checked })} />
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: estilo.color ?? '#116762' }} />
-                        <span className="flex-1 truncate" title={capa.nombre}>{capa.nombre}</span>
-                        <span className="text-[11px] tabular-nums text-slate-400">{formatNumero(capa.puntos.length)}</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setEditandoEstilo((v) => (v === capa.id ? null : capa.id))}
-                        aria-expanded={editandoEstilo === capa.id}
-                        title={`Color y tamaño de los puntos de ${capa.nombre}`}
-                        className={clsx('shrink-0 rounded p-1 hover:bg-white/10', editandoEstilo === capa.id || estilo.color != null || estilo.escala !== 1 ? 'text-emerald-300' : 'text-slate-400')}
-                      >
-                        <Palette size={13} />
-                      </button>
-                    </div>
-                    {editandoEstilo === capa.id && (
-                      <div className="mb-1 ml-6 mt-0.5">
-                        <ControlEstiloPuntos oscuro estilo={estilo} onChange={(e) => cambiarEstilo(capa.id, e)} colorAuto="#116762" textoAuto={capa.colDelito ? 'Por delito' : 'Original'} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {capasPuntos.filter((c) => c.tipo === 'generico').map((capa) => (
+                <label key={capa.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-white/5">
+                  <input type="checkbox" className="h-4 w-4 accent-[#22a67a]" checked={capa.visible} onChange={(e) => actualizarCapaPuntos(capa.id, { visible: e.target.checked })} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: '#116762' }} />
+                  <span className="flex-1 truncate" title={capa.nombre}>{capa.nombre}</span>
+                  <span className="text-[11px] tabular-nums text-slate-400">{formatNumero(capa.puntos.length)}</span>
+                </label>
+              ))}
               <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-white/5">
                 <input type="checkbox" className="h-4 w-4 accent-[#22a67a]" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} />
@@ -2389,7 +2331,7 @@ export function MapaGeorreferenciacion() {
                             Si no, botón para compartirla (capas cargadas antes de que existiera esto). */}
                         {capa.compartida ? (
                           <span title="Compartida: la ven todos los equipos" className="shrink-0 text-emerald-300"><Cloud size={13} /></span>
-                        ) : hayServidorParaCapas() ? (
+                        ) : hayServidorParaCapas() && !soloLectura ? (
                           <button
                             type="button"
                             disabled={compartiendo != null}
@@ -2400,18 +2342,18 @@ export function MapaGeorreferenciacion() {
                             {compartiendo === capa.id ? 'Subiendo…' : 'Compartir'}
                           </button>
                         ) : null}
-                        <button
+                        {!soloLectura && <button
                           type="button"
                           onClick={() => quitarCapa(capa.id)}
                           title={`Eliminar capa "${capa.nombre}"`}
                           className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-red-400"
                         >
                           <X size={13} />
-                        </button>
+                        </button>}
                       </div>
                       {/* Si no se pudo detectar sola qué columna trae el nombre
                           (CAI/Estación/Cuadrante), se elige a mano aquí. */}
-                      {!detectado && (
+                      {!detectado && !soloLectura && (
                         <div className="ml-6 mt-1 rounded-lg bg-amber-500/10 p-2 text-[11px] text-amber-200">
                           <p className="mb-1">No se detectó sola qué columna nombra esta capa — elige el campo correcto:</p>
                           <select
@@ -2583,7 +2525,7 @@ export function MapaGeorreferenciacion() {
                           title={activa ? `Ocultar ${etiqueta} del mapa` : `Mostrar ${etiqueta} en el mapa`}
                           className={clsx('flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition', activa ? 'border-[#0f5f57] bg-[#0f5f57] text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300')}
                         >
-                          <span className="h-2 w-2 rounded-full" style={{ background: activa ? '#ffffff' : (estiloDe(tipo).color ?? color) }} /> {etiqueta}
+                          <span className="h-2 w-2 rounded-full" style={{ background: activa ? '#ffffff' : colorCapa(tipo, color) }} /> {etiqueta}
                         </button>
                       );
                     })}
@@ -2653,9 +2595,9 @@ export function MapaGeorreferenciacion() {
                     {/* Modo "Puntos" — color de cada delito realmente presente. */}
                     {modoVisualizacion === 'puntos' && ([
                       ['delitos', 'Delitos', mostrarCalorDelitos], ['irisp1', 'IRISP1', mostrarCalorIrisp1], ['operatividad', 'Operatividad', mostrarCalorOperatividad], ['macri', 'Macri', mostrarCalorMacri], ['rnmc', 'RNMC', mostrarCalorRnmc],
-                    ] as const).filter(([clave, , activo]) => activo && clave !== 'delitos' && clave !== 'irisp1' && estiloDe(clave).color).map(([clave, etiqueta]) => (
+                    ] as const).filter(([clave, , activo]) => activo && clave !== 'delitos' && clave !== 'irisp1' && coloresCapa[clave]).map(([clave, etiqueta]) => (
                       <span key={`fijo-${clave}`} className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full ring-1 ring-slate-300" style={{ backgroundColor: estiloDe(clave).color ?? undefined }} />
+                        <span className="h-2.5 w-2.5 rounded-full ring-1 ring-slate-300" style={{ backgroundColor: coloresCapa[clave] }} />
                         {etiqueta}
                       </span>
                     ))}
@@ -2988,17 +2930,17 @@ export function MapaGeorreferenciacion() {
               );
             })}
             {modoVisualizacion === 'puntos' && mostrarCalorOperatividad && puntosOperatividadParaMostrar.map((p, i) => (
-              <CircleMarker key={`po-${i}`} center={[p.lat, p.lon]} radius={radioDe('operatividad', 4)} pathOptions={{ color: estiloDe('operatividad').color ?? '#d97706', weight: 1, fillColor: estiloDe('operatividad').color ?? '#d97706', fillOpacity: 0.75 }}>
+              <CircleMarker key={`po-${i}`} center={[p.lat, p.lon]} radius={radioDe('operatividad', 4)} pathOptions={{ color: colorCapa('operatividad', '#d97706'), weight: 1, fillColor: colorCapa('operatividad', '#d97706'), fillOpacity: 0.75 }}>
                 <Popup>Operatividad</Popup>
               </CircleMarker>
             ))}
             {modoVisualizacion === 'puntos' && mostrarCalorMacri && puntosMacriParaMostrar.map((p, i) => (
-              <CircleMarker key={`pm-${i}`} center={[p.lat, p.lon]} radius={radioDe('macri', 4)} pathOptions={{ color: estiloDe('macri').color ?? '#7c3aed', weight: 1, fillColor: estiloDe('macri').color ?? '#7c3aed', fillOpacity: 0.75 }}>
+              <CircleMarker key={`pm-${i}`} center={[p.lat, p.lon]} radius={radioDe('macri', 4)} pathOptions={{ color: colorCapa('macri', '#7c3aed'), weight: 1, fillColor: colorCapa('macri', '#7c3aed'), fillOpacity: 0.75 }}>
                 <Popup>Macri</Popup>
               </CircleMarker>
             ))}
             {modoVisualizacion === 'puntos' && mostrarCalorRnmc && puntosRnmcParaMostrar.map((p, i) => (
-              <CircleMarker key={`pr-${i}`} center={[p.lat, p.lon]} radius={radioDe('rnmc', 4)} pathOptions={{ color: estiloDe('rnmc').color ?? '#db2777', weight: 1, fillColor: estiloDe('rnmc').color ?? '#db2777', fillOpacity: 0.75 }}>
+              <CircleMarker key={`pr-${i}`} center={[p.lat, p.lon]} radius={radioDe('rnmc', 4)} pathOptions={{ color: colorCapa('rnmc', '#db2777'), weight: 1, fillColor: colorCapa('rnmc', '#db2777'), fillOpacity: 0.75 }}>
                 <Popup>RNMC — {(p as any).delitoCorto ?? 'Comparendo'}</Popup>
               </CircleMarker>
             ))}
@@ -3066,8 +3008,8 @@ export function MapaGeorreferenciacion() {
               puntosFiltrados.map((p, i) => {
                 // Vista normal (sin comparar): cada delito con su propio
                 // color, igual que semaforiza el resto del dashboard.
-                const claveEstilo = capa.tipo === 'generico' ? capa.id : capa.tipo;
-                const color = (capa.colDelito ? coloresDelito[p.delitoCorto || 'Sin delito'] : undefined) ?? estiloDe(claveEstilo).color ?? (capa.colDelito ? colorPorDelito(p.delitoCorto ?? '', ordenDelitos, capa.tipo) : (capa.tipo === 'irisp1' ? '#2563eb' : capa.tipo === 'delitos' ? '#dc2626' : '#116762'));
+                const claveEstilo = capa.tipo;
+                const color = (capa.colDelito ? coloresDelito[p.delitoCorto || 'Sin delito'] : undefined) ?? (capa.colDelito ? colorPorDelito(p.delitoCorto ?? '', ordenDelitos, capa.tipo) : (capa.tipo === 'irisp1' ? '#2563eb' : capa.tipo === 'delitos' ? '#dc2626' : '#116762'));
                 return (
                   <CircleMarker
                     key={`${capa.id}-${i}`}
@@ -3142,7 +3084,8 @@ export function MapaGeorreferenciacion() {
                       <ChevronDown size={14} className={clsx('transition', leyendaAbierta && 'rotate-180')} />
                     </button>
                     {leyendaAbierta && (
-                      <div className="max-h-[300px] space-y-2.5 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2">
+                      <div className="max-h-[min(420px,60vh)] space-y-2.5 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2">
+                        {modoVisualizacion === 'puntos' && <ControlTamanoPuntos escala={escalaPuntos} onChange={setEscalaPuntos} />}
                         {modoVisualizacion === 'calor' && mostrarCalorDelitos && (
                           <div>
                             <p className="mb-1 font-semibold text-[#10233f]">Intensidad delictiva</p>
@@ -3187,7 +3130,7 @@ export function MapaGeorreferenciacion() {
                                     </div>
                                   );
                                 })}
-                                {conColor && <p className="pt-0.5 text-[10px] text-slate-400">Clic en el color de un delito para cambiarlo.</p>}
+                                {conColor && <p className="pt-0.5 text-[10px] text-slate-400">Clic en un color para cambiarlo.</p>}
                               </div>
                             </div>
                           );
@@ -3196,13 +3139,31 @@ export function MapaGeorreferenciacion() {
                           ['operatividad', 'Operatividad', '#d97706', mostrarCalorOperatividad, puntosOperatividadParaMostrar.length],
                           ['macri', 'Macri', '#7c3aed', mostrarCalorMacri, puntosMacriParaMostrar.length],
                           ['rnmc', 'RNMC', '#db2777', mostrarCalorRnmc, puntosRnmcParaMostrar.length],
-                        ] as const).filter(([, , , activo, n]) => activo && n > 0).map(([clave, nombre, color, , n]) => (
-                          <div key={clave} className="flex items-center gap-2 text-[11.5px] text-slate-600">
-                            <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white" style={{ backgroundColor: estiloDe(clave).color ?? color }} />
-                            <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{nombre}</span>
-                            <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(n)}</span>
-                          </div>
-                        ))}
+                        ] as const).filter(([, , , activo, n]) => activo && n > 0).map(([clave, nombre, color, , n]) => {
+                          const idEdicion = `capa:${clave}`;
+                          const abierto = delitoEditandoColor === idEdicion;
+                          return (
+                            <div key={clave}>
+                              <div className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                                <button
+                                  type="button"
+                                  onClick={() => setDelitoEditandoColor((v) => (v === idEdicion ? null : idEdicion))}
+                                  aria-expanded={abierto}
+                                  title={`Cambiar el color de ${nombre}`}
+                                  className={clsx('h-3.5 w-3.5 shrink-0 rounded-full ring-1 transition hover:scale-125', abierto || coloresCapa[clave] ? 'ring-2 ring-[#10233f]' : 'ring-white')}
+                                  style={{ backgroundColor: colorCapa(clave, color) }}
+                                />
+                                <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{nombre}</span>
+                                <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(n)}</span>
+                              </div>
+                              {abierto && (
+                                <div className="my-1">
+                                  <SelectorColorRapido valor={coloresCapa[clave] ?? null} colorAuto={colorCapa(clave, color)} onChange={(c) => cambiarColorCapa(clave, c)} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                         <div>
                           <p className="mb-1 font-semibold text-[#10233f]">Límites geográficos</p>
                           {capas.length === 0 ? (
@@ -3315,7 +3276,7 @@ export function MapaGeorreferenciacion() {
                 </div>
                 {/* Capa TEMPORAL de análisis — CSV/XLS/XLSX propio con coordenadas
                     (aislada: no toca Delitos, IRISP1 ni los filtros). */}
-                <PanelArchivoGeorreferenciado {...capaArchivoGeorreferenciado} />
+                {!soloLectura && <PanelArchivoGeorreferenciado {...capaArchivoGeorreferenciado} />}
         {error && (
           <div className="mb-3 flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />

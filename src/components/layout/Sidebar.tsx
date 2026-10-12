@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import {
   Home, Building2, CalendarDays, Flame, Map, X, Table2, Database, ChevronsLeft, ChevronsRight,
-  Activity, Package, Eye, Target, Scale, Shield, Network, LineChart,
+  Activity, Package, Eye, Target, Scale, Shield, Network, LineChart, UserCheck, LogOut,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
 import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
+import { tieneAcceso } from '../../utils/permisos';
+import { useSesionCai } from '../../cai/PuertaCai';
+import { useContadorAccesosCai } from '../../pages/AccesosCai';
 
 export type PaginaId =
   | 'resumen' | 'unidad' | 'operatividadUnidad' | 'rnmc' | 'irisp1' | 'macri' | 'ultimasSemanas'
   | 'matrizCalor' | 'mapa' | 'tasaCosec'
-  | 'comparativo' | 'tabla' | 'calidad' | 'productos';
+  | 'comparativo' | 'tabla' | 'calidad' | 'productos' | 'accesosCai';
 
 // Ítems bloqueados temporalmente para presentarle al jefe por partes — se ven
 // atenuados, no se puede entrar, y al pasar el mouse se explica por qué. Para
@@ -23,7 +26,7 @@ type ItemMenu = { id: PaginaId; label: string; icon: React.ElementType };
 
 // Mismos módulos de siempre, agrupados por sección (solo cambia la
 // presentación del menú, no qué módulos existen ni sus permisos).
-const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean }[] = [
+const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloAdmin?: boolean }[] = [
   {
     titulo: 'Análisis principal',
     items: [
@@ -58,6 +61,16 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean }[] = 
       { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
       { id: 'calidad', label: 'Calidad de Datos', icon: Database },
       { id: 'productos', label: 'Productos Esperados', icon: Package },
+    ],
+  },
+  {
+    // Solo el administrador (vista interna / ruta raíz): quién de los
+    // comandantes de CAI ha ingresado, con fecha y hora.
+    titulo: 'Administración',
+    soloCompleto: true,
+    soloAdmin: true,
+    items: [
+      { id: 'accesosCai', label: 'Accesos CAI', icon: UserCheck },
     ],
   },
 ];
@@ -108,7 +121,8 @@ function TooltipLateral({ texto, posicion = 'lateral' }: { texto: string; posici
   );
 }
 
-function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSalir }: {
+function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSalir, insignia }: {
+  insignia?: { texto: string; titulo: string } | null;
   item: ItemMenu;
   activo: PaginaId;
   onCambiar: (id: PaginaId) => void;
@@ -126,7 +140,7 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
   const bloqueado = modoAcceso
     ? !DASHBOARD_ACCESS[modoAcceso][item.id as keyof typeof DASHBOARD_ACCESS['jefe']]
     : !esModoConsulta() && PAGINAS_BLOQUEADAS.includes(item.id);
-  const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : MENSAJE_BLOQUEADO;
+  const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : modoAcceso === 'cai' ? 'No habilitado para la consulta de los CAI.' : MENSAJE_BLOQUEADO;
   return (
     <button
       onClick={() => { if (bloqueado) return; onCambiar(item.id); onCerrar(); }}
@@ -155,6 +169,14 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
       {activeItem && !bloqueado && <span className="absolute inset-y-1 left-0 w-1 rounded-r-full bg-[#5eead4]" />}
       <Icon size={colapsado ? 21 : 19} strokeWidth={1.9} className="shrink-0" />
       {!colapsado && <span className="leading-tight">{item.label}</span>}
+      {insignia && (
+        <span
+          title={insignia.titulo}
+          className={clsx('rounded-full bg-[#5eead4] font-bold tabular-nums text-[#0a3d39]', colapsado ? 'absolute right-1 top-1 px-1 text-[9px]' : 'ml-auto px-1.5 py-[1px] text-[10.5px]')}
+        >
+          {insignia.texto}
+        </span>
+      )}
     </button>
   );
 }
@@ -175,6 +197,9 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
   // tiene scroll vertical) para que NO quede recortado por el overflow del
   // contenedor con scroll — así siempre se sobrepone visible al sidebar.
   const [tooltipItem, setTooltipItem] = useState<{ texto: string; top: number; esBloqueo: boolean } | null>(null);
+  const esAdmin = tieneAcceso('accesosCai') && !esModoConsulta();
+  const contadorCai = useContadorAccesosCai(esAdmin);
+  const sesionCai = useSesionCai();
 
   return (
     <>
@@ -235,7 +260,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
 
         {/* ── Secciones del menú ── */}
         <nav className={clsx('flex-1 overflow-y-auto py-3', colapsado ? 'px-2' : 'px-3')}>
-          {GRUPOS.filter((g) => !g.soloCompleto || !esModoConsulta()).map((grupo, gi) => (
+          {GRUPOS.filter((g) => (!g.soloCompleto || !esModoConsulta()) && (!g.soloAdmin || esAdmin)).map((grupo, gi) => (
             <div key={grupo.titulo} className={clsx(gi > 0 && (colapsado ? 'mt-2.5 border-t border-white/10 pt-2.5' : 'mt-3 border-t border-white/10 pt-3'))}>
               {!colapsado && (
                 <p className="mb-1.5 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-100/55">
@@ -254,6 +279,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                     colapsado={colapsado}
                     onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
                     onSalir={() => setTooltipItem(null)}
+                    insignia={item.id === 'accesosCai' && contadorCai ? { texto: String(contadorCai.hoy), titulo: `${contadorCai.hoy} ingreso(s) hoy · ${contadorCai.enLinea} en línea ahora` } : null}
                   />
                 ))}
               </div>
@@ -281,7 +307,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.09 · v137" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.12 · v138" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -292,14 +318,24 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
               )}
               {obtenerModoAcceso() && (
                 <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">
-                  {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : 'Vista interna'}
+                  {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : obtenerModoAcceso() === 'cai' ? `Consulta · ${sesionCai?.sesion.nombre ?? 'CAI'}` : 'Vista interna'}
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.09 · v137</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.12 · v138</p>
             </div>
           )}
         </div>
+        {sesionCai && (
+          <button
+            type="button"
+            onClick={sesionCai.salir}
+            title="Cerrar sesión"
+            className={clsx('mb-3 flex shrink-0 items-center justify-center gap-2 rounded-lg border border-white/20 py-2 text-[12.5px] font-semibold text-white/90 hover:bg-white/10', colapsado ? 'mx-2' : 'mx-4')}
+          >
+            <LogOut size={15} /> {!colapsado && 'Cerrar sesión'}
+          </button>
+        )}
       </aside>
     </>
   );

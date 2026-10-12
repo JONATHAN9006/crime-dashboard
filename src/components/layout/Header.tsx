@@ -4,14 +4,15 @@ import { useData } from '../../context/DataContext';
 import { formatFecha, formatFechaHora, formatNumero } from '../../utils/aggregations';
 import { UpdateDataModal } from '../upload/UpdateDataModal';
 import { useDatosExportacionPptx, generarPowerPoint } from '../../data/pptxExport';
-import { esModoConsulta } from '../../utils/modoConsulta';
+import { esSoloConsulta, puedeDescargar } from '../../utils/permisos';
 
 export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
   const { records, meta, filteredRecords, recordsBase, filters, backendUrl, remoteStatus, remoteError, remoteMeta, sincronizar, actualizacionDisponible, descartarAvisoActualizacion } = useData();
   const [modalAbierto, setModalAbierto] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
   const [generandoPptx, setGenerandoPptx] = useState(false);
-  const soloLectura = esModoConsulta();
+  const soloLectura = esSoloConsulta();
+  const descargas = puedeDescargar();
 
   // Todos los cálculos del PowerPoint provienen de los mismos hooks que usan
   // las páginas del dashboard — ver data/pptxExport.ts.
@@ -87,7 +88,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
                 <RefreshCw size={14} className={sincronizando ? 'animate-spin' : ''} /> <span className="hidden sm:inline">Sincronizar</span>
               </button>
             )}
-            {!soloLectura && (
+            {!soloLectura && descargas && (
               <button
                 onClick={onDescargarPptx}
                 disabled={generandoPptx || filteredRecords.length === 0}

@@ -30,3 +30,13 @@ body {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Solo consulta (enlace /cai): sin botones de descarga ni de carga ── */
+html[data-sin-descargas] :is(button, a, label):has(> svg:is(.lucide-download, .lucide-image-down, .lucide-file-down)),
+html[data-sin-descargas] :is(button, a)[title^="Descarg"],
+html[data-sin-descargas] a[download] {
+  display: none !important;
+}
+html[data-solo-consulta] label:has(> input[type="file"]) {
+  display: none !important;
+}

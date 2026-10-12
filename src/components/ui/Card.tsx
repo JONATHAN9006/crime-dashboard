@@ -1,3 +1,4 @@
+import { puedeDescargar } from '../../utils/permisos';
 import React, { useRef, useState } from 'react';
 import clsx from 'clsx';
 import { ImageDown, Loader2 } from 'lucide-react';
@@ -27,6 +28,8 @@ export function Card({ children, className, title, subtitle, actions, descargabl
 
   // Se registra solo para el modal "Generar PDF" — no hace nada si la
   // página no está envuelta en ProveedorRegistroPdf (la mayoría de páginas).
+  // Sin permiso de descargas (enlace /cai): ni botón ni registro para el PDF.
+  if (!puedeDescargar()) descargable = undefined;
   useRegistrarEnPdf(descargable, title, contenidoRef);
 
   async function descargarImagen() {

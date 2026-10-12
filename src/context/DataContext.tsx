@@ -21,6 +21,17 @@ import { MAPA_DELITO } from '../data/db2Mapeos';
 
 export type RemoteStatus = 'sin-configurar' | 'conectando' | 'conectado' | 'error';
 
+// Sello de la copia local: si la copia guardada en este navegador vino del
+// servidor central y el servidor NO ha cambiado desde entonces (misma
+// "última actualización"), al abrir el dashboard se usa esa copia en vez de
+// volver a descargar toda la base. Mismos registros exactos — solo evita
+// descargas repetidas (clave para que muchas personas, ej. los 10
+// comandantes de CAI, abran el dashboard a cada rato sin agotar el plan del
+// servidor). Cualquier otra escritura local borra el sello.
+const CLAVE_SELLO_REMOTO = 'mepoy-sello-delitos-remoto';
+const leerSelloRemoto = (): string | null => { try { return localStorage.getItem(CLAVE_SELLO_REMOTO); } catch { return null; } };
+const guardarSelloRemoto = (v: string | null) => { try { if (v) localStorage.setItem(CLAVE_SELLO_REMOTO, v); else localStorage.removeItem(CLAVE_SELLO_REMOTO); } catch { /* sin almacenamiento */ } };
+
 const INTERVALO_SONDEO_MS = 90_000; // cada 90 segundos (antes 45) — con la
 // base ya en ~24 MB, cada sondeo puede implicar varias peticiones seguidas
 // al backend (ver descargarCsvRemoto); espaciarlas reduce cuántas veces al
@@ -141,6 +152,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const persistirYActualizar = useCallback(
     async (nuevosRegistrosCrudos: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
+      guardarSelloRemoto(null);
       const conDelitosCorregidos = renormalizarCamposParametrizados(renormalizarDelitos(nuevosRegistrosCrudos));
       const sinExcluidos = excluirDelitosOmitidos(conDelitosCorregidos);
       // El CAI se completa por Cuadrante ANTES de guardar — así, tanto
@@ -204,6 +216,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const columnasDetectadas = registrosRemotos[0] ? Object.keys(registrosRemotos[0].raw || {}) : [];
       const fechaRef = metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion) : new Date();
       await persistirYActualizar(registrosRemotos, 'Delitos (Supabase, central)', columnasDetectadas, fechaRef, null);
+      guardarSelloRemoto(metaRemota?.ultimaActualizacion ?? null);
       setRemoteStatus('conectado');
       setRemoteError(null);
       setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
@@ -233,6 +246,31 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
 
       if (backendUrl) {
+        // Copia local al día con el servidor → se usa sin descargar de nuevo.
+        try {
+          const sello = leerSelloRemoto();
+          if (sello) {
+            const [metaRemota, guardado] = await Promise.all([
+              consultarMetaSupabase(backendUrl, supabaseAnonKey),
+              cargarDatosGuardados(),
+            ]);
+            if (metaRemota?.ultimaActualizacion && metaRemota.ultimaActualizacion === sello && guardado && guardado.records.length > 0) {
+              if (cancelado) return;
+              const registros = excluirDelitosOmitidos(guardado.records);
+              const cols = registros.length ? Object.keys(registros[0].raw || {}) : [];
+              setRecords(registros);
+              setLastColumns(cols);
+              setMeta(construirMeta(registros, 'Delitos (Supabase, central)', new Date(sello), cols, null));
+              setRemoteMeta({ ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario });
+              ultimaCargaRef.current = metaRemota.ultimaActualizacion;
+              setRemoteStatus('conectado');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // cualquier duda → descarga completa, como siempre
+        }
         const ok = await cargarDesdeBackend();
         if (ok) {
           if (!cancelado) setLoading(false);
@@ -511,6 +549,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const limpiarTodo = useCallback(async () => {
+    guardarSelloRemoto(null);
     await limpiarDatos();
     setRecords([]);
     setMeta(null);

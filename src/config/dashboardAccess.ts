@@ -28,9 +28,15 @@ export interface AccesoHerramientas {
   tendenciaDiaria: boolean;
   microgerencia: boolean;
   analistaIA: boolean;
+  // Descargar imágenes, Excel, CSV, PowerPoint, PDF y mapas.
+  descargas: boolean;
+  // "Actualizar información", "Sincronizar" y cargar matrices o capas.
+  actualizarInformacion: boolean;
+  // Página "Accesos CAI" (registro de ingresos de los comandantes) — solo administrador.
+  accesosCai: boolean;
 }
 
-export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = {
+export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramientas> = {
   // Vista para presentar a los superiores — solo lo ya validado. Para
   // desbloquear algo aquí, cambia su "false" a "true": aparece solo, sin
   // tocar ningún componente.
@@ -55,6 +61,9 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
     tendenciaDiaria: false,
     microgerencia: false,
     analistaIA: false,
+    descargas: true,
+    actualizarInformacion: true,
+    accesosCai: false,
   },
   // Vista de trabajo interno — todo disponible, siempre.
   interno: {
@@ -76,5 +85,34 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno', AccesoHerramientas> = 
     tendenciaDiaria: true,
     microgerencia: true,
     analistaIA: true,
+    descargas: true,
+    actualizarInformacion: true,
+    accesosCai: true,
+  },
+  // Comandantes de CAI (enlace /cai, con usuario y contraseña) — SOLO
+  // CONSULTA: sin descargas, sin actualizar ni cargar información, sin
+  // Microgerencia, MACRI, IRISP1 ni Analista IA.
+  cai: {
+    resumen: true,
+    unidad: true,
+    operatividadUnidad: true,
+    rnmc: true,
+    irisp1: false,
+    macri: false,
+    ultimasSemanas: true,
+    matrizCalor: true,
+    mapa: true,
+    tasaCosec: true,
+    comparativo: true,
+    tabla: true,
+    calidad: false,
+    productos: false,
+    tendenciaMensual: true,
+    tendenciaDiaria: true,
+    microgerencia: false,
+    analistaIA: false,
+    descargas: false,
+    actualizarInformacion: false,
+    accesosCai: false,
   },
 };
