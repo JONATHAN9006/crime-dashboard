@@ -151,7 +151,7 @@ export function ComparativoMultifecha() {
           <TarjetaConsolidada id="delito" titulo="Análisis de delitos — Top por cantidad" icono={ico(BarChart3)} cabeza="Delito" campo="delito" getter={(r) => r.delito} />
           <TarjetaConsolidada id="estacion" titulo="Casos por estación" icono={ico(Building2)} cabeza="Estación" campo="estacion" getter={(r) => r.estacion} />
           <TarjetaConsolidada id="cai" titulo="CAI más afectados" icono={ico(MapPin)} cabeza="CAI" campo="cai" getter={(r) => r.cai} />
-          <TarjetaConsolidada id="cuadrante" titulo="Cuadrantes más afectados" icono={ico(MapPinned)} cabeza="Cuadrante" campo="cuadrante" getter={(r) => r.cuadrante} />
+          <TarjetaConsolidada id="cuadrante" titulo="Zonas de Atención más afectadas" icono={ico(MapPinned)} cabeza="Zonas de Atención" campo="cuadrante" getter={(r) => r.cuadrante} />
           <TarjetaConsolidada id="barrio" titulo="Barrios más afectados" icono={ico(Home)} cabeza="Barrio" campo="barrioHecho" getter={(r) => r.barrioHecho} />
           <TarjetaConsolidada id="hora" titulo="Horas más afectadas" icono={ico(Clock)} cabeza="Hora" campo="horaExacta" defecto={5} getter={(r) => (r.hora !== null && r.hora !== undefined ? String(r.hora) : '')} etiqueta={etiquetaHora} valorFiltro={(k) => String(parseInt(k, 10))} />
           <TarjetaConsolidada id="turno" titulo="Turno de vigilancia" icono={ico(Hourglass)} cabeza="Turno" campo="turno" getter={(r) => r.turno} />

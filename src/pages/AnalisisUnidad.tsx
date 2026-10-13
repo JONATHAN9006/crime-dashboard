@@ -422,8 +422,8 @@ export function AnalisisUnidad() {
               <Card className="h-full" title="Análisis de delitos — Top por cantidad" subtitle={`Exclusivamente vigencia ${ventana.anioActual}`} descargable="top-delitos" icono={ico(BarChart3)} claseTitulo={T} actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}>
                 <RankingAporte data={porDelitoVigenciaActual} cabeza="Delito" onClick={(key) => drillDown('delito', key)} seleccionados={filters.delito as string[]} />
               </Card>
-              <Card className="h-full" title={`Top ${topCuadrante} cuadrantes más afectados`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
-                <RankingAporte data={ranking(cmpCuadrante, topCuadrante)} cabeza="Cuadrante" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
+              <Card className="h-full" title={`Top ${topCuadrante} Zonas de Atención más afectadas`} subtitle={`Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
+                <RankingAporte data={ranking(cmpCuadrante, topCuadrante)} cabeza="Zonas de Atención" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
               </Card>
               <Card className="h-full" title="Horas más afectadas" subtitle={`${topHorasRanking ? `Top ${topHorasRanking}` : 'Las 24 horas'}, vigencia ${ventana.anioActual}`} descargable="horas-mas-afectadas" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTop valor={topHorasRanking} onChange={setTopHorasRanking} opciones={OPCIONES_TOP} />}>
                 <RankingAporte

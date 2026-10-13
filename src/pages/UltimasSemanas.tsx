@@ -160,6 +160,12 @@ export function UltimasSemanas() {
   topDelitosGrafico.forEach((d, i) => {
     coloresDelitos[d.delito] = i === 0 ? '#dc2626' : PALETA_VERDES[i % PALETA_VERDES.length];
   });
+  // Un solo delito (ej. filtrado H. Motos): no tiene sentido pintar todo de
+  // rojo — cada semana va en su color (verde institucional / gris
+  // alternados) y la semana con más casos se resalta con el verde oscuro y
+  // el recuadro rojo punteado, igual que el resto del dashboard.
+  const unSoloDelito = topDelitosGrafico.length === 1;
+  if (unSoloDelito) coloresDelitos[topDelitosGrafico[0].delito] = '#159089';
 
   const tituloVentana = modo === 'mes'
     ? `Mes analizado: ${mesesDisponibles.find((m) => m.anioMes === (mesElegido ?? mesesDisponibles[mesesDisponibles.length - 1]?.anioMes))?.etiqueta ?? ''}`
@@ -227,11 +233,13 @@ export function UltimasSemanas() {
 
           <Card
             title={`Evolución ${modo === 'mes' ? 'semanal dentro del mes' : 'por período'} — Top 5 delitos`}
-            subtitle="Cada barra indica el número de semana real del calendario. El delito con mayor incidencia se resalta automáticamente en rojo."
+            subtitle={unSoloDelito
+              ? 'Cada barra indica el número de semana real del calendario. La semana con más casos se resalta con el recuadro rojo.'
+              : 'Cada barra indica el número de semana real del calendario. El delito con mayor incidencia se resalta automáticamente en rojo.'}
             descargable="evolucion-top5"
             claseTitulo={tituloTarjeta}
           >
-            <GroupedBarChart data={datosGrafico} xKey="periodo" seriesKeys={topDelitosGrafico.map((d) => d.delito)} seriesColors={coloresDelitos} height={260} />
+            <GroupedBarChart data={datosGrafico} xKey="periodo" seriesKeys={topDelitosGrafico.map((d) => d.delito)} seriesColors={coloresDelitos} height={260} colorPorBarra={unSoloDelito} resaltarMaximo={unSoloDelito} />
           </Card>
         </div>
 

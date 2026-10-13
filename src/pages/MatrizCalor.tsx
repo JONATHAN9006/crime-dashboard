@@ -143,7 +143,24 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
   );
 }
 
-function Leyenda({ titulo }: { titulo?: string }) {
+// Regla de cada nivel (cuantiles de las celdas con casos, ver useHeatmap).
+const REGLA_NIVEL: Record<string, string> = {
+  baja: 'hasta el percentil 50',
+  media: 'percentil 50 a 80',
+  alta: 'percentil 80 a 95',
+  'crítica': 'el 5 % más alto',
+};
+
+function Leyenda({ titulo, data }: { titulo?: string; data?: HeatmapResumen }) {
+  // Cuánto pesa cada nivel: rango de casos por celda y % del total de casos.
+  const resumen = new Map<string, { min: number; max: number; casos: number; celdas: number }>();
+  for (const c of data?.celdas ?? []) {
+    if (c.valor <= 0) continue;
+    const v = resumen.get(c.nivel) ?? { min: Infinity, max: 0, casos: 0, celdas: 0 };
+    v.min = Math.min(v.min, c.valor); v.max = Math.max(v.max, c.valor); v.casos += c.valor; v.celdas += 1;
+    resumen.set(c.nivel, v);
+  }
+  const totalCasos = data?.totalGeneral ?? 0;
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
       {titulo && <p className="mb-2 text-[13px] font-semibold" style={{ color: AZUL }}>{titulo}</p>}
@@ -153,13 +170,25 @@ function Leyenda({ titulo }: { titulo?: string }) {
             <span className="h-5 w-5 shrink-0 rounded" style={{ backgroundColor: n.color }} />
             <span className="leading-tight">
               <span className="block whitespace-nowrap text-[12.5px] font-semibold" style={{ color: AZUL }}>{n.titulo}</span>
-              <span className="block whitespace-nowrap text-[11.5px] text-slate-500">{n.texto}</span>
+              {(() => {
+                const r = resumen.get(n.nivel);
+                if (!data) return <span className="block whitespace-nowrap text-[11.5px] text-slate-500">{n.texto}</span>;
+                if (!r) return <span className="block whitespace-nowrap text-[11.5px] text-slate-500">Sin celdas · {REGLA_NIVEL[n.nivel]}</span>;
+                return (
+                  <>
+                    <span className="block whitespace-nowrap text-[11.5px] text-slate-600">
+                      {r.min === r.max ? `${formatNumero(r.min)}` : `${formatNumero(r.min)} a ${formatNumero(r.max)}`} casos por celda · <b style={{ color: AZUL }}>{formatDecimal(pct(r.casos, totalCasos), 1)} %</b> de los casos
+                    </span>
+                    <span className="block whitespace-nowrap text-[10.5px] text-slate-400">{r.celdas} celdas · {REGLA_NIVEL[n.nivel]}</span>
+                  </>
+                );
+              })()}
             </span>
           </div>
         ))}
         <p className="flex flex-1 items-start gap-1.5 border-l border-slate-200 pl-4 text-[11px] leading-snug text-slate-500">
           <Info size={14} className="mt-0.5 shrink-0" />
-          Los niveles representan concentración relativa dentro del periodo seleccionado. La escala de color se recalcula automáticamente según los datos filtrados.
+          Los niveles representan concentración relativa dentro del periodo seleccionado: se ordenan las celdas con casos y se cortan en los percentiles 50, 80 y 95. El % indica qué parte del total de casos cae en las celdas de ese nivel. Se recalcula con los filtros.
         </p>
       </div>
     </div>
@@ -264,11 +293,87 @@ function FocosComportamiento({ records, filters, onFiltrar }: {
   );
 }
 
+// ── Detalle al dar clic en una celda ────────────────────────────────────
+// Casos y % de la celda, estación más afectada y: sin delito filtrado → Top
+// 5 delitos; con un delito filtrado → Top 3 barrios y Top 5 horas.
+function topDe(registros: CrimeRecord[], campo: (r: CrimeRecord) => string, n: number) {
+  const m = new Map<string, number>();
+  for (const r of registros) {
+    const k = campo(r);
+    if (!k || /^(no reportado|pendiente)/i.test(k)) continue;
+    m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  return Array.from(m.entries()).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos).slice(0, n);
+}
+
+function ListaTop({ titulo, filas, total, etiqueta = (k: string) => k }: { titulo: string; filas: { key: string; casos: number }[]; total: number; etiqueta?: (k: string) => string }) {
+  if (filas.length === 0) return null;
+  const max = filas[0].casos || 1;
+  return (
+    <div>
+      <p className="mb-1 text-[11.5px] font-bold uppercase tracking-wide text-slate-500">{titulo}</p>
+      <ul className="space-y-1">
+        {filas.map((f, i) => (
+          <li key={f.key} className="grid grid-cols-[minmax(0,42%)_minmax(0,1fr)_auto] items-center gap-2 text-[12.5px]">
+            <span className="truncate font-medium" style={{ color: AZUL }} title={etiqueta(f.key)}>{i + 1}. {etiqueta(f.key)}</span>
+            <span className="h-2.5 rounded-sm bg-slate-100">
+              <span className="block h-2.5 rounded-sm" style={{ width: `${Math.max(4, (f.casos / max) * 100)}%`, backgroundColor: i === 0 ? '#0b4a46' : '#159089' }} />
+            </span>
+            <span className="whitespace-nowrap tabular-nums text-slate-600"><b style={{ color: AZUL }}>{formatNumero(f.casos)}</b> · {formatDecimal(pct(f.casos, total), 1)} %</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DetalleCelda({ celda, vista, records, hayDelito, totalGeneral }: {
+  celda: CeldaHeatmap; vista: VistaHeatmap; records: CrimeRecord[]; hayDelito: boolean; totalGeneral: number;
+}) {
+  const enCelda = records.filter((r) => r.diaSemanaIndex === celda.diaIndex && (vista === 'hora' ? r.hora === celda.columnaIndex : r.franjaHoraria === celda.columna));
+  const estacion = topDe(enCelda, (r) => r.estacion, 1)[0];
+  // Horas: dentro de la franja; en la vista por hora (una sola hora por
+  // celda) se toman las horas de ESE día, para que el top tenga sentido.
+  const baseHoras = vista === 'hora' ? records.filter((r) => r.diaSemanaIndex === celda.diaIndex) : enCelda;
+  const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-[26px] font-bold leading-none text-rose-600">{formatNumero(celda.valor)} casos</p>
+          <p className="mt-1 text-[12.5px] text-slate-600">equivalen al <b style={{ color: AZUL }}>{formatDecimal(pct(celda.valor, totalGeneral), 1)} %</b> del total de la matriz</p>
+        </div>
+        {estacion && (
+          <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right">
+            <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">Estación más afectada</p>
+            <p className="text-[14px] font-bold" style={{ color: AZUL }}>{estacion.key}</p>
+            <p className="text-[11.5px] text-slate-500">{formatNumero(estacion.casos)} casos · {formatDecimal(pct(estacion.casos, enCelda.length), 1)} % de la celda</p>
+          </div>
+        )}
+      </div>
+      {!hayDelito ? (
+        <ListaTop titulo="Top 5 delitos en esta celda" filas={topDe(enCelda, (r) => r.delito, 5)} total={enCelda.length} />
+      ) : (
+        <>
+          <ListaTop titulo="Top 3 barrios" filas={topDe(enCelda, (r) => r.barrioHecho, 3)} total={enCelda.length} />
+          <ListaTop
+            titulo={vista === 'hora' ? `Top 5 horas del ${celda.diaLabel.toLowerCase()}` : 'Top 5 horas de la franja'}
+            filas={topDe(baseHoras, (r) => (r.hora === null || r.hora === undefined ? '' : String(r.hora)), 5)}
+            total={baseHoras.length}
+            etiqueta={etiquetaHora}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 export function MatrizCalor() {
   const { filteredRecords, filters, setFilters, meta, drillDown } = useData();
   const [vista, setVista] = useState<VistaHeatmap>('hora');
   const [ampliada, setAmpliada] = useState(false);
   const [seleccionManual, setSeleccionManual] = useState<{ dia: number; col: number; vista: VistaHeatmap } | null>(null);
+  const [detalleHora, setDetalleHora] = useState<{ dia: number; col: number } | null>(null);
 
   // (Sin cambios) Sin filtro de año/mes/fecha, solo la vigencia más reciente.
   const hayFiltroTemporal = filters.anio.length > 0 || filters.mes.length > 0 || !!filters.fechaInicial || !!filters.fechaFinal;
@@ -312,10 +417,15 @@ export function MatrizCalor() {
   }, [seleccionManual, vista, data]);
   const posicion = seleccion ? 1 + data.celdas.filter((c) => c.valor > seleccion.valor).length : null;
 
+  // Clic en una celda → cuadro de detalle (casos, %, estación, tops). Otro
+  // clic en la misma celda lo cierra. El filtro por día/hora queda en el
+  // botón «Usar este periodo como filtro» del cuadro.
   function clicCelda(celda: CeldaHeatmap) {
-    if (vista === 'hora') aplicarFiltroCelda(celda);
+    if (vista === 'hora') setDetalleHora((prev) => (prev && prev.dia === celda.diaIndex && prev.col === celda.columnaIndex ? null : { dia: celda.diaIndex, col: celda.columnaIndex }));
     else setSeleccionManual({ dia: celda.diaIndex, col: celda.columnaIndex, vista });
   }
+  const celdaDetalleHora = vista === 'hora' && detalleHora ? data.celdas.find((c) => c.diaIndex === detalleHora.dia && c.columnaIndex === detalleHora.col) ?? null : null;
+  const hayDelito = filters.delito.length > 0;
 
   const totalFiltrado = recordsParaMatriz.length;
   const esHora = vista === 'hora';
@@ -337,9 +447,23 @@ export function MatrizCalor() {
       <p className="-mt-1 mb-3 text-[13px] text-slate-600">
         Cada celda representa la cantidad de casos ocurridos en un <strong>día de la semana</strong> (filas) durante {esHora ? 'una hora específica' : 'una franja horaria'} (columnas). Los niveles de color indican la concentración relativa de casos dentro de los datos filtrados.
       </p>
-      <TablaMatriz data={data} seleccion={!esHora ? seleccion : null} onCelda={clicCelda} />
+      <TablaMatriz data={data} seleccion={!esHora ? seleccion : celdaDetalleHora} onCelda={clicCelda} />
+      {esHora && celdaDetalleHora && (
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/50 p-3">
+          <div className="mb-2 flex items-start justify-between gap-2">
+            <p className="flex items-center gap-2 text-[15px] font-bold" style={{ color: AZUL }}>
+              <MousePointer2 size={17} className="text-[#137a6f]" /> {celdaDetalleHora.diaLabel} · {etiquetaColumna('hora', celdaDetalleHora.columnaLabel)}
+            </p>
+            <button type="button" onClick={() => setDetalleHora(null)} title="Cerrar (o vuelve a dar clic en la celda)" className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X size={15} /></button>
+          </div>
+          <DetalleCelda celda={celdaDetalleHora} vista="hora" records={recordsParaMatriz} hayDelito={hayDelito} totalGeneral={data.totalGeneral} />
+          <button onClick={() => aplicarFiltroCelda(celdaDetalleHora)} disabled={celdaDetalleHora.valor === 0} className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold hover:bg-slate-50 disabled:opacity-50" style={{ color: AZUL }}>
+            <Filter size={13} className="fill-[#10233f]" /> Usar este día y hora como filtro
+          </button>
+        </div>
+      )}
       <div className="mt-4">
-        <Leyenda titulo={esHora ? undefined : 'Escala de concentración'} />
+        <Leyenda titulo={esHora ? undefined : 'Escala de concentración'} data={data} />
       </div>
     </Card>
   );
@@ -437,6 +561,9 @@ export function MatrizCalor() {
                     <span className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-center text-[13px] font-semibold leading-tight" style={{ color: AZUL }}>{formatDecimal(seleccion.porcentaje, 1)}%<span className="block text-[10.5px] font-normal text-slate-500">del total</span></span>
                   </div>
                   {posicion && <p className="mt-2 text-[12.5px] text-slate-600"><b style={{ color: AZUL }}>Ranking: #{posicion}</b> de {data.celdas.length} combinaciones</p>}
+                  <div className="mt-3 border-t border-rose-200 pt-3">
+                    <DetalleCelda celda={seleccion} vista="franja" records={recordsParaMatriz} hayDelito={hayDelito} totalGeneral={data.totalGeneral} />
+                  </div>
                   <button onClick={() => aplicarFiltroCelda(seleccion)} disabled={seleccion.valor === 0} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2 text-[13px] font-semibold hover:bg-slate-50 disabled:opacity-50" style={{ color: AZUL }}>
                     <Filter size={14} className="fill-[#10233f]" /> Usar este periodo como filtro
                   </button>
