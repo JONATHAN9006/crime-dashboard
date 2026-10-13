@@ -7,7 +7,7 @@ import { useVentanaComparativa, useComparativoCategoria } from '../hooks/useComp
 import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
 import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
-import { aporteAlCambioPct, contarPor, maximoDe } from '../analitica/cambio';
+import { contarPor, maximoDe } from '../analitica/cambio';
 import { franjaDeTresHoras } from '../analitica/lectura';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
 
@@ -162,17 +162,20 @@ export function ResumenEjecutivo() {
 
   // ── Datos del nuevo Resumen ejecutivo (todos de los registros reales,
   // con los filtros activos; nada codificado) ─────────────────────────────
-  // APORTE % del comparativo de delitos = aporte AL CAMBIO total:
-  // diferencia del delito ÷ diferencia total × 100 (con signo). Se calcula
-  // sobre TODOS los delitos (no solo los visibles con Aumento/Disminución),
-  // para que siempre sea la parte del cambio real que explica cada uno.
-  const diferenciaTotalDelitos = useMemo(
-    () => comparativoTodosLosDelitos.reduce((a, f) => a + f.diferencia, 0),
+  // APORTE % del comparativo de delitos = PARTICIPACIÓN del delito en el
+  // total del año actual: casos del delito ÷ total de casos del año actual
+  // × 100 (ej. 3.449 H. Personas ÷ 7.583 = 45,5 %). Siempre positivo. Se
+  // calcula sobre el total de TODOS los delitos (no solo los visibles con
+  // Aumento/Disminución); la fila TOTAL suma lo que queda visible (100 %
+  // cuando se ven todos). Antes era el aporte AL CAMBIO (diferencia del
+  // delito ÷ diferencia total), que podía dar negativo o pasar de 100 %.
+  const totalActualDelitos = useMemo(
+    () => comparativoTodosLosDelitos.reduce((a, f) => a + f.actual, 0),
     [comparativoTodosLosDelitos],
   );
   const filasDelitosConAporte = useMemo(
-    () => filasComparativoMostradas.map((f) => ({ ...f, aportePct: aporteAlCambioPct(f.diferencia, diferenciaTotalDelitos) })),
-    [filasComparativoMostradas, diferenciaTotalDelitos],
+    () => filasComparativoMostradas.map((f) => ({ ...f, aportePct: totalActualDelitos > 0 ? (f.actual / totalActualDelitos) * 100 : null })),
+    [filasComparativoMostradas, totalActualDelitos],
   );
   const totalesComparativo = useMemo(() => ({
     actual: comparativoTodosLosDelitos.reduce((a, f) => a + f.actual, 0),
@@ -334,7 +337,7 @@ export function ResumenEjecutivo() {
               etiqueta="Delito"
               anioAnterior={ventana.anioAnterior}
               anioActual={ventana.anioActual}
-              aporteTotal={delitosPermitidos ? `${formatDecimal(subtituloAporteDelitos, 1)}%` : (diferenciaTotalDelitos === 0 ? '—' : '100%')}
+              aporteTotal={delitosPermitidos ? `${formatDecimal(subtituloAporteDelitos, 1)}%` : (totalActualDelitos === 0 ? '—' : '100%')}
             />
           ) : (
             <p className="py-8 text-center text-sm text-slate-400">
@@ -447,7 +450,7 @@ export function ResumenEjecutivo() {
             <li><b>Casos:</b> número de registros (filas únicas) de la base de Delictividad; se excluyen los delitos que MEPOY no mide (ver Calidad de Datos).</li>
             <li><b>Comparativo:</b> el año actual del 1 de enero a la fecha del último dato, frente al mismo tramo de días del año anterior. "Total {ventana.anioAnterior}" es el año anterior completo.</li>
             <li><b>% (variación):</b> (casos {ventana.anioActual} − casos {ventana.anioAnterior}) ÷ casos {ventana.anioAnterior} × 100.</li>
-            <li><b>Aporte % (delitos):</b> diferencia del delito ÷ diferencia total × 100. Los aportes suman 100 % del cambio; un delito que baja aporta en negativo.</li>
+            <li><b>Aporte % (delitos):</b> casos {ventana.anioActual} del delito ÷ total de casos {ventana.anioActual} × 100 (participación; suma 100 %).</li>
             <li><b>Aporte % (operatividad):</b> participación de cada categoría en el total del año actual.</li>
             <li><b>Participación %:</b> casos del elemento ÷ total del periodo × 100. Horario crítico: franjas de 3 horas sobre los casos con hora registrada.</li>
             <li><b>Tratamiento de datos:</b> homologación DB2 → Matriz Base (delito, estación, CAI, cuadrante, barrio); los valores "No reportado" y "Pendiente por asignar" no se muestran en los rankings.</li>
