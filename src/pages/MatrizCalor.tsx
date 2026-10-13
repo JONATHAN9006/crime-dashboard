@@ -55,7 +55,7 @@ function IconoFranja({ i }: { i: number }) {
 }
 
 /** La tabla de la matriz (hora o franja), con totales y celdas resaltadas. */
-function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; seleccion: CeldaHeatmap | null; onCelda: (c: CeldaHeatmap) => void }) {
+function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda }: { data: HeatmapResumen; seleccion: CeldaHeatmap | null; seleccionadas?: { dia: number; col: number }[]; onCelda: (c: CeldaHeatmap) => void }) {
   const esHora = data.vista === 'hora';
   const maxFila = maxDe(data.totalesFila);
   const maxCol = maxDe(data.totalesColumna);
@@ -85,7 +85,8 @@ function TablaMatriz({ data, seleccion, onCelda }: { data: HeatmapResumen; selec
               <td className="whitespace-nowrap rounded-md bg-slate-50 px-3 font-semibold" style={{ color: AZUL }}>{diaLabel}</td>
               {data.columnasLabel.map((_, c) => {
                 const celda = data.celdas[d * data.columnasLabel.length + c];
-                const esSel = seleccion && celda.diaIndex === seleccion.diaIndex && celda.columnaIndex === seleccion.columnaIndex;
+                const esSel = (seleccion && celda.diaIndex === seleccion.diaIndex && celda.columnaIndex === seleccion.columnaIndex)
+                  || seleccionadas.some((x) => x.dia === celda.diaIndex && x.col === celda.columnaIndex);
                 return (
                   <td key={c} className="p-0">
                     <button
@@ -306,63 +307,61 @@ function topDe(registros: CrimeRecord[], campo: (r: CrimeRecord) => string, n: n
   return Array.from(m.entries()).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos).slice(0, n);
 }
 
+// Lista en texto (sin barras): "1. H. Personas — 19 casos (41,3 %)".
 function ListaTop({ titulo, filas, total, etiqueta = (k: string) => k }: { titulo: string; filas: { key: string; casos: number }[]; total: number; etiqueta?: (k: string) => string }) {
   if (filas.length === 0) return null;
-  const max = filas[0].casos || 1;
   return (
     <div>
       <p className="mb-1 text-[11.5px] font-bold uppercase tracking-wide text-slate-500">{titulo}</p>
-      <ul className="space-y-1">
+      <ol className="space-y-0.5 text-[13px]">
         {filas.map((f, i) => (
-          <li key={f.key} className="grid grid-cols-[minmax(0,42%)_minmax(0,1fr)_auto] items-center gap-2 text-[12.5px]">
-            <span className="truncate font-medium" style={{ color: AZUL }} title={etiqueta(f.key)}>{i + 1}. {etiqueta(f.key)}</span>
-            <span className="h-2.5 rounded-sm bg-slate-100">
-              <span className="block h-2.5 rounded-sm" style={{ width: `${Math.max(4, (f.casos / max) * 100)}%`, backgroundColor: i === 0 ? '#0b4a46' : '#159089' }} />
-            </span>
-            <span className="whitespace-nowrap tabular-nums text-slate-600"><b style={{ color: AZUL }}>{formatNumero(f.casos)}</b> · {formatDecimal(pct(f.casos, total), 1)} %</span>
+          <li key={f.key} style={{ color: AZUL }}>
+            <span className="font-semibold">{i + 1}. {etiqueta(f.key)}</span>
+            <span className="text-slate-600"> — {formatNumero(f.casos)} casos ({formatDecimal(pct(f.casos, total), 1)} %)</span>
           </li>
         ))}
-      </ul>
+      </ol>
     </div>
   );
 }
 
-function DetalleCelda({ celda, vista, records, hayDelito, totalGeneral }: {
-  celda: CeldaHeatmap; vista: VistaHeatmap; records: CrimeRecord[]; hayDelito: boolean; totalGeneral: number;
+function DetalleCelda({ celdas, vista, records, hayDelito, totalGeneral }: {
+  celdas: CeldaHeatmap[]; vista: VistaHeatmap; records: CrimeRecord[]; hayDelito: boolean; totalGeneral: number;
 }) {
-  const enCelda = records.filter((r) => r.diaSemanaIndex === celda.diaIndex && (vista === 'hora' ? r.hora === celda.columnaIndex : r.franjaHoraria === celda.columna));
-  const estacion = topDe(enCelda, (r) => r.estacion, 1)[0];
-  // Horas: dentro de la franja; en la vista por hora (una sola hora por
-  // celda) se toman las horas de ESE día, para que el top tenga sentido.
-  const baseHoras = vista === 'hora' ? records.filter((r) => r.diaSemanaIndex === celda.diaIndex) : enCelda;
+  const enCeldaDe = (r: CrimeRecord, c: CeldaHeatmap) => r.diaSemanaIndex === c.diaIndex && (vista === 'hora' ? r.hora === c.columnaIndex : r.franjaHoraria === c.columna);
+  const enSeleccion = records.filter((r) => celdas.some((c) => enCeldaDe(r, c)));
+  const casos = celdas.reduce((a, c) => a + c.valor, 0);
+  const estacion = topDe(enSeleccion, (r) => r.estacion, 1)[0];
+  // Top de horas: dentro de lo seleccionado; si todo lo seleccionado es una
+  // misma hora (vista por hora), se toman las horas de esos días completos.
+  const unaSolaHora = vista === 'hora' && new Set(celdas.map((c) => c.columnaIndex)).size === 1;
+  const dias = new Set(celdas.map((c) => c.diaIndex));
+  const baseHoras = unaSolaHora ? records.filter((r) => r.diaSemanaIndex !== null && dias.has(r.diaSemanaIndex)) : enSeleccion;
+  const nombresDias = Array.from(dias).sort().map((d) => celdas.find((c) => c.diaIndex === d)!.diaLabel.toLowerCase());
   const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="text-[26px] font-bold leading-none text-rose-600">{formatNumero(celda.valor)} casos</p>
-          <p className="mt-1 text-[12.5px] text-slate-600">equivalen al <b style={{ color: AZUL }}>{formatDecimal(pct(celda.valor, totalGeneral), 1)} %</b> del total de la matriz</p>
-        </div>
-        {estacion && (
-          <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right">
-            <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">Estación más afectada</p>
-            <p className="text-[14px] font-bold" style={{ color: AZUL }}>{estacion.key}</p>
-            <p className="text-[11.5px] text-slate-500">{formatNumero(estacion.casos)} casos · {formatDecimal(pct(estacion.casos, enCelda.length), 1)} % de la celda</p>
-          </div>
-        )}
-      </div>
+    <div className="space-y-3 text-[13px]" style={{ color: AZUL }}>
+      <p>
+        <span className="text-[24px] font-bold leading-none text-rose-600">{formatNumero(casos)} casos</span>{' '}
+        equivalen al <b>{formatDecimal(pct(casos, totalGeneral), 1)} %</b> del total de la matriz ({formatNumero(totalGeneral)} casos).
+      </p>
+      {estacion && (
+        <p>
+          Estación más afectada: <b>{estacion.key}</b> — {formatNumero(estacion.casos)} casos ({formatDecimal(pct(estacion.casos, enSeleccion.length), 1)} % de lo seleccionado).
+        </p>
+      )}
       {!hayDelito ? (
-        <ListaTop titulo="Top 5 delitos en esta celda" filas={topDe(enCelda, (r) => r.delito, 5)} total={enCelda.length} />
+        <ListaTop titulo="Top 5 delitos" filas={topDe(enSeleccion, (r) => r.delito, 5)} total={enSeleccion.length} />
       ) : (
-        <>
-          <ListaTop titulo="Top 3 barrios" filas={topDe(enCelda, (r) => r.barrioHecho, 3)} total={enCelda.length} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ListaTop titulo="Top 3 barrios" filas={topDe(enSeleccion, (r) => r.barrioHecho, 3)} total={enSeleccion.length} />
           <ListaTop
-            titulo={vista === 'hora' ? `Top 5 horas del ${celda.diaLabel.toLowerCase()}` : 'Top 5 horas de la franja'}
+            titulo={unaSolaHora ? `Top 5 horas (${nombresDias.join(', ')})` : 'Top 5 horas'}
             filas={topDe(baseHoras, (r) => (r.hora === null || r.hora === undefined ? '' : String(r.hora)), 5)}
             total={baseHoras.length}
             etiqueta={etiquetaHora}
           />
-        </>
+        </div>
       )}
     </div>
   );
@@ -373,7 +372,9 @@ export function MatrizCalor() {
   const [vista, setVista] = useState<VistaHeatmap>('hora');
   const [ampliada, setAmpliada] = useState(false);
   const [seleccionManual, setSeleccionManual] = useState<{ dia: number; col: number; vista: VistaHeatmap } | null>(null);
-  const [detalleHora, setDetalleHora] = useState<{ dia: number; col: number } | null>(null);
+  // Celdas seleccionadas con clic (vista por hora): se pueden marcar varias;
+  // otro clic sobre una la desmarca. Los cálculos suman todas las marcadas.
+  const [seleccionHora, setSeleccionHora] = useState<{ dia: number; col: number }[]>([]);
 
   // (Sin cambios) Sin filtro de año/mes/fecha, solo la vigencia más reciente.
   const hayFiltroTemporal = filters.anio.length > 0 || filters.mes.length > 0 || !!filters.fechaInicial || !!filters.fechaFinal;
@@ -421,10 +422,14 @@ export function MatrizCalor() {
   // clic en la misma celda lo cierra. El filtro por día/hora queda en el
   // botón «Usar este periodo como filtro» del cuadro.
   function clicCelda(celda: CeldaHeatmap) {
-    if (vista === 'hora') setDetalleHora((prev) => (prev && prev.dia === celda.diaIndex && prev.col === celda.columnaIndex ? null : { dia: celda.diaIndex, col: celda.columnaIndex }));
+    if (vista === 'hora') setSeleccionHora((prev) => (prev.some((x) => x.dia === celda.diaIndex && x.col === celda.columnaIndex)
+      ? prev.filter((x) => !(x.dia === celda.diaIndex && x.col === celda.columnaIndex))
+      : [...prev, { dia: celda.diaIndex, col: celda.columnaIndex }]));
     else setSeleccionManual({ dia: celda.diaIndex, col: celda.columnaIndex, vista });
   }
-  const celdaDetalleHora = vista === 'hora' && detalleHora ? data.celdas.find((c) => c.diaIndex === detalleHora.dia && c.columnaIndex === detalleHora.col) ?? null : null;
+  const celdasHora = vista === 'hora'
+    ? seleccionHora.map((x) => data.celdas.find((c) => c.diaIndex === x.dia && c.columnaIndex === x.col)).filter((c): c is CeldaHeatmap => !!c)
+    : [];
   const hayDelito = filters.delito.length > 0;
 
   const totalFiltrado = recordsParaMatriz.length;
@@ -447,19 +452,28 @@ export function MatrizCalor() {
       <p className="-mt-1 mb-3 text-[13px] text-slate-600">
         Cada celda representa la cantidad de casos ocurridos en un <strong>día de la semana</strong> (filas) durante {esHora ? 'una hora específica' : 'una franja horaria'} (columnas). Los niveles de color indican la concentración relativa de casos dentro de los datos filtrados.
       </p>
-      <TablaMatriz data={data} seleccion={!esHora ? seleccion : celdaDetalleHora} onCelda={clicCelda} />
-      {esHora && celdaDetalleHora && (
+      <TablaMatriz data={data} seleccion={!esHora ? seleccion : null} seleccionadas={esHora ? seleccionHora : []} onCelda={clicCelda} />
+      {esHora && celdasHora.length === 0 && (
+        <p className="mt-2 text-[12px] text-slate-500">Da clic en una o varias celdas para ver sus casos, porcentaje, estación más afectada y tops; otro clic en una celda la quita.</p>
+      )}
+      {esHora && celdasHora.length > 0 && (
         <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/50 p-3">
           <div className="mb-2 flex items-start justify-between gap-2">
-            <p className="flex items-center gap-2 text-[15px] font-bold" style={{ color: AZUL }}>
-              <MousePointer2 size={17} className="text-[#137a6f]" /> {celdaDetalleHora.diaLabel} · {etiquetaColumna('hora', celdaDetalleHora.columnaLabel)}
+            <p className="flex items-start gap-2 text-[14px] font-bold leading-snug" style={{ color: AZUL }}>
+              <MousePointer2 size={17} className="mt-0.5 shrink-0 text-[#137a6f]" />
+              <span>
+                {celdasHora.length === 1 ? '1 celda seleccionada' : `${celdasHora.length} celdas seleccionadas`}:{' '}
+                <span className="font-semibold text-slate-600">{celdasHora.map((c) => `${c.diaLabel} ${etiquetaColumna('hora', c.columnaLabel)}`).join(' · ')}</span>
+              </span>
             </p>
-            <button type="button" onClick={() => setDetalleHora(null)} title="Cerrar (o vuelve a dar clic en la celda)" className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X size={15} /></button>
+            <button type="button" onClick={() => setSeleccionHora([])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50">Limpiar selección</button>
           </div>
-          <DetalleCelda celda={celdaDetalleHora} vista="hora" records={recordsParaMatriz} hayDelito={hayDelito} totalGeneral={data.totalGeneral} />
-          <button onClick={() => aplicarFiltroCelda(celdaDetalleHora)} disabled={celdaDetalleHora.valor === 0} className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold hover:bg-slate-50 disabled:opacity-50" style={{ color: AZUL }}>
-            <Filter size={13} className="fill-[#10233f]" /> Usar este día y hora como filtro
-          </button>
+          <DetalleCelda celdas={celdasHora} vista="hora" records={recordsParaMatriz} hayDelito={hayDelito} totalGeneral={data.totalGeneral} />
+          {celdasHora.length === 1 && (
+            <button onClick={() => aplicarFiltroCelda(celdasHora[0])} disabled={celdasHora[0].valor === 0} className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold hover:bg-slate-50 disabled:opacity-50" style={{ color: AZUL }}>
+              <Filter size={13} className="fill-[#10233f]" /> Usar este día y hora como filtro
+            </button>
+          )}
         </div>
       )}
       <div className="mt-4">
@@ -562,7 +576,7 @@ export function MatrizCalor() {
                   </div>
                   {posicion && <p className="mt-2 text-[12.5px] text-slate-600"><b style={{ color: AZUL }}>Ranking: #{posicion}</b> de {data.celdas.length} combinaciones</p>}
                   <div className="mt-3 border-t border-rose-200 pt-3">
-                    <DetalleCelda celda={seleccion} vista="franja" records={recordsParaMatriz} hayDelito={hayDelito} totalGeneral={data.totalGeneral} />
+                    <DetalleCelda celdas={[seleccion]} vista="franja" records={recordsParaMatriz} hayDelito={hayDelito} totalGeneral={data.totalGeneral} />
                   </div>
                   <button onClick={() => aplicarFiltroCelda(seleccion)} disabled={seleccion.valor === 0} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2 text-[13px] font-semibold hover:bg-slate-50 disabled:opacity-50" style={{ color: AZUL }}>
                     <Filter size={14} className="fill-[#10233f]" /> Usar este periodo como filtro
