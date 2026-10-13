@@ -14,7 +14,8 @@ const AZUL_TINTA = '#10233f';
 const TEAL = '#0f5f57';
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
-interface Tramo { etiqueta: string; casos: number; parcial: boolean }
+interface Tramo { etiqueta: string; casos: number; parcial: boolean; clave: string }
+export type UnidadTramo = 'semana' | 'mes';
 
 const soloFecha = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 function lunesDe(d: Date): Date {
@@ -23,7 +24,12 @@ function lunesDe(d: Date): Date {
   return f;
 }
 
-function calcularTramos(fechas: Date[]): { tramos: Tramo[]; unidad: 'semana' | 'mes' } {
+/** Clave del tramo (semana o mes) al que pertenece una fecha — para filtrar al dar clic en un punto. */
+export function claveTramo(f: Date, unidad: UnidadTramo): string {
+  return unidad === 'semana' ? String(lunesDe(f).getTime()) : `${f.getFullYear()}-${f.getMonth()}`;
+}
+
+function calcularTramos(fechas: Date[]): { tramos: Tramo[]; unidad: UnidadTramo } {
   if (fechas.length === 0) return { tramos: [], unidad: 'mes' };
   let min = fechas[0], max = fechas[0];
   for (const f of fechas) { if (f < min) min = f; if (f > max) max = f; }
@@ -40,6 +46,7 @@ function calcularTramos(fechas: Date[]): { tramos: Tramo[]; unidad: 'semana' | '
         etiqueta: `${String(s.getDate()).padStart(2, '0')}/${String(s.getMonth() + 1).padStart(2, '0')}`,
         casos: conteo.get(s.getTime()) ?? 0,
         parcial: s < fMin || fin > fMax,
+        clave: String(s.getTime()),
       });
     }
     return { tramos, unidad: 'semana' };
@@ -56,13 +63,20 @@ function calcularTramos(fechas: Date[]): { tramos: Tramo[]; unidad: 'semana' | '
     tramos.push({
       etiqueta: variosAnios ? `${MESES[m]} ${String(a).slice(2)}` : MESES[m],
       casos: conteo.get(`${a}-${m}`) ?? 0,
+      clave: `${a}-${m}`,
       parcial: (esPrimero && fMin.getDate() > 1) || (esUltimo && fMax.getDate() < ultimoDia),
     });
   }
   return { tramos, unidad: 'mes' };
 }
 
-export function EvolucionOperatividad({ registros }: { registros: { fecha: Date | null }[] }) {
+export function EvolucionOperatividad({ registros, seleccion = null, onSeleccionar }: {
+  registros: { fecha: Date | null }[];
+  // Clave del tramo seleccionado (se resalta) y clic en un punto: filtra los
+  // demás componentes; otro clic sobre el mismo punto lo quita.
+  seleccion?: string | null;
+  onSeleccionar?: (t: { clave: string; unidad: UnidadTramo; etiqueta: string }) => void;
+}) {
   const { tramos, unidad } = useMemo(
     () => calcularTramos(registros.map((r) => r.fecha).filter((f): f is Date => f instanceof Date && !Number.isNaN(f.getTime()))),
     [registros],
@@ -86,8 +100,13 @@ export function EvolucionOperatividad({ registros }: { registros: { fecha: Date 
   const y = (v: number) => M.arr + (1 - v / maxV) * (H - M.arr - M.aba);
   const linea = tramos.map((t, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(t.casos).toFixed(1)}`).join(' ');
   const area = `${linea} L ${x(tramos.length - 1).toFixed(1)} ${H - M.aba} L ${x(0).toFixed(1)} ${H - M.aba} Z`;
-  const cadaCuanto = Math.ceil(tramos.length / 8); // etiquetas sin amontonarse
-  const mostrarValor = (i: number) => tramos.length <= 8 || i % cadaCuanto === 0 || i === tramos.length - 1;
+  // Todos los meses/semanas con su etiqueta y su valor (a pedido). Solo si
+  // hay muchísimos tramos (más de 16) se salta uno de cada dos para que no
+  // se monten unos sobre otros.
+  const cadaCuanto = tramos.length > 16 ? 2 : 1;
+  const mostrarValor = (i: number) => i % cadaCuanto === 0 || i === tramos.length - 1;
+  const tamTexto = tramos.length > 12 ? 7.5 : 9;
+  const anchoColumna = (W - M.izq - M.der) / (tramos.length - 1);
 
   const IconoVar = variacion == null || Math.abs(variacion) < 0.05 ? Minus : variacion > 0 ? ArrowUpRight : ArrowDownRight;
 
@@ -99,17 +118,30 @@ export function EvolucionOperatividad({ registros }: { registros: { fecha: Date 
         ))}
         <path d={area} fill={TEAL} fillOpacity="0.08" />
         <path d={linea} fill="none" stroke={TEAL} strokeWidth="2" strokeLinejoin="round" />
-        {tramos.map((t, i) => (
-          <g key={i}>
-            <circle cx={x(i)} cy={y(t.casos)} r="3.2" fill={t.parcial ? '#ffffff' : TEAL} stroke={TEAL} strokeWidth="1.6" />
-            {mostrarValor(i) && (
-              <text x={x(i)} y={y(t.casos) - 7} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={AZUL_TINTA}>{formatNumero(t.casos)}</text>
-            )}
-            {(i % cadaCuanto === 0 || i === tramos.length - 1) && (
-              <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="#64748b">{t.etiqueta}</text>
-            )}
-          </g>
-        ))}
+        {tramos.map((t, i) => {
+          const elegido = seleccion === t.clave;
+          return (
+            <g
+              key={i}
+              onClick={onSeleccionar ? () => onSeleccionar({ clave: t.clave, unidad, etiqueta: t.etiqueta }) : undefined}
+              style={onSeleccionar ? { cursor: 'pointer' } : undefined}
+            >
+              {onSeleccionar && (
+                <rect x={x(i) - anchoColumna / 2} y={0} width={anchoColumna} height={H} fill={elegido ? 'rgba(29,78,216,0.07)' : 'transparent'}>
+                  <title>{elegido ? `Quitar el filtro de ${t.etiqueta}` : `Filtrar por ${t.etiqueta}`}</title>
+                </rect>
+              )}
+              {elegido && <circle cx={x(i)} cy={y(t.casos)} r="7" fill="none" stroke="#1d4ed8" strokeWidth="1.5" strokeDasharray="2.5 2" />}
+              <circle cx={x(i)} cy={y(t.casos)} r={elegido ? 4.2 : 3.2} fill={t.parcial ? '#ffffff' : elegido ? '#1d4ed8' : TEAL} stroke={elegido ? '#1d4ed8' : TEAL} strokeWidth="1.6" />
+              {mostrarValor(i) && (
+                <text x={x(i)} y={y(t.casos) - (elegido ? 11 : 7)} textAnchor="middle" fontSize={tamTexto + 0.5} fontWeight="700" fill={elegido ? '#1d4ed8' : AZUL_TINTA}>{formatNumero(t.casos)}</text>
+              )}
+              {mostrarValor(i) && (
+                <text x={x(i)} y={H - 6} textAnchor="middle" fontSize={tamTexto} fontWeight={elegido ? 700 : 400} fill={elegido ? '#1d4ed8' : '#64748b'}>{t.etiqueta}</text>
+              )}
+            </g>
+          );
+        })}
       </svg>
       <div className="mt-1 grid grid-cols-2 gap-2">
         <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5">

@@ -9,7 +9,7 @@ import { Card, PageHeader } from '../components/ui/Card';
 import { AporteBarList, type FilaAporte } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
 import { AZUL_TINTA, Top5Dona } from '../components/resumen/BloquesResumen';
-import { EvolucionOperatividad } from '../components/operatividad/EvolucionOperatividad';
+import { EvolucionOperatividad, claveTramo, type UnidadTramo } from '../components/operatividad/EvolucionOperatividad';
 import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
 import {
   agruparCircunstancia, contarOperatividad, cuentaComoOperatividad, formatearDroga, sumarDroga, tipoOperatividad,
@@ -80,13 +80,53 @@ export function OperatividadUnidad() {
   // cargados (2025+2026). Si el usuario SÍ elige uno o más años en el
   // filtro general, esa elección manda tal cual (incluida la suma de
   // varios años si elige más de uno).
-  const registros = useMemo(() => {
+  const registrosBase = useMemo(() => {
     if (filters.anio.length > 0) return filteredOperatividadRecords;
     const conFecha = filteredOperatividadRecords.filter((r): r is typeof r & { anio: number } => r.anio != null);
     if (conFecha.length === 0) return filteredOperatividadRecords;
     const anioMasReciente = Math.max(...conFecha.map((r) => r.anio));
     return filteredOperatividadRecords.filter((r) => r.anio === anioMasReciente);
   }, [filteredOperatividadRecords, filters.anio]);
+
+  // ── Clic para filtrar (misma dinámica de Delictividad) ────────────────
+  // Clic en una barra o en un punto de la evolución → todos los componentes
+  // de esta página muestran solo eso; otro clic en lo mismo lo quita. Se
+  // pueden combinar varios (ej. una categoría + un mes). Solo afecta esta
+  // página; el filtro principal del dashboard no cambia.
+  type Rec = (typeof registrosBase)[number];
+  const CAMPOS_SEL = {
+    categoria: { etiqueta: 'Categoría', valor: (r: Rec) => r.categoria || 'Sin categoría' },
+    delito: { etiqueta: 'Delito asociado', valor: (r: Rec) => r.delitoAsociado },
+    zona: { etiqueta: 'Zona de atención', valor: (r: Rec) => r.cuadrante },
+    barrio: { etiqueta: 'Barrio', valor: (r: Rec) => r.barrioHecho },
+    circunstancia: { etiqueta: 'Circunstancia', valor: (r: Rec) => agruparCircunstancia(r.circunstanciaCaptura) },
+    permiso: { etiqueta: 'Permiso de arma', valor: (r: Rec) => r.permisoArma.replace(/_/g, ' ') },
+    claseBien: { etiqueta: 'Clase de bien', valor: (r: Rec) => r.claseBien },
+    tipoBien: { etiqueta: 'Tipo de bien', valor: (r: Rec) => r.tipoBien },
+    marca: { etiqueta: 'Marca', valor: (r: Rec) => r.marca },
+    turno: { etiqueta: 'Turno', valor: (r: Rec) => r.turno },
+    ciudad: { etiqueta: 'Ciudad', valor: (r: Rec) => r.ciudad },
+    pais: { etiqueta: 'País', valor: (r: Rec) => r.paisPersona },
+    situacion: { etiqueta: 'Situación jurídica', valor: (r: Rec) => r.situacionJuridica },
+  } as const;
+  type CampoSel = keyof typeof CAMPOS_SEL;
+  const [seleccion, setSeleccion] = useState<Partial<Record<CampoSel, string>>>({});
+  const [tramoSel, setTramoSel] = useState<{ clave: string; unidad: UnidadTramo; etiqueta: string } | null>(null);
+  const alternar = (campo: CampoSel, valor: string) => setSeleccion((prev) => {
+    const n = { ...prev };
+    if (n[campo] === valor) delete n[campo]; else n[campo] = valor;
+    return n;
+  });
+  const cumpleSeleccion = (r: Rec) => (Object.entries(seleccion) as [CampoSel, string][]).every(([c, v]) => CAMPOS_SEL[c].valor(r) === v);
+  const registrosSinTramo = useMemo(() => registrosBase.filter(cumpleSeleccion), [registrosBase, seleccion]); // eslint-disable-line react-hooks/exhaustive-deps
+  const registros = useMemo(
+    () => (tramoSel ? registrosSinTramo.filter((r) => r.fecha && claveTramo(r.fecha, tramoSel.unidad) === tramoSel.clave) : registrosSinTramo),
+    [registrosSinTramo, tramoSel],
+  );
+  const chipsSeleccion = [
+    ...(Object.entries(seleccion) as [CampoSel, string][]).map(([c, v]) => ({ id: c as string, texto: `${CAMPOS_SEL[c].etiqueta}: ${v}`, quitar: () => alternar(c, v) })),
+    ...(tramoSel ? [{ id: 'tramo', texto: `${tramoSel.unidad === 'mes' ? 'Mes' : 'Semana'}: ${tramoSel.etiqueta}`, quitar: () => setTramoSel(null) }] : []),
+  ];
   // Conteo como las tablas dinámicas oficiales (ver utils/operatividadConteo):
   // Capturas = cuenta de DELITO_ASOCIADO; Automotores, Motocicletas y Armas
   // = cuenta de CLASE_BIEN; Mercancía = cuenta de TIPO_BIEN. La droga es
@@ -158,7 +198,7 @@ export function OperatividadUnidad() {
       : undefined;
 
   // Todas las tarjetas de ranking comparten el mismo aspecto.
-  const tarjeta = (titulo: string, archivo: string, Icono: LucideIcon, data: FilaAporte[], top?: { valor: ValorTop; set: (v: ValorTop) => void }) => (
+  const tarjeta = (titulo: string, archivo: string, Icono: LucideIcon, data: FilaAporte[], top?: { valor: ValorTop; set: (v: ValorTop) => void }, campo?: CampoSel) => (
     <Card
       title={titulo}
       descargable={archivo}
@@ -166,7 +206,10 @@ export function OperatividadUnidad() {
       claseTitulo={CLASE_TITULO}
       actions={top ? <SelectorTopBotones valor={top.valor} onChange={top.set} institucional /> : undefined}
     >
-      <AporteBarList data={data} colorBordeMaximo={AZUL_REY} compacta textoVacio={TEXTO_SIN_REGISTROS} />
+      <AporteBarList data={data} colorBordeMaximo={AZUL_REY} compacta textoVacio={TEXTO_SIN_REGISTROS} onBarClick={campo ? (k) => alternar(campo, k) : undefined} />
+      {campo && seleccion[campo] && (
+        <button type="button" onClick={() => alternar(campo, seleccion[campo]!)} className="mt-2 text-[11px] font-semibold text-[#1d4ed8] hover:underline">✓ {seleccion[campo]} · clic para quitar</button>
+      )}
     </Card>
   );
 
@@ -186,6 +229,17 @@ export function OperatividadUnidad() {
 
       {operatividadMeta && (
         <>
+          {chipsSeleccion.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#1d4ed8]/25 bg-[#eef2ff] px-3 py-2 text-[12px] text-[#10233f]">
+              <span className="font-semibold">Seleccionado con clic:</span>
+              {chipsSeleccion.map((c) => (
+                <button key={c.id} type="button" onClick={c.quitar} title="Quitar" className="flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 font-semibold text-[#1d4ed8] ring-1 ring-[#1d4ed8]/30 hover:bg-[#1d4ed8] hover:text-white">
+                  {c.texto} <span aria-hidden>×</span>
+                </button>
+              ))}
+              <button type="button" onClick={() => { setSeleccion({}); setTramoSel(null); }} className="ml-auto font-semibold text-slate-600 underline hover:text-[#10233f]">Ver toda la información</button>
+            </div>
+          )}
           {filtrosActivos.length > 0 && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               Filtros activos: <strong>{filtrosActivos.join(' · ')}</strong> ({formatNumero(total)} registros de operatividad)
@@ -266,37 +320,41 @@ export function OperatividadUnidad() {
               icono={<TrendingUp size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
               claseTitulo={CLASE_TITULO}
             >
-              <EvolucionOperatividad registros={registros.filter(cuentaComoOperatividad)} />
+              <EvolucionOperatividad
+                registros={registrosSinTramo.filter(cuentaComoOperatividad)}
+                seleccion={tramoSel?.clave ?? null}
+                onSeleccionar={(t) => setTramoSel((prev) => (prev?.clave === t.clave ? null : t))}
+              />
             </Card>
           </div>
 
           {/* FILA 2 — los tres ejes principales de análisis */}
           <div className={GRILLA}>
             {/* Sin Top N, como antes: son pocas categorías y siempre se ven todas. */}
-            {tarjeta('Por categoría de operatividad', 'operatividad-categoria', Layers, conAportePorCategoria)}
-            {tarjeta('Capturas por delito asociado', 'operatividad-delito', Scale, porDelito, { valor: topDelito, set: setTopDelito })}
-            {tarjeta('Por zona de atención', 'operatividad-zona', MapPin, porCuadrante, { valor: topZona, set: setTopZona })}
+            {tarjeta('Por categoría de operatividad', 'operatividad-categoria', Layers, conAportePorCategoria, undefined, 'categoria')}
+            {tarjeta('Capturas por delito asociado', 'operatividad-delito', Scale, porDelito, { valor: topDelito, set: setTopDelito }, 'delito')}
+            {tarjeta('Por zona de atención', 'operatividad-zona', MapPin, porCuadrante, { valor: topZona, set: setTopZona }, 'zona')}
           </div>
 
           {/* FILA 3 */}
           <div className={GRILLA}>
-            {tarjeta('Por barrio', 'operatividad-barrio', House, porBarrio, { valor: topBarrio, set: setTopBarrio })}
-            {tarjeta('Circunstancia de captura', 'operatividad-circunstancia', UserCheck, porCircunstancia, { valor: topCircunstancia, set: setTopCircunstancia })}
-            {tarjeta('Armas de fuego por permiso', 'operatividad-permiso-arma', FileBadge, porPermisoArma, { valor: topPermisoArma, set: setTopPermisoArma })}
+            {tarjeta('Por barrio', 'operatividad-barrio', House, porBarrio, { valor: topBarrio, set: setTopBarrio }, 'barrio')}
+            {tarjeta('Circunstancia de captura', 'operatividad-circunstancia', UserCheck, porCircunstancia, { valor: topCircunstancia, set: setTopCircunstancia }, 'circunstancia')}
+            {tarjeta('Armas de fuego por permiso', 'operatividad-permiso-arma', FileBadge, porPermisoArma, { valor: topPermisoArma, set: setTopPermisoArma }, 'permiso')}
           </div>
 
           {/* FILA 4 */}
           <div className={GRILLA}>
-            {tarjeta('Clase de bien', 'operatividad-clase-bien', Boxes, porClaseBien, { valor: topClaseBien, set: setTopClaseBien })}
-            {tarjeta('Tipo de bien', 'operatividad-tipo-bien', Shapes, porTipoBien, { valor: topTipoBien, set: setTopTipoBien })}
-            {tarjeta('Marca', 'operatividad-marca', Tags, porMarca, { valor: topMarca, set: setTopMarca })}
+            {tarjeta('Clase de bien', 'operatividad-clase-bien', Boxes, porClaseBien, { valor: topClaseBien, set: setTopClaseBien }, 'claseBien')}
+            {tarjeta('Tipo de bien', 'operatividad-tipo-bien', Shapes, porTipoBien, { valor: topTipoBien, set: setTopTipoBien }, 'tipoBien')}
+            {tarjeta('Marca', 'operatividad-marca', Tags, porMarca, { valor: topMarca, set: setTopMarca }, 'marca')}
           </div>
 
           {/* FILA 5 */}
           <div className={GRILLA}>
-            {tarjeta('Turno', 'operatividad-turno', Clock, porTurno, { valor: topTurno, set: setTopTurno })}
-            {tarjeta('Ciudad', 'operatividad-ciudad', Building2, porCiudad, { valor: topCiudad, set: setTopCiudad })}
-            {tarjeta('País (persona)', 'operatividad-pais-persona', Globe, porPaisPersona, { valor: topPaisPersona, set: setTopPaisPersona })}
+            {tarjeta('Turno', 'operatividad-turno', Clock, porTurno, { valor: topTurno, set: setTopTurno }, 'turno')}
+            {tarjeta('Ciudad', 'operatividad-ciudad', Building2, porCiudad, { valor: topCiudad, set: setTopCiudad }, 'ciudad')}
+            {tarjeta('País (persona)', 'operatividad-pais-persona', Globe, porPaisPersona, { valor: topPaisPersona, set: setTopPaisPersona }, 'pais')}
           </div>
 
           {/* FILA 6 — Droga (suma de cantidad, botón g/kg) y situación jurídica de los capturados */}
@@ -312,6 +370,7 @@ export function OperatividadUnidad() {
               >
                 <AporteBarList
                   data={drogaPorClase}
+                  onBarClick={(k) => alternar('claseBien', k)}
                   colorBordeMaximo={AZUL_REY}
                   compacta
                   anchoValor={96}
@@ -320,7 +379,7 @@ export function OperatividadUnidad() {
                 />
               </Card>
             )}
-            {haySituacionJuridica && tarjeta('Situación jurídica de los capturados', 'operatividad-situacion-juridica', Gavel, porSituacionJuridica, { valor: topSituacionJuridica, set: setTopSituacionJuridica })}
+            {haySituacionJuridica && tarjeta('Situación jurídica de los capturados', 'operatividad-situacion-juridica', Gavel, porSituacionJuridica, { valor: topSituacionJuridica, set: setTopSituacionJuridica }, 'situacion')}
           </div>
         </>
       )}
