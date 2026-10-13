@@ -1,3 +1,4 @@
+import { cuentaComoOperatividad } from '../utils/operatividadConteo';
 import { useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import type { OperatividadRecord } from '../types/operatividad';
@@ -74,7 +75,8 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
   }, [records]);
 
   return useMemo(() => {
-    const ventana = construirVentana(filteredOperatividadRecords);
+    // Conteo oficial: solo los registros que cuentan (la droga va por cantidad, aparte).
+    const ventana = construirVentana(filteredOperatividadRecords.filter(cuentaComoOperatividad));
     if (!ventana) return null;
     const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
     const totalGeneralFecha2026 = recsActual.length;

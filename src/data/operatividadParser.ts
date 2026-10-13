@@ -23,8 +23,33 @@ function limpiarYFormatear(v: unknown): string {
 }
 
 function numeroONull(v: unknown): number | null {
-  const n = Number(v);
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  let t = String(v ?? '').trim().replace(/\s/g, '');
+  if (!t) return null;
+  // "33431,3" (coma decimal) o "1.234,5" (punto de miles + coma decimal) —
+  // así viene la CANTIDAD de droga; antes Number("33431,3") daba NaN y la
+  // cantidad caía a 1.
+  if (t.includes(',')) t = t.includes('.') ? t.replace(/\./g, '').replace(',', '.') : t.replace(',', '.');
+  const n = Number(t);
   return Number.isFinite(n) ? n : null;
+}
+
+// Encabezados tolerantes: sin tildes, mayúsculas, espacios → "_". Se usa el
+// nombre exacto de siempre y, si no está, una variación equivalente (ej.
+// "SITUACIÓN JURÍDICA", "CIRCUNSTANCIA_CAPTURA" / "CIRCUSNTANCIA_CAPTURA").
+const normalizarEncabezado = (k: string) => k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+function campo(fila: Record<string, unknown>, exactos: string[], patron?: RegExp): unknown {
+  for (const e of exactos) if (fila[e] !== undefined && String(fila[e]).trim() !== '') return fila[e];
+  const claves = Object.keys(fila);
+  for (const e of exactos) {
+    const k = claves.find((c) => normalizarEncabezado(c) === e);
+    if (k && String(fila[k]).trim() !== '') return fila[k];
+  }
+  if (patron) {
+    const k = claves.find((c) => patron.test(normalizarEncabezado(c)) && String(fila[c]).trim() !== '');
+    if (k) return fila[k];
+  }
+  return '';
 }
 
 // Coordenadas — mismo criterio que Delictividad: "0" o vacío no cuentan
@@ -111,23 +136,23 @@ function mapearFilas(filas: Record<string, unknown>[]): OperatividadRecord[] {
       nombreMes: mes ? NOMBRES_MES[mes - 1] : limpiarYFormatear(fila['MESES']),
       diaSemana: limpiarYFormatear(fila['DIA']),
       turno: limpiarYFormatear(fila['TURNO']),
-      cantidad: numeroONull(fila['CANTIDAD']) ?? 1,
-      delitoAsociado: traducirDelito(limpiar(fila['DELITO_ASOCIADO'])),
+      cantidad: numeroONull(campo(fila, ['CANTIDAD'])) ?? 1,
+      delitoAsociado: traducirDelito(limpiar(campo(fila, ['DELITO_ASOCIADO'], /^DELITO_ASOCIAD/))),
       estacion: traducirEstacion(limpiar(fila['ESTACION'])),
       cuadrante: traducirDependenciaAZona(limpiar(fila['PERTE_DEPENDENCIA']) || limpiar(fila['PERTE_CUADRANTE'])),
       barrioHecho: limpiarYFormatear(fila['BARRIO_HECHO']),
       zona: limpiarYFormatear(fila['ZONA']),
       unidad: limpiarYFormatear(fila['UNIDAD']),
       dependencia: limpiarYFormatear(fila['PERTE_DEPENDENCIA']),
-      tipoBien: limpiarYFormatear(fila['TIPO_BIEN']),
-      claseBien: limpiarYFormatear(fila['CLASE_BIEN']),
+      tipoBien: limpiarYFormatear(campo(fila, ['TIPO_BIEN'], /^TIPO_?(DE_)?BIEN/)),
+      claseBien: limpiarYFormatear(campo(fila, ['CLASE_BIEN'], /^CLASE_?(DE_)?BIEN/)),
       marca: limpiarYFormatear(fila['MARCA']),
-      circunstanciaCaptura: limpiarYFormatear(fila['CIRCUSNTANCIA_CAPTURA']),
-      situacionJuridica: limpiarYFormatear(fila['SITUACION_JURIDICA']),
+      circunstanciaCaptura: limpiarYFormatear(campo(fila, ['CIRCUSNTANCIA_CAPTURA', 'CIRCUNSTANCIA_CAPTURA'], /^CIRCU[A-Z]*_?(DE_)?CAPTURA/)),
+      situacionJuridica: limpiarYFormatear(campo(fila, ['SITUACION_JURIDICA'], /SITUACION_?JURIDICA/)),
       valor: numeroONull(fila['VALOR']),
       ciudad: limpiarYFormatear(fila['CIUDAD']),
       paisPersona: limpiarYFormatear(fila['PAIS_PERSONA']),
-      permisoArma: limpiarYFormatear(fila['PERMISO_ARMA']),
+      permisoArma: limpiarYFormatear(campo(fila, ['PERMISO_ARMA'], /PERMISO_?(DE_)?ARMA/)),
       lat: coordenadaONull(fila['LATITUD']),
       lon: coordenadaONull(fila['LONGITUD']),
       raw,
@@ -143,6 +168,11 @@ export async function parsearOperatividad(file: File): Promise<{ registros: Oper
   const filas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
   const columnasDetectadas = filas.length > 0 ? Object.keys(filas[0]) : [];
   return { registros: mapearFilas(filas), columnasDetectadas };
+}
+
+/** Vuelve a interpretar registros ya guardados a partir de su fila original (aplica las reglas de lectura actuales). */
+export function reinterpretarOperatividad(guardados: OperatividadRecord[]): OperatividadRecord[] {
+  return guardados.map((r) => (r.raw ? { ...mapearFilas([r.raw])[0], __id: r.__id } : r));
 }
 
 // Para cuando el CSV viene del backend central (ver remoteApi.ts) — mismo

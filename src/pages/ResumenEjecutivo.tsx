@@ -8,6 +8,8 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
 import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
 import { contarPor, maximoDe } from '../analitica/cambio';
+import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
+import { cuentaComoOperatividad, esDroga, formatearDroga, gramosDroga, tipoOperatividad, type UnidadDroga } from '../utils/operatividadConteo';
 import { franjaDeTresHoras } from '../analitica/lectura';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
 
@@ -137,6 +139,7 @@ export function ResumenEjecutivo() {
     const anioAnterior = anioActual - 1;
     return { conFecha, fechaMax, anioActual, anioAnterior, cutoffAnterior: new Date(anioAnterior, fechaMax.getMonth(), fechaMax.getDate()) };
   }, [operatividadRecords]);
+  const [unidadDroga, setUnidadDroga] = useState<UnidadDroga>('g');
 
   // Cuadrantes y barrios críticos: del MISMO periodo que el resto del
   // Resumen (vigencia actual con los filtros), sin "No reportado" ni
@@ -354,6 +357,7 @@ export function ResumenEjecutivo() {
           claseTitulo="text-[18px] font-bold text-[#10233f]"
           actions={(
             <div className="flex items-center gap-1.5">
+              {operatividadRecords.some(esDroga) && <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />}
               <FiltroTendenciaBoton activo={aumentoActivoOperatividad} color="verde" icono={<TrendingUp size={12} />} etiqueta="Aumento" onClick={() => setAumentoActivoOperatividad((v) => !v)} />
               <FiltroTendenciaBoton activo={disminucionActivoOperatividad} color="rojo" icono={<TrendingDown size={12} />} etiqueta="Disminución" onClick={() => setDisminucionActivoOperatividad((v) => !v)} />
             </div>
@@ -361,22 +365,33 @@ export function ResumenEjecutivo() {
         >
           {operatividadRecords.length > 0 ? (
             (() => {
-              // Cálculo de Operatividad SIN CAMBIOS (mismas cifras de antes):
-              // ventana propia de Operatividad, año anterior "a la misma
-              // fecha", Total año anterior completo y APORTE % = participación
-              // de cada categoría en el total del año actual.
+              // Ventana propia de Operatividad (año anterior "a la misma
+              // fecha", Total año anterior completo). Conteo como las tablas
+              // dinámicas oficiales (utils/operatividadConteo): Capturas =
+              // cuenta de DELITO_ASOCIADO, Automotores/Motos/Armas = cuenta
+              // de CLASE_BIEN, Mercancía = cuenta de TIPO_BIEN y Droga = suma
+              // de CANTIDAD (gramos, botón g/kg). La droga se muestra pero NO
+              // entra al TOTAL ni al APORTE % (= participación de cada
+              // categoría en el total del año actual).
               const { conFecha, anioActual: anioActualOp, anioAnterior: anioAnteriorOp, cutoffAnterior: cutoffAnteriorOp } = ventanaOperatividad;
+              const valor = (r: (typeof operatividadRecords)[number]) => (esDroga(r) ? gramosDroga(r) : cuentaComoOperatividad(r) ? 1 : 0);
+              const sumar = (lista: typeof operatividadRecords) => lista.reduce((a, r) => a + valor(r), 0);
               const categorias = Array.from(new Set(operatividadRecords.map((r) => r.categoria || 'SIN CATEGORÍA')));
               const filas = categorias.map((cat) => {
-                const actual = operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioActualOp).length;
-                const anteriorALaFecha = conFecha.filter((r) => r.categoria === cat && r.fecha.getFullYear() === anioAnteriorOp && r.fecha <= cutoffAnteriorOp).length;
-                const anteriorCompleto = operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioAnteriorOp).length;
+                const droga = tipoOperatividad(cat) === 'droga';
+                const actual = sumar(operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioActualOp));
+                const anteriorALaFecha = sumar(conFecha.filter((r) => r.categoria === cat && r.fecha.getFullYear() === anioAnteriorOp && r.fecha <= cutoffAnteriorOp));
+                const anteriorCompleto = sumar(operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioAnteriorOp));
                 const diferencia = actual - anteriorALaFecha;
                 const variacionPct = anteriorALaFecha > 0 ? (diferencia / anteriorALaFecha) * 100 : (actual > 0 ? 100 : null);
-                return { key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior: anteriorALaFecha, diferencia, variacionPct, aportePct: 0 as number | null, totalAnioAnteriorCompleto: anteriorCompleto };
-              }).filter((f) => f.actual > 0 || f.anterior > 0 || f.totalAnioAnteriorCompleto > 0).sort((a, b) => b.actual - a.actual);
-              const totalActual = filas.reduce((a, f) => a + f.actual, 0);
-              const filasConAporte = filas.map((f) => ({ ...f, aportePct: totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));
+                return {
+                  key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior: anteriorALaFecha, diferencia, variacionPct,
+                  aportePct: 0 as number | null, totalAnioAnteriorCompleto: anteriorCompleto,
+                  excluirDelTotal: droga, formato: droga ? (n: number) => formatearDroga(n, unidadDroga) : undefined,
+                };
+              }).filter((f) => f.actual > 0 || f.anterior > 0 || f.totalAnioAnteriorCompleto > 0).sort((a, b) => Number(!!a.excluirDelTotal) - Number(!!b.excluirDelTotal) || b.actual - a.actual);
+              const totalActual = filas.filter((f) => !f.excluirDelTotal).reduce((a, f) => a + f.actual, 0);
+              const filasConAporte = filas.map((f) => ({ ...f, aportePct: f.excluirDelTotal ? null : totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));
               const filasFiltradas = filasConAporte.filter((f) => {
                 if (!aumentoActivoOperatividad && !disminucionActivoOperatividad) return true;
                 if (aumentoActivoOperatividad && f.diferencia > 0) return true;
@@ -451,7 +466,7 @@ export function ResumenEjecutivo() {
             <li><b>Comparativo:</b> el año actual del 1 de enero a la fecha del último dato, frente al mismo tramo de días del año anterior. "Total {ventana.anioAnterior}" es el año anterior completo.</li>
             <li><b>% (variación):</b> (casos {ventana.anioActual} − casos {ventana.anioAnterior}) ÷ casos {ventana.anioAnterior} × 100.</li>
             <li><b>Aporte % (delitos):</b> casos {ventana.anioActual} del delito ÷ total de casos {ventana.anioActual} × 100 (participación; suma 100 %).</li>
-            <li><b>Aporte % (operatividad):</b> participación de cada categoría en el total del año actual.</li>
+            <li><b>Operatividad:</b> Capturas = cuenta de delito asociado; Automotores, Motocicletas y Armas = cuenta de clase de bien; Mercancía = cuenta de tipo de bien; Droga = suma de cantidad (gramos/kg, no entra al total ni al aporte). Aporte % = participación de cada categoría en el total del año actual.</li>
             <li><b>Participación %:</b> casos del elemento ÷ total del periodo × 100. Horario crítico: franjas de 3 horas sobre los casos con hora registrada.</li>
             <li><b>Tratamiento de datos:</b> homologación DB2 → Matriz Base (delito, estación, CAI, cuadrante, barrio); los valores "No reportado" y "Pendiente por asignar" no se muestran en los rankings.</li>
             <li><b>Actualización:</b> {meta?.ultimaActualizacion ? formatFechaHoraLocal(meta.ultimaActualizacion) : 'sin registro'}.</li>

@@ -4,12 +4,17 @@ import {
   Bike, Boxes, Building2, Car, ChartPie, ClipboardList, Clock, Crosshair, FileBadge, Gavel, Globe, House,
   Layers, Leaf, MapPin, Package, PackageCheck, Scale, Shapes, Tags, TrendingUp, UserCheck, type LucideIcon,
 } from 'lucide-react';
-import { agruparPor, formatDecimal, formatNumero } from '../utils/aggregations';
+import { formatDecimal, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
 import { AporteBarList, type FilaAporte } from '../components/charts/AporteBarList';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
 import { AZUL_TINTA, Top5Dona } from '../components/resumen/BloquesResumen';
 import { EvolucionOperatividad } from '../components/operatividad/EvolucionOperatividad';
+import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
+import {
+  agruparCircunstancia, contarOperatividad, cuentaComoOperatividad, formatearDroga, sumarDroga, tipoOperatividad,
+  totalDrogaGramos, totalOperatividad, type UnidadDroga,
+} from '../utils/operatividadConteo';
 
 // Azul rey — SOLO para el recuadro que resalta la barra con más casos, para
 // distinguir Operatividad de Delictividad (que usa recuadro rojo). El
@@ -66,6 +71,7 @@ export function OperatividadUnidad() {
   const [topPaisPersona, setTopPaisPersona] = useState<ValorTop>(10);
   const [topPermisoArma, setTopPermisoArma] = useState<ValorTop>(10);
   const [topSituacionJuridica, setTopSituacionJuridica] = useState<ValorTop>(10);
+  const [unidadDroga, setUnidadDroga] = useState<UnidadDroga>('g');
 
   // Por defecto (sin ningún año elegido en el filtro general), se muestra
   // SOLO el año más reciente cargado — a pedido explícito, para que el
@@ -81,19 +87,31 @@ export function OperatividadUnidad() {
     const anioMasReciente = Math.max(...conFecha.map((r) => r.anio));
     return filteredOperatividadRecords.filter((r) => r.anio === anioMasReciente);
   }, [filteredOperatividadRecords, filters.anio]);
-  const total = registros.length;
+  // Conteo como las tablas dinámicas oficiales (ver utils/operatividadConteo):
+  // Capturas = cuenta de DELITO_ASOCIADO; Automotores, Motocicletas y Armas
+  // = cuenta de CLASE_BIEN; Mercancía = cuenta de TIPO_BIEN. La droga es
+  // una CANTIDAD (gramos): no entra al total ni al aporte, va aparte.
+  const total = totalOperatividad(registros);
+  const gramosDroga = totalDrogaGramos(registros);
+  const hayDroga = registros.some((r) => tipoOperatividad(r.categoria) === 'droga');
+  const fmtDroga = (g: number) => formatearDroga(g, unidadDroga);
 
-  const porCategoria = agruparPor(registros, (r) => r.categoria || 'Sin categoría');
+  const porCategoria = contarOperatividad(registros, (r) => r.categoria || 'Sin categoría');
   const conAportePorCategoria = conAporte(porCategoria);
 
-  const porCuadranteCompleto = agruparPor(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
+  const porCuadranteCompleto = contarOperatividad(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const porCuadrante = conAporte(recortar(porCuadranteCompleto, topZona));
 
-  const porBarrioCompleto = agruparPor(registros, (r) => r.barrioHecho || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
+  const porBarrioCompleto = contarOperatividad(registros, (r) => r.barrioHecho || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const porBarrio = conAporte(recortar(porBarrioCompleto, topBarrio));
 
-  const porDelitoCompleto = agruparPor(registros, (r) => r.delitoAsociado || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
+  // Capturas por delito asociado (Cuenta de DELITO_ASOCIADO, solo capturas).
+  const capturas = registros.filter((r) => tipoOperatividad(r.categoria) === 'capturas');
+  const porDelitoCompleto = contarOperatividad(capturas, (r) => r.delitoAsociado || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
   const porDelito = conAporte(recortar(porDelitoCompleto, topDelito));
+
+  // Droga: suma de CANTIDAD por clase de bien (gramos; botón g/kg).
+  const drogaPorClase = conAporte(sumarDroga(registros, (r) => r.claseBien || 'Sin clase'));
 
   // Detalle propio de Operatividad (circunstancia, bienes, ubicación de la
   // persona, situación jurídica) — a pedido explícito: estaba en el tipo
@@ -103,18 +121,21 @@ export function OperatividadUnidad() {
   // explícito. "Orden Judicial Ley 906/600" pasa a "O.J Ley 906"/"O.J Ley
   // 600" (conservando cuál de las dos leyes es, en vez de perder ese dato
   // fusionando ambas en una sola etiqueta "O.J").
-  const acortarEtiqueta = (v: string) => v.replace(/^ORDEN JUDICIAL\b/i, 'O.J');
-  const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop) =>
-    conAporte(recortar(agruparPor(registros, (r) => acortarEtiqueta(campo(r) || 'NO REPORTADO')).filter((d) => d.key !== 'NO REPORTADO'), top));
-  const porCircunstancia = rankear((r) => r.circunstanciaCaptura, topCircunstancia);
+  // Circunstancia de captura: solo "Orden judicial" (Ley 906 y Ley 600
+  // juntas, sin la ley) y "Flagrancia" — a pedido explícito.
+  const rankear = (campo: (r: (typeof registros)[number]) => string, top: ValorTop, base = registros) =>
+    conAporte(recortar(contarOperatividad(base, (r) => campo(r) || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO'), top));
+  const armas = registros.filter((r) => tipoOperatividad(r.categoria) === 'armas');
+  const porCircunstancia = rankear((r) => agruparCircunstancia(r.circunstanciaCaptura), topCircunstancia, capturas);
   const porClaseBien = rankear((r) => r.claseBien, topClaseBien);
   const porTipoBien = rankear((r) => r.tipoBien, topTipoBien);
   const porMarca = rankear((r) => r.marca, topMarca);
   const porTurno = rankear((r) => r.turno, topTurno);
   const porCiudad = rankear((r) => r.ciudad, topCiudad);
   const porPaisPersona = rankear((r) => r.paisPersona, topPaisPersona);
-  const porPermisoArma = rankear((r) => r.permisoArma, topPermisoArma);
-  const porSituacionJuridica = rankear((r) => r.situacionJuridica, topSituacionJuridica);
+  const porPermisoArma = rankear((r) => r.permisoArma.replace(/_/g, ' '), topPermisoArma, armas);
+  const porSituacionJuridica = rankear((r) => r.situacionJuridica, topSituacionJuridica, capturas);
+  const haySituacionJuridica = porSituacionJuridica.length > 0;
 
   const filtrosActivos = [
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
@@ -211,6 +232,18 @@ export function OperatividadUnidad() {
                     </div>
                   );
                 })}
+                {hayDroga && (
+                  <div className="col-span-2 flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#0f5f57]/10 text-[#0f5f57]">
+                      <Leaf size={16} strokeWidth={2} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10.5px] font-medium leading-tight text-slate-600">Incautación droga <span className="text-slate-400">(cantidad, no suma al total)</span></p>
+                      <p className="whitespace-nowrap text-[14px] font-bold leading-tight tabular-nums" style={{ color: AZUL_TINTA }}>{fmtDroga(gramosDroga)}</p>
+                    </div>
+                    <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />
+                  </div>
+                )}
               </div>
             </Card>
 
@@ -233,7 +266,7 @@ export function OperatividadUnidad() {
               icono={<TrendingUp size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
               claseTitulo={CLASE_TITULO}
             >
-              <EvolucionOperatividad registros={registros} />
+              <EvolucionOperatividad registros={registros.filter(cuentaComoOperatividad)} />
             </Card>
           </div>
 
@@ -241,7 +274,7 @@ export function OperatividadUnidad() {
           <div className={GRILLA}>
             {/* Sin Top N, como antes: son pocas categorías y siempre se ven todas. */}
             {tarjeta('Por categoría de operatividad', 'operatividad-categoria', Layers, conAportePorCategoria)}
-            {tarjeta('Por delito asociado', 'operatividad-delito', Scale, porDelito, { valor: topDelito, set: setTopDelito })}
+            {tarjeta('Capturas por delito asociado', 'operatividad-delito', Scale, porDelito, { valor: topDelito, set: setTopDelito })}
             {tarjeta('Por zona de atención', 'operatividad-zona', MapPin, porCuadrante, { valor: topZona, set: setTopZona })}
           </div>
 
@@ -249,7 +282,7 @@ export function OperatividadUnidad() {
           <div className={GRILLA}>
             {tarjeta('Por barrio', 'operatividad-barrio', House, porBarrio, { valor: topBarrio, set: setTopBarrio })}
             {tarjeta('Circunstancia de captura', 'operatividad-circunstancia', UserCheck, porCircunstancia, { valor: topCircunstancia, set: setTopCircunstancia })}
-            {tarjeta('Permiso de arma', 'operatividad-permiso-arma', FileBadge, porPermisoArma, { valor: topPermisoArma, set: setTopPermisoArma })}
+            {tarjeta('Armas de fuego por permiso', 'operatividad-permiso-arma', FileBadge, porPermisoArma, { valor: topPermisoArma, set: setTopPermisoArma })}
           </div>
 
           {/* FILA 4 */}
@@ -266,9 +299,28 @@ export function OperatividadUnidad() {
             {tarjeta('País (persona)', 'operatividad-pais-persona', Globe, porPaisPersona, { valor: topPaisPersona, set: setTopPaisPersona })}
           </div>
 
-          {/* FILA 6 */}
+          {/* FILA 6 — Droga (suma de cantidad, botón g/kg) y situación jurídica de los capturados */}
           <div className={GRILLA}>
-            {tarjeta('Situación jurídica', 'operatividad-situacion-juridica', Gavel, porSituacionJuridica, { valor: topSituacionJuridica, set: setTopSituacionJuridica })}
+            {hayDroga && (
+              <Card
+                title="Incautación de droga"
+                subtitle={`Suma de cantidad por clase · total ${fmtDroga(gramosDroga)}`}
+                descargable="operatividad-droga"
+                icono={<Leaf size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
+                claseTitulo={CLASE_TITULO}
+                actions={<BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />}
+              >
+                <AporteBarList
+                  data={drogaPorClase}
+                  colorBordeMaximo={AZUL_REY}
+                  compacta
+                  anchoValor={96}
+                  formatoValor={fmtDroga}
+                  textoVacio={TEXTO_SIN_REGISTROS}
+                />
+              </Card>
+            )}
+            {haySituacionJuridica && tarjeta('Situación jurídica de los capturados', 'operatividad-situacion-juridica', Gavel, porSituacionJuridica, { valor: topSituacionJuridica, set: setTopSituacionJuridica })}
           </div>
         </>
       )}

@@ -1,3 +1,4 @@
+import { contarOperatividad } from '../utils/operatividadConteo';
 import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
@@ -235,7 +236,8 @@ export function AnalisisUnidad() {
   // MISMOS filtros generales (Delito ↔ delito asociado, Estación,
   // Cuadrante, Barrio, Año, Mes, fecha). Si el delito filtrado es
   // "Homicidio", esto ya trae solo la operatividad asociada a Homicidio.
-  const porCategoriaOperatividad = agruparPor(filteredOperatividadRecords, (r) => r.categoria || 'Sin categoría');
+  // Conteo oficial (utils/operatividadConteo); la droga va por cantidad y no entra aquí.
+  const porCategoriaOperatividad = contarOperatividad(filteredOperatividadRecords, (r) => r.categoria || 'Sin categoría');
   const totalOperatividad = porCategoriaOperatividad.reduce((a, d) => a + d.casos, 0);
   const porCategoriaOperatividadConAporte = porCategoriaOperatividad.map((d) => ({
     ...d,

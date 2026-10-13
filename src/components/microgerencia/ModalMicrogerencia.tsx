@@ -1,3 +1,4 @@
+import { agruparCircunstancia, cuentaComoOperatividad } from '../../utils/operatividadConteo';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react';
@@ -307,13 +308,14 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
     const rank = (campo: (r: typeof filteredOperatividadRecords[number]) => string) => {
       const m = new Map<string, number>();
       for (const r of filteredOperatividadRecords) {
+        if (!cuentaComoOperatividad(r)) continue; // conteo oficial; la droga va por cantidad
         const v = campo(r);
         if (v) m.set(v, (m.get(v) || 0) + 1);
       }
       return Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
     };
     const rankings = [
-      { titulo: 'Circunstancia de captura', filas: rank((r) => r.circunstanciaCaptura) },
+      { titulo: 'Circunstancia de captura', filas: rank((r) => agruparCircunstancia(r.circunstanciaCaptura)) },
       { titulo: 'Clase de bien', filas: rank((r) => r.claseBien) },
       { titulo: 'Tipo de bien', filas: rank((r) => r.tipoBien) },
       { titulo: 'Marca', filas: rank((r) => r.marca) },

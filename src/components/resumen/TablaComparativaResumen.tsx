@@ -14,6 +14,11 @@ export interface FilaComparativaResumen {
   diferencia: number;
   variacionPct: number | null;
   aportePct: number | null;
+  // Fila que se muestra pero NO entra en la fila TOTAL (ej. droga, que es
+  // una cantidad en gramos/kg y no un número de procedimientos).
+  excluirDelTotal?: boolean;
+  // Formato propio de las cifras de la fila (ej. "1.234,5 kg").
+  formato?: (n: number) => string;
 }
 
 export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioActual, invertirColores = false, alinearNombre = 'left', aporteTotal, onRowClick, compacta = false }: {
@@ -31,9 +36,10 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
   // Versión angosta (ej. dentro de una columna de 1/3): letra y ancho mínimo menores.
   compacta?: boolean;
 }) {
-  const totalCompleto = filas.reduce((a, f) => a + f.totalAnioAnteriorCompleto, 0);
-  const totalAnterior = filas.reduce((a, f) => a + f.anterior, 0);
-  const totalActual = filas.reduce((a, f) => a + f.actual, 0);
+  const filasTotal = filas.filter((f) => !f.excluirDelTotal);
+  const totalCompleto = filasTotal.reduce((a, f) => a + f.totalAnioAnteriorCompleto, 0);
+  const totalAnterior = filasTotal.reduce((a, f) => a + f.anterior, 0);
+  const totalActual = filasTotal.reduce((a, f) => a + f.actual, 0);
   const totalDif = totalActual - totalAnterior;
   const totalPct = totalAnterior > 0 ? (totalDif / totalAnterior) * 100 : null;
   const maxAbs = Math.max(1, ...filas.map((f) => Math.abs(f.aportePct ?? 0)));
@@ -83,21 +89,22 @@ export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioAct
         <tbody>
           {filas.map((f) => {
             const aporte = f.aportePct ?? 0;
+            const fmt = f.formato ?? formatNumero;
             // Barra de aporte en azul claro en las dos tablas (a pedido); el
             // signo lo sigue indicando el número (negativo = el delito bajó).
             const colorBarra = Math.abs(aporte) < 0.0001 ? 'bg-slate-300' : 'bg-sky-400';
             return (
               <tr key={f.key} onClick={() => onRowClick?.(f.key)} className={onRowClick ? 'cursor-pointer hover:bg-slate-50' : undefined}>
                 <td className={`truncate border-b border-slate-100 px-3 py-[5px] text-slate-800 ${alinearNombre === 'center' ? 'text-center' : 'text-left'}`} title={f.key}>{f.key}</td>
-                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-400">{formatNumero(f.totalAnioAnteriorCompleto)}</td>
-                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{formatNumero(f.anterior)}</td>
-                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{formatNumero(f.actual)}</td>
-                <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.diferencia)}`}>{f.diferencia > 0 ? '+' : ''}{formatNumero(f.diferencia)}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-400">{fmt(f.totalAnioAnteriorCompleto)}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{fmt(f.anterior)}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{fmt(f.actual)}</td>
+                <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.diferencia)}`}>{f.diferencia > 0 ? '+' : ''}{fmt(f.diferencia)}</td>
                 <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.variacionPct)}`}>{pctTexto(f.variacionPct)}</td>
                 <td className="border-b border-slate-100 px-2 py-[5px]">
                   <div className="flex items-center gap-2">
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-                      <div className={`h-full rounded-full ${colorBarra}`} style={{ width: `${Math.max(2, (Math.abs(aporte) / maxAbs) * 100)}%` }} />
+                      {f.aportePct !== null && <div className={`h-full rounded-full ${colorBarra}`} style={{ width: `${Math.max(2, (Math.abs(aporte) / maxAbs) * 100)}%` }} />}
                     </div>
                     <span className="w-12 shrink-0 text-right text-slate-700">{f.aportePct === null ? '—' : `${formatDecimal(aporte, 1)}%`}</span>
                   </div>

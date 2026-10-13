@@ -33,9 +33,9 @@ function anchoTextoAprox(texto: string): number {
   for (const ch of texto) px += ch === ' ' ? 3.4 : /[A-ZÁÉÍÓÚÑ0-9]/.test(ch) ? 8 : /[iljtfr.,:;'|]/.test(ch) ? 3.6 : 6.6;
   return px;
 }
-function columnasCompactas(etiquetas: string[]): string {
+function columnasCompactas(etiquetas: string[], anchoValor = 46): string {
   const max = Math.max(60, ...etiquetas.map(anchoTextoAprox));
-  return `min(${Math.ceil(max * 1.1 + 10)}px, 42%) minmax(0, 1fr) 46px 50px`;
+  return `min(${Math.ceil(max * 1.1 + 10)}px, 42%) minmax(0, 1fr) ${anchoValor}px 50px`;
 }
 
 /**
@@ -49,7 +49,9 @@ function columnasCompactas(etiquetas: string[]): string {
  * como encabezado centrado sobre su propia columna — nunca un porcentaje
  * flotando suelto encima del gráfico.
  */
-export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMaximo = VERDE_MAXIMO, colorBordeMaximo = '#dc2626', paletaBarras, compacta = false, textoVacio = 'Sin datos.' }: {
+export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMaximo = VERDE_MAXIMO, colorBordeMaximo = '#dc2626', paletaBarras, compacta = false, textoVacio = 'Sin datos.', formatoValor, anchoValor }: {
+  formatoValor?: (n: number) => string; // ej. cantidades de droga con decimales
+  anchoValor?: number; // ancho (px) de la columna del valor, en la versión compacta
   data: FilaAporte[];
   onBarClick?: (key: string) => void;
   resaltarMaximo?: boolean;
@@ -59,7 +61,7 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMa
   compacta?: boolean; // tipografía y columnas más compactas (solo donde se pide; el resto del dashboard no cambia)
   textoVacio?: string;
 }) {
-  const columnas = compacta ? columnasCompactas(data.map((d) => d.key)) : COLUMNAS_GRID;
+  const columnas = compacta ? columnasCompactas(data.map((d) => d.key), anchoValor) : COLUMNAS_GRID;
   const maxCasos = Math.max(1, ...data.map((d) => d.casos));
   const paleta = paletaBarras ?? PALETA_BARRAS;
 
@@ -110,7 +112,7 @@ export function AporteBarList({ data, onBarClick, resaltarMaximo = true, colorMa
                   </div>
                 </div>
               </div>
-              <div data-export-texto="valor" className={compacta ? 'text-right text-[13px] font-bold tabular-nums text-[#10233f]' : 'text-right text-base font-bold text-slate-800'}>{formatNumero(d.casos)}</div>
+              <div data-export-texto="valor" className={compacta ? 'text-right text-[13px] font-bold tabular-nums text-[#10233f]' : 'text-right text-base font-bold text-slate-800'}>{formatoValor ? formatoValor(d.casos) : formatNumero(d.casos)}</div>
               <div data-export-texto="aporte" className={compacta ? 'text-right text-[12px] tabular-nums text-slate-500' : 'text-center text-base font-bold text-slate-600'}>{formatDecimal(d.aportePct, 1)}%</div>
             </div>
           );

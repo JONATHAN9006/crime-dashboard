@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { CrimeRecord, DatasetMeta, FilterState, PeriodoAnalisis, UpdateMode, UpdateSummary } from '../types/crime';
 import type { OperatividadRecord } from '../types/operatividad';
-import { parsearOperatividad, parsearOperatividadDesdeCsv } from '../data/operatividadParser';
+import { parsearOperatividad, parsearOperatividadDesdeCsv, reinterpretarOperatividad } from '../data/operatividadParser';
 import { serializarOperatividadCsv } from '../data/operatividadSerializer';
 import { emptyFilterState } from '../types/crime';
 import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
@@ -671,7 +671,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const guardado = localStorage.getItem('mepoy-operatividad');
         if (guardado) {
           const datos = JSON.parse(guardado);
-          const registros: OperatividadRecord[] = (datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null }));
+          const registros: OperatividadRecord[] = reinterpretarOperatividad((datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null })));
           setOperatividadRecords(registros);
           setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
           {
