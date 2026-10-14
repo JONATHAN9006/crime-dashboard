@@ -112,7 +112,7 @@ function Variacion({ anterior, actual }: { anterior: number; actual: number }) {
   return (
     <span className="inline-flex items-center justify-end gap-1">
       {pct === null ? (actual > 0 ? 'Nuevo' : '—') : `${pct > 0 ? '+' : ''}${formatDecimal(pct, 1)}%`}
-      <Icono size={15} strokeWidth={3} className={color} />
+      <Icono size={17} strokeWidth={3} className={color} />
     </span>
   );
 }
@@ -122,20 +122,20 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad }: { grupos:
     ? (unidad === 'kg' ? n / 1000 : n).toLocaleString('es-CO', { maximumFractionDigits: unidad === 'kg' ? 1 : 0 })
     : formatNumero(n));
   const fmtDif = (n: number, droga?: boolean) => `${n > 0 ? '+' : ''}${fmt(n, droga)}`;
-  const celda = 'border-b border-slate-200 px-2 py-[5px]';
+  const celda = 'border-b border-slate-200 px-2 py-[7px]';
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[540px] table-auto border-separate border-spacing-0 text-[13px]">
+      <table className="w-full min-w-[600px] table-auto border-separate border-spacing-0 text-[15px]">
         <thead>
           <tr className="text-white">
-            <th rowSpan={2} colSpan={2} className="rounded-tl-md bg-[#0f5f57] px-3 py-2 text-center text-[13px] font-bold uppercase">Tipo de operatividad</th>
-            <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[15px] font-bold">{ventana.anioAnterior}</th>
-            <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[15px] font-bold">{ventana.anioActual}</th>
-            <th colSpan={2} className="rounded-tr-md bg-[#0f5f57] px-2 pt-1.5 text-center text-[12px] font-bold uppercase">Variación</th>
+            <th rowSpan={2} colSpan={2} className="rounded-tl-md bg-[#0f5f57] px-3 py-2 text-center text-[14.5px] font-bold uppercase">Tipo de operatividad</th>
+            <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioAnterior}</th>
+            <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioActual}</th>
+            <th colSpan={2} className="rounded-tr-md bg-[#0f5f57] px-2 pt-1.5 text-center text-[13.5px] font-bold uppercase">Variación</th>
           </tr>
           <tr className="text-white">
-            <th className="bg-[#0f5f57] px-2 pb-1.5 text-center text-[11.5px] font-bold uppercase">Dif.</th>
-            <th className="bg-[#0f5f57] px-2 pb-1.5 text-center text-[11.5px] font-bold">%</th>
+            <th className="bg-[#0f5f57] px-2 pb-1.5 text-center text-[13px] font-bold uppercase">Dif.</th>
+            <th className="bg-[#0f5f57] px-2 pb-1.5 text-center text-[13px] font-bold">%</th>
           </tr>
         </thead>
         <tbody>
@@ -146,24 +146,24 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad }: { grupos:
               ...g.filas.map((f, i) => (
                 <tr key={`${g.titulo}-${f.etiqueta}`}>
                   {i === 0 && (
-                    <td rowSpan={g.filas.length + 1} className="w-[22%] border-b border-r border-slate-300 bg-slate-50 px-3 py-2 text-center text-[13px] font-bold uppercase leading-tight text-[#10233f]">
+                    <td rowSpan={g.filas.length + 1} className="w-[22%] border-b border-r border-slate-300 bg-slate-50 px-3 py-2 text-center text-[14.5px] font-bold uppercase leading-tight text-[#10233f]">
                       {g.titulo}
-                      {g.esDroga && <span className="block text-[11px] font-semibold normal-case text-slate-500">({unidad === 'kg' ? 'Kilogramos' : 'Gramos'})</span>}
+                      {g.esDroga && <span className="block text-[12.5px] font-semibold normal-case text-slate-500">({unidad === 'kg' ? 'Kilogramos' : 'Gramos'})</span>}
                     </td>
                   )}
                   <td className={`${celda} font-semibold text-[#10233f]`}>{f.etiqueta}</td>
                   <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.anterior, f.esDroga)}</td>
                   <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.actual, f.esDroga)}</td>
                   <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmtDif(f.actual - f.anterior, f.esDroga)}</td>
-                  <td className={`${celda} whitespace-nowrap pr-3 text-right tabular-nums text-[12px] text-slate-600`}><Variacion anterior={f.anterior} actual={f.actual} /></td>
+                  <td className={`${celda} whitespace-nowrap pr-3 text-right tabular-nums text-[14px] text-slate-600`}><Variacion anterior={f.anterior} actual={f.actual} /></td>
                 </tr>
               )),
               <tr key={`${g.titulo}-total`} className="bg-slate-200/70 font-bold text-[#10233f]">
-                <td className="border-b-2 border-slate-300 px-2 py-[5px] text-center text-[12px] uppercase">Total</td>
-                <td className="border-b-2 border-slate-300 px-2 py-[5px] text-center tabular-nums">{fmt(totAnt, g.esDroga)}</td>
-                <td className="border-b-2 border-slate-300 px-2 py-[5px] text-center tabular-nums">{fmt(totAct, g.esDroga)}</td>
-                <td className="border-b-2 border-slate-300 px-2 py-[5px] text-center tabular-nums">{fmtDif(totAct - totAnt, g.esDroga)}</td>
-                <td className="whitespace-nowrap border-b-2 border-slate-300 py-[5px] pl-2 pr-3 text-right tabular-nums text-[12px]"><Variacion anterior={totAnt} actual={totAct} /></td>
+                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center text-[13.5px] uppercase">Total</td>
+                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAnt, g.esDroga)}</td>
+                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAct, g.esDroga)}</td>
+                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmtDif(totAct - totAnt, g.esDroga)}</td>
+                <td className="whitespace-nowrap border-b-2 border-slate-300 py-[7px] pl-2 pr-3 text-right tabular-nums text-[14px]"><Variacion anterior={totAnt} actual={totAct} /></td>
               </tr>,
             ];
           })}
