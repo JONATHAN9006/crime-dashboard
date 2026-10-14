@@ -11,6 +11,7 @@ import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopB
 import { AZUL_TINTA, Top5Dona } from '../components/resumen/BloquesResumen';
 import { EvolucionOperatividad, claveTramo, type UnidadTramo } from '../components/operatividad/EvolucionOperatividad';
 import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
+import { ResumenOperatividadVisual } from '../components/resumen/ResumenVisual';
 import {
   agruparCircunstancia, contarOperatividad, cuentaComoOperatividad, formatearDroga, sumarDroga, tipoOperatividad,
   totalDrogaGramos, totalOperatividad, type UnidadDroga,
@@ -255,50 +256,11 @@ export function OperatividadUnidad() {
               icono={<ClipboardList size={17} strokeWidth={2} className="shrink-0 text-[#0f5f57]" />}
               claseTitulo={CLASE_TITULO}
             >
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">Total operatividad</p>
-                    <p className="text-[26px] font-bold leading-tight tabular-nums" style={{ color: AZUL_TINTA }}>{formatNumero(total)}</p>
-                    <p className="whitespace-nowrap text-[11px] text-slate-500">Todas las categorías</p>
-                  </div>
-                  {categoriaConMasCasos && (
-                    <div className="min-w-0 rounded-md px-2.5 py-1.5 text-right" style={{ border: `2px dashed ${AZUL_REY}`, backgroundColor: 'rgba(29, 78, 216, 0.05)' }}>
-                      <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">Categoría principal</p>
-                      <p className="truncate text-[13px] font-bold" style={{ color: AZUL_TINTA }} title={categoriaConMasCasos.key}>{categoriaConMasCasos.key}</p>
-                      <p className="whitespace-nowrap text-[11.5px] tabular-nums text-slate-600">{formatNumero(categoriaConMasCasos.casos)} · {formatDecimal(categoriaConMasCasos.aportePct, 1)} %</p>
-                    </div>
-                  )}
-                </div>
-                {conAportePorCategoria.map((c, i) => {
-                  const Icono = iconoCategoria(c.key);
-                  return (
-                    <div key={c.key} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2">
-                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${i % 2 === 0 ? 'bg-[#0f5f57]/10 text-[#0f5f57]' : 'bg-slate-100 text-slate-600'}`}>
-                        <Icono size={16} strokeWidth={2} />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="min-h-[2.5em] break-words text-[10.5px] font-medium leading-tight text-slate-600" title={c.key}>{c.key}</p>
-                        <p className="whitespace-nowrap text-[14px] font-bold leading-tight tabular-nums" style={{ color: AZUL_TINTA }}>
-                          {formatNumero(c.casos)} <span className="text-[11px] font-medium text-slate-500">· {formatDecimal(c.aportePct, 1)} %</span>
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-                {hayDroga && (
-                  <div className="col-span-2 flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#0f5f57]/10 text-[#0f5f57]">
-                      <Leaf size={16} strokeWidth={2} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10.5px] font-medium leading-tight text-slate-600">Incautación droga <span className="text-slate-400">(cantidad, no suma al total)</span></p>
-                      <p className="whitespace-nowrap text-[14px] font-bold leading-tight tabular-nums" style={{ color: AZUL_TINTA }}>{fmtDroga(gramosDroga)}</p>
-                    </div>
-                    <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />
-                  </div>
-                )}
-              </div>
+              <ResumenOperatividadVisual
+                total={total}
+                categorias={conAportePorCategoria}
+                droga={hayDroga ? { gramos: gramosDroga, unidad: unidadDroga, botonUnidad: <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} /> } : null}
+              />
             </Card>
 
             <Card
