@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useData } from '../context/DataContext';
 import { useKpis } from '../hooks/useKpis';
-import { useVentanaComparativa, useComparativoCategoria } from '../hooks/useComparativoHomologo';
+import { calcularVentanaFechas, useVentanaComparativa, useComparativoCategoria } from '../hooks/useComparativoHomologo';
 import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
 import { contarPor, maximoDe } from '../analitica/cambio';
@@ -144,15 +144,19 @@ export function ResumenEjecutivo() {
   // la fecha final (o el último dato), frente al MISMO tramo del año
   // anterior.
   const ventanaOpTabla = useMemo(() => {
-    const conFecha = operatividadRecords.filter((r) => r.fecha);
-    const maxTs = conFecha.length > 0 ? Math.max(...conFecha.map((r) => r.fecha!.getTime())) : new Date().getTime();
-    const fin = filters.fechaFinal ? new Date(`${filters.fechaFinal}T23:59:59`) : new Date(maxTs);
-    fin.setHours(23, 59, 59, 999);
-    const anioActual = fin.getFullYear();
-    const inicio = filters.fechaInicial ? new Date(`${filters.fechaInicial}T00:00:00`) : new Date(anioActual, 0, 1);
-    const unAnioAntes = (d: Date) => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return x; };
-    return { inicio, fin, inicioAnt: unAnioAntes(inicio), finAnt: unAnioAntes(fin), anioActual, anioAnterior: anioActual - 1 };
-  }, [operatividadRecords, filters.fechaInicial, filters.fechaFinal]);
+    // Misma regla única del periodo evaluable que Delictividad
+    // (calcularVentanaFechas), sobre la última fecha de la operatividad.
+    let maxTs = 0;
+    for (const r of operatividadRecords) { const t = r.fecha?.getTime() ?? 0; if (t > maxTs) maxTs = t; }
+    const v = calcularVentanaFechas({
+      anios: filters.anio,
+      meses: filters.mes,
+      fechaInicial: filters.fechaInicial,
+      fechaFinal: filters.fechaFinal,
+      fechaMaxDatos: maxTs > 0 ? new Date(maxTs) : new Date(),
+    });
+    return { inicio: v.actualInicio, fin: v.actualFin, inicioAnt: v.anteriorInicio, finAnt: v.anteriorFin, anioActual: v.actualFin.getFullYear(), anioAnterior: v.anteriorFin.getFullYear() };
+  }, [operatividadRecords, filters.fechaInicial, filters.fechaFinal, filters.anio, filters.mes]);
   const gruposOperatividad = useMemo(() => {
     const base = operatividadRecords.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;

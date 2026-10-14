@@ -29,11 +29,74 @@ function dentroDeRango(fecha: Date | null, inicio: Date, fin: Date): boolean {
 }
 
 // Corre el año hacia atrás manteniendo mes/día (maneja 29 de febrero cayendo al 28).
-function restarUnAnio(fecha: Date): Date {
+
+/** Corre una fecha N años hacia atrás (29 de febrero → 28 de febrero). */
+function desplazarAnios(fecha: Date, anios: number): Date {
   const d = new Date(fecha);
-  const anioOriginal = d.getFullYear();
-  d.setFullYear(anioOriginal - 1);
+  const mes = d.getMonth();
+  d.setFullYear(d.getFullYear() - anios);
+  if (d.getMonth() !== mes) d.setDate(0);
   return d;
+}
+
+/**
+ * REGLA ÚNICA del periodo evaluable (delitos y operatividad):
+ *  · Sin año ni fecha: año más reciente del 1 de enero a la fecha de corte,
+ *    frente al MISMO periodo del año anterior.
+ *  · Fecha inicial/final (ej. 01/01 – 10/10): ese rango, frente al mismo
+ *    rango del año anterior.
+ *  · Mes(es): esos meses del año de referencia (hasta el corte), frente a
+ *    los mismos meses del año comparado.
+ *  · Varios años (ej. 2025 y 2026): el mayor es el actual y el menor el
+ *    comparado. Si el mayor es el año EN CURSO, ambos van al mismo periodo
+ *    (1 ene – fecha de corte); si los dos son años cerrados (2024 y 2025),
+ *    van los años completos.
+ *  · Un solo año: ese año (a la fecha si está en curso, completo si ya
+ *    cerró) frente al mismo periodo del año anterior.
+ */
+export function calcularVentanaFechas({ anios, meses, fechaInicial, fechaFinal, fechaMaxDatos }: {
+  anios: (string | number)[];
+  meses: (string | number)[];
+  fechaInicial: string | null;
+  fechaFinal: string | null;
+  fechaMaxDatos: Date;
+}): { actualInicio: Date; actualFin: Date; anteriorInicio: Date; anteriorFin: Date; esRangoPersonalizado: boolean } {
+  const corte = new Date(fechaMaxDatos);
+  corte.setHours(23, 59, 59, 999);
+  const aniosFiltro = anios.map(Number).filter((n) => !isNaN(n)).sort((a, b) => a - b);
+  const anioReferencia = aniosFiltro.length > 0 ? aniosFiltro[aniosFiltro.length - 1] : corte.getFullYear();
+  const anioComparado = aniosFiltro.length >= 2 ? aniosFiltro[0] : anioReferencia - 1;
+  const mesesSel = meses.map(Number).filter((n) => !isNaN(n));
+
+  let actualInicio: Date;
+  let actualFin: Date;
+  let esRangoPersonalizado = false;
+  if (fechaInicial && fechaFinal) {
+    actualInicio = new Date(fechaInicial);
+    actualInicio = new Date(actualInicio.getUTCFullYear(), actualInicio.getUTCMonth(), actualInicio.getUTCDate(), 0, 0, 0, 0);
+    actualFin = new Date(fechaFinal);
+    actualFin = new Date(actualFin.getUTCFullYear(), actualFin.getUTCMonth(), actualFin.getUTCDate(), 23, 59, 59, 999);
+    esRangoPersonalizado = true;
+  } else if (mesesSel.length > 0) {
+    actualInicio = new Date(anioReferencia, minDe(mesesSel) - 1, 1);
+    actualFin = new Date(anioReferencia, maxDe(mesesSel), 0, 23, 59, 59, 999);
+    if (actualFin > corte) actualFin = new Date(corte);
+    esRangoPersonalizado = true;
+  } else if (anioReferencia < corte.getFullYear()) {
+    // Año cerrado: completo.
+    actualInicio = new Date(anioReferencia, 0, 1);
+    actualFin = new Date(anioReferencia, 11, 31, 23, 59, 59, 999);
+  } else {
+    // Año en curso: a la fecha de corte.
+    actualFin = new Date(corte);
+    actualInicio = new Date(anioReferencia, 0, 1);
+  }
+  // El año comparado SIEMPRE con el mismo periodo, corrido a su año.
+  const salto = (fechaInicial && fechaFinal) && aniosFiltro.length < 2 ? 1 : actualFin.getFullYear() - anioComparado;
+  const anteriorInicio = desplazarAnios(actualInicio, salto);
+  const anteriorFin = desplazarAnios(actualFin, salto);
+  anteriorFin.setHours(23, 59, 59, 999);
+  return { actualInicio, actualFin, anteriorInicio, anteriorFin, esRangoPersonalizado };
 }
 
 /**
@@ -101,75 +164,14 @@ export function useVentanaComparativa(
     }
     fechaMaxDatos.setHours(23, 59, 59, 999);
 
-    let actualInicio: Date;
-    let actualFin: Date;
-    let esRangoPersonalizado = false;
-
-    // El año de referencia por defecto es el más reciente presente en la
-    // base — PERO si el usuario selecciona años explícitamente en el
-    // filtro principal, esos años mandan (a pedido explícito: antes el
-    // filtro de Año no cambiaba nada aquí, y seleccionar 2022 y 2024
-    // seguía comparando los dos años más recientes de la base, sin
-    // importar qué se filtrara).
-    const aniosFiltro = filters.anio.map(Number).filter((n) => !isNaN(n)).sort((a, b) => a - b);
-    let anioReferencia = fechaMaxDatos.getFullYear();
-    let anioAnteriorForzado: number | null = null;
-    if (aniosFiltro.length >= 2) {
-      // Dos (o más) años seleccionados: el más chico es la vigencia de
-      // comparación inicial, el más grande la vigencia actual/comparada.
-      anioAnteriorForzado = aniosFiltro[0];
-      anioReferencia = aniosFiltro[aniosFiltro.length - 1];
-    } else if (aniosFiltro.length === 1) {
-      // Un solo año seleccionado: ese año es la vigencia actual, y se
-      // compara contra el año inmediatamente anterior, como siempre.
-      anioReferencia = aniosFiltro[0];
-    }
-    const mesesSeleccionados = filters.mes.map(Number).filter((n) => !isNaN(n));
-
-    if (filters.fechaInicial && filters.fechaFinal) {
-      // 1) Rango explícito: máxima prioridad.
-      actualInicio = new Date(filters.fechaInicial);
-      actualInicio.setHours(0, 0, 0, 0);
-      actualFin = new Date(filters.fechaFinal);
-      actualFin.setHours(23, 59, 59, 999);
-      esRangoPersonalizado = true;
-    } else if (mesesSeleccionados.length > 0) {
-      // 2) Mes(es) seleccionados dentro del año de referencia (el más
-      // reciente de la base, o el que se haya filtrado explícitamente).
-      const mesMin = minDe(mesesSeleccionados);
-      const mesMax = maxDe(mesesSeleccionados);
-      actualInicio = new Date(anioReferencia, mesMin - 1, 1);
-      actualFin = new Date(anioReferencia, mesMax, 0, 23, 59, 59, 999);
-      if (actualFin > fechaMaxDatos) actualFin = fechaMaxDatos;
-      esRangoPersonalizado = true;
-    } else if (anioReferencia !== fechaMaxDatos.getFullYear()) {
-      // 3a) Un año distinto al más reciente fue filtrado explícitamente
-      // (ej. 2022 vs 2024, o un solo año pasado): se usa el AÑO CALENDARIO
-      // COMPLETO de esa vigencia, no "a la fecha" — "a la fecha" solo
-      // tiene sentido para el año más reciente, que es el único que puede
-      // estar en curso.
-      actualInicio = new Date(anioReferencia, 0, 1);
-      actualFin = new Date(anioReferencia, 11, 31, 23, 59, 59, 999);
-    } else {
-      // 3b) Por defecto: año más reciente, "a la fecha".
-      actualFin = fechaMaxDatos;
-      actualInicio = new Date(actualFin.getFullYear(), 0, 1);
-    }
-
-    // Si se filtraron 2+ años explícitamente (anioAnteriorForzado), la
-    // vigencia "anterior" es el año calendario completo de ese año — no
-    // necesariamente actual-1. Con un solo año filtrado (o ninguno), se
-    // mantiene el comportamiento de siempre: el año inmediatamente anterior.
-    let anteriorInicio: Date;
-    let anteriorFin: Date;
-    if (anioAnteriorForzado !== null) {
-      anteriorInicio = new Date(anioAnteriorForzado, 0, 1);
-      anteriorFin = new Date(anioAnteriorForzado, 11, 31, 23, 59, 59, 999);
-    } else {
-      anteriorInicio = restarUnAnio(actualInicio);
-      anteriorFin = restarUnAnio(actualFin);
-      anteriorFin.setHours(23, 59, 59, 999);
-    }
+    const v = calcularVentanaFechas({
+      anios: filters.anio,
+      meses: filters.mes,
+      fechaInicial: filters.fechaInicial,
+      fechaFinal: filters.fechaFinal,
+      fechaMaxDatos,
+    });
+    const { actualInicio, actualFin, anteriorInicio, anteriorFin, esRangoPersonalizado } = v;
 
     const recsActual = recordsBase.filter((r) => dentroDeRango(r.fecha, actualInicio, actualFin));
     const recsAnterior = recordsBase.filter((r) => dentroDeRango(r.fecha, anteriorInicio, anteriorFin));
