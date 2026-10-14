@@ -20,7 +20,7 @@ import { RankingAporte } from '../components/charts/RankingAporte';
 import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
 import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
-import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays } from 'lucide-react';
+import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays, ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
 import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
 
@@ -256,17 +256,26 @@ export function AnalisisUnidad() {
   // ── Estilo común de las tarjetas (como la imagen de referencia) ───────
   const T = 'text-[14px] font-bold leading-tight text-[#10233f]';
   const ico = (Icono: typeof MapPin, extra = '') => <Icono size={24} strokeWidth={2.3} className={`shrink-0 text-[#137a6f] ${extra}`} />;
-  const filaResumen = [
-    { etiqueta: 'Total general', valor: formatNumero(totalGeneralIndicadores), nota: `Vigencia ${ventana.anioAnterior} completa` },
-    { etiqueta: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: `${formatNumero(cmpGeneral.registrosAnterior)} reg.` },
-    { etiqueta: `Casos año actual (${ventana.anioActual})`, valor: formatNumero(cmpGeneral.casosActual), nota: `${formatNumero(cmpGeneral.registrosActual)} reg.` },
-    { etiqueta: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
-    { etiqueta: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600' },
-    { etiqueta: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable' : 'Favorable', color: desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600', icono: desfavorableGeneral ? <TrendingUp size={15} className="text-rose-600" /> : <TrendingDown size={15} className="text-emerald-600" /> },
-    { etiqueta: 'Participación del delito principal', valor: `${formatDecimal(kpis.participacionDelitoTop)}%`, nota: kpis.delitoTop?.key ?? '—' },
-    { etiqueta: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos/día' },
-    { etiqueta: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: '1 día' },
-    { etiqueta: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: '1 día' },
+  // Resumen general con la estética del de Operatividad: total del año
+  // actual + delito principal arriba y un mosaico con el resto (mismos datos
+  // de siempre: año anterior, diferencia, variación, tendencia, vigencia
+  // anterior completa, promedio, máximo y mínimo diario).
+  const colorTendencia = desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600';
+  // Delito principal DEL AÑO ACTUAL (mismo periodo que la cifra grande de al lado).
+  const delitoPrincipalActual = (() => {
+    const top = agruparPor(ventana.recsActual, (r) => r.delito).filter((d) => d.key !== 'NO REPORTADO')[0];
+    const tot = totalCasos(ventana.recsActual);
+    return top ? { key: top.key, casos: top.casos, pct: tot > 0 ? (top.casos / tot) * 100 : 0 } : null;
+  })();
+  const mosaicoResumen: { titulo: string; valor: string; nota?: string; icono: React.ReactNode; color?: string }[] = [
+    { titulo: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: 'a la fecha', icono: <CalendarDays size={16} strokeWidth={2} /> },
+    { titulo: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, color: colorTendencia, icono: desfavorableGeneral ? <TrendingUp size={16} strokeWidth={2} /> : <TrendingDown size={16} strokeWidth={2} /> },
+    { titulo: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), color: colorTendencia, icono: <Activity size={16} strokeWidth={2} /> },
+    { titulo: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable' : 'Favorable', color: colorTendencia, icono: desfavorableGeneral ? <TrendingUp size={16} strokeWidth={2} /> : <TrendingDown size={16} strokeWidth={2} /> },
+    { titulo: `Total vigencia ${ventana.anioAnterior} completa`, valor: formatNumero(totalGeneralIndicadores), icono: <BarChart3 size={16} strokeWidth={2} /> },
+    { titulo: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos/día', icono: <Clock size={16} strokeWidth={2} /> },
+    { titulo: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: 'en 1 día', icono: <ArrowUpToLine size={16} strokeWidth={2} /> },
+    { titulo: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: 'en 1 día', icono: <ArrowDownToLine size={16} strokeWidth={2} /> },
   ];
   const ranking = (filas: { key: string; actual: number; aportePct: number }[], limite: number) =>
     [...filas].sort((a, b) => b.actual - a.actual).slice(0, limite).map((f) => ({ key: f.key, casos: f.actual, aportePct: f.aportePct }));
@@ -299,19 +308,38 @@ export function AnalisisUnidad() {
             {/* ── FILA 1: Resumen general | Proyección | Casos por estación (+ meta del 5 %) ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 2xl:grid-cols-3">
               <Card className="h-full" title="Resumen general" descargable="resumen-general-unidad" icono={ico(BarChart3)} claseTitulo={T}>
-                <table className="w-full text-[13px]">
-                  <tbody>
-                    {filaResumen.map((f, i) => (
-                      <tr key={f.etiqueta} className={i % 2 === 0 ? 'bg-slate-50/70' : ''}>
-                        <td className="py-[5px] pl-3 text-slate-600">{f.etiqueta}</td>
-                        <td className={`py-[5px] text-right font-bold ${f.color ?? 'text-[#10233f]'}`}>
-                          <span className="inline-flex items-center gap-1.5">{f.icono}{f.valor}</span>
-                        </td>
-                        <td className="py-[5px] pl-2 pr-3 text-right text-[11px] text-slate-400">{f.nota ?? ''}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+<div className="grid grid-cols-2 gap-2">
+                  {/* Total del año actual + delito principal (misma estética del Resumen de Operatividad) */}
+                  <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">Casos año actual ({ventana.anioActual})</p>
+                      <p className="text-[26px] font-bold leading-tight tabular-nums text-[#10233f]">{formatNumero(cmpGeneral.casosActual)}</p>
+                      <p className={`whitespace-nowrap text-[11.5px] font-semibold ${colorTendencia}`}>
+                        {cmpGeneral.variacionAbs >= 0 ? '+' : ''}{formatNumero(cmpGeneral.variacionAbs)} ({formatPct(cmpGeneral.variacionPct)}) vs. {ventana.anioAnterior}
+                      </p>
+                    </div>
+                    {delitoPrincipalActual && (
+                      <div className="min-w-0 rounded-md px-2.5 py-1.5 text-right" style={{ border: '2px dashed #dc2626', backgroundColor: 'rgba(220, 38, 38, 0.04)' }}>
+                        <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">Delito principal</p>
+                        <p className="truncate text-[13px] font-bold text-[#10233f]" title={delitoPrincipalActual.key}>{delitoPrincipalActual.key}</p>
+                        <p className="whitespace-nowrap text-[11.5px] tabular-nums text-slate-600">{formatNumero(delitoPrincipalActual.casos)} · {formatDecimal(delitoPrincipalActual.pct, 1)} % de {ventana.anioActual}</p>
+                      </div>
+                    )}
+                  </div>
+                  {mosaicoResumen.map((t, i) => (
+                    <div key={t.titulo} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2">
+                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${i % 2 === 0 ? 'bg-[#0f5f57]/10 text-[#0f5f57]' : 'bg-slate-100 text-slate-600'}`}>
+                        {t.icono}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="min-h-[1.25em] break-words text-[10.5px] font-medium leading-tight text-slate-600">{t.titulo}</p>
+                        <p className={`whitespace-nowrap text-[14px] font-bold leading-tight tabular-nums ${t.color ?? 'text-[#10233f]'}`}>
+                          {t.valor} {t.nota && <span className="text-[11px] font-medium text-slate-500">· {t.nota}</span>}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </Card>
 
               <Card className="h-full" title="Proyección de delitos" subtitle="Fin de año, según ritmo actual" descargable="proyeccion-delitos" icono={ico(LineChart)} claseTitulo={T}>
