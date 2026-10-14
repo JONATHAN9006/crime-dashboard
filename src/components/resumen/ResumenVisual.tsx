@@ -190,7 +190,7 @@ export function ResumenDelictividadVisual({ anioActual, anioAnterior, casosActua
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 @min-[560px]:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 @min-[640px]:grid-cols-4">
         {tarjetas.map((t) => (
           <div key={t.titulo} className="flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-slate-200 bg-white px-2 py-2">
             <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${TONO[t.tono]}`}>{t.icono}</span>
@@ -198,7 +198,7 @@ export function ResumenDelictividadVisual({ anioActual, anioAnterior, casosActua
               <p className="text-[10.5px] font-medium leading-tight text-slate-600">{t.titulo}</p>
               {/* Textos largos (ej. «Desfavorable») van un poco más pequeños y pueden
                   partirse, para que nunca se salgan del recuadro. */}
-              <p className={`${t.valor.length > 8 ? 'break-words text-[13.5px] @min-[560px]:text-[14.5px]' : 'whitespace-nowrap text-[17px]'} font-extrabold leading-tight tabular-nums ${t.colorValor ?? 'text-[#10233f]'}`}>{t.valor}</p>
+              <p className={`whitespace-nowrap ${t.valor.length > 8 ? 'text-[14px] @min-[640px]:text-[15px]' : 'text-[17px]'} font-extrabold leading-tight tabular-nums ${t.colorValor ?? 'text-[#10233f]'}`}>{t.valor}</p>
               {t.nota && <p className="text-[10px] leading-tight text-slate-500">{t.nota}</p>}
             </div>
           </div>
