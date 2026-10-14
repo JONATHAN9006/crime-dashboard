@@ -317,7 +317,7 @@ function ListaTop({ titulo, filas, total, etiqueta = (k: string) => k }: { titul
         {filas.map((f, i) => (
           <li key={f.key} style={{ color: AZUL }}>
             <span className="font-semibold">{i + 1}. {etiqueta(f.key)}</span>
-            <span className="text-slate-600"> — {formatNumero(f.casos)} casos ({formatDecimal(pct(f.casos, total), 1)} %)</span>
+            <span className="text-slate-600"> — {formatNumero(f.casos)} {f.casos === 1 ? 'caso' : 'casos'} ({formatDecimal(pct(f.casos, total), 1)} %)</span>
           </li>
         ))}
       </ol>
@@ -332,37 +332,24 @@ function DetalleCelda({ celdas, vista, records, hayDelito, totalGeneral }: {
   const enSeleccion = records.filter((r) => celdas.some((c) => enCeldaDe(r, c)));
   const casos = celdas.reduce((a, c) => a + c.valor, 0);
   const estacion = topDe(enSeleccion, (r) => r.estacion, 1)[0];
-  // Top de horas: dentro de lo seleccionado; si todo lo seleccionado es una
-  // misma hora (vista por hora), se toman las horas de esos días completos.
-  const unaSolaHora = vista === 'hora' && new Set(celdas.map((c) => c.columnaIndex)).size === 1;
-  const dias = new Set(celdas.map((c) => c.diaIndex));
-  const baseHoras = unaSolaHora ? records.filter((r) => r.diaSemanaIndex !== null && dias.has(r.diaSemanaIndex)) : enSeleccion;
-  const nombresDias = Array.from(dias).sort().map((d) => celdas.find((c) => c.diaIndex === d)!.diaLabel.toLowerCase());
-  const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
   return (
     <div className="space-y-3 text-[13px]" style={{ color: AZUL }}>
       <p>
-        <span className="text-[24px] font-bold leading-none text-rose-600">{formatNumero(casos)} casos</span>{' '}
-        equivalen al <b>{formatDecimal(pct(casos, totalGeneral), 1)} %</b> del total de la matriz ({formatNumero(totalGeneral)} casos).
+        <span className="text-[24px] font-bold leading-none text-rose-600">{formatNumero(casos)} {casos === 1 ? 'caso' : 'casos'}</span>{' '}
+        {casos === 1 ? 'equivale' : 'equivalen'} al <b>{formatDecimal(pct(casos, totalGeneral), 1)} %</b> del total de la matriz ({formatNumero(totalGeneral)} casos).
       </p>
       {estacion && (
         <p>
-          Estación más afectada: <b>{estacion.key}</b> — {formatNumero(estacion.casos)} casos ({formatDecimal(pct(estacion.casos, enSeleccion.length), 1)} % de lo seleccionado).
+          Estación más afectada: <b>{estacion.key}</b> — {formatNumero(estacion.casos)} {estacion.casos === 1 ? 'caso' : 'casos'} ({formatDecimal(pct(estacion.casos, enSeleccion.length), 1)} % de lo seleccionado).
         </p>
       )}
-      {!hayDelito ? (
-        <ListaTop titulo="Top 5 delitos" filas={topDe(enSeleccion, (r) => r.delito, 5)} total={enSeleccion.length} />
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ListaTop titulo="Top 3 barrios" filas={topDe(enSeleccion, (r) => r.barrioHecho, 3)} total={enSeleccion.length} />
-          <ListaTop
-            titulo={unaSolaHora ? `Top 5 horas (${nombresDias.join(', ')})` : 'Top 5 horas'}
-            filas={topDe(baseHoras, (r) => (r.hora === null || r.hora === undefined ? '' : String(r.hora)), 5)}
-            total={baseHoras.length}
-            etiqueta={etiquetaHora}
-          />
-        </div>
-      )}
+      {/* Sin delito filtrado: Top 5 delitos y al lado Top 5 barrios. Con un
+          delito filtrado: solo el Top 5 barrios (casos, equivalencia y
+          estación ya van arriba). */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {!hayDelito && <ListaTop titulo="Top 5 delitos" filas={topDe(enSeleccion, (r) => r.delito, 5)} total={enSeleccion.length} />}
+        <ListaTop titulo="Top 5 barrios" filas={topDe(enSeleccion, (r) => r.barrioHecho, 5)} total={enSeleccion.length} />
+      </div>
     </div>
   );
 }
