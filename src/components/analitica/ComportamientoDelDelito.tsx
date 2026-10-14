@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Card } from '../ui/Card';
 import { TrendChart } from '../charts/TrendChart';
+import { TendenciaAnualChart } from '../charts/TendenciaAnualChart';
 import { useAnalisisMensual } from '../../hooks/useAnalisisMensual';
 import { useData } from '../../context/DataContext';
 import type { BloqueAnalisis } from '../../utils/analisisTendencia';
@@ -34,7 +35,16 @@ function BloqueResumen({ bloque }: { bloque: BloqueAnalisis }) {
   );
 }
 
-type ModoVista = 'mensual' | 'acumulado';
+type ModoVista = 'mensual' | 'acumulado' | 'anual';
+
+// Color fijo por año (el más antiguo morado y el más reciente verde petróleo,
+// como siempre; los intermedios con tonos bien distintos entre sí).
+const COLORES_INTERMEDIOS = ['#0891b2', '#d97706', '#db2777', '#10233f', '#65a30d', '#475569'];
+function colorAnio(i: number, total: number): string {
+  if (i === 0) return '#7c3aed';
+  if (i === total - 1) return '#116762';
+  return COLORES_INTERMEDIOS[(i - 1) % COLORES_INTERMEDIOS.length];
+}
 
 // Checkbox tipo pastilla, mutuamente excluyente con su pareja (funcionan
 // como un selector de modo — nunca los dos activos a la vez) — mismo
@@ -130,7 +140,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
 }) {
   const { todos, mensualConTendencia, analisisMensual, nivelDetalle, datosDiarios, tituloSufijoPeriodo, seriesKeysDiarias } = useAnalisisMensual();
   const { filters } = useData();
-  const modo = 'mensual' as ModoVista;
+  const [modo, setModo] = useState<ModoVista>('mensual');
   const esDiaria = nivelDetalle === 'diaria';
 
   // Título dinámico completo — cambia de "Tendencia mensual" a "Tendencia
@@ -140,13 +150,15 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
   // agosto"). Como este mismo "titulo" es lo que se dibuja en la imagen
   // descargada, la descarga queda con el nombre correcto automáticamente.
   const sufijoDelito = filters.delito.length === 0 ? 'Todos los Delitos' : filters.delito.join(', ');
-  const prefijoTitulo = esDiaria ? 'Tendencia diaria' : titulo;
+  const prefijoTitulo = esDiaria ? 'Tendencia diaria' : modo === 'anual' ? 'Tendencia Anual' : titulo;
   const tituloConDelito = esDiaria
     ? `${prefijoTitulo} — ${sufijoDelito} — ${tituloSufijoPeriodo}`
     : `${prefijoTitulo} — ${sufijoDelito}`;
   const subtituloMostrado = esDiaria
     ? `Comparación día a día contra el mismo periodo de ${todos.length > 0 ? minDe(todos) : ''}`
-    : subtitulo;
+    : modo === 'anual'
+      ? 'Comparación de casos totales por año entre los años seleccionados'
+      : subtitulo;
 
   const seriesKeys = todos.map(String);
   // Checkboxes de año (2025/2026, etc.) — ambos activos por defecto; al
@@ -154,6 +166,13 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
   // (solo se filtra qué series se le pasan a TrendChart).
   const [aniosOcultos, setAniosOcultos] = useState<Set<string>>(new Set());
   const seriesKeysVisibles = seriesKeys.filter((k) => !aniosOcultos.has(k));
+  const coloresSeries = Object.fromEntries(seriesKeys.map((k, i) => [k, colorAnio(i, seriesKeys.length)]));
+  // Totales por año (suma de los meses graficados: mismos datos de la vista mensual).
+  const datosAnuales = seriesKeysVisibles.map((k) => ({
+    anio: k,
+    casos: mensualConTendencia.reduce((a, m) => { const v = (m as Record<string, unknown>)[k]; return a + (typeof v === 'number' ? v : 0); }, 0),
+    color: coloresSeries[k],
+  }));
   const esAcumulado = !esDiaria && modo === 'acumulado';
   const datosGrafica = esAcumulado
     ? construirSerieAcumulada(mensualConTendencia, seriesKeys, ['_tendencia', '_proyeccion'])
@@ -176,7 +195,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
             <CheckboxModo
               key={anio}
               etiqueta={anio}
-              color={anio === String(minDe(todos)) ? '#7c3aed' : '#0f5f57'}
+              color={coloresSeries[anio]}
               activo={!aniosOcultos.has(anio)}
               onClick={() => setAniosOcultos((prev) => {
                 const nuevo = new Set(prev);
@@ -186,7 +205,10 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
               })}
             />
           ))}
-          {/* Botones Mensual / Acumulado quitados a pedido: siempre mensual. */}
+          <div role="radiogroup" aria-label="Vista de la tendencia" className="ml-1 flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            <CheckboxModo tipo="radio" etiqueta="Mensual" activo={modo !== 'anual'} onClick={() => setModo('mensual')} />
+            <CheckboxModo tipo="radio" etiqueta="Anual" activo={modo === 'anual'} onClick={() => setModo('anual')} />
+          </div>
         </div>
       ) : undefined}
     >
@@ -202,13 +224,16 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
         ) : (
           <p className="py-8 text-center text-sm text-slate-400">Selecciona un rango de fechas o un mes válido para ver la comparación diaria.</p>
         )
+      ) : modo === 'anual' ? (
+        <TendenciaAnualChart datos={datosAnuales} height={height} top={Math.min(3, datosAnuales.length)} />
       ) : (
         <>
           <TrendChart
             data={datosGrafica}
             xKey="mes"
             seriesKeys={seriesKeysVisibles}
-            seriesColors={{ [String(minDe(todos))]: '#7c3aed' }}
+            seriesColors={coloresSeries}
+            resaltarMaximos={Math.min(3, mensualConTendencia.length)}
             mostrarLineaTendencia={mostrarTendencia && seriesKeysVisibles.length === seriesKeys.length}
             mostrarValorMensualAlPie={esAcumulado}
             height={height}

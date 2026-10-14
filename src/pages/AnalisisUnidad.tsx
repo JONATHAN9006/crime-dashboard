@@ -391,7 +391,7 @@ export function AnalisisUnidad() {
             <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
               <div className="min-w-0">
                 {accesoTendenciaMensual ? (
-                  <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" mostrarLectura={false} icono={ico(BarChart3)} />
+                  <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia Mensual" subtitulo="Comparación de casos por mes entre los años seleccionados" mostrarLectura={false} icono={ico(BarChart3)} />
                 ) : (
                   <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
                 )}

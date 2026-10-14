@@ -228,12 +228,12 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full bg-white p-[2px] shadow-[0_2px_6px_rgba(0,0,0,0.25)] ring-2 ring-white/20', colapsado ? 'h-10 w-10' : 'h-[50px] w-[50px]')}>
               <img src="/assets/escudo-sidebar.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" draggable={false} />
             </div>
-            {colapsado && <TooltipLateral texto="Análisis Delictivo — MEPOY · Popayán" />}
+            {colapsado && <TooltipLateral texto="Sistema Integral de Información Policial — MEPOY" />}
           </div>
           {!colapsado && (
             <div className="min-w-0 flex-1">
-              <p className="text-[15.5px] font-bold leading-tight text-white">Análisis Delictivo</p>
-              <p className="truncate text-[12.5px] text-emerald-100/80">MEPOY - Popayán</p>
+              <p className="text-[11.5px] font-extrabold uppercase leading-[1.25] tracking-[0.02em] text-white">Sistema Integral de Información Policial</p>
+              <p className="mt-0.5 truncate text-[13px] font-extrabold tracking-[0.04em] text-white">— MEPOY <span className="text-[11.5px] font-medium tracking-normal text-emerald-100/75">· Popayán</span></p>
             </div>
           )}
           {!colapsado && (
@@ -307,7 +307,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.14 · v154" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.14 · v155" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -322,7 +322,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.14 · v154</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.14 · v155</p>
             </div>
           )}
         </div>
