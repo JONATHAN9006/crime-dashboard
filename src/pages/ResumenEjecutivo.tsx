@@ -203,7 +203,7 @@ export function ResumenEjecutivo() {
   const fueraDeTablaDelitos = (k: string) => /SUBVERSIV|^H\.?\s*(CABLE|BICICLETA|CELULAR)/i.test(k.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
 
   const filasTablaDelitos = useMemo(
-    () => filasComparativoMostradas.filter((f) => !fueraDeTablaDelitos(f.key)).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual })),
+    () => filasComparativoMostradas.filter((f) => !fueraDeTablaDelitos(f.key)).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual, totalAnterior: f.totalAnioAnteriorCompleto })),
     [filasComparativoMostradas], // eslint-disable-line react-hooks/exhaustive-deps
   );
 

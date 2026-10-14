@@ -353,7 +353,7 @@ export function AnalisisUnidad() {
               {/* Casos por estación: TABLA (obligatoria) + debajo el recuadro rojo/verde de la meta del 5 %. */}
               <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T} actions={<BotonAporte activo={verAporteEstacion} onChange={setVerAporteEstacion} />}>
                 <TablaComparativaSimple
-                  filas={cmpEstacion.slice(0, 10).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual }))}
+                  filas={cmpEstacion.slice(0, 10).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual, totalAnterior: f.totalAnioAnteriorCompleto }))}
                   etiqueta="Estación"
                   anioAnterior={ventana.anioAnterior}
                   anioActual={ventana.anioActual}
