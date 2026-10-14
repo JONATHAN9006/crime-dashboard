@@ -20,8 +20,10 @@ type Orden = 'impacto_reduccion' | 'impacto_aumento' | 'impacto' | 'ultima' | 'v
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const dd = (d: Date) => String(d.getDate()).padStart(2, '0');
 const rango = (a: Date, b: Date) => (a.getMonth() === b.getMonth() ? `${dd(a)} - ${dd(b)} ${MES[b.getMonth()]}` : `${dd(a)} ${MES[a.getMonth()]} - ${dd(b)} ${MES[b.getMonth()]}`);
-const nombreSemana = (e: string) => e.replace(' (más reciente)', '').replace(/\s*\(\d{4}\)$/, '');
-const numSemana = (e: string) => nombreSemana(e).replace(/^Semana\s+/i, 'S');
+const nombreSemana = (e: string) => e.replace(' (más reciente)', '').replace(/\s*\(\d{4}\)/, '');
+// Rótulo corto: "S39" para semanas del calendario; las de «Últimas 4
+// semanas» (7 días hacia atrás) se rotulan con sus fechas ("15 – 21 sep").
+const numSemana = (e: string) => { const m = nombreSemana(e).match(/^Semana\s+(\d+)/i); return m ? `S${m[1]}` : nombreSemana(e); };
 const signo = (n: number) => (n > 0 ? `+${formatNumero(n)}` : formatNumero(n));
 const pct = (n: number | null) => (n === null ? 'N/A' : `${n > 0 ? '' : ''}${formatDecimal(n, 1)} %`);
 // Estado por el SENTIDO del cambio (como en la imagen: "Estables" = sin cambio).

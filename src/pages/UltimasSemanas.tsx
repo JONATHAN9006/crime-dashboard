@@ -5,7 +5,7 @@ import { useData } from '../context/DataContext';
 import {
   useAnalisisPeriodos, useSemanasDisponibles, useMesesDisponibles, dividirEnSemanas, type PeriodoDef,
 } from '../hooks/useAnalisisPeriodos';
-import { semanaIso, totalCasos } from '../utils/aggregations';
+import { totalCasos } from '../utils/aggregations';
 import { analizarSemanas, detectarRezago } from '../analitica/semanas';
 import { EvolucionSemanal, IconoBarras } from '../components/semanas/EvolucionSemanal';
 import { maxDe } from '../utils/mathSeguro';
@@ -15,6 +15,13 @@ import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
 
 type Modo = 'ultimas4' | 'semanas' | 'mes';
+
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+/** "15 – 21 sep" o "29 sep – 5 oct". */
+function rangoCorto(inicio: Date, fin: Date): string {
+  const mi = MESES_CORTOS[inicio.getMonth()], mf = MESES_CORTOS[fin.getMonth()];
+  return mi === mf ? `${inicio.getDate()} – ${fin.getDate()} ${mf}` : `${inicio.getDate()} ${mi} – ${fin.getDate()} ${mf}`;
+}
 
 export function UltimasSemanas() {
   const { filteredRecords } = useData();
@@ -36,7 +43,7 @@ export function UltimasSemanas() {
 
     if (modo === 'semanas') {
       const elegidas = semanasDisponibles.filter((s) => semanasElegidas.includes(`${s.anio}-${s.semana}`));
-      return elegidas.map((s) => ({ etiqueta: `Semana ${s.semana} (${s.anio})`, inicio: s.inicio, fin: s.fin }));
+      return elegidas.map((s) => ({ etiqueta: `Semana ${s.semana} (${s.anio}) · ${rangoCorto(s.inicio, s.fin)}`, inicio: s.inicio, fin: s.fin }));
     }
     if (modo === 'mes') {
       const mes = mesesDisponibles.find((m) => m.anioMes === mesElegido) ?? mesesDisponibles[mesesDisponibles.length - 1];
@@ -53,7 +60,11 @@ export function UltimasSemanas() {
       inicio.setHours(0, 0, 0, 0);
       const fin = new Date(diaFin.getTime() - offFin * MS_DIA);
       fin.setHours(23, 59, 59, 999);
-      return { etiqueta: `Semana ${semanaIso(fin)}`, inicio, fin };
+      // Bloques de 7 días hacia atrás desde el último dato (NO son semanas
+      // del calendario lunes–domingo): se rotulan con sus fechas reales para
+      // no confundirlos con «Semana 39» de «Elegir semanas», que sí es la
+      // semana del calendario y por eso da cifras distintas.
+      return { etiqueta: rangoCorto(inicio, fin), inicio, fin };
     };
     return [construir(27, 21), construir(20, 14), construir(13, 7), construir(6, 0)];
   }, [modo, filteredRecords, semanasElegidas, semanasDisponibles, mesElegido, mesesDisponibles, corte]);
@@ -232,10 +243,12 @@ export function UltimasSemanas() {
           </div>
 
           <Card
-            title={`Evolución ${modo === 'mes' ? 'semanal dentro del mes' : 'por período'} — Top 5 delitos`}
-            subtitle={unSoloDelito
-              ? 'Cada barra indica el número de semana real del calendario. La semana con más casos se resalta con el recuadro rojo.'
-              : 'Cada barra indica el número de semana real del calendario. El delito con mayor incidencia se resalta automáticamente en rojo.'}
+            title={`Evolución ${modo === 'mes' ? 'semanal dentro del mes' : 'por período'} — ${unSoloDelito ? topDelitosGrafico[0].delito : `Top ${topDelitosGrafico.length} delitos`}`}
+            subtitle={`${modo === 'ultimas4'
+              ? 'Cada barra son 7 días seguidos contados hacia atrás desde el último dato (no la semana lunes–domingo del calendario).'
+              : 'Cada barra es una semana del calendario (lunes a domingo); la última puede estar incompleta si aún no termina.'} ${unSoloDelito
+              ? 'El período con más casos se resalta con el recuadro rojo.'
+              : 'El delito con mayor incidencia se resalta en rojo.'}`}
             descargable="evolucion-top5"
             claseTitulo={tituloTarjeta}
           >
