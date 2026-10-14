@@ -5,11 +5,12 @@ import { useData } from '../context/DataContext';
 import { useKpis } from '../hooks/useKpis';
 import { useVentanaComparativa, useComparativoCategoria } from '../hooks/useComparativoHomologo';
 import { Card, PageHeader, EmptyState } from '../components/ui/Card';
-import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
 import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
 import { contarPor, maximoDe } from '../analitica/cambio';
 import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
 import { TablaOperatividadAgrupada, construirTablaOperatividad } from '../components/resumen/TablaOperatividadAgrupada';
+import { BotonAporte } from '../components/resumen/ComparativoComun';
+import { TablaDelitosAgrupada, construirTablaDelitos } from '../components/resumen/TablaDelitosAgrupada';
 import { esDroga, type UnidadDroga } from '../utils/operatividadConteo';
 import { franjaDeTresHoras } from '../analitica/lectura';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
@@ -134,6 +135,9 @@ export function ResumenEjecutivo() {
   // Droga en la tabla de Operatividad: en kilogramos (como la tabla
   // institucional); el botón g/kg la pasa a gramos.
   const [unidadDroga, setUnidadDroga] = useState<UnidadDroga>('kg');
+  // Columna «Aporte» de las dos tablas: oculta hasta que se pida.
+  const [verAporteDelitos, setVerAporteDelitos] = useState(false);
+  const [verAporteOperatividad, setVerAporteOperatividad] = useState(false);
   // Comparativo de Operatividad (estructura de la tabla institucional):
   // mismos filtros generales que el resto (delito asociado, estación, zona,
   // barrio, categoría), y el periodo: de la fecha inicial (o 1 de enero) a
@@ -192,14 +196,17 @@ export function ResumenEjecutivo() {
   // Aumento/Disminución); la fila TOTAL suma lo que queda visible (100 %
   // cuando se ven todos). Antes era el aporte AL CAMBIO (diferencia del
   // delito ÷ diferencia total), que podía dar negativo o pasar de 100 %.
-  const totalActualDelitos = useMemo(
-    () => comparativoTodosLosDelitos.reduce((a, f) => a + f.actual, 0),
-    [comparativoTodosLosDelitos],
+
+  // Tabla «Comparativo de delitos»: sin H. Cable, H. Bicicletas, H.
+  // Celular ni acciones subversivas (a pedido). Aporte = casos del delito ÷
+  // total del año actual de los delitos de la tabla.
+  const fueraDeTablaDelitos = (k: string) => /SUBVERSIV|^H\.?\s*(CABLE|BICICLETA|CELULAR)/i.test(k.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+
+  const filasTablaDelitos = useMemo(
+    () => filasComparativoMostradas.filter((f) => !fueraDeTablaDelitos(f.key)).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual })),
+    [filasComparativoMostradas], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const filasDelitosConAporte = useMemo(
-    () => filasComparativoMostradas.map((f) => ({ ...f, aportePct: totalActualDelitos > 0 ? (f.actual / totalActualDelitos) * 100 : null })),
-    [filasComparativoMostradas, totalActualDelitos],
-  );
+
   const totalesComparativo = useMemo(() => ({
     actual: comparativoTodosLosDelitos.reduce((a, f) => a + f.actual, 0),
     anterior: comparativoTodosLosDelitos.reduce((a, f) => a + f.anterior, 0),
@@ -259,7 +266,6 @@ export function ResumenEjecutivo() {
   const signo = (n: number) => (n > 0 ? `+${formatNumero(n)}` : formatNumero(n));
   const pctTexto = (n: number | null) => (n === null ? 's/d' : `${n > 0 ? '+' : ''}${formatDecimal(n, 1)} %`);
   const tituloTarjeta = 'text-[16px] font-bold text-[#10233f]';
-  const subtituloAporteDelitos = filasDelitosConAporte.reduce((a, f) => a + (f.aportePct ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -351,16 +357,16 @@ export function ResumenEjecutivo() {
             <div className="flex items-center gap-1.5">
               <FiltroTendenciaBoton activo={aumentoActivo} color="rojo" icono={<TrendingUp size={12} />} etiqueta="Aumento" onClick={() => setAumentoActivo((v) => !v)} />
               <FiltroTendenciaBoton activo={disminucionActivo} color="verde" icono={<TrendingDown size={12} />} etiqueta="Disminución" onClick={() => setDisminucionActivo((v) => !v)} />
+              <BotonAporte activo={verAporteDelitos} onChange={setVerAporteDelitos} />
             </div>
           )}
         >
-          {filasDelitosConAporte.length > 0 ? (
-            <TablaComparativaResumen
-              filas={filasDelitosConAporte}
-              etiqueta="Delito"
+          {filasTablaDelitos.length > 0 ? (
+            <TablaDelitosAgrupada
+              secciones={construirTablaDelitos(filasTablaDelitos, !!delitosPermitidos)}
               anioAnterior={ventana.anioAnterior}
               anioActual={ventana.anioActual}
-              aporteTotal={delitosPermitidos ? `${formatDecimal(subtituloAporteDelitos, 1)}%` : (totalActualDelitos === 0 ? '—' : '100%')}
+              mostrarAporte={verAporteDelitos}
             />
           ) : (
             <p className="py-8 text-center text-sm text-slate-400">
@@ -375,10 +381,15 @@ export function ResumenEjecutivo() {
           descargable="comparativo-operatividad-resumen"
           icono={<Settings size={30} className="text-[#137a6f]" strokeWidth={2.4} />}
           claseTitulo="text-[18px] font-bold text-[#10233f]"
-          actions={operatividadRecords.some(esDroga) ? <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} /> : undefined}
+          actions={(
+            <div className="flex items-center gap-1.5">
+              {operatividadRecords.some(esDroga) && <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />}
+              <BotonAporte activo={verAporteOperatividad} onChange={setVerAporteOperatividad} />
+            </div>
+          )}
         >
           {operatividadRecords.length > 0 ? (
-            <TablaOperatividadAgrupada grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} />
+            <TablaOperatividadAgrupada grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} mostrarAporte={verAporteOperatividad} />
           ) : (
             <p className="py-8 text-center text-sm text-slate-400">Sin datos de Operatividad cargados todavía.</p>
           )}

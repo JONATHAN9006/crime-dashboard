@@ -130,7 +130,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
 }) {
   const { todos, mensualConTendencia, analisisMensual, nivelDetalle, datosDiarios, tituloSufijoPeriodo, seriesKeysDiarias } = useAnalisisMensual();
   const { filters } = useData();
-  const [modo, setModo] = useState<ModoVista>('mensual');
+  const modo = 'mensual' as ModoVista;
   const esDiaria = nivelDetalle === 'diaria';
 
   // Título dinámico completo — cambia de "Tendencia mensual" a "Tendencia
@@ -186,9 +186,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
               })}
             />
           ))}
-          <span className="mx-1 h-4 w-px bg-slate-200" />
-          <CheckboxModo tipo="radio" etiqueta="Mensual" activo={modo === 'mensual'} onClick={() => setModo('mensual')} />
-          <CheckboxModo tipo="radio" etiqueta="Acumulado" activo={modo === 'acumulado'} onClick={() => setModo('acumulado')} />
+          {/* Botones Mensual / Acumulado quitados a pedido: siempre mensual. */}
         </div>
       ) : undefined}
     >

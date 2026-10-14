@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
+import { VariacionPct, claseDif } from './ComparativoComun';
 import type { OperatividadRecord } from '../../types/operatividad';
 import { formatDecimal, formatNumero } from '../../utils/aggregations';
 import { agruparCircunstancia, cuentaComoOperatividad, gramosDroga, tipoOperatividad, type UnidadDroga } from '../../utils/operatividadConteo';
@@ -104,25 +104,17 @@ export function construirTablaOperatividad(registros: OperatividadRecord[], v: V
   return grupos.filter((g) => g.filas.some((f) => f.anterior + f.actual > 0));
 }
 
-function Variacion({ anterior, actual }: { anterior: number; actual: number }) {
-  const dif = actual - anterior;
-  const pct = anterior > 0 ? (dif / anterior) * 100 : null;
-  const Icono = Math.abs(dif) < 1e-9 ? Minus : dif > 0 ? ArrowUp : ArrowDown;
-  const color = Math.abs(dif) < 1e-9 ? 'text-slate-400' : dif > 0 ? 'text-emerald-600' : 'text-rose-600';
-  return (
-    <span className="inline-flex items-center justify-end gap-1">
-      {pct === null ? (actual > 0 ? 'Nuevo' : '—') : `${pct > 0 ? '+' : ''}${formatDecimal(pct, 1)}%`}
-      <Icono size={17} strokeWidth={3} className={color} />
-    </span>
-  );
-}
-
-export function TablaOperatividadAgrupada({ grupos, ventana, unidad }: { grupos: Grupo[]; ventana: VentanaOp; unidad: UnidadDroga }) {
+export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarAporte = false }: { grupos: Grupo[]; ventana: VentanaOp; unidad: UnidadDroga; mostrarAporte?: boolean }) {
+  // Aporte = participación de la fila dentro de su grupo (cada grupo tiene su
+  // propia unidad: capturas, vehículos, kilos de droga…).
+  const aporte = (n: number, total: number) => (total > 0 ? `${formatDecimal((n / total) * 100, 1)}%` : '—');
   const fmt = (n: number, droga?: boolean) => (droga
     ? (unidad === 'kg' ? n / 1000 : n).toLocaleString('es-CO', { maximumFractionDigits: unidad === 'kg' ? 1 : 0 })
     : formatNumero(n));
   const fmtDif = (n: number, droga?: boolean) => `${n > 0 ? '+' : ''}${fmt(n, droga)}`;
   const celda = 'border-b border-slate-200 px-2 py-[7px]';
+  // El aporte va debajo de la cifra del año actual (la tabla ya es ancha).
+  const aporteDebajo = (n: number, total: number) => (mostrarAporte ? <span className="block whitespace-nowrap text-[11.5px] font-semibold text-[#1d4ed8]">{aporte(n, total)} aporte</span> : null);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[600px] table-auto border-separate border-spacing-0 text-[15px]">
@@ -153,17 +145,17 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad }: { grupos:
                   )}
                   <td className={`${celda} font-semibold text-[#10233f]`}>{f.etiqueta}</td>
                   <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.anterior, f.esDroga)}</td>
-                  <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.actual, f.esDroga)}</td>
-                  <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmtDif(f.actual - f.anterior, f.esDroga)}</td>
-                  <td className={`${celda} whitespace-nowrap pr-3 text-right tabular-nums text-[14px] text-slate-600`}><Variacion anterior={f.anterior} actual={f.actual} /></td>
+                  <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.actual, f.esDroga)}{aporteDebajo(f.actual, totAct)}</td>
+                  <td className={`${celda} text-center font-semibold tabular-nums ${claseDif(f.actual - f.anterior, true)}`}>{fmtDif(f.actual - f.anterior, f.esDroga)}</td>
+                  <td className={`${celda} whitespace-nowrap pr-3 text-right text-[14px]`}><VariacionPct anterior={f.anterior} actual={f.actual} subirEsBueno /></td>
                 </tr>
               )),
               <tr key={`${g.titulo}-total`} className="bg-slate-200/70 font-bold text-[#10233f]">
                 <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center text-[13.5px] uppercase">Total</td>
                 <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAnt, g.esDroga)}</td>
-                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAct, g.esDroga)}</td>
-                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmtDif(totAct - totAnt, g.esDroga)}</td>
-                <td className="whitespace-nowrap border-b-2 border-slate-300 py-[7px] pl-2 pr-3 text-right tabular-nums text-[14px]"><Variacion anterior={totAnt} actual={totAct} /></td>
+                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAct, g.esDroga)}{aporteDebajo(totAct, totAct)}</td>
+                <td className={`border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums ${claseDif(totAct - totAnt, true)}`}>{fmtDif(totAct - totAnt, g.esDroga)}</td>
+                <td className="whitespace-nowrap border-b-2 border-slate-300 py-[7px] pl-2 pr-3 text-right text-[14px]"><VariacionPct anterior={totAnt} actual={totAct} subirEsBueno negrita /></td>
               </tr>,
             ];
           })}

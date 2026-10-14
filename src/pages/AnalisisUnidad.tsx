@@ -14,7 +14,7 @@ import { BotonGenerarPdf } from '../components/ui/BotonGenerarPdf';
 import { ProveedorRegistroPdf } from '../context/RegistroPdfContext';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
-import { TablaComparativaResumen } from '../components/resumen/TablaComparativaResumen';
+import { BotonAporte, TablaComparativaSimple } from '../components/resumen/ComparativoComun';
 import { Top5Dona } from '../components/resumen/BloquesResumen';
 import { RankingAporte } from '../components/charts/RankingAporte';
 import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
@@ -62,6 +62,7 @@ export function AnalisisUnidad() {
   const [topDelitos, setTopDelitos] = useState<number | undefined>(10);
   const [topCai, setTopCai] = useState<ValorTop>(10);
   const [topCuadrante, setTopCuadrante] = useState(10);
+  const [verAporteEstacion, setVerAporteEstacion] = useState(false);
   const [topBarrio, setTopBarrio] = useState(10);
   const [topArma, setTopArma] = useState(10);
   const [topModalidad, setTopModalidad] = useState(10);
@@ -342,15 +343,18 @@ export function AnalisisUnidad() {
               </Card>
 
               {/* Casos por estación: TABLA (obligatoria) + debajo el recuadro rojo/verde de la meta del 5 %. */}
-              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T}>
-                <TablaComparativaResumen
-                  filas={cmpEstacion.slice(0, 10)}
+              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T} actions={<BotonAporte activo={verAporteEstacion} onChange={setVerAporteEstacion} />}>
+                <TablaComparativaSimple
+                  filas={cmpEstacion.slice(0, 10).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual }))}
                   etiqueta="Estación"
                   anioAnterior={ventana.anioAnterior}
                   anioActual={ventana.anioActual}
-                  aporteTotal="100%"
-                  compacta
+                  subirEsBueno={false}
+                  mostrarAporte={verAporteEstacion}
+                  totalReferencia={cmpEstacion.reduce((a, f) => a + f.actual, 0)}
                   onRowClick={(key) => drillDown('estacion', key)}
+                  seleccionados={filters.estacion as string[]}
+                  compacta
                 />
                 {proyeccion.disponible && (
                   <div className={`mt-3 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
