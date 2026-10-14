@@ -10,6 +10,12 @@ import { BarChart3, Building2, Clock, Crosshair, Home, Hourglass, MapPin, MapPin
 import type { FilterState } from '../types/crime';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 import { esValorPendiente } from '../utils/valoresPendientes';
+import { GraficoMultifechaDiario, etiquetaPeriodo, type SeriePeriodo } from '../components/charts/GraficoMultifechaDiario';
+import { GroupedBarChart } from '../components/charts/GroupedBarChart';
+import { Top5Dona } from '../components/resumen/BloquesResumen';
+import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
+import { useDistribucionHoraria, useTendenciaDiaSemana } from '../hooks/useTemporalAnalysis';
+import { CalendarDays, LineChart as IconoLinea, Map as IconoMapa, UserRound, Users } from 'lucide-react';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const OPCIONES_TOP = [{ label: 'Top 5', valor: 5 }, { label: 'Top 10', valor: 10 }, { label: 'Todos', valor: undefined as number | undefined }];
@@ -86,6 +92,33 @@ export function ComparativoMultifecha() {
     const filas = Array.from(conteo.entries()).map(([key, casos]) => ({ key, casos, aportePct: total > 0 ? (casos / total) * 100 : 0 })).sort((a, b) => b.casos - a.casos);
     return limite ? filas.slice(0, limite) : filas;
   };
+  // Serie DIARIA de cada periodo (gráfico tipo jornadas).
+  const seriesDiarias: SeriePeriodo[] = useMemo(() => periodos.map((p, i) => {
+    if (!p.fechaInicial || !p.fechaFinal) return { id: p.id, etiqueta: `Periodo ${i + 1}`, total: 0, dias: [] };
+    const [ai, mi, di] = p.fechaInicial.split('-').map(Number);
+    const [af, mf, df] = p.fechaFinal.split('-').map(Number);
+    const inicio = new Date(ai, mi - 1, di);
+    const fin = new Date(af, mf - 1, df);
+    const clave = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const conteo = new Map<string, number>();
+    for (const r of porPeriodo[i] ?? []) {
+      if (!r.fecha) continue;
+      const k = clave(new Date(r.fecha));
+      conteo.set(k, (conteo.get(k) ?? 0) + 1);
+    }
+    const dias: { fecha: Date; casos: number }[] = [];
+    for (let d = new Date(inicio); d <= fin && dias.length < 400; d.setDate(d.getDate() + 1)) dias.push({ fecha: new Date(d), casos: conteo.get(clave(d)) ?? 0 });
+    return { id: p.id, etiqueta: etiquetaPeriodo(inicio, fin), total: porPeriodo[i]?.length ?? 0, dias };
+  }), [periodos, porPeriodo]);
+  const sufijoDelito = filters.delito.length === 0 ? 'Todos los Delitos' : filters.delito.join(', ');
+  // Componentes de abajo (mismos de Delictividad por Unidad) sobre los periodos.
+  const diaSemana = useTendenciaDiaSemana(unionPeriodos);
+  const porHora = useDistribucionHoraria(unionPeriodos);
+  const urbanoRural = useUrbanoRural(unionPeriodos);
+  const porGenero = useRanking(unionPeriodos, (r) => r.genero, 10);
+  const porGrupoEdad = useRanking(unionPeriodos, (r) => r.grupoEdad, 10);
+  const totalDe = (filas: { casos: number }[]) => filas.reduce((a, f) => a + f.casos, 0);
+  const COLORES_DONA = ['#10233f', '#159089', '#f97316', '#8a86da', '#a3acb9'];
   const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
   const [tops, setTops] = useState<Record<string, number | undefined>>({});
   const topDe = (id: string, defecto: number | undefined = 10) => (id in tops ? tops[id] : defecto);
@@ -143,6 +176,16 @@ export function ComparativoMultifecha() {
         ))}
       </div>
 
+      <Card
+        title={`Comportamiento diario por periodo — ${sufijoDelito}`}
+        subtitle="Casos por día en cada periodo · rojo: día con más casos del periodo · franja amarilla: promedio diario"
+        descargable="multifecha-diario"
+        icono={ico(IconoLinea)}
+        claseTitulo={T}
+      >
+        <GraficoMultifechaDiario series={seriesDiarias} />
+      </Card>
+
       {/* Consolidado de todos los periodos — mismas tarjetas de Delictividad por Unidad */}
       <div>
         <p className="mb-2 text-[15px] font-extrabold text-[#10233f]">Análisis consolidado de los periodos</p>
@@ -160,6 +203,24 @@ export function ComparativoMultifecha() {
           <TarjetaConsolidada id="sitio" titulo="Clase de sitio" icono={ico(Store)} cabeza="Clase de sitio" campo="claseSitio" getter={(r) => r.claseSitio} defecto={5} />
           <TarjetaConsolidada id="causa" titulo="Causa de lesión" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} cabeza="Causa" campo="causaLesion" getter={(r) => r.causaLesion} defecto={5} />
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3 2xl:grid-cols-[0.8fr_0.8fr_0.8fr_1.4fr_2.2fr]">
+        <Card className="h-full" title="Zonas con mayor concentración" descargable="multifecha-zonas" icono={ico(IconoMapa)} claseTitulo={T}>
+          <Top5Dona filas={urbanoRural} total={totalDe(urbanoRural)} colores={COLORES_DONA} compacta />
+        </Card>
+        <Card className="h-full" title="Distribución por género" descargable="multifecha-genero" icono={ico(Users)} claseTitulo={T}>
+          <Top5Dona filas={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} total={totalDe(porGenero)} colores={COLORES_DONA} compacta />
+        </Card>
+        <Card className="h-full" title="Distribución por grupo de edad" descargable="multifecha-edad" icono={ico(UserRound)} claseTitulo={T}>
+          <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={totalDe(porGrupoEdad)} colores={COLORES_DONA} compacta />
+        </Card>
+        <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan" descargable="multifecha-dia-semana" icono={ico(CalendarDays)} claseTitulo={T}>
+          <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={10.5} espaciadoCategoria={0.32} ocultarEjeY abreviarEtiquetas ocultarLeyendaBarras lineaReferencia="tendencia" />
+        </Card>
+        <Card className="h-full md:col-span-3 2xl:col-span-1" title="Concentración horaria" subtitle="Las 3 horas con más casos se resaltan" descargable="multifecha-horaria" icono={ico(Clock)} claseTitulo={T}>
+          <GroupedBarChart data={porHora} xKey="hora" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra tamanoEtiqueta={9} ocultarEjeY ocultarLeyendaBarras lineaReferencia="promedio3" />
+        </Card>
       </div>
     </div>
   );
