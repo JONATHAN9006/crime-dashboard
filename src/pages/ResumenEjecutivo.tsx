@@ -9,7 +9,8 @@ import { TablaComparativaResumen } from '../components/resumen/TablaComparativaR
 import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
 import { contarPor, maximoDe } from '../analitica/cambio';
 import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
-import { cuentaComoOperatividad, esDroga, formatearDroga, gramosDroga, tipoOperatividad, type UnidadDroga } from '../utils/operatividadConteo';
+import { TablaOperatividadAgrupada, construirTablaOperatividad } from '../components/resumen/TablaOperatividadAgrupada';
+import { esDroga, type UnidadDroga } from '../utils/operatividadConteo';
 import { franjaDeTresHoras } from '../analitica/lectura';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
 
@@ -59,8 +60,6 @@ export function ResumenEjecutivo() {
   // función.
   const [aumentoActivo, setAumentoActivo] = useState(false);
   const [disminucionActivo, setDisminucionActivo] = useState(false);
-  const [aumentoActivoOperatividad, setAumentoActivoOperatividad] = useState(false);
-  const [disminucionActivoOperatividad, setDisminucionActivoOperatividad] = useState(false);
 
   // "Total general de casos": siempre la vigencia MÁS RECIENTE (2026 al
   // momento de escribir esto, calculado dinámicamente para que siga siendo
@@ -132,14 +131,35 @@ export function ResumenEjecutivo() {
   // cargó el archivo de 2025 (modo "Agregar" en Operatividad).
   // Ventana de Operatividad — misma lógica que Delictividad, pero sobre SU
   // PROPIA última fecha (puede no coincidir con la de Delictividad).
-  const ventanaOperatividad = useMemo(() => {
-    const conFecha = operatividadRecords.filter((r): r is typeof r & { fecha: Date } => r.fecha != null);
-    const fechaMax = conFecha.length > 0 ? conFecha.reduce((max, r) => (r.fecha > max ? r.fecha : max), conFecha[0].fecha) : new Date();
-    const anioActual = fechaMax.getFullYear();
-    const anioAnterior = anioActual - 1;
-    return { conFecha, fechaMax, anioActual, anioAnterior, cutoffAnterior: new Date(anioAnterior, fechaMax.getMonth(), fechaMax.getDate()) };
-  }, [operatividadRecords]);
-  const [unidadDroga, setUnidadDroga] = useState<UnidadDroga>('g');
+  // Droga en la tabla de Operatividad: en kilogramos (como la tabla
+  // institucional); el botón g/kg la pasa a gramos.
+  const [unidadDroga, setUnidadDroga] = useState<UnidadDroga>('kg');
+  // Comparativo de Operatividad (estructura de la tabla institucional):
+  // mismos filtros generales que el resto (delito asociado, estación, zona,
+  // barrio, categoría), y el periodo: de la fecha inicial (o 1 de enero) a
+  // la fecha final (o el último dato), frente al MISMO tramo del año
+  // anterior.
+  const ventanaOpTabla = useMemo(() => {
+    const conFecha = operatividadRecords.filter((r) => r.fecha);
+    const maxTs = conFecha.length > 0 ? Math.max(...conFecha.map((r) => r.fecha!.getTime())) : new Date().getTime();
+    const fin = filters.fechaFinal ? new Date(`${filters.fechaFinal}T23:59:59`) : new Date(maxTs);
+    fin.setHours(23, 59, 59, 999);
+    const anioActual = fin.getFullYear();
+    const inicio = filters.fechaInicial ? new Date(`${filters.fechaInicial}T00:00:00`) : new Date(anioActual, 0, 1);
+    const unAnioAntes = (d: Date) => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return x; };
+    return { inicio, fin, inicioAnt: unAnioAntes(inicio), finAnt: unAnioAntes(fin), anioActual, anioAnterior: anioActual - 1 };
+  }, [operatividadRecords, filters.fechaInicial, filters.fechaFinal]);
+  const gruposOperatividad = useMemo(() => {
+    const base = operatividadRecords.filter((r) => {
+      if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
+      if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
+      if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
+      if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;
+      return true;
+    });
+    return construirTablaOperatividad(base, ventanaOpTabla);
+  }, [operatividadRecords, filters, ventanaOpTabla]);
 
   // Cuadrantes y barrios críticos: del MISMO periodo que el resto del
   // Resumen (vigencia actual con los filtros), sin "No reportado" ni
@@ -351,68 +371,14 @@ export function ResumenEjecutivo() {
 
         <Card
           title="Comparativo de Operatividad"
-          subtitle={`${ventanaOperatividad.anioAnterior} vs. ${ventanaOperatividad.anioActual}, por categoría`}
+          subtitle={`${ventanaOpTabla.inicio.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} – ${ventanaOpTabla.fin.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}: ${ventanaOpTabla.anioAnterior} vs. ${ventanaOpTabla.anioActual}`}
           descargable="comparativo-operatividad-resumen"
           icono={<Settings size={30} className="text-[#137a6f]" strokeWidth={2.4} />}
           claseTitulo="text-[18px] font-bold text-[#10233f]"
-          actions={(
-            <div className="flex items-center gap-1.5">
-              {operatividadRecords.some(esDroga) && <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />}
-              <FiltroTendenciaBoton activo={aumentoActivoOperatividad} color="verde" icono={<TrendingUp size={12} />} etiqueta="Aumento" onClick={() => setAumentoActivoOperatividad((v) => !v)} />
-              <FiltroTendenciaBoton activo={disminucionActivoOperatividad} color="rojo" icono={<TrendingDown size={12} />} etiqueta="Disminución" onClick={() => setDisminucionActivoOperatividad((v) => !v)} />
-            </div>
-          )}
+          actions={operatividadRecords.some(esDroga) ? <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} /> : undefined}
         >
           {operatividadRecords.length > 0 ? (
-            (() => {
-              // Ventana propia de Operatividad (año anterior "a la misma
-              // fecha", Total año anterior completo). Conteo como las tablas
-              // dinámicas oficiales (utils/operatividadConteo): Capturas =
-              // cuenta de DELITO_ASOCIADO, Automotores/Motos/Armas = cuenta
-              // de CLASE_BIEN, Mercancía = cuenta de TIPO_BIEN y Droga = suma
-              // de CANTIDAD (gramos, botón g/kg). La droga se muestra pero NO
-              // entra al TOTAL ni al APORTE % (= participación de cada
-              // categoría en el total del año actual).
-              const { conFecha, anioActual: anioActualOp, anioAnterior: anioAnteriorOp, cutoffAnterior: cutoffAnteriorOp } = ventanaOperatividad;
-              const valor = (r: (typeof operatividadRecords)[number]) => (esDroga(r) ? gramosDroga(r) : cuentaComoOperatividad(r) ? 1 : 0);
-              const sumar = (lista: typeof operatividadRecords) => lista.reduce((a, r) => a + valor(r), 0);
-              const categorias = Array.from(new Set(operatividadRecords.map((r) => r.categoria || 'SIN CATEGORÍA')));
-              const filas = categorias.map((cat) => {
-                const droga = tipoOperatividad(cat) === 'droga';
-                const actual = sumar(operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioActualOp));
-                const anteriorALaFecha = sumar(conFecha.filter((r) => r.categoria === cat && r.fecha.getFullYear() === anioAnteriorOp && r.fecha <= cutoffAnteriorOp));
-                const anteriorCompleto = sumar(operatividadRecords.filter((r) => r.categoria === cat && r.anio === anioAnteriorOp));
-                const diferencia = actual - anteriorALaFecha;
-                const variacionPct = anteriorALaFecha > 0 ? (diferencia / anteriorALaFecha) * 100 : (actual > 0 ? 100 : null);
-                return {
-                  key: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase(), actual, anterior: anteriorALaFecha, diferencia, variacionPct,
-                  aportePct: 0 as number | null, totalAnioAnteriorCompleto: anteriorCompleto,
-                  excluirDelTotal: droga, formato: droga ? (n: number) => formatearDroga(n, unidadDroga) : undefined,
-                };
-              }).filter((f) => f.actual > 0 || f.anterior > 0 || f.totalAnioAnteriorCompleto > 0).sort((a, b) => Number(!!a.excluirDelTotal) - Number(!!b.excluirDelTotal) || b.actual - a.actual);
-              const totalActual = filas.filter((f) => !f.excluirDelTotal).reduce((a, f) => a + f.actual, 0);
-              const filasConAporte = filas.map((f) => ({ ...f, aportePct: f.excluirDelTotal ? null : totalActual > 0 ? (f.actual / totalActual) * 100 : 0 }));
-              const filasFiltradas = filasConAporte.filter((f) => {
-                if (!aumentoActivoOperatividad && !disminucionActivoOperatividad) return true;
-                if (aumentoActivoOperatividad && f.diferencia > 0) return true;
-                if (disminucionActivoOperatividad && f.diferencia < 0) return true;
-                return false;
-              });
-              const sumaVisible = filasFiltradas.reduce((a, f) => a + (f.aportePct ?? 0), 0);
-              return filasFiltradas.length > 0 ? (
-                <TablaComparativaResumen
-                  filas={filasFiltradas}
-                  etiqueta="Categoría"
-                  anioAnterior={anioAnteriorOp}
-                  anioActual={anioActualOp}
-                  invertirColores
-                  alinearNombre="center"
-                  aporteTotal={`${formatDecimal(sumaVisible, sumaVisible > 99.95 ? 0 : 1)}%`}
-                />
-              ) : (
-                <p className="py-8 text-center text-sm text-slate-400">Ninguna categoría coincide con el filtro seleccionado.</p>
-              );
-            })()
+            <TablaOperatividadAgrupada grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} />
           ) : (
             <p className="py-8 text-center text-sm text-slate-400">Sin datos de Operatividad cargados todavía.</p>
           )}
