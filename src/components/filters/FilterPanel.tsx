@@ -60,7 +60,13 @@ export function FilterPanel() {
   const [mostrarAdicionales, setMostrarAdicionales] = useState(false);
   const fechaInicialRef = useRef<HTMLInputElement>(null);
 
-  const anios = useMemo(() => uniqueSorted(records, (r) => String(r.anio ?? '')).filter(Boolean), [records]);
+  // Años de delitos Y de operatividad (el histórico de cada uno se puede subir por separado).
+  const anios = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of records) if (r.anio) set.add(String(r.anio));
+    for (const r of operatividadRecords) if (r.anio) set.add(String(r.anio));
+    return Array.from(set).sort();
+  }, [records, operatividadRecords]);
   const meses = useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1)), []);
   const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const etiquetasMeses = useMemo(() => Object.fromEntries(meses.map((m) => [m, nombresMeses[Number(m) - 1]])), [meses]);

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { maxDe } from '../utils/mathSeguro';
 import { useData } from '../context/DataContext';
 import {
   Bike, Boxes, Building2, Car, ChartPie, ClipboardList, Clock, Crosshair, FileBadge, Gavel, Globe, House,
@@ -85,7 +86,7 @@ export function OperatividadUnidad() {
     if (filters.anio.length > 0) return filteredOperatividadRecords;
     const conFecha = filteredOperatividadRecords.filter((r): r is typeof r & { anio: number } => r.anio != null);
     if (conFecha.length === 0) return filteredOperatividadRecords;
-    const anioMasReciente = Math.max(...conFecha.map((r) => r.anio));
+    const anioMasReciente = maxDe(conFecha.map((r) => r.anio));
     return filteredOperatividadRecords.filter((r) => r.anio === anioMasReciente);
   }, [filteredOperatividadRecords, filters.anio]);
 
