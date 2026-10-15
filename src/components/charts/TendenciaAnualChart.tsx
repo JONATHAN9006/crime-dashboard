@@ -49,17 +49,23 @@ function CapaTopAnios({ datos, top }: { datos: PuntoAnual[]; top: number }) {
   );
 }
 
-function techoBonito(v: number): number {
-  if (v <= 5) return 5;
-  const base = 10 ** Math.floor(Math.log10(v));
-  const paso = v / base > 5 ? base : v / base > 2 ? base / 2 : base / 5;
-  return Math.ceil(v / paso) * paso;
+// Eje Y con divisiones redondas (0, 200, 400, 600, 800…).
+function ejeBonito(v: number): { techo: number; ticks: number[] } {
+  const crudo = Math.max(1, v) / 4;
+  const base = 10 ** Math.floor(Math.log10(crudo));
+  const paso = [1, 2, 2.5, 5, 10].map((m) => m * base).find((p) => p >= crudo) ?? 10 * base;
+  const techo = Math.ceil(v / paso) * paso;
+  const ticks: number[] = [];
+  for (let t = 0; t <= techo + 1e-9; t += paso) ticks.push(Math.round(t));
+  return { techo, ticks };
 }
+
 
 export function TendenciaAnualChart({ datos, height = 300, top = 3 }: { datos: PuntoAnual[]; height?: number; top?: number }) {
   const linea = tendenciaLineal(datos.map((d) => d.casos));
   const data = datos.map((d, i) => ({ ...d, _tendencia: Math.round(linea[i] * 10) / 10 }));
   const max = Math.max(1, ...datos.map((d) => d.casos));
+  const ejeY = ejeBonito(max * 1.32);
   return (
     <div>
       {/* Leyenda para la imagen descargada (ver exportarImagen.ts). */}
@@ -70,7 +76,7 @@ export function TendenciaAnualChart({ datos, height = 300, top = 3 }: { datos: P
         <ComposedChart data={data} margin={{ top: 46, right: 16, left: 4, bottom: 4 }} barCategoryGap="28%">
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
           <XAxis dataKey="anio" tick={{ fontSize: 12.5, fill: '#334155', fontWeight: 600 }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
-          <YAxis domain={[0, techoBonito(max * 1.32)]} tickCount={5} allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} width={40} />
+          <YAxis domain={[0, ejeY.techo]} ticks={ejeY.ticks} allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} width={40} />
           <Tooltip
             cursor={{ fill: '#f1f5f9' }}
             contentStyle={{ borderRadius: 8, fontSize: 13, border: '1px solid #e2e8f0' }}

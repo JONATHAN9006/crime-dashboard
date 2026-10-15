@@ -1,11 +1,12 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { desplazarAnios, useVentanaComparativa } from '../../hooks/useComparativoHomologo';
+import { MESES_NOMBRES } from '../../utils/aggregations';
 import { Card } from '../ui/Card';
 import { TrendChart } from '../charts/TrendChart';
 import { TendenciaAnualChart } from '../charts/TendenciaAnualChart';
 import { useAnalisisMensual } from '../../hooks/useAnalisisMensual';
 import { useData } from '../../context/DataContext';
 import type { BloqueAnalisis } from '../../utils/analisisTendencia';
-import { minDe } from '../../utils/mathSeguro';
 
 // Color del encabezado de cada bloque según su emoji — mismo código de
 // colores que ya usa el resto del dashboard para "favorable/desfavorable/
@@ -138,49 +139,91 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
   titulo?: string;
   subtitulo?: string;
 }) {
-  const { todos, mensualConTendencia, analisisMensual, nivelDetalle, datosDiarios, tituloSufijoPeriodo, seriesKeysDiarias } = useAnalisisMensual();
-  const { filters } = useData();
+  const { mensualConTendencia, analisisMensual } = useAnalisisMensual();
+  const { filters, records, recordsBase, meta } = useData();
   const [modo, setModo] = useState<ModoVista>('mensual');
-  const esDiaria = nivelDetalle === 'diaria';
+  // Siempre la misma vista (mensual o anual) — con Fecha inicial/final ya no
+  // se cambia a «Tendencia diaria»: el rango define el periodo evaluable.
+  const esDiaria = false;
 
-  // Título dinámico completo — cambia de "Tendencia mensual" a "Tendencia
-  // diaria" automáticamente según el nivel de detalle (ver
-  // useAnalisisMensual), y agrega el periodo exacto al final SOLO en modo
-  // diario (ej. "Tendencia diaria — H. Personas — 15 de junio al 31 de
-  // agosto"). Como este mismo "titulo" es lo que se dibuja en la imagen
-  // descargada, la descarga queda con el nombre correcto automáticamente.
+  // PERIODO EVALUABLE (regla única del dashboard, ver calcularVentanaFechas):
+  // el periodo del año actual (ej. 1 ene – 11 oct de 2026, o el rango de
+  // fechas elegido) y, para CADA año mostrado, ese MISMO periodo corrido a
+  // su año. Si los años elegidos ya cerraron (ej. 2024 y 2025), son años
+  // completos. Nada de «2025 completo contra 2026 a la fecha».
+  const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
+  const aniosMostrados = useMemo(() => {
+    if (filters.anio.length > 0) return [...filters.anio].map(Number).sort((a, b) => a - b);
+    return ventana.disponible ? [ventana.anioAnterior, ventana.anioActual] : [];
+  }, [filters.anio, ventana]);
+  const rangoDe = (anio: number) => {
+    const salto = ventana.anioActual - anio;
+    const ini = desplazarAnios(ventana.actualInicio, salto);
+    ini.setHours(0, 0, 0, 0);
+    const fin = desplazarAnios(ventana.actualFin, salto);
+    fin.setHours(23, 59, 59, 999);
+    return { ini, fin };
+  };
+  const { mensualPeriodo, totalesPeriodo } = useMemo(() => {
+    const filas = Array.from({ length: 12 }, (_, i) => ({ mes: MESES_NOMBRES[i], mesIndex: i + 1 } as Record<string, any>));
+    const totales: Record<string, number> = {};
+    const mesesConDatos = new Set<number>();
+    if (!ventana.disponible) return { mensualPeriodo: [] as Record<string, any>[], totalesPeriodo: totales };
+    for (const anio of aniosMostrados) {
+      const { ini, fin } = rangoDe(anio);
+      const k = String(anio);
+      totales[k] = 0;
+      // Meses que toca el periodo (en 0 aunque no haya casos).
+      for (let d = new Date(ini.getFullYear(), ini.getMonth(), 1); d <= fin; d.setMonth(d.getMonth() + 1)) {
+        if (d.getFullYear() === ini.getFullYear() || d.getFullYear() === fin.getFullYear()) {
+          filas[d.getMonth()][k] = filas[d.getMonth()][k] ?? 0;
+          mesesConDatos.add(d.getMonth());
+        }
+      }
+      for (const r of recordsBase) {
+        if (!r.fecha || r.fecha < ini || r.fecha > fin) continue;
+        const m = r.fecha.getMonth();
+        filas[m][k] = (filas[m][k] ?? 0) + 1;
+        totales[k] += 1;
+      }
+    }
+    // Tendencia / proyección del año actual (mismo cálculo de siempre).
+    const tend = new Map(mensualConTendencia.map((m) => [(m as Record<string, any>).mes, m]));
+    for (const f of filas) {
+      const t = tend.get(f.mes) as Record<string, any> | undefined;
+      f._tendencia = t?._tendencia ?? null;
+      f._proyeccion = t?._proyeccion ?? null;
+    }
+    const visibles = filas.filter((f, i) => mesesConDatos.has(i) || f._proyeccion != null);
+    return { mensualPeriodo: visibles, totalesPeriodo: totales };
+  }, [aniosMostrados, ventana, recordsBase, mensualConTendencia]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fmtCorto = (d: Date) => `${d.getDate()} ${MESES_NOMBRES[d.getMonth()].slice(0, 3).toLowerCase()}`;
+  const textoPeriodo = ventana.disponible
+    ? `${fmtCorto(ventana.actualInicio)} – ${fmtCorto(ventana.actualFin)} de cada año`
+    : '';
+
   const sufijoDelito = filters.delito.length === 0 ? 'Todos los Delitos' : filters.delito.join(', ');
-  const prefijoTitulo = esDiaria ? 'Tendencia diaria' : modo === 'anual' ? 'Tendencia Anual' : titulo;
-  const tituloConDelito = esDiaria
-    ? `${prefijoTitulo} — ${sufijoDelito} — ${tituloSufijoPeriodo}`
-    : `${prefijoTitulo} — ${sufijoDelito}`;
-  const subtituloMostrado = esDiaria
-    ? `Comparación día a día contra el mismo periodo de ${todos.length > 0 ? minDe(todos) : ''}`
-    : modo === 'anual'
-      ? 'Comparación de casos totales por año entre los años seleccionados'
-      : subtitulo;
+  const prefijoTitulo = modo === 'anual' ? 'Tendencia Anual' : titulo;
+  const tituloConDelito = `${prefijoTitulo} — ${sufijoDelito}`;
+  const subtituloMostrado = `${modo === 'anual' ? 'Casos totales por año' : 'Casos por mes'} · mismo periodo evaluable: ${textoPeriodo}`;
+  void subtitulo;
 
-  const seriesKeys = todos.map(String);
-  // Checkboxes de año (2025/2026, etc.) — ambos activos por defecto; al
-  // desmarcar uno, su línea desaparece de la gráfica sin recalcular nada
-  // (solo se filtra qué series se le pasan a TrendChart).
+  const seriesKeys = aniosMostrados.map(String);
   const [aniosOcultos, setAniosOcultos] = useState<Set<string>>(new Set());
   const seriesKeysVisibles = seriesKeys.filter((k) => !aniosOcultos.has(k));
   const coloresSeries = Object.fromEntries(seriesKeys.map((k, i) => [k, colorAnio(i, seriesKeys.length)]));
-  // Totales por año (suma de los meses graficados: mismos datos de la vista mensual).
-  const datosAnuales = seriesKeysVisibles.map((k) => ({
-    anio: k,
-    casos: mensualConTendencia.reduce((a, m) => { const v = (m as Record<string, unknown>)[k]; return a + (typeof v === 'number' ? v : 0); }, 0),
-    color: coloresSeries[k],
-  }));
+  // Totales por año: SOLO el periodo evaluable de cada año.
+  const datosAnuales = seriesKeysVisibles.map((k) => ({ anio: k, casos: totalesPeriodo[k] ?? 0, color: coloresSeries[k] }));
   const esAcumulado = !esDiaria && modo === 'acumulado';
   const datosGrafica = esAcumulado
-    ? construirSerieAcumulada(mensualConTendencia, seriesKeys, ['_tendencia', '_proyeccion'])
-    : mensualConTendencia;
+    ? construirSerieAcumulada(mensualPeriodo, seriesKeys, ['_tendencia', '_proyeccion'])
+    : mensualPeriodo;
   // La tendencia/proyección se ajustó sobre TOTALES MENSUALES (ver
   // analisisTendencia.ts) — no tiene sentido mostrarla superpuesta en la
   // vista diaria, cuya escala y agregación son completamente distintas.
-  const mostrarTendencia = !esDiaria && !!analisisMensual.tendenciaGeneral.lineaTendencia;
+  const periodoPorDefecto = !filters.fechaInicial && !filters.fechaFinal && filters.mes.length === 0;
+  const mostrarTendencia = !esDiaria && periodoPorDefecto && !!analisisMensual.tendenciaGeneral.lineaTendencia;
 
   return (
     <Card
@@ -212,19 +255,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
         </div>
       ) : undefined}
     >
-      {esDiaria ? (
-        datosDiarios.length > 0 ? (
-          <TrendChart
-            data={datosDiarios}
-            xKey="dia"
-            seriesKeys={seriesKeysDiarias}
-            seriesColors={{ [seriesKeysDiarias[0]]: '#7c3aed' }}
-            height={height}
-          />
-        ) : (
-          <p className="py-8 text-center text-sm text-slate-400">Selecciona un rango de fechas o un mes válido para ver la comparación diaria.</p>
-        )
-      ) : modo === 'anual' ? (
+      {modo === 'anual' ? (
         <TendenciaAnualChart datos={datosAnuales} height={height} top={Math.min(3, datosAnuales.length)} />
       ) : (
         <>
@@ -233,7 +264,7 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
             xKey="mes"
             seriesKeys={seriesKeysVisibles}
             seriesColors={coloresSeries}
-            resaltarMaximos={Math.min(3, mensualConTendencia.length)}
+            resaltarMaximos={Math.min(3, mensualPeriodo.length)}
             mostrarLineaTendencia={mostrarTendencia && seriesKeysVisibles.length === seriesKeys.length}
             mostrarValorMensualAlPie={esAcumulado}
             height={height}

@@ -31,7 +31,7 @@ function dentroDeRango(fecha: Date | null, inicio: Date, fin: Date): boolean {
 // Corre el año hacia atrás manteniendo mes/día (maneja 29 de febrero cayendo al 28).
 
 /** Corre una fecha N años hacia atrás (29 de febrero → 28 de febrero). */
-function desplazarAnios(fecha: Date, anios: number): Date {
+export function desplazarAnios(fecha: Date, anios: number): Date {
   const d = new Date(fecha);
   const mes = d.getMonth();
   d.setFullYear(d.getFullYear() - anios);
