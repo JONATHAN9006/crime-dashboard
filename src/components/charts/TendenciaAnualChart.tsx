@@ -30,7 +30,7 @@ function CapaTopAnios({ datos, top }: { datos: PuntoAnual[]; top: number }) {
   const ranking = [...datos].filter((d) => d.casos > 0).sort((a, b) => b.casos - a.casos).slice(0, top);
   return (
     <g>
-      {ranking.map((d, i) => {
+      {ranking.map((d) => {
         const idx = datos.findIndex((x) => x.anio === d.anio);
         const yv = yScale(d.casos);
         if (idx < 0 || typeof yv !== 'number') return null;
@@ -40,8 +40,6 @@ function CapaTopAnios({ datos, top }: { datos: PuntoAnual[]; top: number }) {
         return (
           <g key={d.anio}>
             <rect x={centro - ancho / 2} y={yTop} width={ancho} height={yAbajo - yTop + 4} rx={7} fill="#ef4444" fillOpacity={0.05} stroke="#dc2626" strokeWidth={1.5} strokeDasharray="6 4" />
-            <circle cx={centro} cy={yTop} r={12} fill="#dc2626" stroke="#fff" strokeWidth={2} />
-            <text x={centro} y={yTop + 4.5} textAnchor="middle" fontSize={13} fontWeight={800} fill="#fff">{i + 1}</text>
           </g>
         );
       })}

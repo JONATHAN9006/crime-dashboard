@@ -227,12 +227,9 @@ function CapaMaximosMes({ data, xKey, seriesKeys, top }: { data: Record<string, 
   const xScale = useXAxisScale();
   const area = usePlotArea();
   if (!xScale || !area || top <= 0) return null;
-  const yArriba = area.y;
-  const yAbajo = area.y + area.height;
   const xs = data.map((f) => xScale(f[xKey])).filter((v): v is number => typeof v === 'number').sort((a, b) => a - b);
   let paso = 60;
   for (let i = 1; i < xs.length; i++) paso = Math.min(paso, xs[i] - xs[i - 1]);
-  const ancho = Math.max(18, paso * 0.7);
   const maximos = data
     .map((f) => {
       let mejor: { anio: string; valor: number } | null = null;
@@ -245,23 +242,13 @@ function CapaMaximosMes({ data, xKey, seriesKeys, top }: { data: Record<string, 
     .filter((m): m is { etiqueta: string; x: number; anio: string; valor: number } => !!m && typeof m.x === 'number')
     .sort((a, b) => b.valor - a.valor)
     .slice(0, top);
-  const compacto = paso < 96;
-  // Ancho del rótulo: nunca más que la separación entre meses (no se montan).
-  const anchoRotulo = compacto ? Math.max(40, Math.min(70, paso - 4)) : 92;
-  const muyAngosto = anchoRotulo < 62;
-  const dentro = (x: number, w: number) => Math.min(Math.max(x, area.x + w / 2), area.x + area.width - w / 2);
+  const ancho = Math.max(18, paso * 0.7);
+  const dentro = (x: number) => Math.min(Math.max(x, area.x + ancho / 2), area.x + area.width - ancho / 2);
+  // Solo la franja roja punteada (sin rótulo rojo encima, a pedido).
   return (
     <g>
       {maximos.map((m) => (
-        <g key={m.etiqueta}>
-          <rect x={dentro(m.x, ancho) - ancho / 2} y={yArriba} width={ancho} height={yAbajo - yArriba} rx={4} fill="#ef4444" fillOpacity={0.07} stroke="#dc2626" strokeWidth={1.4} strokeDasharray="5 3" />
-          <g transform={`translate(${dentro(m.x, anchoRotulo)}, ${yArriba - 4})`}>
-            <rect x={-anchoRotulo / 2} y={-46} width={anchoRotulo} height={44} rx={5} fill="#dc2626" />
-            <text textAnchor="middle" y={-33} fontSize={compacto ? 10.5 : 11.5} fontWeight={700} fill="#fff">{compacto ? m.etiqueta.slice(0, 3) : m.etiqueta}</text>
-            <text textAnchor="middle" y={-20} fontSize={compacto ? 10 : 11} fontWeight={700} fill="#fff">{formatNumero(m.valor)}{muyAngosto ? '' : m.valor === 1 ? ' caso' : ' casos'}</text>
-            <text textAnchor="middle" y={-8} fontSize={compacto ? 9.5 : 10.5} fontWeight={600} fill="#fee2e2">{compacto ? (muyAngosto ? m.anio : `máx. ${m.anio}`) : `(máximo ${m.anio})`}</text>
-          </g>
-        </g>
+        <rect key={m.etiqueta} x={dentro(m.x) - ancho / 2} y={area.y} width={ancho} height={area.height} rx={4} fill="#ef4444" fillOpacity={0.07} stroke="#dc2626" strokeWidth={1.4} strokeDasharray="5 3" />
       ))}
     </g>
   );
@@ -316,7 +303,7 @@ export function TrendChart({ data, xKey, seriesKeys, height = 300, mostrarValore
         {mostrarLineaTendencia && <span data-export-leyenda-item data-color="#fdba74">Proyección</span>}
       </div>
       <ResponsiveContainer width="100%" height={height} onResize={(w) => setAnchoGrafica(w)}>
-      <LineChart data={data} margin={{ top: resaltarMaximos > 0 ? 66 : 34, right: 30, left: 4, bottom: mostrarValorMensualAlPie ? 10 + seriesKeys.length * 13 : 4 }}>
+      <LineChart data={data} margin={{ top: 34, right: 30, left: 4, bottom: mostrarValorMensualAlPie ? 10 + seriesKeys.length * 13 : 4 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis
           dataKey={xKey}
