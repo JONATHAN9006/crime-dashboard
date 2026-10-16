@@ -81,6 +81,10 @@ export interface OpcionesPoligonoAislado {
   // Barrios más afectados a señalar con flecha + rótulo (ver
   // utils/barriosAfectados.ts). Los que caigan fuera del recorte se omiten.
   flechas?: FlechaBarrio[];
+  // Rellenos de color de las capas visibles, tal como se ven en pantalla
+  // (colores de CAI configurados, intensidad por casos). Se pintan bajo el
+  // mapa de calor y dentro del recorte, con la misma opacidad de pantalla.
+  rellenos?: { anillos: [number, number][][]; color: string; opacidad: number }[];
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -88,7 +92,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -237,6 +241,34 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   trazarAnillosComoRuta();
   ctx.fillStyle = `rgba(17, 103, 98, ${opacidadPoligono})`;
   ctx.fill();
+
+  // 2b) Colores de las capas (CAI, intensidad) — iguales a los de pantalla.
+  if (rellenos.length > 0) {
+    try {
+      ctx.save();
+      trazarAnillosComoRuta();
+      ctx.clip();
+      for (const r of rellenos) {
+        ctx.beginPath();
+        for (const anillo of r.anillos) {
+          if (anillo.length === 0) continue;
+          ctx.moveTo(lonAX(anillo[0][0]), latAY(anillo[0][1]));
+          for (let i = 1; i < anillo.length; i++) ctx.lineTo(lonAX(anillo[i][0]), latAY(anillo[i][1]));
+          ctx.closePath();
+        }
+        ctx.globalAlpha = Math.max(0, Math.min(1, r.opacidad));
+        ctx.fillStyle = r.color;
+        ctx.fill('evenodd');
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    } catch (e) {
+      console.warn('[exportarPoligonoMapa] No se pudieron pintar los colores de las capas:', e);
+    }
+  }
 
   // 3) Mapa de calor — superficie continua (Kernel Density, Silverman/ArcGIS).
   if (puntos.length > 0) {

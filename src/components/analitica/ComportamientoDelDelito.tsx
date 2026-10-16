@@ -1,9 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { desplazarAnios, useVentanaComparativa } from '../../hooks/useComparativoHomologo';
 import { MESES_NOMBRES } from '../../utils/aggregations';
+import { colorAnio } from '../../utils/coloresAnio';
 import { Card } from '../ui/Card';
 import { TrendChart } from '../charts/TrendChart';
 import { TendenciaAnualChart } from '../charts/TendenciaAnualChart';
+import { ResumenTendenciaAnual } from './ResumenTendenciaAnual';
 import { useAnalisisMensual } from '../../hooks/useAnalisisMensual';
 import { useData } from '../../context/DataContext';
 import type { BloqueAnalisis } from '../../utils/analisisTendencia';
@@ -38,14 +40,6 @@ function BloqueResumen({ bloque }: { bloque: BloqueAnalisis }) {
 
 type ModoVista = 'mensual' | 'acumulado' | 'anual';
 
-// Color fijo por año (el más antiguo morado y el más reciente verde petróleo,
-// como siempre; los intermedios con tonos bien distintos entre sí).
-const COLORES_INTERMEDIOS = ['#0891b2', '#d97706', '#db2777', '#10233f', '#65a30d', '#475569'];
-function colorAnio(i: number, total: number): string {
-  if (i === 0) return '#7c3aed';
-  if (i === total - 1) return '#116762';
-  return COLORES_INTERMEDIOS[(i - 1) % COLORES_INTERMEDIOS.length];
-}
 
 // Checkbox tipo pastilla, mutuamente excluyente con su pareja (funcionan
 // como un selector de modo — nunca los dos activos a la vez) — mismo
@@ -56,7 +50,7 @@ function colorAnio(i: number, total: number): string {
 //             2026 verde petróleo), fondo claro;
 //  · modo   → Mensual / Acumulado como opción única (radio), la activa en
 //             verde petróleo relleno.
-function CheckboxModo({ etiqueta, activo, onClick, color, tipo = 'casilla' }: { etiqueta: string; activo: boolean; onClick: () => void; color?: string; tipo?: 'casilla' | 'radio' }) {
+export function CheckboxModo({ etiqueta, activo, onClick, color, tipo = 'casilla' }: { etiqueta: string; activo: boolean; onClick: () => void; color?: string; tipo?: 'casilla' | 'radio' }) {
   if (tipo === 'radio') {
     return (
       <button
@@ -256,7 +250,10 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
       ) : undefined}
     >
       {modo === 'anual' ? (
-        <TendenciaAnualChart datos={datosAnuales} height={height} top={Math.min(3, datosAnuales.length)} />
+        <>
+          <ResumenTendenciaAnual datos={datosAnuales} etiquetaTotal="Total de casos" notaTotal={`${sufijoDelito} · ${textoPeriodo}`} />
+          <TendenciaAnualChart datos={datosAnuales} height={height} top={Math.min(3, datosAnuales.length)} />
+        </>
       ) : (
         <>
           <TrendChart

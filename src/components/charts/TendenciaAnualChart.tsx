@@ -1,4 +1,5 @@
 import { Bar, CartesianGrid, Cell, ComposedChart, LabelList, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, usePlotArea, useYAxisScale } from 'recharts';
+import { ordenarAniosPorCasos } from '../../utils/coloresAnio';
 import { formatNumero } from '../../utils/aggregations';
 
 // Tendencia ANUAL: una barra por año seleccionado (total de casos del delito
@@ -27,7 +28,7 @@ function CapaTopAnios({ datos, top }: { datos: PuntoAnual[]; top: number }) {
   // Eje de categorías sin relleno: cada año ocupa una franja igual del área.
   const franja = area.width / datos.length;
   const yAbajo = area.y + area.height;
-  const ranking = [...datos].filter((d) => d.casos > 0).sort((a, b) => b.casos - a.casos).slice(0, top);
+  const ranking = ordenarAniosPorCasos(datos.filter((d) => d.casos > 0)).slice(0, top);
   return (
     <g>
       {ranking.map((d) => {

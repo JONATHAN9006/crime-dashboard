@@ -250,7 +250,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   // abrupto entre niveles.
   function opacidadContinua(v: number): number {
     const fraccion = Math.min(1, (v / maxValor - UMBRAL_MINIMO_FRACCION) / (1 - UMBRAL_MINIMO_FRACCION));
-    return Math.round(190 + fraccion * 65); // 190 (mínimo visible, ya bastante sólido) a 255 (opaco en el núcleo)
+    return Math.round(222 + fraccion * 33); // 222 (sólido, no «lavado») a 255 (opaco en el núcleo). Solo cambia lo visual, no la densidad ni las clases.
   }
 
   const canvas = document.createElement('canvas');

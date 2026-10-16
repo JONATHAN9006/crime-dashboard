@@ -12,10 +12,11 @@ import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 import { esValorPendiente } from '../utils/valoresPendientes';
 import { GraficoMultifechaDiario, etiquetaPeriodo, type SeriePeriodo } from '../components/charts/GraficoMultifechaDiario';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
+import { TendenciaMultifecha } from '../components/analitica/TendenciaMultifecha';
 import { Top5Dona } from '../components/resumen/BloquesResumen';
 import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
 import { useDistribucionHoraria, useTendenciaDiaSemana } from '../hooks/useTemporalAnalysis';
-import { CalendarDays, LineChart as IconoLinea, Map as IconoMapa, UserRound, Users } from 'lucide-react';
+import { BarChart3 as IconoBarras, CalendarDays, LineChart as IconoLinea, Map as IconoMapa, UserRound, Users } from 'lucide-react';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const OPCIONES_TOP = [{ label: 'Top 5', valor: 5 }, { label: 'Top 10', valor: 10 }, { label: 'Todos', valor: undefined as number | undefined }];
@@ -110,6 +111,18 @@ export function ComparativoMultifecha() {
     for (let d = new Date(inicio); d <= fin && dias.length < 400; d.setDate(d.getDate() + 1)) dias.push({ fecha: new Date(d), casos: conteo.get(clave(d)) ?? 0 });
     return { id: p.id, etiqueta: etiquetaPeriodo(inicio, fin), total: porPeriodo[i]?.length ?? 0, dias };
   }), [periodos, porPeriodo]);
+  // Años que tocan los periodos elegidos (aparecen aunque tengan 0 casos).
+  const aniosPeriodos = useMemo(() => {
+    const set = new Set<number>();
+    for (const p of periodos) {
+      if (!p.fechaInicial || !p.fechaFinal) continue;
+      const a0 = Number(p.fechaInicial.slice(0, 4));
+      const a1 = Number(p.fechaFinal.slice(0, 4));
+      for (let a = Math.min(a0, a1); a <= Math.max(a0, a1); a++) set.add(a);
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [periodos]);
+  const sumaPorPeriodos = porPeriodo.reduce((a, recs) => a + recs.length, 0);
   const sufijoDelito = filters.delito.length === 0 ? 'Todos los Delitos' : filters.delito.join(', ');
   // Componentes de abajo (mismos de Delictividad por Unidad) sobre los periodos.
   const diaSemana = useTendenciaDiaSemana(unionPeriodos);
@@ -185,6 +198,15 @@ export function ComparativoMultifecha() {
       >
         <GraficoMultifechaDiario series={seriesDiarias} />
       </Card>
+
+      <TendenciaMultifecha
+        registros={unionPeriodos}
+        aniosPeriodos={aniosPeriodos}
+        sumaPorPeriodos={sumaPorPeriodos}
+        cantidadPeriodos={periodos.filter((p) => p.fechaInicial && p.fechaFinal).length}
+        delitos={filters.delito}
+        icono={ico(IconoBarras)}
+      />
 
       {/* Consolidado de todos los periodos — mismas tarjetas de Delictividad por Unidad */}
       <div>

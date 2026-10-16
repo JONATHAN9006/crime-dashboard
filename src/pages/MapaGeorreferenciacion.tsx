@@ -897,7 +897,9 @@ export function MapaGeorreferenciacion() {
 
   // Transparencia configurable — independiente para el mapa de calor, el
   // relleno de los polígonos, y las etiquetas. 0 a 100 (%).
-  const [opacidades, setOpacidades] = useState({ calor: 70, poligono: 100, etiquetas: 100 });
+  // Calor más denso por defecto (antes 70 %): las concentraciones se distinguen
+  // con claridad sobre el mapa base, en pantalla y en la descarga.
+  const [opacidades, setOpacidades] = useState({ calor: 88, poligono: 100, etiquetas: 100 });
   // Los paneles de detalle de cada fuente de puntos (Estado del trámite,
   // Dependencia, Semaforización, etc.) ahora empiezan COLAPSADOS — con el
   // nuevo panel "Filtros de visualización" de la izquierda, ya no hace
@@ -1747,13 +1749,70 @@ export function MapaGeorreferenciacion() {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
       })
         .then((dataUrl) => { if (!cancelado) setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: dataUrl })); })
         .catch(() => { if (!cancelado) setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'error' })); });
     }
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas, coloresSeleccionadosCalor.join(',')]);
+  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas, coloresSeleccionadosCalor.join(','), JSON.stringify(coloresCai), colorearZonasPorCai]);
+
+
+  // Estilo de cada polígono EN PANTALLA — una sola función para el mapa y
+  // para las descargas, así la imagen descargada conserva los mismos
+  // colores (CAI, intensidad por casos, selección) que se ven en pantalla.
+  function estiloPoligonoEnPantalla(capa: CapaGeografica, feature: any) {
+    const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
+    const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
+    const esSeleccionadaPorClic = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
+    const campoEfectivo = camposUnionAutoDetectados.get(capa.id);
+    // Resalta TODOS los polígonos que correspondan al CAI, la
+    // Estación o el Cuadrante filtrados arriba — no solo el que
+    // se haya seleccionado con un clic puntual.
+    const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
+    const opacidadPoligono = opacidades.poligono / 100;
+    if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
+      return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 * opacidadPoligono };
+    }
+    if (capa.colorearPorCasos && conteos && capa.campoUnion) {
+      const valorCrudo = feature?.properties?.[capa.campoUnion!];
+      const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
+      return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
+    }
+    // Capas de CAI (dimensión sin "colorear por casos" activo):
+    // usan el color propio configurable de cada CAI en vez del
+    // verde institucional genérico, para diferenciarlos entre sí
+    // — SOLO si el interruptor "Colorear zonas por CAI" está
+    // encendido (ver Configuración visual). Apagado por
+    // defecto, para que la vista de siempre sea calles + calor,
+    // sin el mosaico de colores que nadie pidió ver.
+    if (colorearZonasPorCai && campoEfectivo && opcionesFiltroMapa.cai.length > 0) {
+      const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
+      const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
+      if (coincideCai) {
+        return { color: '#000000', weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
+      }
+    }
+    return { color: '#000000', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
+  }
+
+  /** Rellenos de color de las capas visibles para la descarga (solo los que
+   *  no son el verde genérico): colores de CAI, intensidad y selección. */
+  function rellenosParaExportar(): { anillos: [number, number][][]; color: string; opacidad: number }[] {
+    const out: { anillos: [number, number][][]; color: string; opacidad: number }[] = [];
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const e = estiloPoligonoEnPantalla(capa, f);
+        // Sin el verde genérico ni el sombreado negro de selección (es solo un resaltado de pantalla).
+        if (!e.fillColor || e.fillColor === '#116762' || e.fillColor === '#000000' || !(e.fillOpacity > 0)) continue;
+        const anillos = extraerAnillosDeFeature(f);
+        if (anillos.length) out.push({ anillos, color: e.fillColor, opacidad: e.fillOpacity });
+      }
+    }
+    return out;
+  }
 
   async function descargarPrevisualizacionCai(nombreCai: string) {
     const feature = buscarFeatureDeCai(nombreCai);
@@ -1773,6 +1832,7 @@ export function MapaGeorreferenciacion() {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
       });
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga de la miniatura de CAI:', err);
@@ -1814,6 +1874,7 @@ export function MapaGeorreferenciacion() {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
         anillosInternos: anillosCuadrantesInternos,
       });
     } catch (err) {
@@ -1852,6 +1913,7 @@ export function MapaGeorreferenciacion() {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
         alPortapapeles: true,
         anillosInternos: anillosCuadrantesInternos,
       });
@@ -1965,6 +2027,7 @@ export function MapaGeorreferenciacion() {
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: 0,
         opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
         anillosInternos: anillosCapasParaRecorte,
         colorBorde: '#1f2937',
         tamanoFuenteBase: 8,
@@ -2075,11 +2138,16 @@ export function MapaGeorreferenciacion() {
   const totalFiltrado = filteredRecords.length;
   const conAporte = (filas: { key: string; casos: number }[]) =>
     filas.map((f) => ({ key: f.key, casos: f.casos, aportePct: totalFiltrado > 0 ? (f.casos / totalFiltrado) * 100 : 0 }));
-  const rankingBarrios = useMemo(
-    () => conAporte(agruparPor(filteredRecords, (r) => r.barrioHecho).filter((f) => esBarrioReal(f.key))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredRecords],
-  );
+  // Barrios: se cuentan SIN el filtro de Barrio (con todos los demás), para
+  // que la lista no se reduzca al elegir uno y se puedan ir SUMANDO barrios
+  // a la selección (los elegidos quedan marcados). Mismos registros que las
+  // flechas de barrios más afectados.
+  const rankingBarrios = useMemo(() => {
+    const total = registrosSinFiltroBarrio.length;
+    return agruparPor(registrosSinFiltroBarrio, (r) => r.barrioHecho)
+      .filter((f) => esBarrioReal(f.key))
+      .map((f) => ({ key: f.key, casos: f.casos, aportePct: total > 0 ? (f.casos / total) * 100 : 0 }));
+  }, [registrosSinFiltroBarrio]);
   const rankingDelitos = useMemo(
     () => conAporte(agruparPor(filteredRecords, (r) => r.delito).filter((f) => esValorReal(f.key))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2757,36 +2825,7 @@ export function MapaGeorreferenciacion() {
               const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
 
               function estiloFeature(feature: any) {
-                const esSeleccionadaPorClic = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
-                const campoEfectivo = camposUnionAutoDetectados.get(capa.id);
-                // Resalta TODOS los polígonos que correspondan al CAI, la
-                // Estación o el Cuadrante filtrados arriba — no solo el que
-                // se haya seleccionado con un clic puntual.
-                const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
-                const opacidadPoligono = opacidades.poligono / 100;
-                if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
-                  return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 * opacidadPoligono };
-                }
-                if (capa.colorearPorCasos && conteos && capa.campoUnion) {
-                  const valorCrudo = feature?.properties?.[capa.campoUnion!];
-                  const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
-                  return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
-                }
-                // Capas de CAI (dimensión sin "colorear por casos" activo):
-                // usan el color propio configurable de cada CAI en vez del
-                // verde institucional genérico, para diferenciarlos entre sí
-                // — SOLO si el interruptor "Colorear zonas por CAI" está
-                // encendido (ver Configuración visual). Apagado por
-                // defecto, para que la vista de siempre sea calles + calor,
-                // sin el mosaico de colores que nadie pidió ver.
-                if (colorearZonasPorCai && campoEfectivo && opcionesFiltroMapa.cai.length > 0) {
-                  const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
-                  const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
-                  if (coincideCai) {
-                    return { color: '#000000', weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
-                  }
-                }
-                return { color: '#000000', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
+                return estiloPoligonoEnPantalla(capa, feature);
               }
 
               function onEachFeature(feature: any, layer: L.Layer) {

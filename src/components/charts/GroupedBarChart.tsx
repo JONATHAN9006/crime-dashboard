@@ -20,11 +20,11 @@ const VERDE_MAXIMO = '#0b4a46';
 // barras empatan justo en el valor N-ésimo, TODAS esas barras se resaltan
 // (regla de empate consistente: nunca se deja fuera un valor empatado con
 // uno que sí califica).
-function crearFormaBarra(colorBase: string, valoresDestacados: Set<number>, resaltar: boolean, colorPorBarra: boolean) {
+function crearFormaBarra(colorBase: string, valoresDestacados: Set<number>, resaltar: boolean, colorPorBarra: boolean, conservarColor = false) {
   return (props: any) => {
     const { x, y, width, height, value, index } = props;
     const esDestacado = resaltar && valoresDestacados.has(Number(value)) && Number(value) > 0;
-    const color = esDestacado ? VERDE_MAXIMO : (colorPorBarra ? PALETA_BARRAS[index % PALETA_BARRAS.length] : colorBase);
+    const color = esDestacado && !conservarColor ? VERDE_MAXIMO : (colorPorBarra ? PALETA_BARRAS[index % PALETA_BARRAS.length] : colorBase);
     const MARGEN = 4;
     return (
       <g>
@@ -47,7 +47,9 @@ function crearFormaBarra(colorBase: string, valoresDestacados: Set<number>, resa
   };
 }
 
-export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria, ocultarEjeY = false, lineaReferencia, abreviarEtiquetas = false, ocultarLeyendaBarras = false }: {
+export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria, ocultarEjeY = false, lineaReferencia, abreviarEtiquetas = false, ocultarLeyendaBarras = false, conservarColorDestacado = false }: {
+  // true = el recuadro rojo se agrega sin cambiar el color de la barra (ej. color por año).
+  conservarColorDestacado?: boolean;
   data: Record<string, any>[];
   xKey: string;
   seriesKeys: string[];
@@ -146,7 +148,7 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
               key={k}
               dataKey={k}
               fill={color}
-              shape={(usarFormaPersonalizada ? crearFormaBarra(color, valoresDestacados, resaltarMaximo, esUnaSolaSerie && colorPorBarra) : undefined) as any}
+              shape={(usarFormaPersonalizada ? crearFormaBarra(color, valoresDestacados, resaltarMaximo, esUnaSolaSerie && colorPorBarra, conservarColorDestacado) : undefined) as any}
               radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
               cursor={onBarClick ? 'pointer' : 'default'}
               onClick={onBarClick ? (d: any) => onBarClick(d[xKey]) : undefined}
