@@ -1821,8 +1821,8 @@ export function MapaGeorreferenciacion() {
 
   // Opciones de la DESCARGA del mapa (se recuerdan en este navegador):
   // rótulos de barrios (Top 3/5 y elegidos) y cuadro de totales.
-  const [opcionesDescarga, setOpcionesDescarga] = useState<{ rotulos: boolean; totales: boolean }>(() => {
-    try { return { rotulos: true, totales: true, ...JSON.parse(localStorage.getItem('mepoy-opciones-descarga-mapa') || '{}') }; } catch { return { rotulos: true, totales: true }; }
+  const [opcionesDescarga, setOpcionesDescarga] = useState<{ rotulos: boolean; totales: boolean; fondoTransparente: boolean }>(() => {
+    try { return { rotulos: true, totales: true, fondoTransparente: true, ...JSON.parse(localStorage.getItem('mepoy-opciones-descarga-mapa') || '{}') }; } catch { return { rotulos: true, totales: true, fondoTransparente: true }; }
   });
   useEffect(() => {
     try { localStorage.setItem('mepoy-opciones-descarga-mapa', JSON.stringify(opcionesDescarga)); } catch { /* sin almacenamiento */ }
@@ -2053,7 +2053,8 @@ export function MapaGeorreferenciacion() {
         anillosInternos: anillosCapasParaRecorte,
         colorBorde: '#1f2937',
         tamanoFuenteBase: 8,
-        fondoCompleto: true,
+        // Fondo transparente fuera de la jurisdicción (como siempre), salvo que se pida el mapa completo.
+        fondoCompleto: !opcionesDescarga.fondoTransparente,
       }));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);
@@ -2661,6 +2662,7 @@ export function MapaGeorreferenciacion() {
                       <span className="font-semibold text-slate-500">En la descarga:</span>
                       <label className="flex cursor-pointer items-center gap-1"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.rotulos} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, rotulos: e.target.checked }))} /> Etiquetas de barrios</label>
                       <label className="flex cursor-pointer items-center gap-1"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.totales} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, totales: e.target.checked }))} /> Cuadro de totales</label>
+                      <label className="flex cursor-pointer items-center gap-1" title="Sin marcar: el mapa de calles cubre toda la imagen"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.fondoTransparente} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, fondoTransparente: e.target.checked }))} /> Fondo transparente</label>
                     </div>
                   </div>
                 </div>
