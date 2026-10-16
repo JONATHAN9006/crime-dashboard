@@ -5,7 +5,6 @@ import { colorAnio } from '../../utils/coloresAnio';
 import { Card } from '../ui/Card';
 import { TrendChart } from '../charts/TrendChart';
 import { TendenciaAnualChart } from '../charts/TendenciaAnualChart';
-import { ResumenTendenciaAnual } from './ResumenTendenciaAnual';
 import { useAnalisisMensual } from '../../hooks/useAnalisisMensual';
 import { useData } from '../../context/DataContext';
 import type { BloqueAnalisis } from '../../utils/analisisTendencia';
@@ -251,7 +250,6 @@ export function ComportamientoDelDelito({ height = 300, descargable, titulo = 'T
     >
       {modo === 'anual' ? (
         <>
-          <ResumenTendenciaAnual datos={datosAnuales} etiquetaTotal="Total de casos" notaTotal={`${sufijoDelito} · ${textoPeriodo}`} />
           <TendenciaAnualChart datos={datosAnuales} height={height} top={Math.min(3, datosAnuales.length)} />
         </>
       ) : (

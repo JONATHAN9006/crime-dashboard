@@ -3,7 +3,6 @@ import { Card } from '../ui/Card';
 import { TrendChart } from '../charts/TrendChart';
 import { GroupedBarChart } from '../charts/GroupedBarChart';
 import { TendenciaAnualChart } from '../charts/TendenciaAnualChart';
-import { ResumenTendenciaAnual } from './ResumenTendenciaAnual';
 import { CheckboxModo } from './ComportamientoDelDelito';
 import { MESES_NOMBRES, formatNumero } from '../../utils/aggregations';
 import { colorAnio } from '../../utils/coloresAnio';
@@ -81,7 +80,6 @@ export function TendenciaMultifecha({ registros, aniosPeriodos, sumaPorPeriodos,
         <p className="py-8 text-center text-sm text-slate-400">Define al menos un periodo con fecha inicial y final.</p>
       ) : modo === 'anual' ? (
         <>
-          <ResumenTendenciaAnual datos={datosAnuales} etiquetaTotal="Total de casos" notaTotal={`${sufijo} · ${cantidadPeriodos} periodo(s)`} />
           <TendenciaAnualChart datos={datosAnuales} top={Math.min(3, datosAnuales.length)} />
         </>
       ) : meses.length === 0 ? (
