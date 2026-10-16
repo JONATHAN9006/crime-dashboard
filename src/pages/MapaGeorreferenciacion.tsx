@@ -1818,6 +1818,24 @@ export function MapaGeorreferenciacion() {
     return out;
   }
 
+
+  // Opciones de la DESCARGA del mapa (se recuerdan en este navegador):
+  // rótulos de barrios (Top 3/5 y elegidos) y cuadro de totales.
+  const [opcionesDescarga, setOpcionesDescarga] = useState<{ rotulos: boolean; totales: boolean }>(() => {
+    try { return { rotulos: true, totales: true, ...JSON.parse(localStorage.getItem('mepoy-opciones-descarga-mapa') || '{}') }; } catch { return { rotulos: true, totales: true }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-opciones-descarga-mapa', JSON.stringify(opcionesDescarga)); } catch { /* sin almacenamiento */ }
+  }, [opcionesDescarga]);
+  function conOpcionesDescarga<T extends { flechas?: unknown[]; etiquetas: string[]; gruposEtiquetas?: unknown[] }>(o: T): T {
+    return {
+      ...o,
+      flechas: opcionesDescarga.rotulos ? o.flechas : [],
+      etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
+      gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
+    };
+  }
+
   async function descargarPrevisualizacionCai(nombreCai: string) {
     const feature = buscarFeatureDeCai(nombreCai);
     if (!feature) return;
@@ -1826,7 +1844,7 @@ export function MapaGeorreferenciacion() {
     for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
     const lineasDelito = Array.from(conteoPorDelito.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, c]) => `${d}: ${c} caso${c === 1 ? '' : 's'}`);
     try {
-      await exportarPoligonoAislado({
+      await exportarPoligonoAislado(conOpcionesDescarga({
         feature,
         puntos: puntosDeEsteCai,
         colores: paletaCalorDelitos,
@@ -1837,7 +1855,7 @@ export function MapaGeorreferenciacion() {
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
         rellenos: rellenosParaExportar(),
-      });
+      }));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga de la miniatura de CAI:', err);
       setError(`No fue posible descargar el mapa de ${nombreCai}. Revisa la consola (F12).`);
@@ -1868,7 +1886,7 @@ export function MapaGeorreferenciacion() {
         `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
         ...lineasDelito,
       ];
-      await exportarPoligonoAislado({
+      await exportarPoligonoAislado(conOpcionesDescarga({
         feature: zonaActiva.feature,
         puntos: puntosEnZonaParaCalor,
         colores: paletaCalorDelitos,
@@ -1880,7 +1898,7 @@ export function MapaGeorreferenciacion() {
         opacidadEtiquetas: opacidades.etiquetas / 100,
         rellenos: rellenosParaExportar(),
         anillosInternos: anillosCuadrantesInternos,
-      });
+      }));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
       setError('No fue posible generar la imagen del mapa. Revisa la consola del navegador (F12) para más detalle.');
@@ -1907,7 +1925,7 @@ export function MapaGeorreferenciacion() {
         `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
         ...lineasDelito,
       ];
-      await exportarPoligonoAislado({
+      await exportarPoligonoAislado(conOpcionesDescarga({
         feature: zonaActiva.feature,
         puntos: puntosEnZonaParaCalor,
         colores: paletaCalorDelitos,
@@ -1920,7 +1938,7 @@ export function MapaGeorreferenciacion() {
         rellenos: rellenosParaExportar(),
         alPortapapeles: true,
         anillosInternos: anillosCuadrantesInternos,
-      });
+      }));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la copia al portapapeles:', err);
       setError('No fue posible copiar la imagen al portapapeles. Revisa la consola (F12), o usa "Descargar imagen".');
@@ -2020,7 +2038,7 @@ export function MapaGeorreferenciacion() {
         return { titulo, lineas: lineasDelito };
       });
 
-      await exportarPoligonoAislado({
+      await exportarPoligonoAislado(conOpcionesDescarga({
         feature: featureRecorte,
         puntos: puntosVisibles,
         colores: mostrarCalorIrisp1 && !mostrarCalorDelitos ? ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'] : paletaCalorDelitos,
@@ -2035,7 +2053,8 @@ export function MapaGeorreferenciacion() {
         anillosInternos: anillosCapasParaRecorte,
         colorBorde: '#1f2937',
         tamanoFuenteBase: 8,
-      });
+        fondoCompleto: true,
+      }));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);
       setError('No fue posible generar la imagen del mapa general. Revisa la consola del navegador (F12) para más detalle.');
@@ -2638,6 +2657,11 @@ export function MapaGeorreferenciacion() {
                     >
                       <Download size={14} /> {descargandoZona ? 'Generando...' : 'Descargar mapa'}
                     </button>
+                    <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] text-slate-700" title="Qué incluir en la imagen descargada">
+                      <span className="font-semibold text-slate-500">En la descarga:</span>
+                      <label className="flex cursor-pointer items-center gap-1"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.rotulos} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, rotulos: e.target.checked }))} /> Etiquetas de barrios</label>
+                      <label className="flex cursor-pointer items-center gap-1"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.totales} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, totales: e.target.checked }))} /> Cuadro de totales</label>
+                    </div>
                   </div>
                 </div>
 

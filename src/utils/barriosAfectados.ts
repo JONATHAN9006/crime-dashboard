@@ -189,10 +189,17 @@ export function dibujarFlechasBarrios(
     // adentro si se sale del lienzo.
     const fijo = f.rotuloLat != null && f.rotuloLon != null ? aPixel(f.rotuloLat, f.rotuloLon) : null;
     let lx = fijo ? fijo.x : p.x + d.x * largo, ly = fijo ? fijo.y : p.y + d.y * largo;
+    // Rótulo de DOS líneas, igual al de pantalla: «1. Centro» en negrita
+    // (rojo oscuro) y debajo «599 casos» en gris.
+    const linea1 = `${f.rango}. ${f.barrio}`;
+    const linea2 = `${f.casos.toLocaleString('es-CO')} caso${f.casos === 1 ? '' : 's'}`;
+    const tam2 = Math.round(tamFuente * 0.88);
     ctx.font = `bold ${tamFuente}px Arial`;
-    const texto = `${f.rango}. ${f.barrio} — ${f.casos.toLocaleString('es-CO')} caso${f.casos === 1 ? '' : 's'}`;
-    const anchoCaja = ctx.measureText(texto).width + tamFuente * 1.2;
-    const altoCaja = tamFuente * 1.9;
+    const ancho1 = ctx.measureText(linea1).width;
+    ctx.font = `600 ${tam2}px Arial`;
+    const ancho2 = ctx.measureText(linea2).width;
+    const anchoCaja = Math.max(ancho1, ancho2) + tamFuente * 1.1;
+    const altoCaja = tamFuente * 1.25 + tam2 * 1.25 + tamFuente * 0.55;
     lx = Math.min(Math.max(lx, anchoCaja / 2 + 4), anchoLienzo - anchoCaja / 2 - 4);
     ly = Math.min(Math.max(ly, altoCaja / 2 + 4), altoLienzo - altoCaja / 2 - 4);
 
@@ -222,7 +229,7 @@ export function dibujarFlechasBarrios(
 
     // Rótulo.
     const x0 = lx - anchoCaja / 2, y0 = ly - altoCaja / 2;
-    const radio = altoCaja / 4;
+    const radio = Math.min(altoCaja / 4, 8 * escala + 2);
     ctx.beginPath();
     ctx.moveTo(x0 + radio, y0);
     ctx.arcTo(x0 + anchoCaja, y0, x0 + anchoCaja, y0 + altoCaja, radio);
@@ -235,10 +242,14 @@ export function dibujarFlechasBarrios(
     ctx.strokeStyle = '#b91c1c';
     ctx.lineWidth = Math.max(1.5, 2 * escala);
     ctx.stroke();
-    ctx.fillStyle = '#7f1d1d';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(texto, lx, ly + 0.5);
+    ctx.fillStyle = '#7f1d1d';
+    ctx.font = `bold ${tamFuente}px Arial`;
+    ctx.fillText(linea1, lx, y0 + tamFuente * 0.3 + tamFuente * 0.62);
+    ctx.fillStyle = '#475569';
+    ctx.font = `600 ${tam2}px Arial`;
+    ctx.fillText(linea2, lx, y0 + tamFuente * 0.3 + tamFuente * 1.25 + tam2 * 0.6);
     ctx.textAlign = 'left';
   });
 }

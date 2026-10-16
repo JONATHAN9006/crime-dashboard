@@ -85,6 +85,9 @@ export interface OpcionesPoligonoAislado {
   // (colores de CAI configurados, intensidad por casos). Se pintan bajo el
   // mapa de calor y dentro del recorte, con la misma opacidad de pantalla.
   rellenos?: { anillos: [number, number][][]; color: string; opacidad: number }[];
+  // true = el mapa de calles cubre TODA la imagen (como en pantalla), no solo
+  // el interior del recorte. Para la descarga del mapa general.
+  fondoCompleto?: boolean;
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -92,7 +95,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -177,8 +180,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   // como un bloque beige sólido en vez de transparente. Ahora, fuera del
   // polígono, el lienzo queda genuinamente transparente.
   ctx.save();
-  trazarAnillosComoRuta();
-  ctx.clip();
+  if (!fondoCompleto) { trazarAnillosComoRuta(); ctx.clip(); }
   ctx.fillStyle = '#e5e3df';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.restore();
@@ -210,8 +212,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   const tyMax = Math.floor(mercHiY * escalaMundo);
 
   ctx.save();
-  trazarAnillosComoRuta();
-  ctx.clip();
+  if (!fondoCompleto) { trazarAnillosComoRuta(); ctx.clip(); }
   try {
     const tareasTiles: Promise<void>[] = [];
     for (let tx = txMin; tx <= txMax; tx++) {
