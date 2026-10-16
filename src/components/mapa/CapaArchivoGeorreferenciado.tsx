@@ -37,7 +37,9 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
     formatoDescarga, setFormatoDescarga, formatoDecimal, setFormatoDecimal, descargarCorregido,
     registros, registrosValidos, registrosInvalidos,
     opcionesDelito, opcionesCai, concentracionPorCai,
+    campoSimbologia, setCampoSimbologia, setColoresCategoria, setCategoriasOcultas, categoriasSimbologia,
   } = estado;
+  const camposSimbologia = encabezados.filter((h) => h !== colLat && h !== colLon);
 
   return (
     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -160,7 +162,37 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
               )}
 
               {modoVisualizacion === 'puntos' && (
-                <ControlEstiloPuntos estilo={estiloPuntos} onChange={setEstiloPuntos} colorAuto="#3b82f6" textoAuto="Original" />
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                  <label className="block font-semibold text-slate-700">Simbología de los puntos
+                    <select value={campoSimbologia} onChange={(e) => { setCampoSimbologia(e.target.value); setCategoriasOcultas([]); }} className="mt-1 w-full rounded border border-slate-300 bg-white p-1 font-normal text-slate-700">
+                      <option value="">Símbolo único (un solo color)</option>
+                      {camposSimbologia.map((h) => <option key={h} value={h}>Valores únicos de «{h}»</option>)}
+                    </select>
+                  </label>
+                  {campoSimbologia && (
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                        <span>Valor · color · casos</span>
+                        <button type="button" onClick={() => setColoresCategoria({})} className="text-blue-600 hover:underline">Colores por defecto</button>
+                      </div>
+                      <ul className="max-h-56 space-y-0.5 overflow-y-auto pr-1">
+                        {categoriasSimbologia.map((c) => (
+                          <li key={c.valor} className="flex items-center gap-1.5">
+                            <input type="checkbox" checked={c.visible} title={c.visible ? 'Ocultar en el mapa' : 'Mostrar en el mapa'}
+                              onChange={(e) => setCategoriasOcultas((prev) => (e.target.checked ? prev.filter((v) => v !== c.valor) : [...prev, c.valor]))} />
+                            <input type="color" value={c.color} onChange={(e) => setColoresCategoria((prev) => ({ ...prev, [c.valor]: e.target.value }))}
+                              className="h-5 w-6 shrink-0 cursor-pointer rounded border border-slate-300 bg-white p-0" title="Cambiar color" />
+                            <span className={`min-w-0 flex-1 truncate ${c.visible ? 'text-slate-700' : 'text-slate-400 line-through'}`} title={c.valor}>{c.valor}</span>
+                            <span className="shrink-0 tabular-nums text-slate-500">{formatoNumero(c.casos)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {campoSimbologia
+                    ? <ControlEstiloPuntos estilo={{ ...estiloPuntos, color: null }} onChange={(e) => setEstiloPuntos({ ...estiloPuntos, escala: e.escala })} colorAuto="#3b82f6" textoAuto="Por valor" />
+                    : <ControlEstiloPuntos estilo={estiloPuntos} onChange={setEstiloPuntos} colorAuto="#3b82f6" textoAuto="Original" />}
+                </div>
               )}
 
               <div className="text-xs text-slate-600">
@@ -233,17 +265,26 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
   );
 }
 
-/** La capa que de verdad se dibuja en Leaflet — DEBE ir dentro de <MapContainer>. Sin UI propia, solo pinta puntos o el mapa de calor según el estado del hook. */
-export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos'>) {
+/** La capa que de verdad se dibuja en Leaflet — DEBE ir dentro de <MapContainer>. Pinta puntos (símbolo único o valores únicos, con su leyenda) o el mapa de calor según el estado del hook. */
+export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos, categoriasSimbologia, campoSimbologia, archivo }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos' | 'simbologiaPuntos' | 'categoriasSimbologia' | 'campoSimbologia' | 'archivo'>) {
   const map = useMap();
   const capaRef = useRef<L.Layer | null>(null);
+  const leyendaRef = useRef<L.Control | null>(null);
 
   useEffect(() => {
     if (capaRef.current) { map.removeLayer(capaRef.current); capaRef.current = null; }
     if (registrosFiltrados.length === 0) return;
 
     if (modoVisualizacion === 'puntos') {
-      const grupo = L.layerGroup(registrosFiltrados.map((r) => L.circleMarker([r.lat, r.lon], { radius: Math.max(1.5, 4 * (estiloPuntos?.escala ?? 1)), color: estiloPuntos?.color ?? '#1d4ed8', fillColor: estiloPuntos?.color ?? '#3b82f6', fillOpacity: opacidad / 100, weight: 1 })));
+      const radio = Math.max(1.5, 4 * (estiloPuntos?.escala ?? 1));
+      const marcadores: L.Layer[] = [];
+      for (const r of registrosFiltrados) {
+        const cat = simbologiaPuntos ? simbologiaPuntos(r) : null;
+        if (simbologiaPuntos && (!cat || !cat.visible)) continue;
+        const color = cat ? cat.color : (estiloPuntos?.color ?? '#3b82f6');
+        marcadores.push(L.circleMarker([r.lat, r.lon], { radius: radio, color: cat ? '#ffffff' : (estiloPuntos?.color ?? '#1d4ed8'), fillColor: color, fillOpacity: opacidad / 100, weight: cat ? 0.8 : 1 }));
+      }
+      const grupo = L.layerGroup(marcadores);
       grupo.addTo(map);
       capaRef.current = grupo;
       return;
@@ -255,9 +296,33 @@ export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVis
     const overlay = L.imageOverlay(resultado.dataUrl, resultado.bounds, { opacity: opacidad / 100, interactive: false });
     overlay.addTo(map);
     capaRef.current = overlay;
-  }, [map, registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos]);
+  }, [map, registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos]);
 
-  useEffect(() => () => { if (capaRef.current) map.removeLayer(capaRef.current); }, [map]);
+  // Leyenda en el mapa (valores únicos): título = campo, cada valor con su color y casos.
+  useEffect(() => {
+    if (leyendaRef.current) { leyendaRef.current.remove(); leyendaRef.current = null; }
+    if (modoVisualizacion !== 'puntos' || !campoSimbologia || categoriasSimbologia.length === 0) return;
+    const visibles = categoriasSimbologia.filter((c) => c.visible);
+    const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]!));
+    const control = new L.Control({ position: 'bottomleft' });
+    control.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.setAttribute('style', 'background:#fff;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;box-shadow:0 2px 8px rgba(0,0,0,.15);font:12px/1.35 system-ui,Arial,sans-serif;color:#10233f;max-height:260px;overflow:auto;min-width:150px;max-width:260px');
+      div.innerHTML = `<div style="font-weight:700;margin-bottom:2px">${esc(campoSimbologia)}</div>`
+        + (archivo ? `<div style="font-size:10.5px;color:#64748b;margin-bottom:5px">${esc(archivo.name)}</div>` : '')
+        + visibles.map((c) => `<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="width:11px;height:11px;border-radius:50%;background:${c.color};border:1px solid #fff;box-shadow:0 0 0 1px ${c.color};flex-shrink:0"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.valor)}">${esc(c.valor)}</span><b style="font-variant-numeric:tabular-nums">${c.casos.toLocaleString('es-CO')}</b></div>`).join('');
+      L.DomEvent.disableScrollPropagation(div);
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    };
+    control.addTo(map);
+    leyendaRef.current = control;
+  }, [map, modoVisualizacion, campoSimbologia, categoriasSimbologia, archivo]);
+
+  useEffect(() => () => {
+    if (capaRef.current) map.removeLayer(capaRef.current);
+    if (leyendaRef.current) leyendaRef.current.remove();
+  }, [map]);
 
   return null;
 }

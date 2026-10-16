@@ -3147,6 +3147,10 @@ export function MapaGeorreferenciacion() {
               coloresActivos={capaArchivoGeorreferenciado.coloresActivos}
               opacidad={capaArchivoGeorreferenciado.opacidad}
               estiloPuntos={capaArchivoGeorreferenciado.estiloPuntos}
+              simbologiaPuntos={capaArchivoGeorreferenciado.simbologiaPuntos}
+              categoriasSimbologia={capaArchivoGeorreferenciado.categoriasSimbologia}
+              campoSimbologia={capaArchivoGeorreferenciado.campoSimbologia}
+              archivo={capaArchivoGeorreferenciado.archivo}
             />
           </MapContainer>
 

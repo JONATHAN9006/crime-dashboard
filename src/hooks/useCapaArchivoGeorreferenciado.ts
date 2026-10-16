@@ -11,6 +11,15 @@ import type { CapaGeografica } from '../data/geoStorage';
 export const PALETA_ARCHIVO_CARGADO = ['#166534', '#84cc16', '#facc15', '#f97316', '#dc2626'];
 export const ETIQUETAS_BANDA_ARCHIVO = ['Muy baja', 'Baja', 'Media', 'Alta', 'Muy alta'];
 
+// Paleta de «valores únicos» (como la simbología de ArcGIS): colores bien
+// distintos entre sí, en orden; cada valor del campo elegido toma uno.
+export const PALETA_VALORES_UNICOS = ['#e11d48', '#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0f766e', '#9333ea', '#ca8a04', '#1d4ed8', '#be123c', '#15803d', '#a16207'];
+export const COLOR_OTROS = '#94a3b8';
+// Más valores que esto se agrupan en «Otros» para que la leyenda se pueda leer.
+export const MAX_CATEGORIAS = 16;
+
+export interface CategoriaSimbologia { valor: string; casos: number; color: string; visible: boolean }
+
 export interface RegistroArchivoGeo {
   lat: number;
   lon: number;
@@ -61,6 +70,12 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
   // Color y tamaño de los puntos del archivo (solo dibujo; null = azul de siempre).
   const [estiloPuntos, setEstiloPuntos] = useState<EstiloPuntos>(ESTILO_PUNTOS_POR_DEFECTO);
 
+  // Simbología por VALORES ÚNICOS: campo elegido ('' = símbolo único), colores
+  // cambiados a mano por valor y valores ocultos.
+  const [campoSimbologia, setCampoSimbologia] = useState('');
+  const [coloresCategoria, setColoresCategoria] = useState<Record<string, string>>({});
+  const [categoriasOcultas, setCategoriasOcultas] = useState<string[]>([]);
+
   const [filtroDelito, setFiltroDelito] = useState('Todos');
   const [filtroCai, setFiltroCai] = useState('Todos');
 
@@ -93,6 +108,9 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
       setAvisoInvertidas(null);
       setFiltroDelito('Todos');
       setFiltroCai('Todos');
+      setCampoSimbologia('');
+      setColoresCategoria({});
+      setCategoriasOcultas([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No fue posible leer el archivo.');
     } finally {
@@ -192,6 +210,33 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
     return Array.from(conteo.entries()).map(([cai, casos]) => ({ cai, casos, aportePct: (casos / total) * 100 })).sort((a, b) => b.casos - a.casos);
   }, [registrosFiltrados]);
 
+  // Valores únicos del campo elegido (con los filtros de delito/CAI), de
+  // mayor a menor cantidad. Los que pasen de MAX_CATEGORIAS van a «Otros».
+  const valorDe = (r: RegistroArchivoGeo) => {
+    const v = String(r.fila[campoSimbologia] ?? '').trim();
+    return v || 'Sin dato';
+  };
+  const categoriasSimbologia: CategoriaSimbologia[] = useMemo(() => {
+    if (!campoSimbologia) return [];
+    const conteo = new Map<string, number>();
+    for (const r of registrosFiltrados) conteo.set(valorDe(r), (conteo.get(valorDe(r)) ?? 0) + 1);
+    const orden = Array.from(conteo.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
+    const principales = orden.slice(0, MAX_CATEGORIAS);
+    const resto = orden.slice(MAX_CATEGORIAS);
+    const lista = principales.map(([valor, casos], i) => ({ valor, casos, color: coloresCategoria[valor] ?? PALETA_VALORES_UNICOS[i % PALETA_VALORES_UNICOS.length], visible: !categoriasOcultas.includes(valor) }));
+    if (resto.length > 0) lista.push({ valor: 'Otros', casos: resto.reduce((a, [, c]) => a + c, 0), color: coloresCategoria['Otros'] ?? COLOR_OTROS, visible: !categoriasOcultas.includes('Otros') });
+    return lista;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campoSimbologia, registrosFiltrados, coloresCategoria, categoriasOcultas]);
+  // Color y visibilidad de cada punto según su valor (o «Otros»).
+  const simbologiaPuntos = useMemo(() => {
+    if (!campoSimbologia || categoriasSimbologia.length === 0) return null;
+    const porValor = new Map(categoriasSimbologia.map((c) => [c.valor, c]));
+    const otros = porValor.get('Otros');
+    return (r: RegistroArchivoGeo) => porValor.get(valorDe(r)) ?? otros ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campoSimbologia, categoriasSimbologia]);
+
   function descargarCorregido() {
     // Se descargan TODOS los registros (válidos e inválidos) — los
     // inválidos quedan marcados como tales en la columna "Estado" en vez
@@ -208,6 +253,8 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
     formatoDescarga, setFormatoDescarga, formatoDecimal, setFormatoDecimal, descargarCorregido,
     registros, registrosValidos, registrosInvalidos, registrosFiltrados,
     opcionesDelito, opcionesCai, concentracionPorCai, colDelitoDetectada,
+    campoSimbologia, setCampoSimbologia, coloresCategoria, setColoresCategoria, categoriasOcultas, setCategoriasOcultas,
+    categoriasSimbologia, simbologiaPuntos,
   };
 }
 
