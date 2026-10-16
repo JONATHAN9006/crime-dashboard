@@ -44,7 +44,7 @@ import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
 import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
 import { aplicarFiltros } from '../utils/filters';
-import { esSoloConsulta } from '../utils/permisos';
+import { esSoloConsulta, tieneAcceso } from '../utils/permisos';
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -987,6 +987,8 @@ export function MapaGeorreferenciacion() {
     return false;
   }
   const soloLectura = esSoloConsulta();
+  // La «X» de las capas: solo el administrador (enlace raíz con usuario y contraseña).
+  const puedeEliminarCapas = !soloLectura && tieneAcceso('eliminarCapas');
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
 
   // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
@@ -1137,6 +1139,7 @@ export function MapaGeorreferenciacion() {
   }
 
   async function quitarCapaPuntos(id: string) {
+    if (!tieneAcceso('eliminarCapas')) return;
     if (!confirm('¿Quitar esta capa de puntos?')) return;
     await persistirPuntos(capasPuntos.filter((c) => c.id !== id));
   }
@@ -1204,6 +1207,7 @@ export function MapaGeorreferenciacion() {
   }
 
   async function quitarCapa(id: string) {
+    if (!tieneAcceso('eliminarCapas')) return;
     const capa = capas.find((c) => c.id === id);
     if (!confirm(capa?.compartida ? '¿Quitar esta capa geográfica? Está compartida: se quitará también de los demás equipos.' : '¿Quitar esta capa geográfica?')) return;
     if (capa?.compartida) {
@@ -2342,7 +2346,7 @@ export function MapaGeorreferenciacion() {
                             {compartiendo === capa.id ? 'Subiendo…' : 'Compartir'}
                           </button>
                         ) : null}
-                        {!soloLectura && <button
+                        {puedeEliminarCapas && <button
                           type="button"
                           onClick={() => quitarCapa(capa.id)}
                           title={`Eliminar capa "${capa.nombre}"`}

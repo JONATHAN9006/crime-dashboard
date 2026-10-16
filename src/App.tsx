@@ -23,6 +23,7 @@ import { obtenerModoAcceso } from './utils/modoAcceso';
 import { DASHBOARD_ACCESS } from './config/dashboardAccess';
 import { AccesosCai } from './pages/AccesosCai';
 import { PuertaCai } from './cai/PuertaCai';
+import { PuertaAdmin } from './admin/PuertaAdmin';
 
 const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
@@ -115,5 +116,9 @@ export default function App() {
   );
   // Enlace de los comandantes de CAI: nada se carga (ni los datos) hasta
   // que ingresan con su usuario y contraseña desde Popayán.
-  return modoAcceso === 'cai' ? <PuertaCai>{app}</PuertaCai> : app;
+  // Enlace principal (sin /interno, /jefe ni /cai): administrador, con
+  // usuario y contraseña validados en el servidor.
+  if (modoAcceso === 'cai') return <PuertaCai>{app}</PuertaCai>;
+  if (modoAcceso === null) return <PuertaAdmin>{app}</PuertaAdmin>;
+  return app;
 }

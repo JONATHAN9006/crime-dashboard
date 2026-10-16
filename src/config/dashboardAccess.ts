@@ -34,6 +34,8 @@ export interface AccesoHerramientas {
   actualizarInformacion: boolean;
   // Página "Accesos CAI" (registro de ingresos de los comandantes) — solo administrador.
   accesosCai: boolean;
+  // La «X» que elimina capas del mapa (Capas cargadas) — solo el administrador (enlace raíz).
+  eliminarCapas: boolean;
 }
 
 export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramientas> = {
@@ -61,9 +63,11 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     tendenciaDiaria: false,
     microgerencia: false,
     analistaIA: false,
-    descargas: true,
-    actualizarInformacion: true,
+    // SOLO CONSULTA: sin descargar imágenes ni archivos, sin modificar ni cargar matrices.
+    descargas: false,
+    actualizarInformacion: false,
     accesosCai: false,
+    eliminarCapas: false,
   },
   // Vista de trabajo interno — todo disponible, siempre.
   interno: {
@@ -88,6 +92,8 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     descargas: true,
     actualizarInformacion: true,
     accesosCai: true,
+    // Sin la «X» de las capas (para no borrar capas compartidas por error).
+    eliminarCapas: false,
   },
   // Comandantes de CAI (enlace /cai, con usuario y contraseña) — SOLO
   // CONSULTA: sin descargas, sin actualizar ni cargar información, sin
@@ -114,5 +120,6 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     descargas: false,
     actualizarInformacion: false,
     accesosCai: false,
+    eliminarCapas: false,
   },
 };

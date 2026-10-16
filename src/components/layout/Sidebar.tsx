@@ -9,6 +9,7 @@ import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { tieneAcceso } from '../../utils/permisos';
 import { useSesionCai } from '../../cai/PuertaCai';
+import { useSesionAdmin } from '../../admin/PuertaAdmin';
 import { useContadorAccesosCai } from '../../pages/AccesosCai';
 
 export type PaginaId =
@@ -19,7 +20,6 @@ export type PaginaId =
 // Ítems bloqueados temporalmente para presentarle al jefe por partes — se ven
 // atenuados, no se puede entrar, y al pasar el mouse se explica por qué. Para
 // habilitar uno, basta con quitarlo de esta lista.
-const PAGINAS_BLOQUEADAS: PaginaId[] = ['ultimasSemanas', 'matrizCalor', 'mapa', 'tasaCosec', 'comparativo', 'tabla', 'calidad', 'productos'];
 const MENSAJE_BLOQUEADO = 'Este componente se encuentra en análisis y construcción.';
 
 type ItemMenu = { id: PaginaId; label: string; icon: React.ElementType };
@@ -137,9 +137,10 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
   // Ruta raíz (modoAcceso === null): EXACTAMENTE el comportamiento de
   // siempre, sin tocar nada. Solo en /jefe o /interno se consulta la
   // configuración centralizada (dashboardAccess.ts) en su lugar.
+  // Enlace principal = ADMINISTRADOR (con usuario y contraseña): todo habilitado.
   const bloqueado = modoAcceso
     ? !DASHBOARD_ACCESS[modoAcceso][item.id as keyof typeof DASHBOARD_ACCESS['jefe']]
-    : !esModoConsulta() && PAGINAS_BLOQUEADAS.includes(item.id);
+    : false;
   const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : modoAcceso === 'cai' ? 'No habilitado para la consulta de los CAI.' : MENSAJE_BLOQUEADO;
   return (
     <button
@@ -200,6 +201,8 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
   const esAdmin = tieneAcceso('accesosCai') && !esModoConsulta();
   const contadorCai = useContadorAccesosCai(esAdmin);
   const sesionCai = useSesionCai();
+  const sesionAdmin = useSesionAdmin();
+  const cerrarSesion = sesionCai?.salir ?? sesionAdmin?.salir;
 
   return (
     <>
@@ -307,7 +310,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.15 · v161" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.15 · v162" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -316,20 +319,21 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                   <Eye size={11} /> Modo consulta — solo lectura
                 </p>
               )}
+              {sesionAdmin && <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">Administrador</p>}
               {obtenerModoAcceso() && (
                 <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">
                   {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : obtenerModoAcceso() === 'cai' ? `Consulta · ${sesionCai?.sesion.nombre ?? 'CAI'}` : 'Vista interna'}
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.15 · v161</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.15 · v162</p>
             </div>
           )}
         </div>
-        {sesionCai && (
+        {cerrarSesion && (
           <button
             type="button"
-            onClick={sesionCai.salir}
+            onClick={cerrarSesion}
             title="Cerrar sesión"
             className={clsx('mb-3 flex shrink-0 items-center justify-center gap-2 rounded-lg border border-white/20 py-2 text-[12.5px] font-semibold text-white/90 hover:bg-white/10', colapsado ? 'mx-2' : 'mx-4')}
           >
