@@ -1287,8 +1287,12 @@ export function MapaGeorreferenciacion() {
   // (filteredRecords): así el mapa de calor respeta TODOS los filtros del
   // filtro principal —incluidos modalidad, arma, género, franja…, que la
   // capa de puntos guardada no trae— y coincide siempre con las tablas.
+  //
+  // EXCEPCIÓN: el filtro de BARRIO no recorta el mapa de calor. Elegir
+  // barrios solo los AGREGA a los señalados (flechas) sobre el calor de
+  // siempre — así el calor nunca «desaparece» al sumar barrios.
   const puntosDelitosDesdeRegistros = useMemo(
-    (): CapaPuntos['puntos'] => filteredRecords
+    (): CapaPuntos['puntos'] => registrosSinFiltroBarrio
       .filter((r) => esCoordenadaValida(r.lat, r.lon))
       .map((r) => ({
         lat: r.lat as number,
@@ -1298,7 +1302,7 @@ export function MapaGeorreferenciacion() {
         estacionCorta: r.estacion,
         caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,
       })),
-    [filteredRecords],
+    [registrosSinFiltroBarrio],
   );
 
   const capasPuntosProcesadas = useMemo(() => {
@@ -1360,7 +1364,7 @@ export function MapaGeorreferenciacion() {
         // o ZONA no se descarta: se vuelve a generar al recargar los datos.
         if (esExacto && filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
         if (esExacto && filters.cuadrante.length > 0 && 'ZONA' in p.fila && !filters.cuadrante.includes(String(p.fila.ZONA ?? ''))) return false;
-        if (esExacto && filters.barrioHecho.length > 0 && 'BARRIO' in p.fila && !filters.barrioHecho.includes(String(p.fila.BARRIO ?? ''))) return false;
+        // (El Barrio no recorta el calor: solo agrega barrios señalados.)
         // Operatividad: CAI (inferido por su cuadrante), Zona de Atención
         // (su cuadrante) y su categoría. La matriz de Operatividad no trae
         // barrio, así que el filtro de Barrio no puede aplicarse a ella.

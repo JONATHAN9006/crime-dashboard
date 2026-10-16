@@ -12,19 +12,13 @@ import { maxDe } from '../utils/mathSeguro';
 import { Card, EmptyState } from '../components/ui/Card';
 import { MultiSelect } from '../components/filters/MultiSelect';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
-import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
+import { formatDecimal, formatFecha, formatNumero, semanaIso } from '../utils/aggregations';
+import { rangoLargo } from '../utils/rangoSemana';
 
 type Modo = 'ultimas4' | 'semanas' | 'mes';
 
-const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-/** "15 – 21 sep" o "29 sep – 5 oct". */
-function rangoCorto(inicio: Date, fin: Date): string {
-  const mi = MESES_CORTOS[inicio.getMonth()], mf = MESES_CORTOS[fin.getMonth()];
-  return mi === mf ? `${inicio.getDate()} – ${fin.getDate()} ${mf}` : `${inicio.getDate()} ${mi} – ${fin.getDate()} ${mf}`;
-}
-
 export function UltimasSemanas() {
-  const { filteredRecords } = useData();
+  const { filteredRecords, filters } = useData();
   const [modo, setModo] = useState<Modo>('ultimas4');
   const [semanasElegidas, setSemanasElegidas] = useState<string[]>([]); // "anio-semana"
   const [mesElegido, setMesElegido] = useState<string | null>(null);
@@ -43,7 +37,9 @@ export function UltimasSemanas() {
 
     if (modo === 'semanas') {
       const elegidas = semanasDisponibles.filter((s) => semanasElegidas.includes(`${s.anio}-${s.semana}`));
-      return elegidas.map((s) => ({ etiqueta: `Semana ${s.semana} (${s.anio}) · ${rangoCorto(s.inicio, s.fin)}`, inicio: s.inicio, fin: s.fin }));
+      // «Semana 38» (semana ISO 8601); si se eligen semanas de dos años, se agrega el año.
+      const variosAnios = new Set(elegidas.map((x) => x.anio)).size > 1;
+      return elegidas.map((s) => ({ etiqueta: variosAnios ? `Semana ${s.semana} (${s.anio})` : `Semana ${s.semana}`, inicio: s.inicio, fin: s.fin }));
     }
     if (modo === 'mes') {
       const mes = mesesDisponibles.find((m) => m.anioMes === mesElegido) ?? mesesDisponibles[mesesDisponibles.length - 1];
@@ -64,9 +60,15 @@ export function UltimasSemanas() {
       // del calendario lunes–domingo): se rotulan con sus fechas reales para
       // no confundirlos con «Semana 39» de «Elegir semanas», que sí es la
       // semana del calendario y por eso da cifras distintas.
-      return { etiqueta: rangoCorto(inicio, fin), inicio, fin };
+      // Rótulo corto: semana ISO 8601 del ÚLTIMO día del bloque (el bloque
+      // sigue siendo de 7 días seguidos); las fechas exactas van en el
+      // recuadro al pasar el cursor.
+      return { etiqueta: `Semana ${semanaIso(fin)}`, inicio, fin };
     };
-    return [construir(27, 21), construir(20, 14), construir(13, 7), construir(6, 0)];
+    const bloques = [construir(27, 21), construir(20, 14), construir(13, 7), construir(6, 0)];
+    // Si la ventana cruza de un año a otro, el año va en el rótulo para no confundir «Semana 1» con «Semana 52».
+    if (new Set(bloques.map((b) => b.fin.getFullYear())).size > 1) bloques.forEach((b) => { b.etiqueta = `${b.etiqueta} (${b.fin.getFullYear()})`; });
+    return bloques;
   }, [modo, filteredRecords, semanasElegidas, semanasDisponibles, mesElegido, mesesDisponibles, corte]);
 
   const r = useAnalisisPeriodos(filteredRecords, periodos);
@@ -158,7 +160,7 @@ export function UltimasSemanas() {
 
   const topDelitosGrafico = [...r.porDelito].sort((a, b) => b.valores.reduce((x, y) => x + y, 0) - a.valores.reduce((x, y) => x + y, 0)).slice(0, 5);
   const datosGrafico = r.periodos.map((p, i) => {
-    const fila: Record<string, any> = { periodo: p.etiqueta.replace(' (más reciente)', '') };
+    const fila: Record<string, any> = { periodo: p.etiqueta.replace(' (más reciente)', ''), _rango: rangoLargo(p.inicio, p.fin), _total: p.total };
     for (const d of topDelitosGrafico) fila[d.delito] = d.valores[i];
     return fila;
   });
@@ -252,7 +254,29 @@ export function UltimasSemanas() {
             descargable="evolucion-top5"
             claseTitulo={tituloTarjeta}
           >
-            <GroupedBarChart data={datosGrafico} xKey="periodo" seriesKeys={topDelitosGrafico.map((d) => d.delito)} seriesColors={coloresDelitos} height={260} colorPorBarra={unSoloDelito} resaltarMaximo={unSoloDelito} />
+            <GroupedBarChart
+              data={datosGrafico} xKey="periodo" seriesKeys={topDelitosGrafico.map((d) => d.delito)} seriesColors={coloresDelitos} height={260} colorPorBarra={unSoloDelito} resaltarMaximo={unSoloDelito}
+              contenidoTooltip={(fila) => (
+                <div className="min-w-[210px] rounded-xl bg-[#10233f] px-3.5 py-2.5 text-white shadow-xl">
+                  <p className="text-[14px] font-bold">{fila.periodo}</p>
+                  <p className="text-[12px] text-slate-300">{fila._rango}</p>
+                  <div className="mt-1.5 space-y-0.5 border-t border-white/15 pt-1.5 text-[12.5px]">
+                    {topDelitosGrafico.map((d) => (
+                      <p key={d.delito} className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: unSoloDelito ? '#159089' : coloresDelitos[d.delito] }} />
+                        <span className="min-w-0 flex-1 truncate">{d.delito}:</span>
+                        <b>{formatNumero(fila[d.delito] ?? 0)} {fila[d.delito] === 1 ? 'caso' : 'casos'}</b>
+                      </p>
+                    ))}
+                    {!unSoloDelito && (
+                      <p className="flex justify-between gap-2 border-t border-white/15 pt-1 text-slate-200">
+                        <span>{filters.delito.length === 0 ? 'Todos los delitos' : 'Total de la selección'}:</span><b>{formatNumero(fila._total)} casos</b>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            />
           </Card>
         </div>
 

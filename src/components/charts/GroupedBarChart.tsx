@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Bar, ComposedChart, Legend, Line, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { formatNumero } from '../../utils/aggregations';
 
@@ -47,7 +48,9 @@ function crearFormaBarra(colorBase: string, valoresDestacados: Set<number>, resa
   };
 }
 
-export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria, ocultarEjeY = false, lineaReferencia, abreviarEtiquetas = false, ocultarLeyendaBarras = false, conservarColorDestacado = false }: {
+export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizontal = false, seriesColors, resaltarMaximo = false, colorPorBarra = false, mostrarTendencia = false, onBarClick, anchoMaximoBarra, tamanoEtiqueta = 12, resaltarTopN = 1, espaciadoCategoria, ocultarEjeY = false, lineaReferencia, abreviarEtiquetas = false, ocultarLeyendaBarras = false, conservarColorDestacado = false, contenidoTooltip }: {
+  // Contenido propio del recuadro al pasar el cursor (recibe la fila de datos).
+  contenidoTooltip?: (fila: Record<string, any>) => ReactNode;
   // true = el recuadro rojo se agrega sin cambiar el color de la barra (ej. color por año).
   conservarColorDestacado?: boolean;
   data: Record<string, any>[];
@@ -138,7 +141,14 @@ export function GroupedBarChart({ data, xKey, seriesKeys, height = 320, horizont
             <YAxis hide={ocultarEjeY} tick={{ fontSize: 12, fill: '#64748b' }} />
           </>
         )}
-        <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13, border: '1px solid #e2e8f0' }} />
+        {contenidoTooltip ? (
+          <Tooltip
+            cursor={{ fill: 'rgba(15,95,87,0.06)' }}
+            content={({ active, payload }: any) => (active && payload?.length ? <>{contenidoTooltip(payload[0].payload)}</> : null)}
+          />
+        ) : (
+          <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13, border: '1px solid #e2e8f0' }} />
+        )}
         <Legend wrapperStyle={{ fontSize: 12 }} />
         {seriesKeys.map((k, i) => {
           const color = seriesColors?.[k] ?? (esUnaSolaSerie ? '#116762' : COLORES[i % COLORES.length]);

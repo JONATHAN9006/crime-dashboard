@@ -4,6 +4,7 @@ import { formatDecimal, formatNumero } from '../../utils/aggregations';
 import { exportarHtmlComoImagen } from '../../utils/exportarImagen';
 import { useRegistrarEnPdf } from '../../context/RegistroPdfContext';
 import type { AnalisisSemanal, AlertaRezago, FilaSemanal } from '../../analitica/semanas';
+import { rangoLargo } from '../../utils/rangoSemana';
 
 // "Evolución de la Delictividad — Últimas 4 Semanas", maquetado igual a la
 // imagen de referencia: encabezado con ícono y chips de filtro, 6
@@ -17,9 +18,6 @@ type Sentido = 'aumento' | 'reduccion' | 'estable';
 type Filtro = 'todos' | Sentido;
 type Orden = 'impacto_reduccion' | 'impacto_aumento' | 'impacto' | 'ultima' | 'variacion' | 'nombre';
 
-const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const dd = (d: Date) => String(d.getDate()).padStart(2, '0');
-const rango = (a: Date, b: Date) => (a.getMonth() === b.getMonth() ? `${dd(a)} - ${dd(b)} ${MES[b.getMonth()]}` : `${dd(a)} ${MES[a.getMonth()]} - ${dd(b)} ${MES[b.getMonth()]}`);
 const nombreSemana = (e: string) => e.replace(' (más reciente)', '').replace(/\s*\(\d{4}\)/, '');
 // Rótulo corto: "S39" para semanas del calendario; las de «Últimas 4
 // semanas» (7 días hacia atrás) se rotulan con sus fechas ("15 – 21 sep").
@@ -209,9 +207,10 @@ export function EvolucionSemanal({ periodos, analisis, rezago, onCortarAntesDelR
                   <tr className="text-[12px] font-bold uppercase text-[#10233f]">
                     <th className="border-b border-slate-200 px-4 py-2.5 text-left">Delito</th>
                     {periodos.map((p, i) => (
-                      <th key={i} className={`border-b border-slate-200 px-2 py-2.5 text-center ${i === n - 1 ? 'bg-[#dff3f5]' : ''}`}>
-                        {nombreSemana(p.etiqueta)}
-                        <span className="block text-[11.5px] font-normal normal-case text-slate-600">{rango(p.inicio, p.fin)}</span>
+                      <th key={i} className={`group relative border-b border-slate-200 px-2 py-2.5 text-center ${i === n - 1 ? 'bg-[#dff3f5]' : ''}`}>
+                        {/* Rótulo corto; las fechas exactas, al pasar el cursor. */}
+                        <span tabIndex={0} aria-label={`${nombreSemana(p.etiqueta)}: ${rangoLargo(p.inicio, p.fin)}`} className="cursor-help whitespace-nowrap border-b border-dotted border-slate-400 outline-none">{nombreSemana(p.etiqueta)}</span>
+                        <span data-ocultar-en-descarga="1" className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#10233f] px-2.5 py-1.5 text-[11.5px] font-medium normal-case text-white shadow-lg group-hover:block group-focus-within:block">{rangoLargo(p.inicio, p.fin)}</span>
                       </th>
                     ))}
                     <th className="border-b border-slate-200 px-2 py-2.5 text-center">Tendencia<span className="block text-[11.5px] font-normal normal-case text-slate-600">({esUltimas4 ? 'Últimas 4 semanas' : `${n} periodos`})</span></th>
