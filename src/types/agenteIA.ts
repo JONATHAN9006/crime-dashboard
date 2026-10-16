@@ -34,12 +34,17 @@ export interface ContextoAgenteIA {
     cantidadFiltrosAdicionalesActivos: number; // resto de campos (arma, modalidad, género, etc.) que sí están activos pero no se listan uno a uno aquí
   };
   periodoActual: { inicio: string; fin: string; vigencia: number };
+  // Fecha de corte de la información (último día con datos oficiales) y si
+  // la vigencia actual sigue en curso (año sin cerrar).
+  corteInformacion: string;
+  periodoEnCurso: boolean;
   periodoComparativo: { inicio: string; fin: string; vigencia: number };
   indicadores: {
     totalCasosActual: number;
     totalCasosAnterior: number; // corte homólogo "a la fecha", NO año completo
     diferencia: number;
     variacionPct: number | null; // null si el año anterior no tiene casos (evita división por cero)
+    totalAnioAnteriorCompleto: number; // vigencia anterior COMPLETA (01/01–31/12), solo como referencia
   };
   resumenCategorias: {
     delitos: FilaComparativaCategoria[];
@@ -57,10 +62,36 @@ export interface ContextoAgenteIA {
     porMes: { mes: string; actual: number | null; anterior: number | null }[];
     diaMasCritico: { key: string; casos: number } | null;
     horaMasCritica: { hora: string; casos: number } | null;
+    // Franjas de 3 horas (00–02, 03–05, …) ordenadas de mayor a menor.
+    franjasCriticas: { franja: string; casos: number; participacion: number }[];
+    casosConHora: number;
   };
   resumenTerritorial: {
     cuadrantesCriticos: { key: string; casos: number; participacion: number }[];
     barriosCriticos: { key: string; casos: number; participacion: number }[];
+  };
+  // Operatividad del MISMO periodo evaluable (reglas oficiales de conteo,
+  // utils/operatividadConteo vía construirTablaOperatividad).
+  operatividad: {
+    disponible: boolean;
+    periodoActual: { inicio: string; fin: string; vigencia: number } | null;
+    periodoComparativo: { inicio: string; fin: string; vigencia: number } | null;
+    grupos: { titulo: string; unidad: 'casos' | 'kg'; actual: number; anterior: number; filas: { etiqueta: string; actual: number; anterior: number }[] }[];
+  };
+  // Últimas 4 semanas (mismo cálculo de la página «Últimas 4 Semanas»).
+  cambiosRecientes: {
+    disponible: boolean;
+    semanas: { nombre: string; inicio: string; fin: string; total: number }[];
+    variacionPrimeraVsUltimaPct: number | null;
+    delitoMayorAumento: { delito: string; primera: number; ultima: number } | null;
+    delitoMayorDisminucion: { delito: string; primera: number; ultima: number } | null;
+  };
+  // Calidad de los registros de la vigencia actual (para advertir límites).
+  calidadDatos: {
+    registrosActual: number;
+    sinHora: number;
+    sinBarrio: number;
+    sinZona: number;
   };
   metadatos: {
     totalRegistrosFiltrados: number;

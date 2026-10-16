@@ -77,6 +77,21 @@ export const ESQUEMAS_HERRAMIENTAS: EsquemaHerramienta[] = [
     },
   },
   {
+    name: 'analizarOperatividad',
+    description: 'Devuelve los resultados operativos (capturas por orden judicial y flagrancia, vehículos recuperados, droga incautada en kg, armas, mercancía) del MISMO periodo evaluable frente al año anterior, con los mismos filtros. Úsala para relacionar delitos con operatividad (nunca afirmes causalidad).',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'analizarCambiosRecientes',
+    description: 'Devuelve los casos de las últimas 4 semanas (ventanas de 7 días hasta la última fecha con datos), la variación entre la primera y la última, y los delitos con mayor aumento y disminución.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'obtenerLimitaciones',
+    description: 'Devuelve la fecha de corte, si la vigencia está en curso, el total del año anterior completo (solo referencia) y la calidad de los registros (cuántos no tienen hora, barrio o zona). Úsala para advertir limitaciones del análisis.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'sugerirAccionesPreventivas',
     description: 'Genera una recomendación operativa (planes preventivos aplicables, zona prioritaria y franja horaria preventiva) para el delito indicado — o el delito único ya seleccionado si no se especifica uno — a partir del barrio/cuadrante y el horario con mayor concentración de casos ya calculados. Usa esta herramienta cuando el usuario pida sugerencias, planes, acciones preventivas o qué hacer frente a un delito.',
     input_schema: {
@@ -158,6 +173,8 @@ export function ejecutarHerramientaSobreContexto(nombre: string, parametros: Rec
       const base = {
         diaMasCritico: contexto.resumenTemporal.diaMasCritico,
         horaMasCritica: contexto.resumenTemporal.horaMasCritica,
+        franjasCriticas: contexto.resumenTemporal.franjasCriticas.slice(0, 4),
+        casosConHora: contexto.resumenTemporal.casosConHora,
       };
       if (tipo === 'dia_semana') return { ...base, porDiaSemana: contexto.resumenTemporal.porDiaSemana };
       if (tipo === 'hora') return { ...base, porHora: contexto.resumenTemporal.porHora };
@@ -215,6 +232,24 @@ export function ejecutarHerramientaSobreContexto(nombre: string, parametros: Rec
         casosEnHoraCritica: horaTop?.casos ?? null,
       };
     }
+
+    case 'analizarOperatividad':
+      if (!contexto.operatividad.disponible || contexto.operatividad.grupos.length === 0) return { error: 'No hay registros de operatividad cargados para este periodo y filtros.' };
+      return { ...contexto.operatividad, advertencia: 'Operatividad y delitos son bases distintas: coincidir en el tiempo no demuestra relación causal.' };
+
+    case 'analizarCambiosRecientes':
+      if (!contexto.cambiosRecientes.disponible) return { error: 'No hay datos suficientes de las últimas 4 semanas.' };
+      return contexto.cambiosRecientes;
+
+    case 'obtenerLimitaciones':
+      return {
+        corteInformacion: contexto.corteInformacion,
+        periodoEnCurso: contexto.periodoEnCurso,
+        periodoActual: contexto.periodoActual,
+        periodoComparativo: contexto.periodoComparativo,
+        totalAnioAnteriorCompleto: contexto.indicadores.totalAnioAnteriorCompleto,
+        calidadDatos: contexto.calidadDatos,
+      };
 
     default:
       return { error: `Herramienta no reconocida: "${nombre}".` };

@@ -65,7 +65,9 @@ ${delitoUnico
     ? `4. El usuario está analizando específicamente "${delitoUnico}". No menciones ni compares con otros delitos (homicidio, hurtos de otro tipo, etc.) salvo que el usuario lo pida explícitamente.`
     : '4. No hay un único delito seleccionado — el análisis es sobre el conjunto de delitos que resulte de los filtros activos.'}
 5. Sé profesional, claro y directo — el texto puede usarse en informes institucionales. Evita relleno y conclusiones no sustentadas por los datos.
-6. Cuando el usuario pida un "análisis ejecutivo", estructura la respuesta en: Situación actual, Comparación con la vigencia anterior, Variación, Comportamiento temporal, Distribución territorial (si hay información), Principales hallazgos, Aspectos que requieren atención (solo si los datos lo justifican), y Conclusión.
+6. FORMATO DE RESPUESTA: usa títulos con "## " y viñetas "- ". Organiza la respuesta, cuando aporte valor, en estas secciones (solo las útiles para la pregunta): ## Hallazgo principal (una o dos frases directas), ## Indicadores (casos, diferencia absoluta, variación %, participación — solo los calculados por las herramientas), ## Comportamiento temporal, ## Focalización territorial, ## Interpretación (lenguaje sencillo y profesional), ## Recomendaciones operativas (vinculadas a los hallazgos, en lenguaje de recomendación), ## Limitaciones (periodos no equivalentes, datos faltantes, pocos casos). Resalta las cifras clave con **negrita**.
+   Para un "análisis ejecutivo" o "informe", usa: ## Contexto y periodo analizado, ## Indicadores principales, ## Comparación con la vigencia anterior, ## Hallazgos temporales y territoriales, ## Interpretación, ## Conclusiones, ## Recomendaciones operativas — e indica la fecha de corte (herramienta obtenerLimitaciones).
+   La comparación entre vigencias SIEMPRE es con el mismo periodo del año anterior (nunca el año completo contra un año en curso). No confundas correlación con causalidad ni presentes hipótesis como hechos; si los datos no permiten concluir algo, dilo expresamente.
 7. Cuando el usuario pida sugerencias, planes, recomendaciones u "qué hacer" frente a un delito, usa SIEMPRE la herramienta "sugerirAccionesPreventivas" — nunca inventes un plan por tu cuenta: los planes posibles (Plan Presencia, Registro a Personas, Registro a Vehículos, Plan Baliza, Plan Candado, articulación con Comisaría de Familia o con Policía Judicial) ya están definidos en esa herramienta, junto con la zona y la franja horaria calculadas a partir de los datos reales. Tu trabajo es redactarlo como una recomendación operativa clara, nunca como un hecho garantizado — usa lenguaje de recomendación ("se sugiere", "sería pertinente"), no de certeza.`;
 }
 
@@ -96,7 +98,7 @@ async function llamarAnthropic(
     headers: { 'Content-Type': 'application/json', 'x-api-key': AI_API_KEY as string, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: AI_MODEL,
-      max_tokens: 1500,
+      max_tokens: 2200,
       system: systemPrompt,
       messages: mensajesAnthropic,
       tools: herramientas.map((h) => ({ name: h.name, description: h.description, input_schema: h.input_schema })),

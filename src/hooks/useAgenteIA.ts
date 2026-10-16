@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useData } from '../context/DataContext';
-import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral } from './useComparativoHomologo';
+import { calcularVentanaFechas, useVentanaComparativa, useComparativoCategoria, useComparativoGeneral } from './useComparativoHomologo';
+import { useUltimasSemanas } from './useUltimasSemanas';
+import { construirTablaOperatividad } from '../components/resumen/TablaOperatividadAgrupada';
+import { esValorPendiente } from '../utils/valoresPendientes';
+import { participacionPct, totalCasos } from '../utils/aggregations';
 import { useTendenciaDiaSemana, useDistribucionHoraria } from './useTemporalAnalysis';
 import { useCuadrantesCriticos, useBarriosCriticos } from './useInsights';
 import { formatFecha } from '../utils/aggregations';
@@ -21,7 +25,7 @@ const LIMITE_CATEGORIAS = 10;
  * igual, sin ningún cambio.
  */
 export function useAgenteIA() {
-  const { records, recordsBase, filters, meta } = useData();
+  const { records, recordsBase, filteredRecords, filters, meta, operatividadRecords } = useData();
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
   const cmpGeneral = useComparativoGeneral(ventana);
   const cmpDelito = useComparativoCategoria(ventana, (r) => r.delito, LIMITE_CATEGORIAS);
@@ -36,6 +40,42 @@ export function useAgenteIA() {
   const porHora = useDistribucionHoraria(ventana.recsActual);
   const cuadrantesCriticos = useCuadrantesCriticos(ventana.recsActual, 5);
   const barriosCriticos = useBarriosCriticos(ventana.recsActual, 5);
+  // Últimas 4 semanas: mismo hook y mismos registros que la página «Últimas 4 Semanas».
+  const ultimas = useUltimasSemanas(filteredRecords);
+
+  // Operatividad del mismo periodo evaluable (regla única calcularVentanaFechas,
+  // igual que la tabla de Inicio), con los mismos filtros generales.
+  const operatividad = useMemo(() => {
+    let maxTs = 0;
+    for (const r of operatividadRecords) { const t = r.fecha?.getTime() ?? 0; if (t > maxTs) maxTs = t; }
+    if (maxTs === 0) return { disponible: false, periodoActual: null, periodoComparativo: null, grupos: [] };
+    const v = calcularVentanaFechas({ anios: filters.anio, meses: filters.mes, fechaInicial: filters.fechaInicial, fechaFinal: filters.fechaFinal, fechaMaxDatos: new Date(maxTs) });
+    const base = operatividadRecords.filter((r) => {
+      if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
+      if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
+      if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
+      if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;
+      return true;
+    });
+    const grupos = construirTablaOperatividad(base, { inicio: v.actualInicio, fin: v.actualFin, inicioAnt: v.anteriorInicio, finAnt: v.anteriorFin, anioActual: v.actualFin.getFullYear(), anioAnterior: v.anteriorFin.getFullYear() });
+    const kg = (g: number) => Math.round((g / 1000) * 10) / 10;
+    return {
+      disponible: true,
+      periodoActual: { inicio: formatFecha(v.actualInicio), fin: formatFecha(v.actualFin), vigencia: v.actualFin.getFullYear() },
+      periodoComparativo: { inicio: formatFecha(v.anteriorInicio), fin: formatFecha(v.anteriorFin), vigencia: v.anteriorFin.getFullYear() },
+      grupos: grupos.map((g) => {
+        const filas = g.filas.map((f) => ({ etiqueta: f.etiqueta, actual: g.esDroga ? kg(f.actual) : f.actual, anterior: g.esDroga ? kg(f.anterior) : f.anterior }));
+        return {
+          titulo: g.titulo,
+          unidad: (g.esDroga ? 'kg' : 'casos') as 'kg' | 'casos',
+          actual: g.esDroga ? kg(g.filas.reduce((a, f) => a + f.actual, 0)) : g.filas.reduce((a, f) => a + f.actual, 0),
+          anterior: g.esDroga ? kg(g.filas.reduce((a, f) => a + f.anterior, 0)) : g.filas.reduce((a, f) => a + f.anterior, 0),
+          filas,
+        };
+      }),
+    };
+  }, [operatividadRecords, filters]);
 
   // Mensual "actual vs anterior" simplificado (mes -> valor por vigencia) —
   // se arma aquí mismo con un agrupamiento simple sobre recsActual/recsAnterior,
@@ -53,6 +93,14 @@ export function useAgenteIA() {
   const contexto: ContextoAgenteIA = useMemo(() => {
     const diaTop = [...porDiaSemana].sort((a, b) => b.casos - a.casos)[0] ?? null;
     const horaTop = [...porHora].sort((a, b) => b.casos - a.casos)[0] ?? null;
+    const totalDias = porDiaSemana.reduce((a, d) => a + d.casos, 0);
+    const casosConHora = porHora.reduce((a, h) => a + h.casos, 0);
+    const franjas = Array.from({ length: 8 }, (_, i) => {
+      const casos = porHora.filter((h) => Math.floor(h.horaNum / 3) === i).reduce((a, h) => a + h.casos, 0);
+      return { franja: `${String(i * 3).padStart(2, '0')}:00 – ${String(i * 3 + 2).padStart(2, '0')}:59`, casos, participacion: participacionPct(casos, casosConHora) };
+    }).filter((f) => f.casos > 0).sort((a, b) => b.casos - a.casos);
+    const fechaCorte = meta?.fechaMaxParametro ? new Date(meta.fechaMaxParametro) : null;
+    const recs = ventana.recsActual;
     return {
       filtros: {
         delito: filters.delito,
@@ -71,26 +119,45 @@ export function useAgenteIA() {
       },
       periodoActual: { inicio: formatFecha(ventana.actualInicio), fin: formatFecha(ventana.actualFin), vigencia: ventana.anioActual },
       periodoComparativo: { inicio: formatFecha(ventana.anteriorInicio), fin: formatFecha(ventana.anteriorFin), vigencia: ventana.anioAnterior },
+      corteInformacion: formatFecha(fechaCorte ?? ventana.actualFin),
+      periodoEnCurso: ventana.anioActual === (fechaCorte ?? ventana.actualFin).getFullYear() && !ventana.esRangoPersonalizado,
       indicadores: {
         totalCasosActual: cmpGeneral.casosActual,
         totalCasosAnterior: cmpGeneral.casosAnterior,
         diferencia: cmpGeneral.casosActual - cmpGeneral.casosAnterior,
         variacionPct: cmpGeneral.variacionPct,
+        totalAnioAnteriorCompleto: totalCasos(ventana.recsAnioAnteriorCompleto),
       },
       resumenCategorias: {
         delitos: cmpDelito, estaciones: cmpEstacion, cuadrantes: cmpCuadrante, barrios: cmpBarrio,
         cais: cmpCai, modalidades: cmpModalidad, armas: cmpArma, clasesSitio: cmpClaseSitio,
       },
       resumenTemporal: {
-        porDiaSemana: porDiaSemana.map((d) => ({ key: d.dia, casos: d.casos, participacion: 0 })),
+        porDiaSemana: porDiaSemana.map((d) => ({ key: d.dia, casos: d.casos, participacion: participacionPct(d.casos, totalDias) })),
         porHora: porHora.map((h) => ({ hora: h.hora, casos: h.casos })),
         porMes,
         diaMasCritico: diaTop ? { key: diaTop.dia, casos: diaTop.casos } : null,
-        horaMasCritica: horaTop ? { hora: horaTop.hora, casos: horaTop.casos } : null,
+        horaMasCritica: horaTop && horaTop.casos > 0 ? { hora: horaTop.hora, casos: horaTop.casos } : null,
+        franjasCriticas: franjas,
+        casosConHora,
       },
       resumenTerritorial: {
         cuadrantesCriticos: cuadrantesCriticos.map((c) => ({ key: c.key, casos: c.casos, participacion: c.participacion })),
         barriosCriticos: barriosCriticos.map((b) => ({ key: b.key, casos: b.casos, participacion: b.participacion })),
+      },
+      operatividad,
+      cambiosRecientes: {
+        disponible: ultimas.disponible,
+        semanas: ultimas.semanas.map((w) => ({ nombre: w.nombre, inicio: formatFecha(w.inicio), fin: formatFecha(w.fin), total: w.total })),
+        variacionPrimeraVsUltimaPct: ultimas.variacionTotalPct,
+        delitoMayorAumento: ultimas.delitoMayorAumento ? { delito: ultimas.delitoMayorAumento.delito, primera: ultimas.delitoMayorAumento.semanas[0], ultima: ultimas.delitoMayorAumento.semanas[3] } : null,
+        delitoMayorDisminucion: ultimas.delitoMayorDisminucion ? { delito: ultimas.delitoMayorDisminucion.delito, primera: ultimas.delitoMayorDisminucion.semanas[0], ultima: ultimas.delitoMayorDisminucion.semanas[3] } : null,
+      },
+      calidadDatos: {
+        registrosActual: recs.length,
+        sinHora: recs.filter((r) => r.hora === null || r.hora === undefined).length,
+        sinBarrio: recs.filter((r) => esValorPendiente(r.barrioHecho)).length,
+        sinZona: recs.filter((r) => esValorPendiente(r.cuadrante)).length,
       },
       metadatos: {
         totalRegistrosFiltrados: ventana.recsActual.length,
@@ -100,7 +167,7 @@ export function useAgenteIA() {
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ventana, cmpGeneral, cmpDelito, cmpEstacion, cmpCuadrante, cmpBarrio, cmpCai, cmpModalidad, cmpArma, cmpClaseSitio, porDiaSemana, porHora, porMes, cuadrantesCriticos, barriosCriticos, filters]);
+  }, [ventana, cmpGeneral, cmpDelito, cmpEstacion, cmpCuadrante, cmpBarrio, cmpCai, cmpModalidad, cmpArma, cmpClaseSitio, porDiaSemana, porHora, porMes, cuadrantesCriticos, barriosCriticos, filters, ultimas, operatividad, meta]);
 
   // ── Chat: historial de sesión (nunca persistido) ──────────────────────
   const [mensajes, setMensajes] = useState<MensajeChat[]>([]);
