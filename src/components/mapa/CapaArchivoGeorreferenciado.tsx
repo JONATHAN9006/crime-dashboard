@@ -266,7 +266,7 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
 }
 
 /** La capa que de verdad se dibuja en Leaflet — DEBE ir dentro de <MapContainer>. Pinta puntos (símbolo único o valores únicos, con su leyenda) o el mapa de calor según el estado del hook. */
-export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos, categoriasSimbologia, campoSimbologia, archivo }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos' | 'simbologiaPuntos' | 'categoriasSimbologia' | 'campoSimbologia' | 'archivo'>) {
+export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos, categoriasSimbologia, campoSimbologia, archivo, setColoresCategoria, setCategoriasOcultas }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos' | 'simbologiaPuntos' | 'categoriasSimbologia' | 'campoSimbologia' | 'archivo' | 'setColoresCategoria' | 'setCategoriasOcultas'>) {
   const map = useMap();
   const capaRef = useRef<L.Layer | null>(null);
   const leyendaRef = useRef<L.Control | null>(null);
@@ -298,26 +298,43 @@ export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVis
     capaRef.current = overlay;
   }, [map, registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos]);
 
-  // Leyenda en el mapa (valores únicos): título = campo, cada valor con su color y casos.
+  // Leyenda en el mapa (valores únicos): título = campo y cada valor con su
+  // color y casos. El CUADRITO DE COLOR se puede tocar para elegir otro color
+  // ahí mismo, y el nombre para ocultar/mostrar ese valor en el mapa.
   useEffect(() => {
     if (leyendaRef.current) { leyendaRef.current.remove(); leyendaRef.current = null; }
     if (modoVisualizacion !== 'puntos' || !campoSimbologia || categoriasSimbologia.length === 0) return;
-    const visibles = categoriasSimbologia.filter((c) => c.visible);
     const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]!));
     const control = new L.Control({ position: 'bottomleft' });
     control.onAdd = () => {
       const div = L.DomUtil.create('div');
-      div.setAttribute('style', 'background:#fff;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;box-shadow:0 2px 8px rgba(0,0,0,.15);font:12px/1.35 system-ui,Arial,sans-serif;color:#10233f;max-height:260px;overflow:auto;min-width:150px;max-width:260px');
+      div.setAttribute('style', 'background:#fff;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;box-shadow:0 2px 8px rgba(0,0,0,.15);font:12px/1.35 system-ui,Arial,sans-serif;color:#10233f;max-height:300px;overflow:auto;min-width:170px;max-width:270px');
       div.innerHTML = `<div style="font-weight:700;margin-bottom:2px">${esc(campoSimbologia)}</div>`
-        + (archivo ? `<div style="font-size:10.5px;color:#64748b;margin-bottom:5px">${esc(archivo.name)}</div>` : '')
-        + visibles.map((c) => `<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="width:11px;height:11px;border-radius:50%;background:${c.color};border:1px solid #fff;box-shadow:0 0 0 1px ${c.color};flex-shrink:0"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.valor)}">${esc(c.valor)}</span><b style="font-variant-numeric:tabular-nums">${c.casos.toLocaleString('es-CO')}</b></div>`).join('');
+        + (archivo ? `<div style="font-size:10.5px;color:#64748b;margin-bottom:2px">${esc(archivo.name)}</div>` : '')
+        + '<div data-ocultar-en-descarga="1" style="font-size:10px;color:#94a3b8;margin-bottom:5px">Clic en el color para cambiarlo · clic en el nombre para ocultar</div>'
+        + categoriasSimbologia.map((c, i) => `<div style="display:flex;align-items:center;gap:6px;margin:3px 0;${c.visible ? '' : 'opacity:.45'}">`
+          + `<label title="Cambiar color" style="position:relative;width:15px;height:15px;border-radius:50%;background:${c.color};border:2px solid #fff;box-shadow:0 0 0 1px ${c.color};flex-shrink:0;cursor:pointer;overflow:hidden"><input data-i="${i}" type="color" value="${c.color}" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:0;padding:0"></label>`
+          + `<span data-ocultar="${i}" title="${c.visible ? 'Ocultar' : 'Mostrar'} «${esc(c.valor)}»" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;${c.visible ? '' : 'text-decoration:line-through'}">${esc(c.valor)}</span>`
+          + `<b style="font-variant-numeric:tabular-nums">${c.casos.toLocaleString('es-CO')}</b></div>`).join('');
+      div.querySelectorAll<HTMLInputElement>('input[type=color]').forEach((inp) => {
+        inp.addEventListener('change', () => {
+          const c = categoriasSimbologia[Number(inp.dataset.i)];
+          if (c) setColoresCategoria((prev) => ({ ...prev, [c.valor]: inp.value }));
+        });
+      });
+      div.querySelectorAll<HTMLElement>('[data-ocultar]').forEach((el) => {
+        el.addEventListener('click', () => {
+          const c = categoriasSimbologia[Number(el.dataset.ocultar)];
+          if (c) setCategoriasOcultas((prev) => (prev.includes(c.valor) ? prev.filter((v) => v !== c.valor) : [...prev, c.valor]));
+        });
+      });
       L.DomEvent.disableScrollPropagation(div);
       L.DomEvent.disableClickPropagation(div);
       return div;
     };
     control.addTo(map);
     leyendaRef.current = control;
-  }, [map, modoVisualizacion, campoSimbologia, categoriasSimbologia, archivo]);
+  }, [map, modoVisualizacion, campoSimbologia, categoriasSimbologia, archivo, setColoresCategoria, setCategoriasOcultas]);
 
   useEffect(() => () => {
     if (capaRef.current) map.removeLayer(capaRef.current);

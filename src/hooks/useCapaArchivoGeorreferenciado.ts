@@ -108,7 +108,13 @@ export function useCapaArchivoGeorreferenciado(capas: CapaGeografica[], camposUn
       setAvisoInvertidas(null);
       setFiltroDelito('Todos');
       setFiltroCai('Todos');
-      setCampoSimbologia('');
+      // Si el archivo trae una columna de tipo/categoría (ej. «TIPO»), se usa
+      // de una vez para colorear los puntos por valor, con su leyenda.
+      const campoAuto = ['TIPO', 'CATEGORIA', 'CATEGORÍA', 'CLASE', 'DELITO', 'TIPO_HECHO']
+        .map((n) => enc.find((h) => h.trim().toUpperCase() === n))
+        .find((h): h is string => !!h) ?? '';
+      setCampoSimbologia(campoAuto);
+      if (campoAuto) setModoVisualizacion('puntos');
       setColoresCategoria({});
       setCategoriasOcultas([]);
     } catch (e) {

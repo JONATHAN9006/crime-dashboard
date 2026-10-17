@@ -88,6 +88,9 @@ export interface OpcionesPoligonoAislado {
   // true = el mapa de calles cubre TODA la imagen (como en pantalla), no solo
   // el interior del recorte. Para la descarga del mapa general.
   fondoCompleto?: boolean;
+  // Marcadores puntuales con número (Plan Candado): mismo color, forma y
+  // número que en pantalla, dibujados sobre el calor y el borde.
+  marcadores?: { lat: number; lon: number; color: string; texto: string; forma: 'pin' | 'cuadro' }[];
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -95,7 +98,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -315,6 +318,69 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       ctx.stroke();
     } catch (e) {
       console.warn('[exportarPoligonoMapa] No se pudieron dibujar los límites internos, se sigue sin ellos:', e);
+    }
+  }
+
+  // 4b) Marcadores (Plan Candado). Los que caen en el mismo sitio se abren
+  //     en abanico, igual que en pantalla.
+  if (marcadores.length > 0) {
+    const k = Math.max(0.6, anchoLienzo / 1200);
+    const grupos = new Map<string, number[]>();
+    marcadores.forEach((m, i) => { const c = `${m.lat.toFixed(4)},${m.lon.toFixed(4)}`; grupos.set(c, [...(grupos.get(c) ?? []), i]); });
+    const off = new Map<number, [number, number]>();
+    for (const ids of grupos.values()) ids.forEach((i, j) => {
+      if (ids.length === 1) { off.set(i, [0, 0]); return; }
+      const ang = (2 * Math.PI * j) / ids.length - Math.PI / 2;
+      const r = (16 + ids.length * 2) * k;
+      off.set(i, [Math.cos(ang) * r, Math.sin(ang) * r]);
+    });
+    const orden = marcadores.map((m, i) => ({ m, i })).sort((a, b) => b.m.lat - a.m.lat);
+    for (const { m, i } of orden) {
+      const [dx, dy] = off.get(i) ?? [0, 0];
+      const x = lonAX(m.lon) + dx;
+      const y = latAY(m.lat) + dy;
+      ctx.save();
+      ctx.shadowColor = 'rgba(15,23,42,0.45)';
+      ctx.shadowBlur = 4 * k;
+      ctx.shadowOffsetY = 1.5 * k;
+      ctx.lineWidth = 2.2 * k;
+      ctx.strokeStyle = '#ffffff';
+      ctx.fillStyle = m.color;
+      if (m.forma === 'pin') {
+        const s = k * (40 / 40);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.bezierCurveTo(x, y, x + 12.5 * s, y - 13.4 * s, x + 12.5 * s, y - 24 * s);
+        ctx.arc(x, y - 24 * s, 12.5 * s, 0, Math.PI, true);
+        ctx.bezierCurveTo(x - 12.5 * s, y - 13.4 * s, x, y, x, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(x, y - 24 * s, 8.6 * s, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = m.color;
+        ctx.font = `800 ${(m.texto.length > 1 ? 10.5 : 12) * s}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(m.texto, x, y - 23.5 * s);
+      } else {
+        const t = 26 * k;
+        const r = 6 * k;
+        ctx.beginPath();
+        ctx.roundRect(x - t / 2, y - t / 2, t, t, r);
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `800 ${(m.texto.length > 2 ? 9.5 : 11) * k}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(m.texto, x, y + 0.5 * k);
+      }
+      ctx.restore();
     }
   }
 

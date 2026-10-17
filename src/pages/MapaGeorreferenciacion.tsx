@@ -7,7 +7,7 @@ import {
   AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
   Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
   SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
-  Scale, Sparkles, ChartColumn, Landmark,
+  Scale, Sparkles, ChartColumn, Landmark, Lock,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card } from '../components/ui/Card';
@@ -44,7 +44,8 @@ import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { agruparPor, formatNumero } from '../utils/aggregations';
 import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
 import { aplicarFiltros } from '../utils/filters';
-import { esSoloConsulta, tieneAcceso } from '../utils/permisos';
+import { esSoloConsulta, tieneAcceso, puedeDescargar } from '../utils/permisos';
+import { usePlanCandado, CapaLeafletPlanCandado, ControlesPlanCandado, PanelPlanCandado, marcadoresParaExportar } from '../components/mapa/PlanCandado';
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -380,9 +381,11 @@ function colorPorDelitoSimple(nombreDelito: string | null | undefined): string {
   return PALETA_DELITOS_PUNTOS[hash % PALETA_DELITOS_PUNTOS.length];
 }
 
-function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void }) {
+function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar, deshabilitado = false }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void; deshabilitado?: boolean }) {
   useMapEvents({
     click(e) {
+      // Mientras se ubica un punto del Plan Candado, el clic es para eso.
+      if (deshabilitado) return;
       const { lat, lng } = e.latlng;
       let mejor: { capaId: string; feature: any; nombre: string; area: number } | null = null;
       const diagnostico: any[] = [];
@@ -991,6 +994,15 @@ export function MapaGeorreferenciacion() {
   const soloLectura = esSoloConsulta();
   // La «X» de las capas: solo el administrador (enlace raíz con usuario y contraseña).
   const puedeEliminarCapas = !soloLectura && tieneAcceso('eliminarCapas');
+  // PLAN CANDADO 2026: lee el filtro principal (Estación / CAI) sin
+  // escribirlo; su estado propio (capa activa, General / Por CAI) no toca
+  // ninguna otra capa. Ubicar puntos: solo quien puede actualizar información.
+  const planCandado = usePlanCandado({
+    estacionFiltro: filtrosPrincipales.estacion,
+    caiFiltro: filtrosPrincipales.cai,
+    coloresCaiPersonalizados: coloresCai,
+    editable: !soloLectura && tieneAcceso('actualizarInformacion'),
+  });
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
 
   // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
@@ -1833,6 +1845,8 @@ export function MapaGeorreferenciacion() {
       flechas: opcionesDescarga.rotulos ? o.flechas : [],
       etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
       gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
+      // Puntos del Plan Candado ubicados (si la capa está activa), como en pantalla.
+      marcadores: marcadoresParaExportar(planCandado),
     };
   }
 
@@ -2401,6 +2415,10 @@ export function MapaGeorreferenciacion() {
             </div>
           </SeccionPanelOscuro>
 
+          <SeccionPanelOscuro titulo="Plan Candado 2026" icono={<Lock size={15} />}>
+            <ControlesPlanCandado estado={planCandado} />
+          </SeccionPanelOscuro>
+
           <SeccionPanelOscuro titulo="Área geográfica" icono={<LocateFixed size={15} />}>
             <IrACoordenadas oscuro onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
             <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">Ubica una coordenada en el mapa: muestra su estación, CAI, cuadrante y barrio.</p>
@@ -2805,6 +2823,7 @@ export function MapaGeorreferenciacion() {
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
             <CapturarInstanciaDeMapa mapaRef={mapaRef} />
             <SeleccionPorClicEnMapa
+              deshabilitado={!!planCandado.colocandoId}
               capas={capas}
               camposUnion={camposUnionAutoDetectados}
               onSeleccionar={(sel) => {
@@ -3151,7 +3170,10 @@ export function MapaGeorreferenciacion() {
               categoriasSimbologia={capaArchivoGeorreferenciado.categoriasSimbologia}
               campoSimbologia={capaArchivoGeorreferenciado.campoSimbologia}
               archivo={capaArchivoGeorreferenciado.archivo}
+              setColoresCategoria={capaArchivoGeorreferenciado.setColoresCategoria}
+              setCategoriasOcultas={capaArchivoGeorreferenciado.setCategoriasOcultas}
             />
+            <CapaLeafletPlanCandado estado={planCandado} />
           </MapContainer>
 
                   {/* Leyenda del mapa: intensidad de Delitos y límites geográficos */}
@@ -3320,6 +3342,11 @@ export function MapaGeorreferenciacion() {
           )}
                 </div>
               </div>
+
+              {/* ── PLAN CANDADO 2026 (debajo del mapa) ── */}
+              {(planCandado.activo || planCandado.colocandoId) && (
+                <PanelPlanCandado estado={planCandado} puedeDescargar={puedeDescargar()} />
+              )}
 
               {/* Herramientas que ya tenía el mapa: Pronóstico IA y capa temporal georreferenciada */}
               <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.04)]">
