@@ -13,7 +13,7 @@ import {
   leerUbicacionesLocales, sincronizarUbicaciones, guardarUbicaciones, quitarUbicacion, hayServidorPlanCandado,
   type MapaUbicaciones, type UbicacionPlanCandado,
 } from '../../data/planCandadoUbicaciones';
-import { parsearCoordenada, detectarColumnasCandidatas } from '../../utils/coordenadasParser';
+import { leerMatrizPlanCandado, type InformeMatriz } from '../../utils/planCandadoMatriz';
 import { esCoordenadaValida } from '../../utils/geodesia';
 import { formatNumero } from '../../utils/aggregations';
 import { direccionesHaciaAfuera } from '../../utils/barriosAfectados';
@@ -40,7 +40,7 @@ export const COLORES_CATEGORIA: Record<Exclude<CategoriaPlanCandado, 'CAI'>, str
 };
 
 const ESTADO_PENDIENTE = 'Pendiente de georreferenciación';
-const NO_ESP = 'No especificado';
+export const NO_ESP = 'No especificado';
 
 function normalizar(v: unknown): string {
   return String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -65,13 +65,19 @@ export function estadoUbicacion(u: UbicacionPlanCandado | undefined): string {
 }
 
 // ── Hook: todo el estado y los cálculos del Plan Candado ──────────────────
-export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonalizados, editable }: {
+export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonalizados, editable, siempreActivo = false, filtroExtra, firmaFiltroExtra = '' }: {
   estacionFiltro: string[];
   caiFiltro: string[];
   coloresCaiPersonalizados: Record<string, string>;
   editable: boolean;
+  // Módulo propio del Plan Candado: la capa está siempre encendida.
+  siempreActivo?: boolean;
+  // Filtros exclusivos del módulo (búsqueda, zona, barrio, CAI del modo Por
+  // CAI). Se SUMAN al filtro principal; firmaFiltroExtra cambia cuando cambian.
+  filtroExtra?: (p: PuntoPlanCandado, u: UbicacionPlanCandado | undefined) => boolean;
+  firmaFiltroExtra?: string;
 }) {
-  const [activo, setActivo] = useState(() => { try { return localStorage.getItem('mepoy-plan-candado-activo') === '1'; } catch { return false; } });
+  const [activoGuardado, setActivo] = useState(() => { try { return localStorage.getItem('mepoy-plan-candado-activo') === '1'; } catch { return false; } });
   const [modo, setModo] = useState<ModoPlanCandado>(() => { try { return localStorage.getItem('mepoy-plan-candado-modo') === 'cai' ? 'cai' : 'general'; } catch { return 'general'; } });
   const [ubicaciones, setUbicaciones] = useState<MapaUbicaciones>(() => leerUbicacionesLocales());
   const [colocandoId, setColocandoId] = useState<string | null>(null);
@@ -89,7 +95,8 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   const moverRotulo = useCallback((id: string, pos: { lat: number; lon: number }) => setPosicionesRotulo((prev) => ({ ...prev, [id]: pos })), []);
   const restablecerRotulos = useCallback(() => setPosicionesRotulo({}), []);
 
-  useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-activo', activo ? '1' : '0'); } catch { /* opcional */ } }, [activo]);
+  const activo = siempreActivo || activoGuardado;
+  useEffect(() => { if (!siempreActivo) { try { localStorage.setItem('mepoy-plan-candado-activo', activoGuardado ? '1' : '0'); } catch { /* opcional */ } } }, [activoGuardado, siempreActivo]);
   useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-modo', modo); } catch { /* opcional */ } }, [modo]);
 
   const sincronizar = useCallback(async () => {
@@ -122,8 +129,10 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   const puntosSeleccion = useMemo(() => PLAN_CANDADO_2026.filter((p) => {
     if (estacionFiltro.length > 0 && (!p.estacion || !estacionesSel.includes(p.estacion))) return false;
     if (caiSel.size > 0 && (!p.cai || !caiSel.has(p.cai))) return false;
+    if (filtroExtra && !filtroExtra(p, ubicaciones[p.id])) return false;
     return true;
-  }), [estacionFiltro.length, estacionesSel, caiSel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [estacionFiltro.length, estacionesSel, caiSel, firmaFiltroExtra, filtroExtra ? ubicaciones : null]);
 
   const ubicados = useMemo(() => puntosSeleccion.filter((p) => ubicaciones[p.id]), [puntosSeleccion, ubicaciones]);
   const pendientes = useMemo(() => puntosSeleccion.filter((p) => !ubicaciones[p.id]), [puntosSeleccion, ubicaciones]);
@@ -228,7 +237,11 @@ export function FichaPlanCandado({ p, u, acciones }: { p: PuntoPlanCandado; u?: 
     ['Estación', p.estacion ? `Estación ${p.estacion}` : NO_ESP],
     ['CAI', p.cai ? `${p.cai} - ${p.caiNombre}` : NO_ESP],
     ['Categoría', p.categoria],
-    ['Unidad', p.unidad ?? NO_ESP],
+    ...(p.enMatriz ? [
+      ['Resp. principal', p.responsablePrincipal ?? NO_ESP],
+      ['Resp. secundario', p.responsableSecundario ?? NO_ESP],
+    ] as [string, string][] : []),
+    ['Unidad (doc.)', p.unidad ?? NO_ESP],
     ['Dirección', p.direccion ?? NO_ESP],
     ['Lugar', p.lugar ?? NO_ESP],
     ['Estado', estadoUbicacion(u)],
@@ -248,8 +261,14 @@ export function FichaPlanCandado({ p, u, acciones }: { p: PuntoPlanCandado; u?: 
           ))}
           {u && (
             <tr>
-              <td style={{ padding: '1px 10px 1px 0', color: '#64748b', fontWeight: 700 }}>Coord.:</td>
-              <td style={{ color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{u.lat.toFixed(6)}, {u.lon.toFixed(6)}</td>
+              <td style={{ padding: '1px 10px 1px 0', color: '#64748b', fontWeight: 700 }}>Latitud:</td>
+              <td style={{ color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{u.lat.toFixed(7)}</td>
+            </tr>
+          )}
+          {u && (
+            <tr>
+              <td style={{ padding: '1px 10px 1px 0', color: '#64748b', fontWeight: 700 }}>Longitud:</td>
+              <td style={{ color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{u.lon.toFixed(7)}</td>
             </tr>
           )}
         </tbody>
@@ -299,7 +318,7 @@ function ColocarConClic({ estado }: { estado: PlanCandadoEstado }) {
 }
 
 // Control de Leaflet con contenido de React (leyenda y aviso de ubicación).
-function ControlReact({ posicion, children }: { posicion: L.ControlPosition; children: ReactNode }) {
+export function ControlReact({ posicion, children }: { posicion: L.ControlPosition; children: ReactNode }) {
   const map = useMap();
   const [contenedor, setContenedor] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -334,18 +353,70 @@ function htmlRotuloPlan(p: PuntoPlanCandado, color: string): string {
   return `<div title="Arrastra para reubicar la etiqueta" style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;background:#ffffff;border:2px solid ${color};border-radius:6px;padding:2px 7px;box-shadow:0 2px 6px rgba(0,0,0,.25);font:700 11px/1.25 system-ui,Arial,sans-serif;color:#10233f;text-align:center;cursor:grab;user-select:none">${escapar(titulo)}${subtitulo ? `<br><span style="font-weight:600;color:#475569;font-size:10px">${escapar(subtitulo)}</span>` : ''}</div>`;
 }
 
-/** Posición de cada rótulo: la arrastrada por el usuario o la automática (hacia afuera del grupo). */
+/** Tamaño en pantalla de la caja de un rótulo (px), medido con la misma letra. */
+let medidorRotulos: CanvasRenderingContext2D | null = null;
+function tamanoRotulo(p: PuntoPlanCandado): { w: number; h: number } {
+  const { titulo, subtitulo } = textoRotulo(p);
+  if (!medidorRotulos && typeof document !== 'undefined') medidorRotulos = document.createElement('canvas').getContext('2d');
+  let w1 = titulo.length * 6.4, w2 = (subtitulo ?? '').length * 5.6;
+  if (medidorRotulos) {
+    medidorRotulos.font = '700 11px system-ui, Arial, sans-serif'; w1 = medidorRotulos.measureText(titulo).width;
+    medidorRotulos.font = '600 10px system-ui, Arial, sans-serif'; w2 = subtitulo ? medidorRotulos.measureText(subtitulo).width : 0;
+  }
+  return { w: Math.max(w1, w2) + 18, h: subtitulo ? 34 : 21 };
+}
+
+type Caja = { x0: number; y0: number; x1: number; y1: number };
+const solape = (a: Caja, b: Caja) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+
+/**
+ * Posición de cada rótulo: la que el usuario dejó al arrastrar, o una
+ * automática que evita montarse sobre otros rótulos y pines (prueba varias
+ * direcciones y distancias alrededor del punto y toma la primera libre; si
+ * ninguna está libre, la que menos se cruza). Se recalcula con el zoom y es
+ * la MISMA que usa la descarga.
+ */
 export function posicionesRotulosPlanCandado(estado: PlanCandadoEstado, mapa: L.Map): Map<string, { lat: number; lon: number }> {
-  const puntos = estado.ubicados.map((p) => ({ id: p.id, ...estado.ubicaciones[p.id] }));
-  const dirs = direccionesHaciaAfuera(puntos);
+  const puntos = estado.ubicados.map((p) => ({ p, ...estado.ubicaciones[p.id] }));
   const res = new Map<string, { lat: number; lon: number }>();
-  puntos.forEach((pt, i) => {
-    const manual = estado.posicionesRotulo[pt.id];
-    if (manual) { res.set(pt.id, manual); return; }
-    const base = mapa.latLngToContainerPoint([pt.lat, pt.lon]);
-    const ll = mapa.containerPointToLatLng([base.x + dirs[i].x * LARGO_ROTULO_PX, base.y + dirs[i].y * LARGO_ROTULO_PX - 18]);
-    res.set(pt.id, { lat: ll.lat, lon: ll.lng });
-  });
+  const ocupadas: Caja[] = [];
+  // Pines (la cabeza queda ~40 px por encima de la coordenada).
+  for (const { lat, lon } of puntos) {
+    const b = mapa.latLngToContainerPoint([lat, lon]);
+    ocupadas.push({ x0: b.x - 15, y0: b.y - 41, x1: b.x + 15, y1: b.y + 2 });
+  }
+  const cajaEn = (cx: number, cy: number, t: { w: number; h: number }): Caja => ({ x0: cx - t.w / 2 - 3, y0: cy - t.h / 2 - 3, x1: cx + t.w / 2 + 3, y1: cy + t.h / 2 + 3 });
+  // Primero los que el usuario movió (esas posiciones mandan).
+  for (const { p } of puntos) {
+    const manual = estado.posicionesRotulo[p.id];
+    if (!manual) continue;
+    res.set(p.id, manual);
+    const c = mapa.latLngToContainerPoint([manual.lat, manual.lon]);
+    ocupadas.push(cajaEn(c.x, c.y, tamanoRotulo(p)));
+  }
+  const dirs = direccionesHaciaAfuera(puntos);
+  const angulos = [-90, -50, -130, -20, -160, 20, 160, 50, 130, 90];
+  // De norte a sur: los de arriba eligen primero (más espacio hacia arriba).
+  const orden = puntos.map((x, i) => ({ ...x, i })).filter(({ p }) => !estado.posicionesRotulo[p.id]).sort((a, b) => b.lat - a.lat);
+  for (const { p, lat, lon, i } of orden) {
+    const base = mapa.latLngToContainerPoint([lat, lon]);
+    const t = tamanoRotulo(p);
+    const preferido = (Math.atan2(dirs[i].y, dirs[i].x) * 180) / Math.PI;
+    const candidatos: { x: number; y: number; costo: number }[] = [];
+    for (const d of [LARGO_ROTULO_PX, LARGO_ROTULO_PX + 34, LARGO_ROTULO_PX + 72]) {
+      for (const a of [preferido, ...angulos]) {
+        const r = (a * Math.PI) / 180;
+        const x = base.x + Math.cos(r) * (d + t.w / 4);
+        const y = base.y - 20 + Math.sin(r) * d;
+        const caja = cajaEn(x, y, t);
+        candidatos.push({ x, y, costo: ocupadas.reduce((acc, o) => acc + solape(caja, o), 0) });
+      }
+    }
+    const libre = candidatos.find((c) => c.costo === 0) ?? candidatos.reduce((m, c) => (c.costo < m.costo ? c : m));
+    ocupadas.push(cajaEn(libre.x, libre.y, t));
+    const ll = mapa.containerPointToLatLng([libre.x, libre.y]);
+    res.set(p.id, { lat: ll.lat, lon: ll.lng });
+  }
   return res;
 }
 
@@ -471,7 +542,7 @@ export function CapaLeafletPlanCandado({ estado }: { estado: PlanCandadoEstado }
 }
 
 // ── Leyenda dinámica ──────────────────────────────────────────────────────
-function SimboloLeyenda({ color, forma }: { color: string; forma: 'pin' | 'cuadro' }) {
+export function SimboloLeyenda({ color, forma }: { color: string; forma: 'pin' | 'cuadro' }) {
   return forma === 'pin' ? (
     <svg width="13" height="17" viewBox="0 0 30 40" aria-hidden className="shrink-0"><path d="M15 39C15 39 27.5 25.6 27.5 15A12.5 12.5 0 0 0 2.5 15C2.5 25.6 15 39 15 39Z" fill={color} stroke="#fff" strokeWidth="2.2" /><circle cx="15" cy="15" r="6" fill="#fff" /></svg>
   ) : (
@@ -491,7 +562,7 @@ export function filasLeyendaPlanCandado(estado: PlanCandadoEstado): { etiqueta: 
   return Array.from(grupos.values());
 }
 
-function LeyendaPlanCandado({ estado }: { estado: PlanCandadoEstado }) {
+export function LeyendaPlanCandado({ estado }: { estado: PlanCandadoEstado }) {
   const [abierta, setAbierta] = useState(true);
   // Solo lo que de verdad está dibujado; lo pendiente va en una línea aparte.
   const filas = filasLeyendaPlanCandado(estado).filter((f) => f.ubicados > 0);
@@ -637,7 +708,7 @@ function conteo<T extends string>(puntos: PuntoPlanCandado[], ubic: MapaUbicacio
   return m;
 }
 
-function filasExport(puntos: PuntoPlanCandado[], ubic: MapaUbicaciones) {
+export function filasExport(puntos: PuntoPlanCandado[], ubic: MapaUbicaciones) {
   return puntos.map((p) => {
     const u = ubic[p.id];
     return {
@@ -646,7 +717,9 @@ function filasExport(puntos: PuntoPlanCandado[], ubic: MapaUbicaciones) {
       Categoria: p.categoria,
       Estacion: p.estacion ?? NO_ESP,
       CAI: p.cai ? `${p.cai} - ${p.caiNombre}` : NO_ESP,
-      Unidad: p.unidad ?? NO_ESP,
+      'Responsable Principal': p.responsablePrincipal ?? (p.enMatriz ? NO_ESP : 'No está en la matriz'),
+      'Responsable Secundario': p.responsableSecundario ?? (p.enMatriz ? NO_ESP : 'No está en la matriz'),
+      'Unidad (documento)': p.unidad ?? NO_ESP,
       Direccion: p.direccion ?? NO_ESP,
       Lugar: p.lugar ?? NO_ESP,
       Latitud: u ? u.lat : '',
@@ -656,37 +729,13 @@ function filasExport(puntos: PuntoPlanCandado[], ubic: MapaUbicaciones) {
   });
 }
 
-// Lee un Excel/CSV con ID (o No) + Latitud + Longitud. Solo actualiza las
-// coordenadas de puntos que existen en el documento; nunca crea puntos.
-async function leerArchivoCoordenadas(file: File): Promise<{ nuevas: UbicacionPlanCandado[]; omitidas: string[] }> {
-  const libro = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-  const filas = XLSX.utils.sheet_to_json<Record<string, unknown>>(libro.Sheets[libro.SheetNames[0]], { defval: '' });
-  if (filas.length === 0) throw new Error('El archivo no tiene filas.');
-  const columnas = Object.keys(filas[0]);
-  const colLat = detectarColumnasCandidatas(columnas, 'lat')[0];
-  const colLon = detectarColumnasCandidatas(columnas, 'lon')[0];
-  const colId = columnas.find((c) => /^id$/i.test(c.trim()));
-  const colNo = columnas.find((c) => /^(no\.?|n[°º]|numero|número|punto)$/i.test(c.trim()));
-  if (!colLat || !colLon) throw new Error('No se encontraron las columnas Latitud y Longitud.');
-  if (!colId && !colNo) throw new Error('Falta la columna ID (ej. PC-12) o No (número del punto).');
-  const porId = new Map(PLAN_CANDADO_2026.map((p) => [p.id.toUpperCase(), p]));
-  const nuevas: UbicacionPlanCandado[] = [];
-  const omitidas: string[] = [];
-  filas.forEach((f, i) => {
-    let id = colId ? String(f[colId]).trim().toUpperCase() : '';
-    if (!id && colNo) {
-      const no = String(f[colNo]).trim().toUpperCase();
-      id = /^M\d+$/.test(no) ? `MEPOY-${no.slice(1)}` : /^\d+$/.test(no) ? `PC-${parseInt(no, 10)}` : '';
-    }
-    const p = porId.get(id);
-    const lat = parsearCoordenada(f[colLat]);
-    const lon = parsearCoordenada(f[colLon]);
-    if (lat == null && lon == null) return; // fila sin coordenadas: se deja pendiente
-    if (!p || lat == null || lon == null || !esCoordenadaValida(lat, lon)) { omitidas.push(`fila ${i + 2}`); return; }
-    nuevas.push({ __id: p.id, lat, lon, fuente: 'archivo', actualizadoPor: 'Administrador', fecha: new Date().toISOString() });
-  });
-  // Si un punto se repite en el archivo, cuenta una vez (gana la última fila).
-  return { nuevas: Array.from(new Map(nuevas.map((u) => [u.__id, u])).values()), omitidas };
+/** Texto corto con el resultado de leer una matriz (para avisos). */
+export function resumenInformeMatriz(inf: InformeMatriz): string {
+  const partes = [`${inf.procesados} fila(s) leídas`, `${inf.conCoordenadas} con coordenadas válidas`, `${inf.pendientes.length} sin coordenadas (pendientes)`];
+  if (inf.sinCambios) partes.push(`${inf.sinCambios} sin cambios`);
+  if (inf.conservadasManuales.length) partes.push(`${inf.conservadasManuales.length} corrección(es) manual(es) conservada(s): ${inf.conservadasManuales.join(', ')}`);
+  if (inf.errores.length) partes.push(`${inf.errores.length} error(es)`);
+  return partes.join(' · ');
 }
 
 export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCandadoEstado; puedeDescargar: boolean }) {
@@ -725,9 +774,10 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
 
   async function importar(file: File) {
     try {
-      const { nuevas, omitidas } = await leerArchivoCoordenadas(file);
-      if (nuevas.length === 0) { estado.setMensaje({ tipo: 'error', texto: `No se encontraron coordenadas válidas para puntos del documento${omitidas.length ? ` (omitidas: ${omitidas.slice(0, 6).join(', ')}${omitidas.length > 6 ? '…' : ''})` : ''}.` }); return; }
-      await estado.asignar(nuevas, `${nuevas.length} punto(s) actualizados desde «${file.name}».${omitidas.length ? ` ${omitidas.length} fila(s) omitidas (ID o coordenada no válida).` : ''}`);
+      const inf = await leerMatrizPlanCandado(file, estado.ubicaciones);
+      const resumen = `«${file.name}»: ${resumenInformeMatriz(inf)}.${inf.errores.length ? ` ${inf.errores.slice(0, 3).join(' ')}` : ''}`;
+      if (inf.nuevas.length === 0) { estado.setMensaje({ tipo: inf.errores.length ? 'error' : 'ok', texto: `${resumen} No hubo coordenadas que actualizar.` }); return; }
+      await estado.asignar(inf.nuevas, `${inf.nuevas.length} punto(s) actualizados. ${resumen}`);
     } catch (e) {
       estado.setMensaje({ tipo: 'error', texto: e instanceof Error ? e.message : 'No se pudo leer el archivo.' });
     }

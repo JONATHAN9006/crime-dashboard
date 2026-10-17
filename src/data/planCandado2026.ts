@@ -33,7 +33,12 @@ export interface PuntoPlanCandado {
   estacion: EstacionPlanCandado | null;
   cai: string | null; // "CAI 1" … "CAI 10"
   caiNombre: string | null; // "Antonio Nariño"…
-  unidad: string | null; // responsable / unidad
+  unidad: string | null; // unidad según el documento Word (Comandante / Información…)
+  // Matriz oficial «Plan_candado_2026.xlsx» (solo puntos 1–41; null si la
+  // matriz no trae el dato o el punto no está en la matriz).
+  responsablePrincipal: string | null;
+  responsableSecundario: string | null;
+  enMatriz: boolean; // el punto figura en la matriz oficial (Excel)
   direccion: string | null;
   lugar: string | null;
 }
@@ -55,6 +60,9 @@ function grupo(
     unidad,
     direccion,
     lugar,
+    responsablePrincipal: null,
+    responsableSecundario: null,
+    enMatriz: false,
   }));
 }
 
@@ -76,7 +84,56 @@ function cai(n: number, filas: Fila[]) {
   return grupo('CAI', filas, { estacion: c.estacion, cai: c.cai, caiNombre: c.nombre });
 }
 
-export const PLAN_CANDADO_2026: PuntoPlanCandado[] = [
+// «Responsable Principal» de la matriz oficial Plan_candado_2026.xlsx
+// (columna «No.» = número del punto 1–41). «Responsable Secundario» viene
+// vacío en todas las filas de la matriz entregada (17-oct-2026).
+export const RESPONSABLES_MATRIZ: Record<string, { principal: string | null; secundario: string | null }> = Object.fromEntries(
+  Object.entries({
+  'PC-1': 'Patrulla 1 Norte',
+  'PC-2': 'Auxiliar de Información',
+  'PC-3': 'Patrulla 1 Norte',
+  'PC-4': 'Patrulla 2 Norte',
+  'PC-5': 'Patrulla 3 Norte',
+  'PC-6': 'Auxiliar de Información',
+  'PC-7': 'Patrulla 3 Norte',
+  'PC-8': 'Patrulla 7 Norte',
+  'PC-9': 'Patrulla 6 Norte',
+  'PC-10': 'Patrulla 12 Norte',
+  'PC-11': 'Auxiliar de Información',
+  'PC-12': 'Patrulla 8 Norte',
+  'PC-13': 'Patrulla 18 Norte',
+  'PC-14': 'Patrulla 15 Norte',
+  'PC-15': 'Auxiliar de Información',
+  'PC-16': 'Patrulla 13 Norte',
+  'PC-17': 'Patrulla 16 Norte',
+  'PC-18': 'Patrulla 17 Norte',
+  'PC-19': 'Patrulla 4 Sur',
+  'PC-20': 'Auxiliar de Información',
+  'PC-21': 'Patrulla 3 Sur',
+  'PC-22': 'Patrulla 1 Sur',
+  'PC-23': 'Patrulla 8 Sur',
+  'PC-24': 'Auxiliar de Información',
+  'PC-25': 'Patrulla 5 Sur',
+  'PC-26': 'Patrulla 7 Sur',
+  'PC-27': 'Patrulla 12 Sur',
+  'PC-28': 'Auxiliar de Información',
+  'PC-29': 'Patrulla 9 Sur',
+  'PC-30': 'Patrulla 10 Sur',
+  'PC-31': 'Patrulla 14 Sur',
+  'PC-32': 'Patrulla 20 Sur',
+  'PC-33': 'Auxiliar de Información',
+  'PC-34': 'Patrulla 17 Sur',
+  'PC-35': 'Patrulla 18 Sur',
+  'PC-36': 'Patrulla 15 Sur',
+  'PC-37': 'Auxiliar de Información',
+  'PC-38': 'Patrulla 21 Sur',
+  'PC-39': 'Patrulla 23 Sur',
+  'PC-40': 'Auxiliar de Información',
+  'PC-41': 'Patrulla 22 Sur',
+  } as Record<string, string>).map(([id, principal]) => [id, { principal, secundario: null }]),
+);
+
+const PUNTOS_DOCUMENTO: PuntoPlanCandado[] = [
   // ── MEPOY (tabla general, numeración propia 1–5) ──
   ...grupo('Cierre general MEPOY', [
     [1, 'CDTE CAI 2', 'Salida a Cali', 'Variante Norte'],
@@ -159,6 +216,11 @@ export const PLAN_CANDADO_2026: PuntoPlanCandado[] = [
     [45, 'Recorredora 3 y 4', 'Carrera 17 con Calle 8', 'Frente a Remo Yamaha'],
   ]),
 ];
+
+export const PLAN_CANDADO_2026: PuntoPlanCandado[] = PUNTOS_DOCUMENTO.map((p) => {
+  const r = RESPONSABLES_MATRIZ[p.id];
+  return r ? { ...p, responsablePrincipal: r.principal, responsableSecundario: r.secundario, enMatriz: true } : p;
+});
 
 /** Etiqueta corta del grupo visual de un punto: su CAI o su categoría. */
 export function grupoVisualPlanCandado(p: PuntoPlanCandado): string {

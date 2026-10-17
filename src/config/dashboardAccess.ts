@@ -34,6 +34,8 @@ export interface AccesoHerramientas {
   actualizarInformacion: boolean;
   // Página "Accesos CAI" (registro de ingresos de los comandantes) — solo administrador.
   accesosCai: boolean;
+  // Módulo «Plan Candado 2026» (georreferenciación de puntos de control).
+  planCandado: boolean;
   // La «X» que elimina capas del mapa (Capas cargadas) — solo el administrador (enlace raíz).
   eliminarCapas: boolean;
 }
@@ -67,6 +69,7 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     descargas: false,
     actualizarInformacion: false,
     accesosCai: false,
+    planCandado: false,
     eliminarCapas: false,
   },
   // Vista de trabajo interno — todo disponible, siempre.
@@ -92,6 +95,7 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     descargas: true,
     actualizarInformacion: true,
     accesosCai: true,
+    planCandado: true,
     // Sin la «X» de las capas (para no borrar capas compartidas por error).
     eliminarCapas: false,
   },
@@ -120,6 +124,7 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     descargas: false,
     actualizarInformacion: false,
     accesosCai: false,
+    planCandado: false,
     eliminarCapas: false,
   },
 };

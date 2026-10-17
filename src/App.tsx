@@ -22,6 +22,7 @@ import { AgenteIAFlotante } from './components/analitica/AgenteIAFlotante';
 import { obtenerModoAcceso } from './utils/modoAcceso';
 import { DASHBOARD_ACCESS } from './config/dashboardAccess';
 import { AccesosCai } from './pages/AccesosCai';
+import { PlanCandado2026 } from './pages/PlanCandado2026';
 import { PuertaCai } from './cai/PuertaCai';
 import { PuertaAdmin } from './admin/PuertaAdmin';
 
@@ -41,12 +42,13 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
   calidad: CalidadDatos,
   productos: ProductosEsperados,
   accesosCai: AccesosCai,
+  planCandado: PlanCandado2026,
 };
 
 // El mapa, "Indicadores Tasa Cosec" y "Productos Esperados" pueden abrirse
 // aunque todavía no haya datos cargados — ninguno de los tres depende de la
 // base de datos de delitos.
-const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc', 'irisp1', 'macri', 'accesosCai'];
+const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc', 'irisp1', 'macri', 'accesosCai', 'planCandado'];
 
 // Páginas que NO muestran el panel de filtros generales de delitos: el mapa
 // tiene el suyo propio, IRISP1 también (sus campos — Estado, Existencia,
@@ -54,7 +56,8 @@ const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc',
 // seguimiento de objetivos que cruza Delictividad por su cuenta.
 // El mapa YA usa el filtro principal (una sola fuente de verdad): lo que se
 // filtra aquí —delito, modalidad, estación, fechas…— se ve también en el mapa.
-const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['irisp1', 'macri', 'accesosCai'];
+// Plan Candado tiene su propia barra compacta (Estación y CAI son los del filtro principal).
+const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['irisp1', 'macri', 'accesosCai', 'planCandado'];
 
 function Shell() {
   const [pagina, setPagina] = useState<PaginaId>('resumen');

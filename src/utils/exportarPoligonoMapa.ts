@@ -91,6 +91,15 @@ export interface OpcionesPoligonoAislado {
   // Marcadores puntuales con número (Plan Candado): mismo color, forma y
   // número que en pantalla, dibujados sobre el calor y el borde.
   marcadores?: { lat: number; lon: number; color: string; texto: string; forma: 'pin' | 'cuadro'; rotulo?: { lat: number; lon: number; titulo: string; subtitulo: string | null } }[];
+  // Escala del mapa en PANTALLA al momento de descargar (píxeles por grado).
+  // Con ella, pines y etiquetas se dibujan a la misma proporción que en
+  // pantalla — la imagen queda igual a lo que se acomodó — y el recorte se
+  // agranda para que ninguna etiqueta quede cortada en el borde.
+  escalaPantalla?: { pxPorGradoLon: number; pxPorGradoLat: number };
+  // 'todos' = el recorte se amplía para que quepan TODOS los marcadores
+  // recibidos (descarga general: los que se ven en pantalla). Por defecto
+  // solo los que caen dentro del área (descarga de un CAI o zona).
+  ampliarParaMarcadores?: 'todos' | 'dentro';
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -98,16 +107,44 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
 
   const todosLosPuntosAnillo = anillos.flat();
-  const minLon = minDe(todosLosPuntosAnillo.map((p) => p[0]));
-  const maxLon = maxDe(todosLosPuntosAnillo.map((p) => p[0]));
-  const minLat = minDe(todosLosPuntosAnillo.map((p) => p[1]));
-  const maxLat = maxDe(todosLosPuntosAnillo.map((p) => p[1]));
+  let minLon = minDe(todosLosPuntosAnillo.map((p) => p[0]));
+  let maxLon = maxDe(todosLosPuntosAnillo.map((p) => p[0]));
+  let minLat = minDe(todosLosPuntosAnillo.map((p) => p[1]));
+  let maxLat = maxDe(todosLosPuntosAnillo.map((p) => p[1]));
+
+  // Etiquetas y pines del Plan Candado: el recorte se amplía para que entren
+  // COMPLETOS (caja incluida), medidos con el tamaño que tienen en pantalla.
+  if (escalaPantalla && marcadores.length > 0) {
+    const medidor = document.createElement('canvas').getContext('2d');
+    const { pxPorGradoLon: pxLon, pxPorGradoLat: pxLat } = escalaPantalla;
+    const incluir = (lon: number, lat: number) => {
+      minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon);
+      minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+    };
+    // Solo los puntos que caen dentro del área que se descarga (así la
+    // descarga de un CAI no se agranda a toda la ciudad).
+    const [bLo, bHi, aLo, aHi] = [minLon, maxLon, minLat, maxLat];
+    const dentro = ampliarParaMarcadores === 'todos' ? marcadores : marcadores.filter((m) => m.lon >= bLo && m.lon <= bHi && m.lat >= aLo && m.lat <= aHi);
+    for (const m of dentro) {
+      incluir(m.lon - 16 / pxLon, m.lat + 44 / pxLat);
+      incluir(m.lon + 16 / pxLon, m.lat - 4 / pxLat);
+      if (!m.rotulo || !medidor) continue;
+      medidor.font = '700 11px system-ui, Arial, sans-serif';
+      const w1 = medidor.measureText(m.rotulo.titulo).width;
+      medidor.font = '600 10px system-ui, Arial, sans-serif';
+      const w2 = m.rotulo.subtitulo ? medidor.measureText(m.rotulo.subtitulo).width : 0;
+      const medioAncho = (Math.max(w1, w2) + 14) / 2 + 8;
+      const medioAlto = ((m.rotulo.subtitulo ? 26.25 : 13.75) + 6) / 2 + 8;
+      incluir(m.rotulo.lon - medioAncho / pxLon, m.rotulo.lat + medioAlto / pxLat);
+      incluir(m.rotulo.lon + medioAncho / pxLon, m.rotulo.lat - medioAlto / pxLat);
+    }
+  }
 
   // El "margen" que se pedía por parámetro nunca se estaba usando de
   // verdad aquí — este 0.08 estaba escrito directamente, sin conectar con
@@ -324,7 +361,8 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   // 4b) Marcadores (Plan Candado). Los que caen en el mismo sitio se abren
   //     en abanico, igual que en pantalla.
   if (marcadores.length > 0) {
-    const k = Math.max(0.6, anchoLienzo / 1200);
+    // Misma proporción que en pantalla (si se conoce); si no, según el ancho.
+    const k = escalaPantalla ? Math.min(1.8, Math.max(0.55, (lonAX(1) - lonAX(0)) / escalaPantalla.pxPorGradoLon)) : Math.max(0.6, anchoLienzo / 1200);
     const grupos = new Map<string, number[]>();
     marcadores.forEach((m, i) => { const c = `${m.lat.toFixed(4)},${m.lon.toFixed(4)}`; grupos.set(c, [...(grupos.get(c) ?? []), i]); });
     const off = new Map<number, [number, number]>();

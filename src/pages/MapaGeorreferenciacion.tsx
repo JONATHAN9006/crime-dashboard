@@ -1839,14 +1839,28 @@ export function MapaGeorreferenciacion() {
   useEffect(() => {
     try { localStorage.setItem('mepoy-opciones-descarga-mapa', JSON.stringify(opcionesDescarga)); } catch { /* sin almacenamiento */ }
   }, [opcionesDescarga]);
-  function conOpcionesDescarga<T extends { flechas?: unknown[]; etiquetas: string[]; gruposEtiquetas?: unknown[] }>(o: T): T {
+  // Píxeles por grado del mapa tal como se ve ahora (para que pines y
+  // etiquetas del Plan Candado salgan en la descarga igual que en pantalla).
+  function escalaPantallaMapa(): { pxPorGradoLon: number; pxPorGradoLat: number } | undefined {
+    const m = mapaRef.current;
+    if (!m) return undefined;
+    const b = m.getBounds();
+    const t = m.getSize();
+    const dLon = b.getEast() - b.getWest();
+    const dLat = b.getNorth() - b.getSouth();
+    if (!(dLon > 0) || !(dLat > 0) || t.x <= 0 || t.y <= 0) return undefined;
+    return { pxPorGradoLon: t.x / dLon, pxPorGradoLat: t.y / dLat };
+  }
+  function conOpcionesDescarga<T extends { flechas?: unknown[]; etiquetas: string[]; gruposEtiquetas?: unknown[] }>(o: T, vista?: L.LatLngBounds): T {
+    const marcadores = marcadoresParaExportar(planCandado, mapaRef.current);
     return {
       ...o,
       flechas: opcionesDescarga.rotulos ? o.flechas : [],
       etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
       gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
       // Puntos del Plan Candado ubicados (si la capa está activa), como en pantalla.
-      marcadores: marcadoresParaExportar(planCandado, mapaRef.current),
+      marcadores: vista ? marcadores.filter((m) => vista.contains([m.lat, m.lon])) : marcadores,
+      escalaPantalla: escalaPantallaMapa(),
     };
   }
 
@@ -2069,7 +2083,10 @@ export function MapaGeorreferenciacion() {
         tamanoFuenteBase: 8,
         // Fondo transparente fuera de la jurisdicción (como siempre), salvo que se pida el mapa completo.
         fondoCompleto: !opcionesDescarga.fondoTransparente,
-      }));
+        // Plan Candado: los pines que se ven en pantalla entran completos
+        // con sus etiquetas, aunque queden fuera del contorno.
+        ampliarParaMarcadores: 'todos',
+      }, bounds));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);
       setError('No fue posible generar la imagen del mapa general. Revisa la consola del navegador (F12) para más detalle.');

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Home, Building2, CalendarDays, Flame, Map, X, Table2, Database, ChevronsLeft, ChevronsRight,
-  Activity, Package, Eye, Target, Scale, Shield, Network, LineChart, UserCheck, LogOut,
+  Activity, Package, Eye, Target, Scale, Shield, Network, LineChart, UserCheck, LogOut, Lock,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
@@ -15,7 +15,7 @@ import { useContadorAccesosCai } from '../../pages/AccesosCai';
 export type PaginaId =
   | 'resumen' | 'unidad' | 'operatividadUnidad' | 'rnmc' | 'irisp1' | 'macri' | 'ultimasSemanas'
   | 'matrizCalor' | 'mapa' | 'tasaCosec'
-  | 'comparativo' | 'tabla' | 'calidad' | 'productos' | 'accesosCai';
+  | 'comparativo' | 'tabla' | 'calidad' | 'productos' | 'accesosCai' | 'planCandado';
 
 // Ítems bloqueados temporalmente para presentarle al jefe por partes — se ven
 // atenuados, no se puede entrar, y al pasar el mouse se explica por qué. Para
@@ -49,6 +49,7 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloA
       { id: 'ultimasSemanas', label: 'Últimas 4 Semanas', icon: CalendarDays },
       { id: 'matrizCalor', label: 'Matriz de Calor', icon: Flame },
       { id: 'mapa', label: 'Mapa / Georreferenciación', icon: Map },
+      { id: 'planCandado', label: 'Plan Candado 2026', icon: Lock },
       { id: 'tasaCosec', label: 'Indicadores Tasa Cosec', icon: Activity },
     ],
   },
@@ -310,7 +311,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.17 · v173" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.17 · v175" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -326,7 +327,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.17 · v173</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.17 · v175</p>
             </div>
           )}
         </div>
