@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { Marker, Polyline, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import * as XLSX from 'xlsx';
 import clsx from 'clsx';
@@ -16,6 +16,7 @@ import {
 import { parsearCoordenada, detectarColumnasCandidatas } from '../../utils/coordenadasParser';
 import { esCoordenadaValida } from '../../utils/geodesia';
 import { formatNumero } from '../../utils/aggregations';
+import { direccionesHaciaAfuera } from '../../utils/barriosAfectados';
 
 // ───────────────────────────────────────────────────────────────────────────
 // PLAN CANDADO 2026 en el mapa.
@@ -77,6 +78,16 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   const [seleccionadoId, setSeleccionadoId] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Rótulos (etiquetas) de cada punto: visibles o no, y la posición donde el
+  // usuario arrastró cada uno (lat/lon, para que la descarga coincida).
+  const [etiquetas, setEtiquetas] = useState(() => { try { return localStorage.getItem('mepoy-plan-candado-etiquetas') !== '0'; } catch { return true; } });
+  const [posicionesRotulo, setPosicionesRotulo] = useState<Record<string, { lat: number; lon: number }>>(() => {
+    try { return JSON.parse(localStorage.getItem('mepoy-plan-candado-rotulos') || '{}'); } catch { return {}; }
+  });
+  useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-etiquetas', etiquetas ? '1' : '0'); } catch { /* opcional */ } }, [etiquetas]);
+  useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-rotulos', JSON.stringify(posicionesRotulo)); } catch { /* opcional */ } }, [posicionesRotulo]);
+  const moverRotulo = useCallback((id: string, pos: { lat: number; lon: number }) => setPosicionesRotulo((prev) => ({ ...prev, [id]: pos })), []);
+  const restablecerRotulos = useCallback(() => setPosicionesRotulo({}), []);
 
   useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-activo', activo ? '1' : '0'); } catch { /* opcional */ } }, [activo]);
   useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-modo', modo); } catch { /* opcional */ } }, [modo]);
@@ -159,6 +170,7 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
     mensaje, setMensaje, guardando, editable, colorCai, colorDePunto,
     puntosSeleccion, ubicados, pendientes, hayFiltroTerritorial, sinRelacionOcultos, estacionesSel, caiSel,
     ubicarEn, quitar, asignar, sincronizar,
+    etiquetas, setEtiquetas, posicionesRotulo, moverRotulo, restablecerRotulos,
   };
 }
 export type PlanCandadoEstado = ReturnType<typeof usePlanCandado>;
@@ -305,6 +317,83 @@ function ControlReact({ posicion, children }: { posicion: L.ControlPosition; chi
   return contenedor ? createPortal(children, contenedor) : null;
 }
 
+// ── Rótulos arrastrables (como los de barrios) ────────────────────────────
+// Texto tal como está en la tabla: «N. Lugar» y debajo la Dirección.
+export const LARGO_ROTULO_PX = 62;
+
+function textoRotulo(p: PuntoPlanCandado): { titulo: string; subtitulo: string | null } {
+  return { titulo: `${etiquetaNumeroPlanCandado(p)}. ${p.lugar ?? NO_ESP}`, subtitulo: p.direccion };
+}
+
+function escapar(t: string) {
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+}
+
+function htmlRotuloPlan(p: PuntoPlanCandado, color: string): string {
+  const { titulo, subtitulo } = textoRotulo(p);
+  return `<div title="Arrastra para reubicar la etiqueta" style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;background:#ffffff;border:2px solid ${color};border-radius:6px;padding:2px 7px;box-shadow:0 2px 6px rgba(0,0,0,.25);font:700 11px/1.25 system-ui,Arial,sans-serif;color:#10233f;text-align:center;cursor:grab;user-select:none">${escapar(titulo)}${subtitulo ? `<br><span style="font-weight:600;color:#475569;font-size:10px">${escapar(subtitulo)}</span>` : ''}</div>`;
+}
+
+/** Posición de cada rótulo: la arrastrada por el usuario o la automática (hacia afuera del grupo). */
+export function posicionesRotulosPlanCandado(estado: PlanCandadoEstado, mapa: L.Map): Map<string, { lat: number; lon: number }> {
+  const puntos = estado.ubicados.map((p) => ({ id: p.id, ...estado.ubicaciones[p.id] }));
+  const dirs = direccionesHaciaAfuera(puntos);
+  const res = new Map<string, { lat: number; lon: number }>();
+  puntos.forEach((pt, i) => {
+    const manual = estado.posicionesRotulo[pt.id];
+    if (manual) { res.set(pt.id, manual); return; }
+    const base = mapa.latLngToContainerPoint([pt.lat, pt.lon]);
+    const ll = mapa.containerPointToLatLng([base.x + dirs[i].x * LARGO_ROTULO_PX, base.y + dirs[i].y * LARGO_ROTULO_PX - 18]);
+    res.set(pt.id, { lat: ll.lat, lon: ll.lng });
+  });
+  return res;
+}
+
+function RotuloArrastrable({ p, color, punto, rotulo, onMover }: {
+  p: PuntoPlanCandado; color: string; punto: { lat: number; lon: number }; rotulo: { lat: number; lon: number };
+  onMover: (pos: { lat: number; lon: number }) => void;
+}) {
+  const [enVivo, setEnVivo] = useState<{ lat: number; lon: number } | null>(null);
+  const r = enVivo ?? rotulo;
+  const icono = useMemo(() => L.divIcon({ className: 'mepoy-rotulo-plan', html: htmlRotuloPlan(p, color), iconSize: [0, 0], iconAnchor: [0, 0] }), [p, color]);
+  const linea: [number, number][] = [[r.lat, r.lon], [punto.lat, punto.lon]];
+  return (
+    <>
+      <Polyline positions={linea} pathOptions={{ color: '#ffffff', weight: 4.5, opacity: 1, lineCap: 'round' }} interactive={false} />
+      <Polyline positions={linea} pathOptions={{ color, weight: 2.2, opacity: 1, lineCap: 'round' }} interactive={false} />
+      <Marker
+        position={[r.lat, r.lon]}
+        icon={icono}
+        draggable
+        keyboard={false}
+        zIndexOffset={1000}
+        eventHandlers={{
+          drag: (e) => { const ll = (e.target as L.Marker).getLatLng(); setEnVivo({ lat: ll.lat, lon: ll.lng }); },
+          dragend: (e) => { const ll = (e.target as L.Marker).getLatLng(); setEnVivo(null); onMover({ lat: ll.lat, lon: ll.lng }); },
+        }}
+      />
+    </>
+  );
+}
+
+function RotulosPlanCandado({ estado }: { estado: PlanCandadoEstado }) {
+  const mapa = useMap();
+  // Al hacer zoom, los rótulos que no se han movido conservan su distancia en pantalla.
+  const [, setZoom] = useState(0);
+  useMapEvents({ zoomend: () => setZoom((z) => z + 1) });
+  const posiciones = posicionesRotulosPlanCandado(estado, mapa);
+  return (
+    <>
+      {estado.ubicados.map((p) => {
+        const pos = posiciones.get(p.id);
+        const u = estado.ubicaciones[p.id];
+        if (!pos || !u) return null;
+        return <RotuloArrastrable key={`${p.id}-${estado.modo}`} p={p} color={estado.colorDePunto(p)} punto={u} rotulo={pos} onMover={(np) => estado.moverRotulo(p.id, np)} />;
+      })}
+    </>
+  );
+}
+
 export function CapaLeafletPlanCandado({ estado }: { estado: PlanCandadoEstado }) {
   const { activo, modo, ubicados, ubicaciones, colorDePunto, seleccionadoId } = estado;
   const puntos = useMemo(() => ubicados.map((p) => ({ p, ...ubicaciones[p.id] })), [ubicados, ubicaciones]);
@@ -344,6 +433,7 @@ export function CapaLeafletPlanCandado({ estado }: { estado: PlanCandadoEstado }
       {activo && (
         <>
           <AjustarEncuadre puntos={puntos} clave={claveEncuadre} />
+          {estado.etiquetas && <RotulosPlanCandado estado={estado} />}
           {puntos.map(({ p, lat, lon }) => {
             const [dx, dy] = offsets.get(p.id) ?? [0, 0];
             const u = ubicaciones[p.id];
@@ -462,6 +552,16 @@ export function ControlesPlanCandado({ estado }: { estado: PlanCandadoEstado }) 
               </button>
             ))}
           </div>
+          <div className="flex items-center gap-2">
+            <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-[12px] hover:bg-white/5">
+              <input type="checkbox" className="h-3.5 w-3.5 accent-[#22a67a]" checked={estado.etiquetas} onChange={(e) => estado.setEtiquetas(e.target.checked)} />
+              Etiquetas de los puntos
+            </label>
+            {estado.etiquetas && Object.keys(estado.posicionesRotulo).length > 0 && (
+              <button type="button" onClick={estado.restablecerRotulos} title="Vuelve a ubicar solas todas las etiquetas que moviste" className="rounded px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-300 ring-1 ring-white/20 hover:bg-white/10">Reordenar</button>
+            )}
+          </div>
+          {estado.etiquetas && <p className="text-[10.5px] leading-snug text-slate-400">Arrastra cada etiqueta para ubicarla donde quieras; la descarga las respeta.</p>}
           <p className="text-[10.5px] leading-snug text-slate-400">
             {estado.hayFiltroTerritorial
               ? `Según el filtro principal (Estación / CAI): ${estado.puntosSeleccion.length} de ${PLAN_CANDADO_2026.length} puntos.`
@@ -785,9 +885,11 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
 }
 
 /** Marcadores para la imagen descargada del mapa (mismo color y número que en pantalla). */
-export function marcadoresParaExportar(estado: PlanCandadoEstado): { lat: number; lon: number; color: string; texto: string; forma: 'pin' | 'cuadro' }[] {
+export function marcadoresParaExportar(estado: PlanCandadoEstado, mapa: L.Map | null): { lat: number; lon: number; color: string; texto: string; forma: 'pin' | 'cuadro'; rotulo?: { lat: number; lon: number; titulo: string; subtitulo: string | null } }[] {
   if (!estado.activo) return [];
+  const rotulos = estado.etiquetas && mapa ? posicionesRotulosPlanCandado(estado, mapa) : null;
   return estado.ubicados.map((p) => ({
+    rotulo: rotulos?.get(p.id) ? { ...rotulos.get(p.id)!, ...textoRotulo(p) } : undefined,
     lat: estado.ubicaciones[p.id].lat,
     lon: estado.ubicaciones[p.id].lon,
     color: estado.colorDePunto(p),

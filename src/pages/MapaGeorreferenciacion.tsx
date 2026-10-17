@@ -1846,7 +1846,7 @@ export function MapaGeorreferenciacion() {
       etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
       gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
       // Puntos del Plan Candado ubicados (si la capa está activa), como en pantalla.
-      marcadores: marcadoresParaExportar(planCandado),
+      marcadores: marcadoresParaExportar(planCandado, mapaRef.current),
     };
   }
 

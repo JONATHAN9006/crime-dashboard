@@ -90,7 +90,7 @@ export interface OpcionesPoligonoAislado {
   fondoCompleto?: boolean;
   // Marcadores puntuales con número (Plan Candado): mismo color, forma y
   // número que en pantalla, dibujados sobre el calor y el borde.
-  marcadores?: { lat: number; lon: number; color: string; texto: string; forma: 'pin' | 'cuadro' }[];
+  marcadores?: { lat: number; lon: number; color: string; texto: string; forma: 'pin' | 'cuadro'; rotulo?: { lat: number; lon: number; titulo: string; subtitulo: string | null } }[];
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -335,6 +335,18 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       off.set(i, [Math.cos(ang) * r, Math.sin(ang) * r]);
     });
     const orden = marcadores.map((m, i) => ({ m, i })).sort((a, b) => b.m.lat - a.m.lat);
+    // Líneas de las etiquetas (debajo de los pines), donde se dejaron en pantalla.
+    for (const m of marcadores) {
+      if (!m.rotulo) continue;
+      const x0 = lonAX(m.rotulo.lon), y0 = latAY(m.rotulo.lat), x1 = lonAX(m.lon), y1 = latAY(m.lat);
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4.5 * k;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.strokeStyle = m.color; ctx.lineWidth = 2.2 * k;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.restore();
+    }
     for (const { m, i } of orden) {
       const [dx, dy] = off.get(i) ?? [0, 0];
       const x = lonAX(m.lon) + dx;
@@ -379,6 +391,33 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(m.texto, x, y + 0.5 * k);
+      }
+      ctx.restore();
+    }
+    // Cajas de las etiquetas (encima de todo lo del Plan Candado).
+    for (const m of marcadores) {
+      if (!m.rotulo) continue;
+      const x = lonAX(m.rotulo.lon), y = latAY(m.rotulo.lat);
+      const f1 = 11 * k, f2 = 10 * k, padX = 7 * k, padY = 3 * k;
+      ctx.save();
+      ctx.font = `700 ${f1}px system-ui, Arial, sans-serif`;
+      const w1 = ctx.measureText(m.rotulo.titulo).width;
+      ctx.font = `600 ${f2}px system-ui, Arial, sans-serif`;
+      const w2 = m.rotulo.subtitulo ? ctx.measureText(m.rotulo.subtitulo).width : 0;
+      const ancho = Math.max(w1, w2) + padX * 2;
+      const alto = (m.rotulo.subtitulo ? f1 * 1.25 + f2 * 1.25 : f1 * 1.25) + padY * 2;
+      ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 6 * k; ctx.shadowOffsetY = 2 * k;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.roundRect(x - ancho / 2, y - alto / 2, ancho, alto, 6 * k); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = m.color; ctx.lineWidth = 2 * k; ctx.stroke();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const yTitulo = m.rotulo.subtitulo ? y - alto / 2 + padY + f1 * 0.62 : y;
+      ctx.fillStyle = '#10233f'; ctx.font = `700 ${f1}px system-ui, Arial, sans-serif`;
+      ctx.fillText(m.rotulo.titulo, x, yTitulo);
+      if (m.rotulo.subtitulo) {
+        ctx.fillStyle = '#475569'; ctx.font = `600 ${f2}px system-ui, Arial, sans-serif`;
+        ctx.fillText(m.rotulo.subtitulo, x, yTitulo + f1 * 0.62 + f2 * 0.68);
       }
       ctx.restore();
     }
