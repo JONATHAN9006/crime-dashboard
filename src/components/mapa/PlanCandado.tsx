@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import clsx from 'clsx';
 import { CheckCircle2, Crosshair, Download, FileUp, Lock, MapPin, Search, Trash2, TriangleAlert, Upload, X } from 'lucide-react';
 import {
-  PLAN_CANDADO_2026, CAI_PLAN_CANDADO, grupoVisualPlanCandado, etiquetaNumeroPlanCandado,
+  PLAN_CANDADO_2026, CAI_PLAN_CANDADO, ARCHIVO_COORDENADAS_OFICIALES, COORDENADAS_OFICIALES_PLAN_CANDADO, grupoVisualPlanCandado, etiquetaNumeroPlanCandado,
   type PuntoPlanCandado, type CategoriaPlanCandado,
 } from '../../data/planCandado2026';
 import {
@@ -59,7 +59,8 @@ function caiCanonico(v: string): string {
 
 export function estadoUbicacion(u: UbicacionPlanCandado | undefined): string {
   if (!u) return ESTADO_PENDIENTE;
-  return u.fuente === 'archivo' ? 'Georreferenciado (importado de archivo)' : 'Georreferenciado (ubicado en el mapa)';
+  if (u.fuente === 'oficial') return `Georreferenciado (coordenada oficial, ${ARCHIVO_COORDENADAS_OFICIALES})`;
+  return u.fuente === 'archivo' ? 'Georreferenciado (corregido con archivo)' : 'Georreferenciado (corregido en el mapa)';
 }
 
 // ── Hook: todo el estado y los cálculos del Plan Candado ──────────────────
@@ -141,11 +142,11 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   async function quitar(id: string) {
     if (!editable) return;
     const p = PLAN_CANDADO_2026.find((x) => x.id === id);
-    if (!p || !window.confirm(`¿Quitar la ubicación del punto ${etiquetaNumeroPlanCandado(p)}? Vuelve a quedar pendiente; el registro del documento no se borra.`)) return;
+    if (!p || !window.confirm(COORDENADAS_OFICIALES_PLAN_CANDADO[id] ? `¿Quitar la corrección del punto ${etiquetaNumeroPlanCandado(p)}? Vuelve a su coordenada oficial.` : `¿Quitar la ubicación del punto ${etiquetaNumeroPlanCandado(p)}? Vuelve a quedar pendiente; el registro del documento no se borra.`)) return;
     setGuardando(true);
     try {
       setUbicaciones(await quitarUbicacion(ubicaciones, id));
-      setMensaje({ tipo: 'ok', texto: `Punto ${etiquetaNumeroPlanCandado(p)} vuelve a pendientes.` });
+      setMensaje({ tipo: 'ok', texto: COORDENADAS_OFICIALES_PLAN_CANDADO[id] ? `Punto ${etiquetaNumeroPlanCandado(p)} vuelve a su coordenada oficial.` : `Punto ${etiquetaNumeroPlanCandado(p)} vuelve a pendientes.` });
     } catch (e) {
       setMensaje({ tipo: 'error', texto: e instanceof Error ? e.message : 'No se pudo quitar la ubicación.' });
     } finally {
@@ -362,7 +363,7 @@ export function CapaLeafletPlanCandado({ estado }: { estado: PlanCandadoEstado }
                     acciones={estado.editable ? (
                       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                         <button type="button" onClick={() => { map.closePopup(); estado.setColocandoId(p.id); }} style={{ fontSize: 11.5, fontWeight: 700, color: '#0f5f57', border: '1px solid #99d5cb', borderRadius: 6, padding: '3px 8px', background: '#e3f2ef' }}>Corregir ubicación</button>
-                        <button type="button" onClick={() => { map.closePopup(); void estado.quitar(p.id); }} style={{ fontSize: 11.5, fontWeight: 600, color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', background: '#fff' }}>Quitar</button>
+                        {u?.fuente !== 'oficial' && <button type="button" onClick={() => { map.closePopup(); void estado.quitar(p.id); }} style={{ fontSize: 11.5, fontWeight: 600, color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', background: '#fff' }}>{COORDENADAS_OFICIALES_PLAN_CANDADO[p.id] ? 'Volver a la oficial' : 'Quitar'}</button>}
                       </div>
                     ) : null}
                   />
@@ -705,7 +706,7 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
         </div>
         {pestana === 'pendientes' && pendientes.length > 0 && (
           <p className="mt-2 text-[12px] text-slate-500">
-            El documento no trae coordenadas. {estado.editable ? 'Usa «Ubicar en el mapa» y haz clic en el sitio exacto, o importa un Excel/CSV con ID, Latitud y Longitud (puedes partir de «Exportar tabla»).' : 'Un administrador debe asignar su ubicación.'}
+            Estos puntos no tienen coordenada en el archivo oficial ({ARCHIVO_COORDENADAS_OFICIALES}). {estado.editable ? 'Usa «Ubicar en el mapa» y haz clic en el sitio exacto, o importa un Excel/CSV con ID, Latitud y Longitud (puedes partir de «Exportar tabla»).' : 'Un administrador debe asignar su ubicación.'}
           </p>
         )}
         <div className="mt-2 overflow-x-auto">
@@ -738,7 +739,7 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
                     <td className="px-2 py-1.5">
                       <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', u ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
                         <span className={clsx('h-1.5 w-1.5 rounded-full', u ? 'bg-emerald-500' : 'bg-amber-500')} />
-                        {u ? 'Georreferenciado' : 'Pendiente'}
+                        {!u ? 'Pendiente' : u.fuente === 'oficial' ? 'Georreferenciado' : 'Corregido'}
                       </span>
                     </td>
                     <td className="px-2 py-1.5">
@@ -751,8 +752,8 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
                             <Crosshair size={14} /> {u ? '' : 'Ubicar'}
                           </button>
                         )}
-                        {estado.editable && u && (
-                          <button type="button" title="Quitar ubicación (vuelve a pendiente)" onClick={() => void estado.quitar(p.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={14} /></button>
+                        {estado.editable && u && u.fuente !== 'oficial' && (
+                          <button type="button" title={COORDENADAS_OFICIALES_PLAN_CANDADO[p.id] ? 'Quitar la corrección (vuelve a la coordenada oficial)' : 'Quitar ubicación (vuelve a pendiente)'} onClick={() => void estado.quitar(p.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={14} /></button>
                         )}
                       </div>
                     </td>

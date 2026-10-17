@@ -169,3 +169,53 @@ export function grupoVisualPlanCandado(p: PuntoPlanCandado): string {
 export function etiquetaNumeroPlanCandado(p: PuntoPlanCandado): string {
   return p.categoria === 'Cierre general MEPOY' ? `M${p.numero}` : String(p.numero);
 }
+
+// Coordenadas OFICIALES entregadas por MEPOY en «Plan_candado_2026.xlsx»
+// (17-oct-2026). Se unieron a cada punto por Dirección + Lugar (las 41 filas
+// del archivo coinciden con los puntos 1–41 del documento). [lat, lon].
+// No traen coordenadas en el archivo: punto 9 (Autopista Norte – Puente
+// Norte) y punto 27 (Carrera 29 – Variante Sur – Entrada San Fernando).
+// El cierre general MEPOY (M1–M5) y los puntos 42–45 no vienen en el archivo.
+// Una corrección hecha en el mapa o importada después tiene prioridad.
+export const COORDENADAS_OFICIALES_PLAN_CANDADO: Record<string, [number, number]> = {
+  'PC-1': [2.4518244, -76.6053293],
+  'PC-2': [2.4553662, -76.59775],
+  'PC-3': [2.4460519, -76.6072735],
+  'PC-4': [2.4592463, -76.5932134],
+  'PC-5': [2.4903223, -76.5849971],
+  'PC-6': [2.4789442, -76.5611811],
+  'PC-7': [2.4813107, -76.5745714],
+  'PC-8': [2.4828091, -76.562594],
+  'PC-10': [2.4472251, -76.6033665],
+  'PC-11': [2.4533481, -76.5941287],
+  'PC-12': [2.470219, -76.5781225],
+  'PC-13': [2.4381373, -76.5886491],
+  'PC-14': [2.4452559, -76.6146863],
+  'PC-15': [2.4403164, -76.6116703],
+  'PC-16': [2.439464, -76.6007915],
+  'PC-17': [2.4369692, -76.616091],
+  'PC-18': [2.4339853, -76.6066606],
+  'PC-19': [2.4318615, -76.6065999],
+  'PC-20': [2.4340079, -76.601518],
+  'PC-21': [2.4307858, -76.6031115],
+  'PC-22': [2.4326499, -76.5987434],
+  'PC-23': [2.4342321, -76.6168976],
+  'PC-24': [2.4327764, -76.6071195],
+  'PC-25': [2.4351501, -76.6113666],
+  'PC-26': [2.4255067, -76.6221502],
+  'PC-28': [2.4442253, -76.6270955],
+  'PC-29': [2.427928, -76.6214473],
+  'PC-30': [2.4442751, -76.6223647],
+  'PC-31': [2.4412824, -76.6374474],
+  'PC-32': [2.4495474, -76.6246998],
+  'PC-33': [2.4471551, -76.6202653],
+  'PC-34': [2.4447573, -76.6147172],
+  'PC-35': [2.4406109, -76.6198216],
+  'PC-36': [2.4597406, -76.6378004],
+  'PC-37': [2.4567347, -76.6327099],
+  'PC-38': [2.4526211, -76.6319576],
+  'PC-39': [2.4823658, -76.6464234],
+  'PC-40': [2.4586556, -76.6437311],
+  'PC-41': [2.4552182, -76.6394999],
+};
+export const ARCHIVO_COORDENADAS_OFICIALES = 'Plan_candado_2026.xlsx';

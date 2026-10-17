@@ -2,6 +2,14 @@ import { obtenerConfig } from '../config';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { esCoordenadaValida } from '../utils/geodesia';
 import { obtenerCliente } from './supabaseApi';
+import { COORDENADAS_OFICIALES_PLAN_CANDADO } from './planCandado2026';
+
+/** Coordenadas oficiales (archivo entregado por MEPOY), base sobre la que se aplican las correcciones. */
+export function ubicacionesOficiales(): MapaUbicaciones {
+  return Object.fromEntries(Object.entries(COORDENADAS_OFICIALES_PLAN_CANDADO).map(([id, [lat, lon]]) => [
+    id, { __id: id, lat, lon, fuente: 'oficial' as const, actualizadoPor: 'MEPOY', fecha: '2026-10-17' },
+  ]));
+}
 
 // Coordenadas del PLAN CANDADO — guardadas APARTE de los registros del
 // documento (planCandado2026.ts), una fila por punto con su id estable:
@@ -18,7 +26,7 @@ export interface UbicacionPlanCandado {
   __id: string; // = id del punto (MEPOY-1, PC-23…)
   lat: number;
   lon: number;
-  fuente: 'mapa' | 'archivo';
+  fuente: 'mapa' | 'archivo' | 'oficial'; // oficial = Plan_candado_2026.xlsx, incluido en el dashboard
   actualizadoPor: string;
   fecha: string; // ISO
 }
@@ -43,17 +51,20 @@ function valida(u: unknown): u is UbicacionPlanCandado {
   return !!x && typeof x.__id === 'string' && esCoordenadaValida(Number(x.lat), Number(x.lon));
 }
 
+/** Oficiales + correcciones guardadas en este navegador (las correcciones mandan). */
 export function leerUbicacionesLocales(): MapaUbicaciones {
   try {
     const crudo = JSON.parse(localStorage.getItem(CLAVE_LOCAL) || '{}') as MapaUbicaciones;
-    return Object.fromEntries(Object.entries(crudo).filter(([, u]) => valida(u)));
+    return { ...ubicacionesOficiales(), ...Object.fromEntries(Object.entries(crudo).filter(([, u]) => valida(u) && u.fuente !== 'oficial')) };
   } catch {
-    return {};
+    return ubicacionesOficiales();
   }
 }
 
+// En este navegador solo se guardan las correcciones (nunca las oficiales).
 function guardarLocal(m: MapaUbicaciones) {
-  try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(m)); } catch { /* sin almacenamiento: solo en memoria */ }
+  const correcciones = Object.fromEntries(Object.entries(m).filter(([, u]) => u.fuente !== 'oficial'));
+  try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(correcciones)); } catch { /* sin almacenamiento: solo en memoria */ }
 }
 
 /** Trae las coordenadas compartidas del servidor (si hay) y las guarda en este navegador. */
@@ -63,7 +74,7 @@ export async function sincronizarUbicaciones(): Promise<MapaUbicaciones | null> 
   const supabase = obtenerCliente(s.url, s.key);
   const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', DATASET);
   if (error) throw new Error(error.message);
-  const m: MapaUbicaciones = {};
+  const m: MapaUbicaciones = ubicacionesOficiales();
   for (const f of data ?? []) {
     const u = (f as { datos: unknown }).datos;
     if (valida(u)) m[u.__id] = { ...u, lat: Number(u.lat), lon: Number(u.lon) };
@@ -106,6 +117,9 @@ export async function quitarUbicacion(actual: MapaUbicaciones, id: string): Prom
   await enviar({ idsABorrar: [id] });
   const m = { ...actual };
   delete m[id];
+  // Si el punto tiene coordenada oficial, vuelve a ella (no a pendiente).
+  const oficial = ubicacionesOficiales()[id];
+  if (oficial) m[id] = oficial;
   guardarLocal(m);
   return m;
 }
