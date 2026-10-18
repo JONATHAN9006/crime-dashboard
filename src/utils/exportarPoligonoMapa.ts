@@ -100,6 +100,9 @@ export interface OpcionesPoligonoAislado {
   // recibidos (descarga general: los que se ven en pantalla). Por defecto
   // solo los que caen dentro del área (descarga de un CAI o zona).
   ampliarParaMarcadores?: 'todos' | 'dentro';
+  // Alto relieve activo en pantalla: sobre las calles se pinta el sombreado
+  // del terreno (Esri World Hillshade) con mezcla «multiplicar».
+  relieve?: boolean;
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -107,7 +110,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve = false, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -273,6 +276,31 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       }
     }
     await Promise.all(tareasTiles);
+    // Alto relieve: sombreado del terreno encima de las calles (máx. nivel 16
+    // del servicio; si se pide más detalle, se estira el nivel 16).
+    if (relieve) {
+      const zr = Math.min(zoom, 16);
+      const er = Math.pow(2, zr);
+      const tareasRelieve: Promise<void>[] = [];
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.6;
+      for (let tx = Math.floor(mercLoX * er); tx <= Math.floor(mercHiX * er); tx++) {
+        for (let ty = Math.floor(mercLoY * er); ty <= Math.floor(mercHiY * er); ty++) {
+          tareasRelieve.push(
+            cargarImagen(`https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/${zr}/${ty}/${tx}`, true)
+              .then((img) => {
+                const xIzq = ((tx / er - mercLoX) / anchoMerc) * anchoLienzo;
+                const yArriba = ((ty / er - mercLoY) / altoMerc) * alto;
+                ctx.drawImage(img, xIzq, yArriba, ((1 / er) / anchoMerc) * anchoLienzo + 0.5, ((1 / er) / altoMerc) * alto + 0.5);
+              })
+              .catch(() => { /* sin sombreado en ese pedazo */ }),
+          );
+        }
+      }
+      await Promise.all(tareasRelieve);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
   } finally {
     ctx.restore();
   }

@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import clsx from 'clsx';
 import {
   ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronDown, Crosshair, Download, Eye, FileSpreadsheet, Filter, Layers, Lock,
-  LocateFixed, MapPin, Maximize2, Minimize2, Plus, RotateCcw, Search, Tag, TriangleAlert, Undo2, Upload, UserRound, X,
+  LocateFixed, MapPin, Maximize2, Minimize2, Mountain, Plus, RotateCcw, Search, Tag, TriangleAlert, Undo2, Upload, UserRound, X,
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { MultiSelect } from '../components/filters/MultiSelect';
@@ -15,6 +15,7 @@ import {
   resumenInformeMatriz, estadoUbicacion, NO_ESP, type PlanCandadoEstado,
 } from '../components/mapa/PlanCandado';
 import { CAI_PLAN_CANDADO, ARCHIVO_COORDENADAS_OFICIALES, etiquetaNumeroPlanCandado, grupoVisualPlanCandado, type PuntoPlanCandado } from '../data/planCandado2026';
+import { CapaRelieve, IrATerritorio, useRelieveGuardado } from '../components/mapa/RelieveTerreno';
 import { leerMatrizPlanCandado, type InformeMatriz } from '../utils/planCandadoMatriz';
 import { cargarCapas, type CapaGeografica } from '../data/geoStorage';
 import { mapearCuadrante } from '../data/db2Transform';
@@ -143,8 +144,9 @@ function AjustarTamano({ clave }: { clave: string }) {
 
 type BaseMapa = 'mapa' | 'satelite' | 'hibrido';
 
-function ControlesMapa({ base, setBase, capas, capasVisibles, alternarCapa, estado, onCentrar, pantallaCompleta, setPantallaCompleta }: {
+function ControlesMapa({ base, setBase, relieve, setRelieve, capas, capasVisibles, alternarCapa, estado, onCentrar, pantallaCompleta, setPantallaCompleta }: {
   base: BaseMapa; setBase: (b: BaseMapa) => void;
+  relieve: boolean; setRelieve: (v: boolean) => void;
   capas: CapaGeografica[]; capasVisibles: Set<string>; alternarCapa: (id: string) => void;
   estado: PlanCandadoEstado; onCentrar: () => void;
   pantallaCompleta: boolean; setPantallaCompleta: (v: boolean) => void;
@@ -157,6 +159,8 @@ function ControlesMapa({ base, setBase, capas, capasVisibles, alternarCapa, esta
         {([['mapa', 'Mapa'], ['satelite', 'Satélite'], ['hibrido', 'Híbrido']] as const).map(([b, t]) => (
           <button key={b} type="button" onClick={() => setBase(b)} aria-pressed={base === b} className={clsx(boton, base === b ? 'bg-[#10233f] text-white' : 'text-[#10233f] hover:bg-slate-100')}>{t}</button>
         ))}
+        <span className="mx-0.5 h-5 w-px bg-slate-200" />
+        <button type="button" role="switch" aria-checked={relieve} onClick={() => setRelieve(!relieve)} title="Activar o desactivar el alto relieve (sombreado del terreno)" className={clsx(boton, relieve ? 'bg-[#116762] text-white' : 'text-[#10233f] hover:bg-slate-100')}><Mountain size={14} /> Alto relieve</button>
         <span className="mx-0.5 h-5 w-px bg-slate-200" />
         <button type="button" onClick={() => setCapasAbierto((v) => !v)} aria-expanded={capasAbierto} className={clsx(boton, capasAbierto ? 'bg-[#e3f2ef] text-[#0f5f57]' : 'text-[#10233f] hover:bg-slate-100')}>
           <Layers size={14} /> Capas <ChevronDown size={13} className={clsx('transition', capasAbierto && 'rotate-180')} />
@@ -647,6 +651,7 @@ export function PlanCandado2026() {
   const [base, setBase] = useState<BaseMapa>(() => { try { return (localStorage.getItem('mepoy-plan-candado-base') as BaseMapa) || 'mapa'; } catch { return 'mapa'; } });
   useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-base', base); } catch { /* opcional */ } }, [base]);
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  const [altoRelieve, setAltoRelieve] = useRelieveGuardado('mepoy-plan-candado-alto-relieve');
   useEffect(() => {
     if (!pantallaCompleta) return;
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !estado.colocandoId) setPantallaCompleta(false); };
@@ -708,6 +713,7 @@ export function PlanCandado2026() {
         marcadores,
         escalaPantalla: { pxPorGradoLon: t.x / (e - o), pxPorGradoLat: t.y / (n - s) },
         ampliarParaMarcadores: 'todos',
+        relieve: altoRelieve,
         margen: recortar ? 0.04 : 0,
         fondoCompleto: !recortar,
       });
@@ -856,6 +862,7 @@ export function PlanCandado2026() {
               </button>
             ))}
           </div>
+          <IrATerritorio capas={capas} obtenerMapa={() => mapaRef.current} />
           {hayFiltros && (
             <button type="button" onClick={limpiarFiltros} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-semibold text-slate-500 hover:bg-slate-100"><RotateCcw size={13} /> Limpiar</button>
           )}
@@ -930,13 +937,14 @@ export function PlanCandado2026() {
                   <TileLayer key="hib-lugares" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} />
                 </>
               )}
+              <CapaRelieve activo={altoRelieve} base={base} />
               {capas.filter((c) => capasVisibles.has(c.id)).map((c) => (
                 <GeoJSONLayer key={`${c.id}-${base}`} data={c.geojson as any} interactive={false} style={{ color: base === 'mapa' ? '#10233f' : '#ffffff', weight: 1.6, opacity: 0.75, fillOpacity: 0 }} />
               ))}
               <CapaLeafletPlanCandado estado={estado} />
               <ControlReact posicion="topright">
                 <ControlesMapa
-                  base={base} setBase={setBase} capas={capas} capasVisibles={capasVisibles}
+                  base={base} setBase={setBase} relieve={altoRelieve} setRelieve={setAltoRelieve} capas={capas} capasVisibles={capasVisibles}
                   alternarCapa={(id) => setCapasVisibles((prev) => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s; })}
                   estado={estado} onCentrar={centrar} pantallaCompleta={pantallaCompleta} setPantallaCompleta={setPantallaCompleta}
                 />
