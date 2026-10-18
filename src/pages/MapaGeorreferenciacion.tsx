@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo, lazy, Suspense } from 'react';
 import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import shp from 'shpjs';
 import L from 'leaflet';
@@ -45,8 +45,12 @@ import { agruparPor, formatNumero } from '../utils/aggregations';
 import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
 import { aplicarFiltros } from '../utils/filters';
 import { esSoloConsulta, tieneAcceso, puedeDescargar } from '../utils/permisos';
-import { usePlanCandado, CapaLeafletPlanCandado, ControlesPlanCandado, PanelPlanCandado, marcadoresParaExportar } from '../components/mapa/PlanCandado';
-import { CapaRelieve, SelectorRelieve, IrATerritorio, useRelieveGuardado, useOpcionesRelieve, exageracionDe } from '../components/mapa/RelieveTerreno';
+import { usePlanCandado, CapaLeafletPlanCandado, ControlesPlanCandado, PanelPlanCandado, marcadoresParaExportar, filasLeyendaPlanCandado } from '../components/mapa/PlanCandado';
+import { CapaRelieve, IrATerritorio, useRelieveGuardado, useOpcionesRelieve, exageracionDe, SelectorEstiloMapa, OpcionesRelieveControl } from '../components/mapa/RelieveTerreno';
+import type { Datos3D, Modo3D } from '../components/mapa/Mapa3D';
+import { calcularKernelDensidad } from '../utils/kernelDensity';
+// La vista 3D (MapLibre GL) solo se descarga cuando alguien la abre.
+const Mapa3D = lazy(() => import('../components/mapa/Mapa3D'));
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -773,6 +777,20 @@ export function MapaGeorreferenciacion() {
   const [altoRelieve, setAltoRelieve] = useRelieveGuardado('mepoy-mapa-alto-relieve');
   const [errorRelieve, setErrorRelieve] = useState(false);
   const [opcionesRelieve, setOpcionesRelieve] = useOpcionesRelieve();
+  // Vista 3D (modo adicional). null = mapa operativo / relieve sombreado.
+  const [vista3D, setVista3D] = useState<Modo3D | null>(null);
+  const [camara3D, setCamara3D] = useState<{ centro: [number, number]; zoom: number } | null>(null);
+  const estiloMapa = vista3D ?? (altoRelieve ? 'sombreado' : 'operativo');
+  function cambiarEstiloMapa(e: 'operativo' | 'sombreado' | 'relieve3d' | 'satelite3d') {
+    if (e === 'relieve3d' || e === 'satelite3d') {
+      const m = mapaRef.current;
+      if (!vista3D && m) { const c = m.getCenter(); setCamara3D({ centro: [c.lat, c.lng], zoom: m.getZoom() }); }
+      setVista3D(e);
+      return;
+    }
+    setVista3D(null);
+    setAltoRelieve(e === 'sombreado');
+  }
   // Abierto de entrada solo en pantallas anchas (≥1536 px), donde va al lado del mapa.
   const [configAbierta, setConfigAbierta] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1536);
   const [leyendaAbierta, setLeyendaAbierta] = useState(true);
@@ -2355,6 +2373,69 @@ export function MapaGeorreferenciacion() {
     setFiltrosMapa((prev) => ({ ...prev, [clave]: prev[clave].includes(valor) ? prev[clave].filter((v) => v !== valor) : [...prev[clave], valor] }));
 
 
+  // Lo que la vista 3D dibuja: EXACTAMENTE lo del mapa operativo (mismos
+  // polígonos y colores, mismo kernel de calor, mismos puntos y marcadores).
+  const datos3D: Datos3D | null = useMemo(() => {
+    if (!vista3D) return null;
+    const features: unknown[] = [];
+    const etiquetas: Datos3D['etiquetas'] = [];
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      for (const f of extraerFeatures(capa.geojson)) {
+        const e = estiloPoligonoEnPantalla(capa, f) as { color: string; weight: number; fillColor: string; fillOpacity: number };
+        features.push({ ...f, properties: { ...(f.properties ?? {}), __fill: e.fillColor, __op: e.fillOpacity, __line: e.color, __ancho: e.weight } });
+        const valor = campo ? String(f.properties?.[campo] ?? '').trim() : '';
+        const cai = formatoCaiCanonico(valor);
+        const esCai = /^CAI \d+$/i.test(cai);
+        const esEstacion = /^E-/i.test(valor);
+        if ((esCai || esEstacion) && etiquetas.length < 40) {
+          const anillos = extraerAnillosDeFeature(f);
+          const mayor = anillos.sort((a, b) => b.length - a.length)[0];
+          if (mayor && mayor.length > 2) {
+            const lon = mayor.reduce((a, p) => a + p[0], 0) / mayor.length;
+            const lat = mayor.reduce((a, p) => a + p[1], 0) / mayor.length;
+            etiquetas.push({ lat, lon, texto: esCai ? cai : valor, color: esCai ? colorDeCai(cai) : '#22a67a' });
+          }
+        }
+      }
+    }
+    const calores: Datos3D['calores'] = [];
+    const leyenda: Datos3D['leyenda'] = [];
+    const op = opacidades.calor / 100;
+    if (modoVisualizacion === 'calor') {
+      const fuentes: [boolean, { lat: number; lon: number }[], (string | null)[], string][] = [
+        [mostrarCalorDelitos, puntosDelitosParaMostrar, paletaCalorDelitos, 'Mapa de calor — Delitos'],
+        [mostrarCalorIrisp1, puntosIrisp1ParaMostrar, ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'], 'Mapa de calor — IRISP1'],
+        [mostrarCalorRnmc, puntosRnmcParaMostrar, ['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843'], 'Mapa de calor — RNMC'],
+        [mostrarCalorOperatividad, puntosOperatividadParaMostrar, paletaCalorDelitos, 'Mapa de calor — Operatividad'],
+        [mostrarCalorMacri, puntosMacriParaMostrar, PALETA_CALOR_MACRI, 'Mapa de calor — Macri'],
+      ];
+      for (const [activo, puntos, colores, nombre] of fuentes) {
+        if (!activo || puntos.length === 0) continue;
+        const r = calcularKernelDensidad(puntos as never, colores);
+        if (r) { calores.push({ dataUrl: r.dataUrl, bounds: r.bounds, opacidad: op }); leyenda.push({ etiqueta: nombre, gradiente: colores.filter((c): c is string => !!c), forma: 'gradiente' }); }
+      }
+    }
+    const puntos: Datos3D['puntos'] = [];
+    if (modoVisualizacion === 'puntos') {
+      if (mostrarCalorDelitos) puntosDelitosParaMostrar.forEach((p) => puntos.push({ lat: p.lat, lon: p.lon, color: colorPorDelitoSimple((p as { delitoCorto?: string | null }).delitoCorto) }));
+      if (mostrarCalorIrisp1) puntosIrisp1ParaMostrar.forEach((p) => puntos.push({ lat: p.lat, lon: p.lon, color: '#2563eb' }));
+      if (mostrarCalorOperatividad) puntosOperatividadParaMostrar.forEach((p) => puntos.push({ lat: p.lat, lon: p.lon, color: '#d97706' }));
+      if (mostrarCalorMacri) puntosMacriParaMostrar.forEach((p) => puntos.push({ lat: p.lat, lon: p.lon, color: '#7c3aed' }));
+      if (mostrarCalorRnmc) puntosRnmcParaMostrar.forEach((p) => puntos.push({ lat: p.lat, lon: p.lon, color: '#db2777' }));
+      if (puntos.length) leyenda.push({ etiqueta: `Puntos (${formatNumero(puntos.length)})`, color: '#dc2626', forma: 'punto' });
+    }
+    const vistos = new Set<string>();
+    for (const t of etiquetas) if (/^CAI/.test(t.texto) && !vistos.has(t.texto)) { vistos.add(t.texto); }
+    if (colorearZonasPorCai) Array.from(vistos).sort((a, b) => parseInt(a.replace(/\D/g, ''), 10) - parseInt(b.replace(/\D/g, ''), 10)).forEach((c) => leyenda.push({ etiqueta: c, color: colorDeCai(c), forma: 'relleno' }));
+    const marcadores = marcadoresParaExportar(planCandado, null).map(({ lat, lon, color, texto, forma }) => ({ lat, lon, color, texto, forma }));
+    if (marcadores.length) filasLeyendaPlanCandado(planCandado).filter((f) => f.ubicados > 0).forEach((f) => leyenda.push({ etiqueta: `Plan Candado: ${f.etiqueta}`, color: f.color, forma: 'pin' }));
+    if (capas.some((c) => c.visible)) leyenda.push({ etiqueta: 'Límites (capas visibles)', color: '#000000', forma: 'relleno' });
+    return { poligonos: { type: 'FeatureCollection', features }, etiquetas, calores, puntos, marcadores, leyenda };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vista3D, capas, camposUnionAutoDetectados, opacidades, modoVisualizacion, mostrarCalorDelitos, mostrarCalorIrisp1, mostrarCalorRnmc, mostrarCalorOperatividad, mostrarCalorMacri, puntosDelitosParaMostrar, puntosIrisp1ParaMostrar, puntosRnmcParaMostrar, puntosOperatividadParaMostrar, puntosMacriParaMostrar, coloresCai, colorearZonasPorCai, planCandado.ubicados, planCandado.modo, filters, zonaSeleccionada]);
+
   return (
     <div className="space-y-4">
       {/* ── ENCABEZADO ── */}
@@ -2682,7 +2763,8 @@ export function MapaGeorreferenciacion() {
                         </button>
                       ))}
                     </div>
-                    <SelectorRelieve activo={altoRelieve} onCambiar={setAltoRelieve} opciones={opcionesRelieve} onOpciones={setOpcionesRelieve} />
+                    <SelectorEstiloMapa estilo={estiloMapa} onCambiar={cambiarEstiloMapa} />
+                    {estiloMapa === 'sombreado' && <OpcionesRelieveControl opciones={opcionesRelieve} onOpciones={setOpcionesRelieve} />}
                     <IrATerritorio capas={capas} obtenerMapa={() => mapaRef.current} />
                     {altoRelieve && errorRelieve && <span className="text-[11px] font-semibold text-amber-700" role="status">El relieve no carga (sin conexión al servicio de mapas)</span>}
                     <button
@@ -2765,6 +2847,20 @@ export function MapaGeorreferenciacion() {
                   className={clsx('relative isolate w-full', pantallaCompleta && 'min-h-0 flex-1')}
                   style={pantallaCompleta ? undefined : { height: 'clamp(480px, 66vh, 800px)' }}
                 >
+          {vista3D && camara3D && (
+            <Suspense fallback={<div className="absolute inset-0 z-[1200] flex items-center justify-center bg-white/80 text-[13px] font-semibold text-[#10233f]">Cargando vista 3D…</div>}>
+              <Mapa3D
+                modo={vista3D}
+                setModo={setVista3D}
+                datos={datos3D!}
+                centro={camara3D.centro}
+                zoom={camara3D.zoom}
+                titulo="MEPOY — Mapa / Georreferenciación"
+                puedeDescargar={puedeDescargar()}
+                onSalir={(centro, zoom) => { setVista3D(null); mapaRef.current?.setView(centro, zoom); }}
+              />
+            </Suspense>
+          )}
           {/* Controles de exploración por delito — solo en pantalla
               completa: elegir fuente (IRISP1/Delitos), ver su tabla de
               delitos con conteo, elegir uno para filtrar el mapa, y limpiar

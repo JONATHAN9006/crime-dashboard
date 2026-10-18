@@ -215,3 +215,33 @@ export function IrATerritorio({ capas, obtenerMapa }: { capas: CapaConGeo[]; obt
     </div>
   );
 }
+
+// ── Selector de estilo cartográfico (Mapa / Georreferenciación) ───────────
+export type EstiloCartografico = 'operativo' | 'sombreado' | 'relieve3d' | 'satelite3d';
+
+/** «Mapa operativo | Relieve sombreado | Relieve 3D | Satélite 3D». El operativo es el predeterminado. */
+export function SelectorEstiloMapa({ estilo, onCambiar }: { estilo: EstiloCartografico; onCambiar: (e: EstiloCartografico) => void }) {
+  const opciones: [EstiloCartografico, string, string][] = [
+    ['operativo', 'Mapa operativo', 'El mapa de trabajo de siempre'],
+    ['sombreado', 'Relieve sombreado', 'Relieve con colores por altura y sombras (2D)'],
+    ['relieve3d', 'Relieve 3D', 'Terreno en 3D con inclinación y rotación'],
+    ['satelite3d', 'Satélite 3D', 'Imagen satelital sobre el terreno en 3D'],
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="radiogroup" aria-label="Estilo cartográfico">
+      {opciones.map(([e, t, d]) => (
+        <button
+          key={e}
+          type="button"
+          role="radio"
+          aria-checked={estilo === e}
+          title={d}
+          onClick={() => onCambiar(e)}
+          className={clsx('flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-semibold', estilo === e ? (e === 'operativo' ? 'bg-[#10233f] text-white shadow-sm' : 'bg-[#116762] text-white shadow-sm') : 'text-slate-600 hover:bg-white')}
+        >
+          {e !== 'operativo' && <Mountain size={13} />} {t}
+        </button>
+      ))}
+    </div>
+  );
+}
