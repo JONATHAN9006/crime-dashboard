@@ -1002,6 +1002,7 @@ export function MapaGeorreferenciacion() {
     caiFiltro: filtrosPrincipales.cai,
     coloresCaiPersonalizados: coloresCai,
     editable: !soloLectura && tieneAcceso('actualizarInformacion'),
+    puedeEliminar: puedeEliminarCapas,
   });
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
 

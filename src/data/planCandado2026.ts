@@ -22,7 +22,8 @@ export type CategoriaPlanCandado =
   | 'CAI'
   | 'Carabineros'
   | 'Terminal de Transportes'
-  | 'Guardia MEPOY (cierre perimetral)';
+  | 'Guardia MEPOY (cierre perimetral)'
+  | 'Punto agregado'; // agregado a mano desde el dashboard (no está en el documento)
 
 export type EstacionPlanCandado = 'Norte' | 'Sur';
 
@@ -39,6 +40,8 @@ export interface PuntoPlanCandado {
   responsablePrincipal: string | null;
   responsableSecundario: string | null;
   enMatriz: boolean; // el punto figura en la matriz oficial (Excel)
+  agregado?: boolean; // creado a mano en el dashboard
+  estacionPorUbicacion?: boolean; // la estación se tomó del límite de estaciones (por coordenada)
   direccion: string | null;
   lugar: string | null;
 }

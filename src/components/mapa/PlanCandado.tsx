@@ -10,8 +10,9 @@ import {
   type PuntoPlanCandado, type CategoriaPlanCandado,
 } from '../../data/planCandado2026';
 import {
-  leerUbicacionesLocales, sincronizarUbicaciones, guardarUbicaciones, quitarUbicacion, hayServidorPlanCandado,
-  type MapaUbicaciones, type UbicacionPlanCandado,
+  leerUbicacionesLocales, guardarUbicaciones, quitarUbicacion, hayServidorPlanCandado,
+  leerExtrasLocales, sincronizarPlanCandado, guardarPuntoNuevo, eliminarPuntoPlan, restaurarPuntoPlan,
+  type MapaUbicaciones, type UbicacionPlanCandado, type ExtrasPlanCandado,
 } from '../../data/planCandadoUbicaciones';
 import { leerMatrizPlanCandado, type InformeMatriz } from '../../utils/planCandadoMatriz';
 import { esCoordenadaValida } from '../../utils/geodesia';
@@ -32,12 +33,31 @@ export type ModoPlanCandado = 'general' | 'cai';
 
 const PALETA_CAI_PLAN = ['#16a34a', '#2563eb', '#ea580c', '#7c3aed', '#db2777', '#0891b2', '#ca8a04', '#dc2626', '#0d9488', '#4f46e5'];
 const COLOR_GENERAL = '#10233f';
+export const COLOR_GENERAL_PLAN = COLOR_GENERAL;
 export const COLORES_CATEGORIA: Record<Exclude<CategoriaPlanCandado, 'CAI'>, string> = {
   'Cierre general MEPOY': '#10233f',
   Carabineros: '#4d7c0f',
   'Terminal de Transportes': '#0e7490',
   'Guardia MEPOY (cierre perimetral)': '#475569',
+  'Punto agregado': '#be185d',
 };
+
+// Colores por estación (vista General). Se pueden cambiar en «Capas».
+export const COLORES_ESTACION_DEFECTO = { Norte: '#16a34a', Sur: '#d946ef' } as const;
+export type ColoresEstacion = { Norte: string; Sur: string };
+
+/** Datos de un punto nuevo, tal como se escriben en el formulario. */
+export interface DatosPuntoNuevo {
+  lugar: string;
+  direccion: string;
+  responsablePrincipal: string;
+  responsableSecundario: string;
+  estacion: 'Norte' | 'Sur' | null;
+  estacionPorUbicacion: boolean;
+  cai: string | null;
+  lat: number;
+  lon: number;
+}
 
 const ESTADO_PENDIENTE = 'Pendiente de georreferenciación';
 export const NO_ESP = 'No especificado';
@@ -65,7 +85,9 @@ export function estadoUbicacion(u: UbicacionPlanCandado | undefined): string {
 }
 
 // ── Hook: todo el estado y los cálculos del Plan Candado ──────────────────
-export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonalizados, editable, siempreActivo = false, filtroExtra, firmaFiltroExtra = '' }: {
+export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonalizados, editable, puedeEliminar = false, siempreActivo = false, filtroExtra, firmaFiltroExtra = '' }: {
+  // Retirar puntos (la «X»): solo el administrador.
+  puedeEliminar?: boolean;
   estacionFiltro: string[];
   caiFiltro: string[];
   coloresCaiPersonalizados: Record<string, string>;
@@ -99,10 +121,29 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   useEffect(() => { if (!siempreActivo) { try { localStorage.setItem('mepoy-plan-candado-activo', activoGuardado ? '1' : '0'); } catch { /* opcional */ } } }, [activoGuardado, siempreActivo]);
   useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-modo', modo); } catch { /* opcional */ } }, [modo]);
 
+  // Puntos agregados a mano y puntos retirados (compartidos como las coordenadas).
+  const [extras, setExtras] = useState<ExtrasPlanCandado>(() => leerExtrasLocales());
+  const todos = useMemo(
+    () => [...PLAN_CANDADO_2026, ...extras.puntos].filter((p) => !extras.eliminados.includes(p.id)),
+    [extras],
+  );
+  const retirados = useMemo(() => PLAN_CANDADO_2026.filter((p) => extras.eliminados.includes(p.id)), [extras]);
+
+  // Colores Norte / Sur (vista General).
+  const [coloresEstacion, setColoresEstacion] = useState<ColoresEstacion>(() => {
+    try { return { ...COLORES_ESTACION_DEFECTO, ...JSON.parse(localStorage.getItem('mepoy-plan-candado-colores-estacion') || '{}') }; } catch { return { ...COLORES_ESTACION_DEFECTO }; }
+  });
+  useEffect(() => { try { localStorage.setItem('mepoy-plan-candado-colores-estacion', JSON.stringify(coloresEstacion)); } catch { /* opcional */ } }, [coloresEstacion]);
+
+  // Punto nuevo en preparación: mientras está activo, cada clic en el mapa
+  // fija (o mueve) su coordenada, que se ve de inmediato en el formulario.
+  const [capturandoNuevo, setCapturandoNuevo] = useState(false);
+  const [coordNuevo, setCoordNuevo] = useState<{ lat: number; lon: number } | null>(null);
+
   const sincronizar = useCallback(async () => {
     try {
-      const m = await sincronizarUbicaciones();
-      if (m) setUbicaciones(m);
+      const r = await sincronizarPlanCandado();
+      if (r) { setUbicaciones(r.ubicaciones); setExtras(r.extras); }
     } catch (e) {
       console.warn('[Plan Candado] No se pudieron leer las ubicaciones compartidas:', e);
     }
@@ -116,9 +157,10 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   }, [coloresCaiPersonalizados]);
 
   const colorDePunto = useCallback((p: PuntoPlanCandado, m: ModoPlanCandado = modo) => {
-    if (m === 'general') return COLOR_GENERAL;
+    // General: color de su estación (Norte / Sur); sin estación, azul institucional.
+    if (m === 'general') return p.estacion ? coloresEstacion[p.estacion] : COLOR_GENERAL;
     return p.cai ? colorCai(p.cai) : COLORES_CATEGORIA[p.categoria as Exclude<CategoriaPlanCandado, 'CAI'>];
-  }, [colorCai, modo]);
+  }, [colorCai, modo, coloresEstacion]);
 
   // Filtro principal → puntos de la selección. Solo se usan relaciones que
   // el documento sí trae; un cierre sin estación/CAI no se asigna a ninguna.
@@ -126,17 +168,17 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   const caiSel = useMemo(() => new Set(caiFiltro.map(caiCanonico)), [caiFiltro]);
   const hayFiltroTerritorial = estacionFiltro.length > 0 || caiFiltro.length > 0;
 
-  const puntosSeleccion = useMemo(() => PLAN_CANDADO_2026.filter((p) => {
+  const puntosSeleccion = useMemo(() => todos.filter((p) => {
     if (estacionFiltro.length > 0 && (!p.estacion || !estacionesSel.includes(p.estacion))) return false;
     if (caiSel.size > 0 && (!p.cai || !caiSel.has(p.cai))) return false;
     if (filtroExtra && !filtroExtra(p, ubicaciones[p.id])) return false;
     return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [estacionFiltro.length, estacionesSel, caiSel, firmaFiltroExtra, filtroExtra ? ubicaciones : null]);
+  }), [todos, estacionFiltro.length, estacionesSel, caiSel, firmaFiltroExtra, filtroExtra ? ubicaciones : null]);
 
   const ubicados = useMemo(() => puntosSeleccion.filter((p) => ubicaciones[p.id]), [puntosSeleccion, ubicaciones]);
   const pendientes = useMemo(() => puntosSeleccion.filter((p) => !ubicaciones[p.id]), [puntosSeleccion, ubicaciones]);
-  const sinRelacionOcultos = hayFiltroTerritorial ? PLAN_CANDADO_2026.filter((p) => !p.estacion).length : 0;
+  const sinRelacionOcultos = hayFiltroTerritorial ? todos.filter((p) => !p.estacion).length : 0;
 
   async function asignar(nuevas: UbicacionPlanCandado[], texto: string) {
     if (!editable) return;
@@ -153,7 +195,7 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
   }
 
   async function ubicarEn(id: string, lat: number, lon: number) {
-    const p = PLAN_CANDADO_2026.find((x) => x.id === id);
+    const p = todos.find((x) => x.id === id);
     setColocandoId(null);
     if (!p || !esCoordenadaValida(lat, lon)) return;
     await asignar([{ __id: id, lat, lon, fuente: 'mapa', actualizadoPor: 'Administrador', fecha: new Date().toISOString() }], `Punto ${etiquetaNumeroPlanCandado(p)} ubicado.`);
@@ -161,7 +203,7 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
 
   async function quitar(id: string) {
     if (!editable) return;
-    const p = PLAN_CANDADO_2026.find((x) => x.id === id);
+    const p = todos.find((x) => x.id === id);
     if (!p || !window.confirm(COORDENADAS_OFICIALES_PLAN_CANDADO[id] ? `¿Quitar la corrección del punto ${etiquetaNumeroPlanCandado(p)}? Vuelve a su coordenada oficial.` : `¿Quitar la ubicación del punto ${etiquetaNumeroPlanCandado(p)}? Vuelve a quedar pendiente; el registro del documento no se borra.`)) return;
     setGuardando(true);
     try {
@@ -174,7 +216,82 @@ export function usePlanCandado({ estacionFiltro, caiFiltro, coloresCaiPersonaliz
     }
   }
 
+  async function agregarPunto(d: DatosPuntoNuevo): Promise<boolean> {
+    if (!editable || !esCoordenadaValida(d.lat, d.lon)) return false;
+    const numero = Math.max(0, ...[...PLAN_CANDADO_2026, ...extras.puntos].filter((p) => p.categoria !== 'Cierre general MEPOY').map((p) => p.numero)) + 1;
+    const cai = d.cai ? CAI_PLAN_CANDADO.find((c) => c.cai === d.cai) ?? null : null;
+    const punto: PuntoPlanCandado = {
+      id: `NUEVO-${Date.now().toString(36)}`,
+      numero,
+      categoria: cai ? 'CAI' : 'Punto agregado',
+      estacion: d.estacion,
+      cai: cai?.cai ?? null,
+      caiNombre: cai?.nombre ?? null,
+      unidad: null,
+      direccion: d.direccion.trim() || null,
+      lugar: d.lugar.trim() || null,
+      responsablePrincipal: d.responsablePrincipal.trim() || null,
+      responsableSecundario: d.responsableSecundario.trim() || null,
+      enMatriz: false,
+      agregado: true,
+      estacionPorUbicacion: d.estacionPorUbicacion,
+    };
+    setGuardando(true);
+    try {
+      const r = await guardarPuntoNuevo(extras, ubicaciones, punto, { __id: punto.id, lat: d.lat, lon: d.lon, fuente: 'mapa', actualizadoPor: 'Administrador', fecha: new Date().toISOString() });
+      setExtras(r.extras);
+      setUbicaciones(r.ubicaciones);
+      setCapturandoNuevo(false);
+      setCoordNuevo(null);
+      setMensaje({ tipo: 'ok', texto: `Punto ${numero} agregado (${d.lat.toFixed(6)}, ${d.lon.toFixed(6)}).${hayServidorPlanCandado() ? ' Guardado para todos los equipos.' : ' Guardado en este navegador (no hay servidor central configurado).'}` });
+      return true;
+    } catch (e) {
+      setMensaje({ tipo: 'error', texto: e instanceof Error ? e.message : 'No se pudo agregar el punto.' });
+      return false;
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function eliminar(id: string) {
+    if (!puedeEliminar) return;
+    const p = todos.find((x) => x.id === id);
+    if (!p) return;
+    const texto = p.agregado
+      ? `¿Eliminar el punto ${etiquetaNumeroPlanCandado(p)} (${p.lugar ?? 'sin lugar'})? Se borra con su coordenada.`
+      : `¿Retirar el punto ${etiquetaNumeroPlanCandado(p)} (${p.lugar ?? 'sin lugar'}) del Plan Candado? Deja de mostrarse y de contarse; se puede restaurar.`;
+    if (!window.confirm(texto)) return;
+    setGuardando(true);
+    try {
+      const r = await eliminarPuntoPlan(extras, ubicaciones, id);
+      setExtras(r.extras);
+      setUbicaciones(r.ubicaciones);
+      if (seleccionadoId === id) setSeleccionadoId(null);
+      setMensaje({ tipo: 'ok', texto: p.agregado ? `Punto ${etiquetaNumeroPlanCandado(p)} eliminado.` : `Punto ${etiquetaNumeroPlanCandado(p)} retirado. Puedes restaurarlo desde «Puntos retirados».` });
+    } catch (e) {
+      setMensaje({ tipo: 'error', texto: e instanceof Error ? e.message : 'No se pudo eliminar el punto.' });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function restaurar(id: string) {
+    if (!puedeEliminar) return;
+    setGuardando(true);
+    try {
+      setExtras(await restaurarPuntoPlan(extras, id));
+      const p = PLAN_CANDADO_2026.find((x) => x.id === id);
+      setMensaje({ tipo: 'ok', texto: `Punto ${p ? etiquetaNumeroPlanCandado(p) : id} restaurado.` });
+    } catch (e) {
+      setMensaje({ tipo: 'error', texto: e instanceof Error ? e.message : 'No se pudo restaurar el punto.' });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   return {
+    todos, retirados, extras, agregarPunto, eliminar, restaurar, puedeEliminar,
+    coloresEstacion, setColoresEstacion, capturandoNuevo, setCapturandoNuevo, coordNuevo, setCoordNuevo,
     activo, setActivo, modo, setModo, ubicaciones, colocandoId, setColocandoId, seleccionadoId, setSeleccionadoId,
     mensaje, setMensaje, guardando, editable, colorCai, colorDePunto,
     puntosSeleccion, ubicados, pendientes, hayFiltroTerritorial, sinRelacionOcultos, estacionesSel, caiSel,
@@ -237,14 +354,14 @@ export function FichaPlanCandado({ p, u, acciones }: { p: PuntoPlanCandado; u?: 
     ['Estación', p.estacion ? `Estación ${p.estacion}` : NO_ESP],
     ['CAI', p.cai ? `${p.cai} - ${p.caiNombre}` : NO_ESP],
     ['Categoría', p.categoria],
-    ...(p.enMatriz ? [
+    ...(p.enMatriz || p.agregado ? [
       ['Resp. principal', p.responsablePrincipal ?? NO_ESP],
       ['Resp. secundario', p.responsableSecundario ?? NO_ESP],
     ] as [string, string][] : []),
     ['Unidad (doc.)', p.unidad ?? NO_ESP],
     ['Dirección', p.direccion ?? NO_ESP],
     ['Lugar', p.lugar ?? NO_ESP],
-    ['Estado', estadoUbicacion(u)],
+    ['Estado', p.agregado ? (u ? 'Punto agregado, georreferenciado en el mapa' : 'Punto agregado, sin coordenada') : estadoUbicacion(u)],
   ];
   return (
     <div style={{ minWidth: 230, fontFamily: 'system-ui, sans-serif' }}>
@@ -293,13 +410,13 @@ function AjustarEncuadre({ puntos, clave }: { puntos: { lat: number; lon: number
 
 function ColocarConClic({ estado }: { estado: PlanCandadoEstado }) {
   const map = useMap();
-  const activo = !!estado.colocandoId;
+  const activo = !!estado.colocandoId || estado.capturandoNuevo;
   useEffect(() => {
     const c = map.getContainer();
     c.style.cursor = activo ? 'crosshair' : '';
     if (!activo) return;
     // El botón «Ubicar» está en la tabla de abajo: llevar el mapa a la vista.
-    c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (estado.colocandoId) c.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') estado.setColocandoId(null); };
     window.addEventListener('keydown', esc);
     return () => { c.style.cursor = ''; window.removeEventListener('keydown', esc); };
@@ -309,6 +426,11 @@ function ColocarConClic({ estado }: { estado: PlanCandadoEstado }) {
   // capas de CAI/barrios. preclick llega siempre, antes que esas capas.
   useMapEvents({
     preclick(e) {
+      if (estado.capturandoNuevo && !estado.colocandoId) {
+        estado.setCoordNuevo({ lat: e.latlng.lat, lon: e.latlng.lng });
+        window.setTimeout(() => map.closePopup(), 0);
+        return;
+      }
       if (!estado.colocandoId) return;
       void estado.ubicarEn(estado.colocandoId, e.latlng.lat, e.latlng.lng);
       window.setTimeout(() => map.closePopup(), 0);
@@ -487,11 +609,21 @@ export function CapaLeafletPlanCandado({ estado }: { estado: PlanCandadoEstado }
     return () => window.clearTimeout(t);
   }, [seleccionadoId, activo, ubicaciones, map]);
 
-  const colocando = estado.colocandoId ? PLAN_CANDADO_2026.find((p) => p.id === estado.colocandoId) : null;
+  const colocando = estado.colocandoId ? estado.todos.find((p) => p.id === estado.colocandoId) : null;
+  const nuevo = estado.capturandoNuevo ? estado.coordNuevo : null;
 
   return (
     <>
       {estado.editable && <ColocarConClic estado={estado} />}
+      {nuevo && (
+        <Marker
+          position={[nuevo.lat, nuevo.lon]}
+          draggable
+          zIndexOffset={2000}
+          icon={L.divIcon({ className: 'mepoy-plan-nuevo', html: `<div style="width:30px;height:40px;filter:drop-shadow(0 2px 4px rgba(15,23,42,.5))"><svg width="30" height="40" viewBox="0 0 30 40"><path d="M15 39C15 39 27.5 25.6 27.5 15A12.5 12.5 0 0 0 2.5 15C2.5 25.6 15 39 15 39Z" fill="#f59e0b" stroke="#fff" stroke-width="2.2"/><path d="M15 9v12M9 15h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg></div>`, iconSize: [30, 40], iconAnchor: [15, 39] })}
+          eventHandlers={{ dragend: (e) => { const ll = (e.target as L.Marker).getLatLng(); estado.setCoordNuevo({ lat: ll.lat, lon: ll.lng }); } }}
+        />
+      )}
       {colocando && (
         <ControlReact posicion="topright">
           <div className="max-w-[300px] rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 shadow-lg">
@@ -524,7 +656,8 @@ export function CapaLeafletPlanCandado({ estado }: { estado: PlanCandadoEstado }
                     acciones={estado.editable ? (
                       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                         <button type="button" onClick={() => { map.closePopup(); estado.setColocandoId(p.id); }} style={{ fontSize: 11.5, fontWeight: 700, color: '#0f5f57', border: '1px solid #99d5cb', borderRadius: 6, padding: '3px 8px', background: '#e3f2ef' }}>Corregir ubicación</button>
-                        {u?.fuente !== 'oficial' && <button type="button" onClick={() => { map.closePopup(); void estado.quitar(p.id); }} style={{ fontSize: 11.5, fontWeight: 600, color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', background: '#fff' }}>{COORDENADAS_OFICIALES_PLAN_CANDADO[p.id] ? 'Volver a la oficial' : 'Quitar'}</button>}
+                        {estado.puedeEliminar && <button type="button" onClick={() => { map.closePopup(); void estado.eliminar(p.id); }} style={{ fontSize: 11.5, fontWeight: 600, color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', background: '#fff' }}>{p.agregado ? 'Eliminar punto' : 'Retirar punto'}</button>}
+                        {u?.fuente !== 'oficial' && !p.agregado && <button type="button" onClick={() => { map.closePopup(); void estado.quitar(p.id); }} style={{ fontSize: 11.5, fontWeight: 600, color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', background: '#fff' }}>{COORDENADAS_OFICIALES_PLAN_CANDADO[p.id] ? 'Volver a la oficial' : 'Quitar'}</button>}
                       </div>
                     ) : null}
                   />
@@ -553,7 +686,7 @@ export function SimboloLeyenda({ color, forma }: { color: string; forma: 'pin' |
 export function filasLeyendaPlanCandado(estado: PlanCandadoEstado): { etiqueta: string; color: string; forma: 'pin' | 'cuadro'; total: number; ubicados: number }[] {
   const grupos = new Map<string, { etiqueta: string; color: string; forma: 'pin' | 'cuadro'; total: number; ubicados: number }>();
   for (const p of estado.puntosSeleccion) {
-    const etiqueta = estado.modo === 'general' ? (p.cai ? 'Punto de control (CAI)' : 'Otros cierres') : grupoVisualPlanCandado(p);
+    const etiqueta = estado.modo === 'general' ? (p.estacion ? `Estación ${p.estacion}` : 'Sin estación asignada') : grupoVisualPlanCandado(p);
     const g = grupos.get(etiqueta) ?? { etiqueta, color: estado.colorDePunto(p), forma: p.cai ? 'pin' : 'cuadro', total: 0, ubicados: 0 };
     g.total++;
     if (estado.ubicaciones[p.id]) g.ubicados++;
@@ -589,7 +722,7 @@ export function LeyendaPlanCandado({ estado }: { estado: PlanCandadoEstado }) {
               <b className="tabular-nums">{estado.pendientes.length}</b>
             </div>
           )}
-          <p className="pt-0.5 text-[10px] leading-snug text-slate-400">Cifra: en el mapa / del documento ({estado.puntosSeleccion.length} en la selección).</p>
+          <p className="pt-0.5 text-[10px] leading-snug text-slate-400">Cifra: en el mapa / del plan ({estado.puntosSeleccion.length} en la selección).</p>
         </div>
       )}
     </div>
@@ -635,8 +768,8 @@ export function ControlesPlanCandado({ estado }: { estado: PlanCandadoEstado }) 
           {estado.etiquetas && <p className="text-[10.5px] leading-snug text-slate-400">Arrastra cada etiqueta para ubicarla donde quieras; la descarga las respeta.</p>}
           <p className="text-[10.5px] leading-snug text-slate-400">
             {estado.hayFiltroTerritorial
-              ? `Según el filtro principal (Estación / CAI): ${estado.puntosSeleccion.length} de ${PLAN_CANDADO_2026.length} puntos.`
-              : `Sin estación filtrada: los ${PLAN_CANDADO_2026.length} puntos del documento.`}
+              ? `Según el filtro principal (Estación / CAI): ${estado.puntosSeleccion.length} de ${estado.todos.length} puntos.`
+              : `Sin estación filtrada: los ${estado.todos.length} puntos del plan.`}
             {estado.pendientes.length > 0 && <span className="text-amber-300"> {estado.pendientes.length} pendiente(s) de ubicar.</span>}
           </p>
         </>
@@ -717,14 +850,14 @@ export function filasExport(puntos: PuntoPlanCandado[], ubic: MapaUbicaciones) {
       Categoria: p.categoria,
       Estacion: p.estacion ?? NO_ESP,
       CAI: p.cai ? `${p.cai} - ${p.caiNombre}` : NO_ESP,
-      'Responsable Principal': p.responsablePrincipal ?? (p.enMatriz ? NO_ESP : 'No está en la matriz'),
-      'Responsable Secundario': p.responsableSecundario ?? (p.enMatriz ? NO_ESP : 'No está en la matriz'),
+      'Responsable Principal': p.responsablePrincipal ?? (p.enMatriz || p.agregado ? NO_ESP : 'No está en la matriz'),
+      'Responsable Secundario': p.responsableSecundario ?? (p.enMatriz || p.agregado ? NO_ESP : 'No está en la matriz'),
       'Unidad (documento)': p.unidad ?? NO_ESP,
       Direccion: p.direccion ?? NO_ESP,
       Lugar: p.lugar ?? NO_ESP,
       Latitud: u ? u.lat : '',
       Longitud: u ? u.lon : '',
-      Estado: estadoUbicacion(u),
+      Estado: p.agregado ? 'Punto agregado en el dashboard' : estadoUbicacion(u),
     };
   });
 }
@@ -819,7 +952,7 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
       )}
 
       <div className="grid grid-cols-1 gap-2.5 @min-[520px]:grid-cols-2 @min-[960px]:grid-cols-4">
-        <Kpi icono={<FileUp size={19} />} tono="bg-[#e3f2ef] text-[#0f5f57]" titulo="Registrados en el documento" valor={PLAN_CANDADO_2026.length} nota="Total fijo del Plan Candado 2026" />
+        <Kpi icono={<FileUp size={19} />} tono="bg-[#e3f2ef] text-[#0f5f57]" titulo="Registrados en el plan" valor={estado.todos.length} nota={`${estado.extras.puntos.length} agregado(s) · ${estado.retirados.length} retirado(s)`} />
         <Kpi icono={<MapPin size={19} />} tono="bg-sky-50 text-sky-700" titulo="En la selección actual" valor={puntosSeleccion.length} nota={estado.hayFiltroTerritorial ? 'Según Estación / CAI del filtro' : 'Sin filtro territorial'} />
         <Kpi icono={<CheckCircle2 size={19} />} tono="bg-emerald-50 text-emerald-700" titulo="Con coordenadas válidas" valor={ubicados.length} nota="De la selección actual" />
         <Kpi icono={<TriangleAlert size={19} />} tono="bg-amber-50 text-amber-600" titulo="Pendientes de georreferenciar" valor={pendientes.length} nota="De la selección actual" />
@@ -901,6 +1034,9 @@ export function PanelPlanCandado({ estado, puedeDescargar }: { estado: PlanCanda
                           <button type="button" title={u ? 'Corregir ubicación: clic en el mapa' : 'Ubicar en el mapa'} disabled={estado.guardando} onClick={() => { estado.setActivo(true); estado.setColocandoId(p.id); }} className={clsx('flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] font-semibold', estado.colocandoId === p.id ? 'bg-amber-100 text-amber-800' : 'text-[#10233f] hover:bg-slate-100')}>
                             <Crosshair size={14} /> {u ? '' : 'Ubicar'}
                           </button>
+                        )}
+                        {estado.puedeEliminar && (
+                          <button type="button" title={p.agregado ? 'Eliminar punto' : 'Retirar punto del plan'} onClick={() => void estado.eliminar(p.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"><X size={14} /></button>
                         )}
                         {estado.editable && u && u.fuente !== 'oficial' && (
                           <button type="button" title={COORDENADAS_OFICIALES_PLAN_CANDADO[p.id] ? 'Quitar la corrección (vuelve a la coordenada oficial)' : 'Quitar ubicación (vuelve a pendiente)'} onClick={() => void estado.quitar(p.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={14} /></button>

@@ -6,15 +6,15 @@ import * as XLSX from 'xlsx';
 import clsx from 'clsx';
 import {
   ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronDown, Crosshair, Download, Eye, FileSpreadsheet, Filter, Layers, Lock,
-  LocateFixed, MapPin, Maximize2, Minimize2, RotateCcw, Search, Tag, TriangleAlert, Upload, UserRound, X,
+  LocateFixed, MapPin, Maximize2, Minimize2, Plus, RotateCcw, Search, Tag, TriangleAlert, Undo2, Upload, UserRound, X,
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { MultiSelect } from '../components/filters/MultiSelect';
 import {
-  usePlanCandado, CapaLeafletPlanCandado, ControlReact, SimboloLeyenda, filasLeyendaPlanCandado, filasExport, marcadoresParaExportar,
+  usePlanCandado, CapaLeafletPlanCandado, COLOR_GENERAL_PLAN, ControlReact, SimboloLeyenda, filasLeyendaPlanCandado, filasExport, marcadoresParaExportar,
   resumenInformeMatriz, estadoUbicacion, NO_ESP, type PlanCandadoEstado,
 } from '../components/mapa/PlanCandado';
-import { PLAN_CANDADO_2026, CAI_PLAN_CANDADO, ARCHIVO_COORDENADAS_OFICIALES, etiquetaNumeroPlanCandado, grupoVisualPlanCandado, type PuntoPlanCandado } from '../data/planCandado2026';
+import { CAI_PLAN_CANDADO, ARCHIVO_COORDENADAS_OFICIALES, etiquetaNumeroPlanCandado, grupoVisualPlanCandado, type PuntoPlanCandado } from '../data/planCandado2026';
 import { leerMatrizPlanCandado, type InformeMatriz } from '../utils/planCandadoMatriz';
 import { cargarCapas, type CapaGeografica } from '../data/geoStorage';
 import { mapearCuadrante } from '../data/db2Transform';
@@ -59,7 +59,7 @@ function anillosDe(feature: any): [number, number][][] {
 // Zona de atención y Barrio: el Plan Candado no trae esos campos. Se
 // obtienen SOLO por ubicación, dentro de las capas oficiales cargadas
 // (Cuadrantes / Barrios). Un punto sin coordenadas no tiene zona ni barrio.
-type Territorio = { zona: string | null; barrio: string | null };
+type Territorio = { zona: string | null; barrio: string | null; estacion: 'Norte' | 'Sur' | null };
 function nombreCuadrante(props: Record<string, unknown>, campo: string | null): string | null {
   const candidatos = campo ? [campo] : Object.keys(props);
   for (const k of candidatos) {
@@ -79,6 +79,7 @@ function nombreBarrio(props: Record<string, unknown>, campo: string | null): str
 /** Zona y barrio de una coordenada, según las capas oficiales cargadas (con caché). */
 function crearLocalizador(capas: CapaGeografica[]) {
   const capasZona = capas.filter((c) => c.dimension === 'cuadrante' || /cuadrante|zona/i.test(c.nombre));
+  const capasEstacion = capas.filter((c) => c.dimension === 'estacion' || /estaci|juris/i.test(c.nombre));
   const capasBarrio = capas.filter((c) => c.dimension === 'barrioHecho' || /barrio/i.test(c.nombre));
   const cache = new Map<string, Territorio>();
   function localizar(lat: number, lon: number): Territorio {
@@ -87,6 +88,14 @@ function crearLocalizador(capas: CapaGeografica[]) {
     if (ya) return ya;
     let zona: string | null = null;
     let barrio: string | null = null;
+    let estacion: 'Norte' | 'Sur' | null = null;
+    for (const c of capasEstacion) {
+      const f = extraerFeatures(c.geojson).find((ft) => puntoEnFeatureGeoJSON(lon, lat, ft));
+      const props = (f?.properties ?? {}) as Record<string, unknown>;
+      const valores = (c.campoUnion ? [props[c.campoUnion]] : Object.values(props)).map((v) => normalizar(v));
+      if (valores.some((v) => /NORTE/.test(v))) { estacion = 'Norte'; break; }
+      if (valores.some((v) => /\bSUR\b|-SUR/.test(v))) { estacion = 'Sur'; break; }
+    }
     for (const c of capasZona) {
       const f = extraerFeatures(c.geojson).find((ft) => puntoEnFeatureGeoJSON(lon, lat, ft));
       if (f) { zona = nombreCuadrante(f.properties ?? {}, c.campoUnion); if (zona) break; }
@@ -95,11 +104,11 @@ function crearLocalizador(capas: CapaGeografica[]) {
       const f = extraerFeatures(c.geojson).find((ft) => puntoEnFeatureGeoJSON(lon, lat, ft));
       if (f) { barrio = nombreBarrio(f.properties ?? {}, c.campoUnion); if (barrio) break; }
     }
-    const t = { zona, barrio };
+    const t = { zona, barrio, estacion };
     cache.set(k, t);
     return t;
   }
-  return { localizar, hayCapaZona: capasZona.length > 0, hayCapaBarrio: capasBarrio.length > 0 };
+  return { localizar, hayCapaZona: capasZona.length > 0, hayCapaBarrio: capasBarrio.length > 0, hayCapaEstacion: capasEstacion.length > 0 };
 }
 
 // ── Piezas visuales ───────────────────────────────────────────────────────
@@ -167,6 +176,15 @@ function ControlesMapa({ base, setBase, capas, capasVisibles, alternarCapa, esta
           {Object.keys(estado.posicionesRotulo).length > 0 && (
             <button type="button" onClick={estado.restablecerRotulos} className="ml-5 mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-[#0f5f57] hover:underline"><RotateCcw size={11} /> Reordenar etiquetas movidas</button>
           )}
+          <p className="mb-1.5 mt-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">Colores en vista General</p>
+          <div className="flex items-center gap-3">
+            {(['Norte', 'Sur'] as const).map((e) => (
+              <label key={e} className="flex cursor-pointer items-center gap-1.5">
+                <input type="color" value={estado.coloresEstacion[e]} onChange={(ev) => estado.setColoresEstacion({ ...estado.coloresEstacion, [e]: ev.target.value })} className="h-6 w-7 cursor-pointer rounded border border-slate-200 bg-white p-0" />
+                Estación {e}
+              </label>
+            ))}
+          </div>
           <p className="mb-1.5 mt-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">Límites geográficos</p>
           {capas.length === 0 && <p className="text-[11px] text-slate-400">No hay capas cargadas (se cargan en Mapa / Georreferenciación).</p>}
           <div className="max-h-48 space-y-0.5 overflow-y-auto">
@@ -307,20 +325,20 @@ function TablaPuntos({ estado, editable, puedeExportar, onExportar, pestana, set
               return (
                 <tr key={p.id} onClick={() => { if (u) estado.setSeleccionadoId(p.id); }} className={clsx('border-t border-slate-100', u && 'cursor-pointer hover:bg-slate-50', estado.seleccionadoId === p.id && 'bg-[#e3f2ef]/70')}>
                   <td className="px-2.5 py-2 font-bold tabular-nums">
-                    <span className="flex items-center gap-1.5"><SimboloLeyenda color={estado.colorDePunto(p, 'cai')} forma={p.cai ? 'pin' : 'cuadro'} />{etiquetaNumeroPlanCandado(p)}</span>
+                    <span className="flex items-center gap-1.5"><SimboloLeyenda color={estado.colorDePunto(p, 'cai')} forma={p.cai ? 'pin' : 'cuadro'} />{etiquetaNumeroPlanCandado(p)}{p.agregado && <span className="rounded bg-amber-100 px-1 text-[9.5px] font-bold uppercase text-amber-800" title="Agregado desde el dashboard">nuevo</span>}</span>
                   </td>
-                  <td className="px-2.5 py-2">{p.estacion ? `Estación ${p.estacion}` : vacio}</td>
+                  <td className="px-2.5 py-2">{p.estacion ? <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="h-2.5 w-2.5 rounded-full" style={{ background: estado.coloresEstacion[p.estacion] }} />Estación {p.estacion}</span> : vacio}</td>
                   <td className="px-2.5 py-2">{p.cai ? `${p.cai} - ${p.caiNombre}` : p.categoria}</td>
-                  <td className="px-2.5 py-2">{p.responsablePrincipal ?? (p.enMatriz ? vacio : <span className="text-slate-400" title={`Unidad según el documento: ${p.unidad ?? NO_ESP}`}>No está en la matriz</span>)}</td>
+                  <td className="px-2.5 py-2">{p.responsablePrincipal ?? (p.enMatriz || p.agregado ? vacio : <span className="text-slate-400" title={`Unidad según el documento: ${p.unidad ?? NO_ESP}`}>No está en la matriz</span>)}</td>
                   <td className="px-2.5 py-2">{p.responsableSecundario ?? vacio}</td>
                   <td className="px-2.5 py-2">{p.direccion ?? vacio}</td>
                   <td className="px-2.5 py-2">{p.lugar ?? vacio}</td>
                   <td className="px-2.5 py-2 text-right tabular-nums">{u ? u.lat.toFixed(7) : <span className="text-slate-300">—</span>}</td>
                   <td className="px-2.5 py-2 text-right tabular-nums">{u ? u.lon.toFixed(7) : <span className="text-slate-300">—</span>}</td>
-                  <td className="px-2.5 py-2" title={estadoUbicacion(u)}>
+                  <td className="px-2.5 py-2" title={p.agregado ? 'Punto agregado y georreferenciado en el mapa' : estadoUbicacion(u)}>
                     <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', !u ? 'bg-amber-50 text-amber-700' : u.fuente === 'oficial' ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700')}>
                       <span className={clsx('h-1.5 w-1.5 rounded-full', !u ? 'bg-amber-500' : u.fuente === 'oficial' ? 'bg-emerald-500' : 'bg-sky-500')} />
-                      {!u ? 'Pendiente' : u.fuente === 'oficial' ? 'Georreferenciado' : 'Corregido'}
+                      {!u ? 'Pendiente' : p.agregado ? 'Agregado' : u.fuente === 'oficial' ? 'Georreferenciado' : 'Corregido'}
                     </span>
                   </td>
                   <td className="px-2.5 py-2" onClick={(e) => e.stopPropagation()}>
@@ -329,6 +347,9 @@ function TablaPuntos({ estado, editable, puedeExportar, onExportar, pestana, set
                         <button type="button" onClick={() => { estado.setSeleccionadoId(null); window.setTimeout(() => estado.setSeleccionadoId(p.id), 0); }} title="Localizar en el mapa" className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-semibold text-[#0f5f57] hover:bg-[#e3f2ef]"><MapPin size={14} /> Ver</button>
                       ) : (
                         <span className="flex items-center gap-1 px-1.5 text-[11px] text-amber-700"><TriangleAlert size={13} /> Sin ubicar</span>
+                      )}
+                      {estado.puedeEliminar && (
+                        <button type="button" disabled={estado.guardando} onClick={() => void estado.eliminar(p.id)} title={p.agregado ? 'Eliminar este punto' : 'Retirar este punto del plan (se puede restaurar)'} aria-label={`Eliminar punto ${etiquetaNumeroPlanCandado(p)}`} className="order-last rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"><X size={15} /></button>
                       )}
                       {editable && (
                         <button type="button" disabled={estado.guardando} onClick={() => estado.setColocandoId(p.id)} title={u ? 'Corregir ubicación: clic en el mapa' : 'Ubicar en el mapa'} className={clsx('flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-semibold', estado.colocandoId === p.id ? 'bg-amber-100 text-amber-800' : 'text-[#10233f] hover:bg-slate-100')}>
@@ -429,6 +450,128 @@ function ModalInforme({ informe, onCerrar, onAplicar, aplicando }: { informe: In
   );
 }
 
+// ── Agregar punto ─────────────────────────────────────────────────────────
+function FormPuntoNuevo({ estado, localizar, caiSugerido, onCerrar }: {
+  estado: PlanCandadoEstado;
+  localizar: (lat: number, lon: number) => Territorio;
+  caiSugerido: (zona: string | null) => string | null;
+  onCerrar: () => void;
+}) {
+  const [lugar, setLugar] = useState('');
+  const [direccion, setDireccion] = useState('');
+  const [rp, setRp] = useState('');
+  const [rs, setRs] = useState('');
+  const [cai, setCai] = useState<string>('');
+  const [caiTocado, setCaiTocado] = useState(false);
+  const [estacionManual, setEstacionManual] = useState<'' | 'Norte' | 'Sur'>('');
+  const c = estado.coordNuevo;
+  const [latTxt, setLatTxt] = useState('');
+  const [lonTxt, setLonTxt] = useState('');
+  // La coordenada del clic aparece de una vez en las casillas.
+  useEffect(() => { if (c) { setLatTxt(c.lat.toFixed(7)); setLonTxt(c.lon.toFixed(7)); } }, [c]);
+  const t = c ? localizar(c.lat, c.lon) : null;
+  const sugerido = t ? caiSugerido(t.zona) : null;
+  useEffect(() => { if (!caiTocado) setCai(sugerido ?? ''); }, [sugerido, caiTocado]);
+  // Estación: la del límite de estaciones donde cae el punto; si no hay
+  // capa (o cae fuera), la del CAI elegido; si no, la que se escoja.
+  const estacionCai = CAI_PLAN_CANDADO.find((x) => x.cai === cai)?.estacion ?? null;
+  const estacion = estacionManual || t?.estacion || estacionCai || null;
+  const origenEstacion = estacionManual ? 'elegida a mano' : t?.estacion ? 'según el límite de estaciones' : estacionCai ? `según ${cai}` : 'sin determinar';
+  const color = estado.modo === 'general' ? (estacion ? estado.coloresEstacion[estacion] : COLOR_GENERAL_PLAN) : (cai ? estado.colorCai(cai) : '#be185d');
+
+  function escribirCoord(latS: string, lonS: string) {
+    setLatTxt(latS); setLonTxt(lonS);
+    const lat = Number(latS.replace(',', '.')), lon = Number(lonS.replace(',', '.'));
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && latS && lonS) estado.setCoordNuevo({ lat, lon });
+  }
+  const valido = !!c && lugar.trim().length > 0;
+  const campo = 'h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-[12.5px] outline-none focus:border-[#116762]';
+  return (
+    <Tarjeta className="border-amber-300 p-3.5 ring-2 ring-amber-200">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="flex items-center gap-1.5 text-[14px] font-extrabold text-[#10233f]"><Plus size={15} className="text-amber-600" /> Agregar punto</p>
+          <p className="text-[11.5px] text-slate-500">{c ? 'Clic en otro sitio del mapa (o arrastra el pin) para moverlo.' : 'Haz clic en el mapa donde va el punto.'}</p>
+        </div>
+        <button type="button" onClick={onCerrar} aria-label="Cancelar"><X size={16} className="text-slate-400" /></button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="col-span-2 text-[11.5px] font-semibold text-[#10233f]">Lugar de referencia *
+          <input value={lugar} onChange={(e) => setLugar(e.target.value)} className={campo} placeholder="Ej. Glorieta del Terminal" />
+        </label>
+        <label className="col-span-2 text-[11.5px] font-semibold text-[#10233f]">Dirección
+          <input value={direccion} onChange={(e) => setDireccion(e.target.value)} className={campo} placeholder="Ej. Transversal 9N con Carrera 11" />
+        </label>
+        <label className="text-[11.5px] font-semibold text-[#10233f]">Responsable principal
+          <input value={rp} onChange={(e) => setRp(e.target.value)} className={campo} />
+        </label>
+        <label className="text-[11.5px] font-semibold text-[#10233f]">Responsable secundario
+          <input value={rs} onChange={(e) => setRs(e.target.value)} className={campo} />
+        </label>
+        <label className="text-[11.5px] font-semibold text-[#10233f]">Latitud
+          <input value={latTxt} onChange={(e) => escribirCoord(e.target.value, lonTxt)} className={clsx(campo, 'tabular-nums', c && 'border-emerald-400 bg-emerald-50')} placeholder="Clic en el mapa" />
+        </label>
+        <label className="text-[11.5px] font-semibold text-[#10233f]">Longitud
+          <input value={lonTxt} onChange={(e) => escribirCoord(latTxt, e.target.value)} className={clsx(campo, 'tabular-nums', c && 'border-emerald-400 bg-emerald-50')} placeholder="Clic en el mapa" />
+        </label>
+        <label className="text-[11.5px] font-semibold text-[#10233f]">CAI
+          <select value={cai} onChange={(e) => { setCai(e.target.value); setCaiTocado(true); }} className={campo}>
+            <option value="">Sin CAI</option>
+            {CAI_PLAN_CANDADO.map((x) => <option key={x.cai} value={x.cai}>{x.cai} - {x.nombre}{x.cai === sugerido ? ' (sugerido)' : ''}</option>)}
+          </select>
+        </label>
+        <label className="text-[11.5px] font-semibold text-[#10233f]">Estación
+          <select value={estacionManual} onChange={(e) => setEstacionManual(e.target.value as '' | 'Norte' | 'Sur')} className={campo}>
+            <option value="">{t?.estacion ? `Automática (${t.estacion})` : estacionCai ? `Automática (${estacionCai})` : 'Automática'}</option>
+            <option value="Norte">Norte</option>
+            <option value="Sur">Sur</option>
+          </select>
+        </label>
+      </div>
+      <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[12px]">
+        <SimboloLeyenda color={color} forma={cai ? 'pin' : 'cuadro'} />
+        <span className="min-w-0 flex-1">
+          {estacion ? <><b>Estación {estacion}</b> <span className="text-slate-500">({origenEstacion})</span></> : <span className="text-slate-500">Estación sin determinar</span>}
+          {t?.zona && <span className="block text-[11px] text-slate-500">{t.zona}{t.barrio ? ` · ${t.barrio}` : ''}</span>}
+        </span>
+      </div>
+      <div className="mt-2.5 flex justify-end gap-2">
+        <button type="button" onClick={onCerrar} className="rounded-lg border border-slate-200 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+        <button
+          type="button"
+          disabled={!valido || estado.guardando}
+          onClick={async () => {
+            if (!c) return;
+            const ok = await estado.agregarPunto({ lugar, direccion, responsablePrincipal: rp, responsableSecundario: rs, estacion, estacionPorUbicacion: !estacionManual && !!t?.estacion, cai: cai || null, lat: c.lat, lon: c.lon });
+            if (ok) onCerrar();
+          }}
+          className="flex items-center gap-1.5 rounded-lg bg-[#116762] px-3.5 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#0f5f57] disabled:opacity-50"
+          title={!c ? 'Primero haz clic en el mapa' : !lugar.trim() ? 'Escribe el lugar de referencia' : undefined}
+        >
+          <CheckCircle2 size={14} /> {estado.guardando ? 'Guardando…' : 'Guardar punto'}
+        </button>
+      </div>
+    </Tarjeta>
+  );
+}
+
+function PuntosRetirados({ estado }: { estado: PlanCandadoEstado }) {
+  if (estado.retirados.length === 0 || !estado.puedeEliminar) return null;
+  return (
+    <Tarjeta className="p-3.5">
+      <p className="mb-2 flex items-center gap-1.5 text-[13.5px] font-bold text-[#10233f]"><Undo2 size={14} className="text-slate-500" /> Puntos retirados ({estado.retirados.length})</p>
+      <div className="flex flex-wrap gap-1.5">
+        {estado.retirados.map((p) => (
+          <span key={p.id} className="flex items-center gap-1.5 rounded-full bg-slate-100 py-1 pl-2.5 pr-1 text-[12px] text-slate-600">
+            <b>{etiquetaNumeroPlanCandado(p)}</b> {p.lugar ?? NO_ESP}
+            <button type="button" onClick={() => void estado.restaurar(p.id)} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#0f5f57] ring-1 ring-slate-200 hover:bg-[#e3f2ef]">Restaurar</button>
+          </span>
+        ))}
+      </div>
+    </Tarjeta>
+  );
+}
+
 // ── Página ────────────────────────────────────────────────────────────────
 export function PlanCandado2026() {
   const { records, filters, setFilters } = useData();
@@ -458,6 +601,7 @@ export function PlanCandado2026() {
     caiFiltro: filters.cai,
     coloresCaiPersonalizados: coloresCai,
     editable,
+    puedeEliminar: !soloLectura && tieneAcceso('eliminarCapas'),
     siempreActivo: true,
     firmaFiltroExtra: `${q}|${zonas.join(',')}|${barrios.join(',')}|${caiPlan ?? ''}|${capas.length}`,
     filtroExtra: (p, u) => {
@@ -473,8 +617,8 @@ export function PlanCandado2026() {
     },
   });
   const territoriosConocidos = useMemo(
-    () => PLAN_CANDADO_2026.map((p) => estado.ubicaciones[p.id]).filter(Boolean).map((u) => territorio.localizar(u.lat, u.lon)),
-    [territorio, estado.ubicaciones],
+    () => estado.todos.map((p) => estado.ubicaciones[p.id]).filter(Boolean).map((u) => territorio.localizar(u.lat, u.lon)),
+    [territorio, estado.ubicaciones, estado.todos],
   );
   const opcionesZona = useMemo(() => Array.from(new Set(territoriosConocidos.map((t) => t.zona).filter((z): z is string => !!z))).sort((a, b) => a.localeCompare(b, 'es', { numeric: true })), [territoriosConocidos]);
   const opcionesBarrio = useMemo(() => Array.from(new Set(territoriosConocidos.map((t) => t.barrio).filter((z): z is string => !!z))).sort((a, b) => a.localeCompare(b, 'es')), [territoriosConocidos]);
@@ -603,6 +747,36 @@ export function PlanCandado2026() {
     setInforme(null);
   }
 
+  // Punto nuevo
+  const agregando = estado.capturandoNuevo;
+  function iniciarAgregar() {
+    estado.setColocandoId(null);
+    estado.setCoordNuevo(null);
+    estado.setCapturandoNuevo(true);
+    mapaRef.current?.getContainer().scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function cerrarAgregar() { estado.setCapturandoNuevo(false); estado.setCoordNuevo(null); }
+  // CAI sugerido para un punto nuevo: el CAI al que pertenece su zona de
+  // atención según los propios registros del dashboard (el más frecuente).
+  const caiPorZona = useMemo(() => {
+    const clave = (z: string) => { const n = normalizar(z); const num = n.match(/\d+/)?.[0]; const lado = /NORTE/.test(n) ? 'N' : /SUR/.test(n) ? 'S' : ''; return num ? `${num}${lado}` : n; };
+    const conteo = new Map<string, Map<string, number>>();
+    for (const r of records) {
+      if (!r.cuadrante || !r.cai || !/^CAI\s*\d+$/i.test(r.cai.trim())) continue;
+      const k = clave(r.cuadrante);
+      const m = conteo.get(k) ?? new Map<string, number>();
+      const cai = `CAI ${parseInt(r.cai.replace(/\D/g, ''), 10)}`;
+      m.set(cai, (m.get(cai) ?? 0) + 1);
+      conteo.set(k, m);
+    }
+    return (zona: string | null) => {
+      if (!zona) return null;
+      const m = conteo.get(clave(zona));
+      if (!m) return null;
+      return Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    };
+  }, [records]);
+
   const [pestana, setPestana] = useState<'todos' | 'pendientes'>('todos');
   const tablaRef = useRef<HTMLDivElement>(null);
   function revisarPendientes() {
@@ -611,8 +785,10 @@ export function PlanCandado2026() {
   }
 
   // Resúmenes (sobre los puntos de la selección = lo que se ve)
-  const totalGeorref = PLAN_CANDADO_2026.filter((p) => estado.ubicaciones[p.id]).length;
-  const enMatriz = PLAN_CANDADO_2026.filter((p) => p.enMatriz).length;
+  const totalGeorref = estado.todos.filter((p) => estado.ubicaciones[p.id]).length;
+  const enMatriz = estado.todos.filter((p) => p.enMatriz).length;
+  const agregados = estado.todos.filter((p) => p.agregado).length;
+  const soloDocumento = estado.todos.length - enMatriz - agregados;
   const resumenGrupos = useMemo(() => {
     const m = new Map<string, { etiqueta: string; color: string; forma: 'pin' | 'cuadro'; total: number; ubicados: number; orden: number }>();
     for (const p of estado.puntosSeleccion) {
@@ -634,7 +810,7 @@ export function PlanCandado2026() {
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es', { numeric: true }));
   }, [estado.puntosSeleccion]);
 
-  const caisDisponibles = useMemo(() => CAI_PLAN_CANDADO.filter((c) => PLAN_CANDADO_2026.some((p) => p.cai === c.cai && (filters.estacion.length === 0 || estado.estacionesSel.includes(p.estacion)))), [filters.estacion.length, estado.estacionesSel]);
+  const caisDisponibles = useMemo(() => CAI_PLAN_CANDADO.filter((c) => estado.todos.some((p) => p.cai === c.cai && (filters.estacion.length === 0 || estado.estacionesSel.includes(p.estacion)))), [filters.estacion.length, estado.estacionesSel, estado.todos]);
 
   return (
     <div className="space-y-3.5">
@@ -649,6 +825,9 @@ export function PlanCandado2026() {
           {editable && (
             <>
               <input ref={inputArchivo} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void leerArchivo(f); }} />
+              <button type="button" onClick={iniciarAgregar} disabled={agregando} className="flex h-10 items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-60">
+                <Plus size={15} /> Agregar punto
+              </button>
               <button type="button" onClick={() => inputArchivo.current?.click()} title="Excel con No., Responsable Principal, Responsable Secundario, Direccion, Lugar, Latitud y Longitud" className="flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-[#10233f] hover:bg-slate-50">
                 <Upload size={15} /> Importar matriz
               </button>
@@ -739,7 +918,7 @@ export function PlanCandado2026() {
       {/* ── MAPA + PANEL ── */}
       <div className="grid grid-cols-1 items-start gap-3.5 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)]">
         <div className={clsx('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', pantallaCompleta && 'fixed inset-0 z-[9999] rounded-none border-0')}>
-          <div className={clsx('relative', pantallaCompleta ? 'h-[100dvh]' : 'h-[clamp(520px,72vh,720px)]')}>
+          <div className={clsx('relative', pantallaCompleta ? 'h-[100dvh]' : 'h-[clamp(640px,84vh,960px)]')}>
             <MapContainer center={CENTRO_POPAYAN} zoom={13} zoomControl style={{ height: '100%', width: '100%' }}>
               <CapturarMapa onMapa={(m) => { mapaRef.current = m; }} />
               <AjustarTamano clave={String(pantallaCompleta)} />
@@ -777,10 +956,11 @@ export function PlanCandado2026() {
 
         {/* Panel lateral */}
         <aside className="space-y-3">
+          {agregando && <FormPuntoNuevo estado={estado} localizar={territorio.localizar} caiSugerido={caiPorZona} onCerrar={cerrarAgregar} />}
           <div className="grid grid-cols-2 gap-2">
-            <Kpi icono={<FileSpreadsheet size={17} />} tono="bg-[#e3f2ef] text-[#0f5f57]" titulo="Puntos registrados" valor={PLAN_CANDADO_2026.length} nota={`${enMatriz} en la matriz · ${PLAN_CANDADO_2026.length - enMatriz} solo en el documento`} />
+            <Kpi icono={<FileSpreadsheet size={17} />} tono="bg-[#e3f2ef] text-[#0f5f57]" titulo="Puntos registrados" valor={estado.todos.length} nota={[`${enMatriz} en la matriz`, soloDocumento ? `${soloDocumento} solo en el documento` : '', agregados ? `${agregados} agregado(s)` : ''].filter(Boolean).join(' · ')} />
             <Kpi icono={<CheckCircle2 size={17} />} tono="bg-emerald-50 text-emerald-700" titulo="Georreferenciados" valor={totalGeorref} nota="Con coordenadas válidas" />
-            <Kpi icono={<TriangleAlert size={17} />} tono="bg-amber-50 text-amber-600" titulo="Pendientes" valor={PLAN_CANDADO_2026.length - totalGeorref} nota="Sin coordenadas válidas" />
+            <Kpi icono={<TriangleAlert size={17} />} tono="bg-amber-50 text-amber-600" titulo="Pendientes" valor={estado.todos.length - totalGeorref} nota="Sin coordenadas válidas" />
             <Kpi icono={<Eye size={17} />} tono="bg-sky-50 text-sky-700" titulo="Puntos visibles" valor={estado.ubicados.length} nota={`De ${estado.puntosSeleccion.length} en la selección`} />
           </div>
           {estado.pendientes.length > 0 && (
@@ -842,6 +1022,7 @@ export function PlanCandado2026() {
       <div ref={tablaRef}>
         <TablaPuntos estado={estado} editable={editable} puedeExportar={descargasPermitidas} onExportar={exportarTabla} pestana={pestana} setPestana={setPestana} />
       </div>
+      <PuntosRetirados estado={estado} />
 
       {informe && <ModalInforme informe={informe} onCerrar={() => setInforme(null)} onAplicar={() => void aplicarInforme()} aplicando={estado.guardando} />}
     </div>
