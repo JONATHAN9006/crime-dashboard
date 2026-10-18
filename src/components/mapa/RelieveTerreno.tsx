@@ -1,35 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pane, TileLayer } from 'react-leaflet';
+import { Pane, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import clsx from 'clsx';
 import { Mountain, Navigation } from 'lucide-react';
+import { canvasRelieve, ZOOM_MAX_DEM, ATRIBUCION_DEM, type ModoRelieve } from '../../utils/relieveDem';
 
 // ───────────────────────────────────────────────────────────────────────────
 // ALTO RELIEVE para el mapa (Leaflet).
 //
-// Leaflet dibuja mapas en 2D: no tiene terreno 3D con cámara inclinada (eso
-// exigiría cambiar todo el módulo a MapLibre GL / Mapbox GL). La alternativa
-// viable, sin reconstruir nada, es la usada en cartografía topográfica:
-//  · Sombreado del relieve (hillshade) calculado a partir de un modelo de
-//    elevación digital — Esri World Hillshade — superpuesto con mezcla
-//    «multiplicar», para que montañas, valles y cañones se lean en
-//    relieve sobre el mapa base elegido (Mapa, Satélite o Híbrido).
-//  · Con el mapa de calles: base topográfica OpenTopoMap (curvas de nivel,
-//    tintes por altura y sombreado, a partir de SRTM).
-// Es solo la cartografía de fondo: no toca capas, filtros, calor, puntos,
-// ni cálculos; el mapa no se vuelve a crear al activarlo o desactivarlo
-// (mismo centro y zoom).
-//
-// Fuentes (sin clave de API):
-//  · Esri World Hillshade — © Esri, USGS, NGA, NASA, CGIAR, N Robinson,
-//    NCEAS, NLS, OS, NMA, Geodatastyrelsen, Rijkswaterstaat, GSA,
-//    Geoland, FEMA, Intermap y la comunidad GIS.
-//  · OpenTopoMap — datos © OpenStreetMap contributors, SRTM; estilo ©
-//    OpenTopoMap (CC-BY-SA). Uso moderado (servidor comunitario).
+// El relieve se PINTA en el navegador a partir de un modelo de elevación
+// digital (Terrain Tiles / SRTM, ver utils/relieveDem.ts): tintes por altura
+// (verde → amarillo → ocre → café → blanco en los volcanes) + sombreado
+// multidireccional con exageración vertical, como los mapas físicos.
+// Leaflet es 2D: no hay cámara inclinada (eso exigiría rehacer el módulo con
+// MapLibre GL); el volumen se logra con el sombreado.
+// Es solo el fondo: no toca capas, filtros, calor, puntos ni cálculos, y el
+// mapa no se vuelve a crear (mismo centro y zoom).
+//  · Mapa / Híbrido → relieve a color + vías y nombres encima (Esri Reference).
+//  · Satélite      → la imagen satelital con el sombreado del relieve encima.
 // ───────────────────────────────────────────────────────────────────────────
 
-export const URL_SOMBREADO = 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}';
-const URL_TOPO = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
+export type IntensidadRelieve = 'suave' | 'media' | 'fuerte';
+const EXAGERACION: Record<IntensidadRelieve, number> = { suave: 1.4, media: 2.4, fuerte: 4 };
+export interface OpcionesRelieveMapa { intensidad: IntensidadRelieve; vias: boolean }
 
 export function useRelieveGuardado(clave: string) {
   const [activo, setActivo] = useState(() => { try { return localStorage.getItem(clave) === '1'; } catch { return false; } });
@@ -37,60 +30,109 @@ export function useRelieveGuardado(clave: string) {
   return [activo, setActivo] as const;
 }
 
+export function useOpcionesRelieve() {
+  const [op, setOp] = useState<OpcionesRelieveMapa>(() => {
+    try { return { intensidad: 'media', vias: true, ...JSON.parse(localStorage.getItem('mepoy-relieve-opciones') || '{}') }; } catch { return { intensidad: 'media', vias: true }; }
+  });
+  useEffect(() => { try { localStorage.setItem('mepoy-relieve-opciones', JSON.stringify(op)); } catch { /* opcional */ } }, [op]);
+  return [op, setOp] as const;
+}
+
+export function exageracionDe(op: OpcionesRelieveMapa) {
+  return EXAGERACION[op.intensidad];
+}
+
+// Capa de Leaflet que pinta cada tile del relieve desde el DEM.
+const CapaDem = L.GridLayer.extend({
+  createTile(this: L.GridLayer & { options: L.GridLayerOptions & { modo: ModoRelieve; exageracion: number } }, coords: L.Coords, done: L.DoneCallback) {
+    const tile = document.createElement('canvas');
+    tile.width = 256; tile.height = 256;
+    canvasRelieve(coords.z, coords.x, coords.y, { modo: this.options.modo, exageracion: this.options.exageracion })
+      .then((c) => { tile.getContext('2d')!.drawImage(c, 0, 0); done(undefined, tile); })
+      .catch((e) => done(e instanceof Error ? e : new Error(String(e)), tile));
+    return tile;
+  },
+});
+
+function GridDem({ modo, exageracion, pane, zIndex, opacity, onError }: { modo: ModoRelieve; exageracion: number; pane?: string; zIndex: number; opacity: number; onError: () => void }) {
+  const map = useMap();
+  const errorRef = useRef(onError);
+  errorRef.current = onError;
+  useEffect(() => {
+    const capa = new (CapaDem as unknown as new (o: object) => L.GridLayer)({
+      modo, exageracion, pane: pane ?? 'tilePane', zIndex, opacity,
+      maxNativeZoom: ZOOM_MAX_DEM, maxZoom: 20, tileSize: 256, keepBuffer: 2, updateWhenZooming: false,
+      attribution: ATRIBUCION_DEM,
+    });
+    capa.on('tileerror', () => errorRef.current());
+    capa.addTo(map);
+    return () => { capa.remove(); };
+  }, [map, modo, exageracion, pane, zIndex, opacity]);
+  return null;
+}
+
 /** Capas de relieve. Va dentro de <MapContainer>, después del mapa base. */
-export function CapaRelieve({ activo, base, onErrorCarga }: { activo: boolean; base: 'mapa' | 'satelite' | 'hibrido'; onErrorCarga?: (hay: boolean) => void }) {
+export function CapaRelieve({ activo, base, opciones, onErrorCarga }: { activo: boolean; base: 'mapa' | 'satelite' | 'hibrido'; opciones: OpcionesRelieveMapa; onErrorCarga?: (hay: boolean) => void }) {
   const [errores, setErrores] = useState(0);
   useEffect(() => { setErrores(0); }, [activo, base]);
   useEffect(() => { onErrorCarga?.(errores > 6); }, [errores, onErrorCarga]);
   if (!activo) return null;
-  const alError = { tileerror: () => setErrores((n) => n + 1) };
+  const ex = EXAGERACION[opciones.intensidad];
+  const alError = () => setErrores((n) => n + 1);
+  if (base === 'satelite') {
+    return (
+      <Pane name="relieve-sombreado" style={{ zIndex: 250, mixBlendMode: 'multiply', pointerEvents: 'none' }}>
+        <GridDem modo="sombra" exageracion={ex} pane="relieve-sombreado" zIndex={1} opacity={0.85} onError={alError} />
+      </Pane>
+    );
+  }
   return (
     <>
-      {base === 'mapa' && (
-        <TileLayer
-          key="relieve-topo"
-          url={URL_TOPO}
-          subdomains={['a', 'b', 'c']}
-          maxNativeZoom={17}
-          maxZoom={20}
-          attribution='Relieve: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), SRTM'
-          eventHandlers={alError}
-        />
+      <GridDem modo="color" exageracion={ex} zIndex={5} opacity={1} onError={alError} />
+      {opciones.vias && (
+        <>
+          <TileLayer key="relieve-vias" zIndex={6} url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} opacity={0.9} attribution="Vías y nombres © Esri" />
+          <TileLayer key="relieve-lugares" zIndex={7} url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} />
+        </>
       )}
-      {/* Panel propio entre el fondo (200) y las capas temáticas (400): el
-          sombreado oscurece montañas y valles sin tapar polígonos, calor ni puntos. */}
-      <Pane name="relieve-sombreado" style={{ zIndex: 250, mixBlendMode: 'multiply', pointerEvents: 'none' }}>
-        <TileLayer
-          key="relieve-sombreado"
-          url={URL_SOMBREADO}
-          maxNativeZoom={16}
-          maxZoom={20}
-          opacity={base === 'mapa' ? 0.55 : 0.7}
-          attribution="Sombreado del relieve © Esri, USGS, NASA, CGIAR"
-          eventHandlers={alError}
-        />
-      </Pane>
     </>
   );
 }
 
-/** Interruptor «Mapa normal | Alto relieve». */
-export function SelectorRelieve({ activo, onCambiar, compacto = false }: { activo: boolean; onCambiar: (v: boolean) => void; compacto?: boolean }) {
+/** Interruptor «Mapa normal | Alto relieve» y, con el relieve activo, su intensidad y las vías. */
+export function SelectorRelieve({ activo, onCambiar, opciones, onOpciones, compacto = false }: { activo: boolean; onCambiar: (v: boolean) => void; opciones?: OpcionesRelieveMapa; onOpciones?: (o: OpcionesRelieveMapa) => void; compacto?: boolean }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="radiogroup" aria-label="Visualización del terreno">
-      {!compacto && <span className="hidden pl-1.5 pr-0.5 text-[11px] font-semibold text-slate-500 xl:inline">Terreno:</span>}
-      {([[false, 'Mapa normal'], [true, 'Alto relieve']] as const).map(([v, t]) => (
-        <button
-          key={t}
-          type="button"
-          role="radio"
-          aria-checked={activo === v}
-          onClick={() => onCambiar(v)}
-          className={clsx('flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-semibold', activo === v ? (v ? 'bg-[#116762] text-white shadow-sm' : 'bg-[#10233f] text-white shadow-sm') : 'text-slate-600 hover:bg-white')}
-        >
-          {v && <Mountain size={13} />} {t}
-        </button>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="radiogroup" aria-label="Visualización del terreno">
+        {!compacto && <span className="hidden pl-1.5 pr-0.5 text-[11px] font-semibold text-slate-500 xl:inline">Terreno:</span>}
+        {([[false, 'Mapa normal'], [true, 'Alto relieve']] as const).map(([v, t]) => (
+          <button
+            key={t}
+            type="button"
+            role="radio"
+            aria-checked={activo === v}
+            onClick={() => onCambiar(v)}
+            className={clsx('flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-semibold', activo === v ? (v ? 'bg-[#116762] text-white shadow-sm' : 'bg-[#10233f] text-white shadow-sm') : 'text-slate-600 hover:bg-white')}
+          >
+            {v && <Mountain size={13} />} {t}
+          </button>
+        ))}
+      </div>
+      {activo && opciones && onOpciones && <OpcionesRelieveControl opciones={opciones} onOpciones={onOpciones} />}
+    </div>
+  );
+}
+
+export function OpcionesRelieveControl({ opciones, onOpciones }: { opciones: OpcionesRelieveMapa; onOpciones: (o: OpcionesRelieveMapa) => void }) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg border border-[#116762]/30 bg-[#e3f2ef] px-1.5 py-0.5 text-[11.5px] text-[#0f5f57]">
+      <span className="font-semibold">Relieve:</span>
+      {(['suave', 'media', 'fuerte'] as const).map((i) => (
+        <button key={i} type="button" aria-pressed={opciones.intensidad === i} onClick={() => onOpciones({ ...opciones, intensidad: i })} className={clsx('rounded px-1.5 py-0.5 font-semibold capitalize', opciones.intensidad === i ? 'bg-[#116762] text-white' : 'hover:bg-white')}>{i}</button>
       ))}
+      <label className="ml-1 flex cursor-pointer items-center gap-1 font-semibold">
+        <input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opciones.vias} onChange={(e) => onOpciones({ ...opciones, vias: e.target.checked })} /> Vías y nombres
+      </label>
     </div>
   );
 }

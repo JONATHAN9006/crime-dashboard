@@ -1,3 +1,4 @@
+import { canvasRelieve, ZOOM_MAX_DEM, type ModoRelieve } from './relieveDem';
 // Exportador AISLADO del polígono seleccionado (Estación/CAI/Zona de
 // Atención) con su mapa de calor Y las calles reales — construido
 // dibujando directamente sobre un lienzo nuevo. Usa proyección Web
@@ -100,9 +101,8 @@ export interface OpcionesPoligonoAislado {
   // recibidos (descarga general: los que se ven en pantalla). Por defecto
   // solo los que caen dentro del área (descarga de un CAI o zona).
   ampliarParaMarcadores?: 'todos' | 'dentro';
-  // Alto relieve activo en pantalla: sobre las calles se pinta el sombreado
-  // del terreno (Esri World Hillshade) con mezcla «multiplicar».
-  relieve?: boolean;
+  // Alto relieve activo en pantalla: se pinta el mismo relieve (DEM).
+  relieve?: { modo: ModoRelieve; exageracion: number; vias: boolean };
 }
 
 // Núcleo compartido: dibuja el polígono + calles + mapa de calor + etiqueta
@@ -110,7 +110,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve = false, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -276,30 +276,46 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       }
     }
     await Promise.all(tareasTiles);
-    // Alto relieve: sombreado del terreno encima de las calles (máx. nivel 16
-    // del servicio; si se pide más detalle, se estira el nivel 16).
+    // Alto relieve: el mismo relieve de pantalla (pintado desde el DEM).
+    // «color»: tapa las calles con el relieve y, si se pidió, encima vías y
+    // nombres; «sombra» (satélite): solo el sombreado, multiplicado.
     if (relieve) {
-      const zr = Math.min(zoom, 16);
+      const zr = Math.min(zoom, ZOOM_MAX_DEM);
       const er = Math.pow(2, zr);
-      const tareasRelieve: Promise<void>[] = [];
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.globalAlpha = 0.6;
+      const dibujar = (img: CanvasImageSource, tx: number, ty: number) => {
+        const xIzq = ((tx / er - mercLoX) / anchoMerc) * anchoLienzo;
+        const yArriba = ((ty / er - mercLoY) / altoMerc) * alto;
+        ctx.drawImage(img, xIzq, yArriba, ((1 / er) / anchoMerc) * anchoLienzo + 0.5, ((1 / er) / altoMerc) * alto + 0.5);
+      };
+      const tareas: Promise<void>[] = [];
+      const capasRelieve: { tx: number; ty: number; c: HTMLCanvasElement }[] = [];
       for (let tx = Math.floor(mercLoX * er); tx <= Math.floor(mercHiX * er); tx++) {
         for (let ty = Math.floor(mercLoY * er); ty <= Math.floor(mercHiY * er); ty++) {
-          tareasRelieve.push(
-            cargarImagen(`https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/${zr}/${ty}/${tx}`, true)
-              .then((img) => {
-                const xIzq = ((tx / er - mercLoX) / anchoMerc) * anchoLienzo;
-                const yArriba = ((ty / er - mercLoY) / altoMerc) * alto;
-                ctx.drawImage(img, xIzq, yArriba, ((1 / er) / anchoMerc) * anchoLienzo + 0.5, ((1 / er) / altoMerc) * alto + 0.5);
-              })
-              .catch(() => { /* sin sombreado en ese pedazo */ }),
-          );
+          tareas.push(canvasRelieve(zr, tx, ty, { modo: relieve.modo, exageracion: relieve.exageracion }).then((c) => { capasRelieve.push({ tx, ty, c }); }).catch(() => { /* sin relieve en ese pedazo */ }));
         }
       }
-      await Promise.all(tareasRelieve);
+      await Promise.all(tareas);
+      if (relieve.modo === 'sombra') { ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.85; }
+      for (const { tx, ty, c } of capasRelieve) dibujar(c, tx, ty);
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
+      if (relieve.modo === 'color' && relieve.vias) {
+        const zv = zoom;
+        const ev = Math.pow(2, zv);
+        const refs: Promise<void>[] = [];
+        for (const servicio of ['World_Transportation', 'World_Boundaries_and_Places']) {
+          for (let tx = Math.floor(mercLoX * ev); tx <= Math.floor(mercHiX * ev); tx++) {
+            for (let ty = Math.floor(mercLoY * ev); ty <= Math.floor(mercHiY * ev); ty++) {
+              refs.push(cargarImagen(`https://server.arcgisonline.com/ArcGIS/rest/services/Reference/${servicio}/MapServer/tile/${zv}/${ty}/${tx}`, true).then((img) => {
+                const xIzq = ((tx / ev - mercLoX) / anchoMerc) * anchoLienzo;
+                const yArriba = ((ty / ev - mercLoY) / altoMerc) * alto;
+                ctx.drawImage(img, xIzq, yArriba, ((1 / ev) / anchoMerc) * anchoLienzo + 0.5, ((1 / ev) / altoMerc) * alto + 0.5);
+              }).catch(() => { /* sin vías en ese pedazo */ }));
+            }
+          }
+          await Promise.all(refs.splice(0));
+        }
+      }
     }
   } finally {
     ctx.restore();

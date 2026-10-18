@@ -46,7 +46,7 @@ import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/c
 import { aplicarFiltros } from '../utils/filters';
 import { esSoloConsulta, tieneAcceso, puedeDescargar } from '../utils/permisos';
 import { usePlanCandado, CapaLeafletPlanCandado, ControlesPlanCandado, PanelPlanCandado, marcadoresParaExportar } from '../components/mapa/PlanCandado';
-import { CapaRelieve, SelectorRelieve, IrATerritorio, useRelieveGuardado } from '../components/mapa/RelieveTerreno';
+import { CapaRelieve, SelectorRelieve, IrATerritorio, useRelieveGuardado, useOpcionesRelieve, exageracionDe } from '../components/mapa/RelieveTerreno';
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -772,6 +772,7 @@ export function MapaGeorreferenciacion() {
   // Alto relieve: solo cambia la cartografía de fondo (ver RelieveTerreno.tsx).
   const [altoRelieve, setAltoRelieve] = useRelieveGuardado('mepoy-mapa-alto-relieve');
   const [errorRelieve, setErrorRelieve] = useState(false);
+  const [opcionesRelieve, setOpcionesRelieve] = useOpcionesRelieve();
   // Abierto de entrada solo en pantallas anchas (≥1536 px), donde va al lado del mapa.
   const [configAbierta, setConfigAbierta] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1536);
   const [leyendaAbierta, setLeyendaAbierta] = useState(true);
@@ -1863,7 +1864,7 @@ export function MapaGeorreferenciacion() {
       flechas: opcionesDescarga.rotulos ? o.flechas : [],
       etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
       gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
-      relieve: altoRelieve,
+      relieve: altoRelieve ? { exageracion: exageracionDe(opcionesRelieve), vias: opcionesRelieve.vias, modo: tipoMapa === 'satelite' ? 'sombra' as const : 'color' as const } : undefined,
       // Puntos del Plan Candado ubicados (si la capa está activa), como en pantalla.
       marcadores: vista ? marcadores.filter((m) => vista.contains([m.lat, m.lon])) : marcadores,
       escalaPantalla: escalaPantallaMapa(),
@@ -2681,7 +2682,7 @@ export function MapaGeorreferenciacion() {
                         </button>
                       ))}
                     </div>
-                    <SelectorRelieve activo={altoRelieve} onCambiar={setAltoRelieve} />
+                    <SelectorRelieve activo={altoRelieve} onCambiar={setAltoRelieve} opciones={opcionesRelieve} onOpciones={setOpcionesRelieve} />
                     <IrATerritorio capas={capas} obtenerMapa={() => mapaRef.current} />
                     {altoRelieve && errorRelieve && <span className="text-[11px] font-semibold text-amber-700" role="status">El relieve no carga (sin conexión al servicio de mapas)</span>}
                     <button
@@ -2895,7 +2896,7 @@ export function MapaGeorreferenciacion() {
                 <TileLayer key="hib-lugares" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} />
               </>
             )}
-            <CapaRelieve activo={altoRelieve} base={tipoMapa} onErrorCarga={setErrorRelieve} />
+            <CapaRelieve activo={altoRelieve} base={tipoMapa} opciones={opcionesRelieve} onErrorCarga={setErrorRelieve} />
             {capas.filter((c) => c.visible).map((capa) => {
               const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
               const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
