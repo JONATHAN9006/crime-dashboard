@@ -7,7 +7,7 @@ import {
   AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
   Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
   SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
-  Scale, Sparkles, ChartColumn, Landmark, Lock,
+  Scale, Sparkles, ChartColumn, Landmark,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card } from '../components/ui/Card';
@@ -45,7 +45,7 @@ import { agruparPor, formatNumero } from '../utils/aggregations';
 import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
 import { aplicarFiltros } from '../utils/filters';
 import { esSoloConsulta, tieneAcceso, puedeDescargar } from '../utils/permisos';
-import { usePlanCandado, CapaLeafletPlanCandado, ControlesPlanCandado, PanelPlanCandado, marcadoresParaExportar, filasLeyendaPlanCandado } from '../components/mapa/PlanCandado';
+import { usePlanCandado, marcadoresParaExportar, filasLeyendaPlanCandado } from '../components/mapa/PlanCandado';
 import { CapaRelieve, IrATerritorio, useRelieveGuardado, useOpcionesRelieve, exageracionDe, SelectorEstiloMapa, OpcionesRelieveControl } from '../components/mapa/RelieveTerreno';
 import type { Datos3D, Modo3D } from '../components/mapa/Mapa3D';
 import { calcularKernelDensidad } from '../utils/kernelDensity';
@@ -1027,6 +1027,9 @@ export function MapaGeorreferenciacion() {
     editable: !soloLectura && tieneAcceso('actualizarInformacion'),
     puedeEliminar: puedeEliminarCapas,
   });
+  // El Plan Candado se maneja en su propio módulo (menú lateral «Plan Candado
+  // 2026»); aquí ya no se muestra, así que la capa queda siempre apagada.
+  useEffect(() => { if (planCandado.activo) planCandado.setActivo(false); }, [planCandado.activo]); // eslint-disable-line react-hooks/exhaustive-deps
   const [capas, setCapas] = useState<CapaGeografica[]>([]);
 
   // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
@@ -2520,10 +2523,6 @@ export function MapaGeorreferenciacion() {
             </div>
           </SeccionPanelOscuro>
 
-          <SeccionPanelOscuro titulo="Plan Candado 2026" icono={<Lock size={15} />}>
-            <ControlesPlanCandado estado={planCandado} />
-          </SeccionPanelOscuro>
-
           <SeccionPanelOscuro titulo="Área geográfica" icono={<LocateFixed size={15} />}>
             <IrACoordenadas oscuro onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
             <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">Ubica una coordenada en el mapa: muestra su estación, CAI, cuadrante y barrio.</p>
@@ -3297,7 +3296,6 @@ export function MapaGeorreferenciacion() {
               setColoresCategoria={capaArchivoGeorreferenciado.setColoresCategoria}
               setCategoriasOcultas={capaArchivoGeorreferenciado.setCategoriasOcultas}
             />
-            <CapaLeafletPlanCandado estado={planCandado} />
           </MapContainer>
 
                   {/* Leyenda del mapa: intensidad de Delitos y límites geográficos */}
@@ -3466,11 +3464,6 @@ export function MapaGeorreferenciacion() {
           )}
                 </div>
               </div>
-
-              {/* ── PLAN CANDADO 2026 (debajo del mapa) ── */}
-              {(planCandado.activo || planCandado.colocandoId) && (
-                <PanelPlanCandado estado={planCandado} puedeDescargar={puedeDescargar()} />
-              )}
 
               {/* Herramientas que ya tenía el mapa: Pronóstico IA y capa temporal georreferenciada */}
               <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.04)]">
