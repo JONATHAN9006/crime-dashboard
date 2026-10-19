@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Home, Building2, CalendarDays, Flame, Map, X, Table2, Database, ChevronsLeft, ChevronsRight,
-  Activity, Package, Eye, Target, Scale, Shield, Network, LineChart, UserCheck, LogOut, Lock,
+  Eye, Target, Scale, Shield, Network, UserCheck, LogOut, Lock,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
@@ -50,7 +50,6 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloA
       { id: 'matrizCalor', label: 'Matriz de Calor', icon: Flame },
       { id: 'mapa', label: 'Mapa / Georreferenciación', icon: Map },
       { id: 'planCandado', label: 'Plan Candado 2026', icon: Lock },
-      { id: 'tasaCosec', label: 'Indicadores Tasa Cosec', icon: Activity },
     ],
   },
   {
@@ -58,10 +57,8 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloA
     titulo: 'Análisis adicionales',
     soloCompleto: true,
     items: [
-      { id: 'comparativo', label: 'Comparativo Anual', icon: LineChart },
       { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
       { id: 'calidad', label: 'Calidad de Datos', icon: Database },
-      { id: 'productos', label: 'Productos Esperados', icon: Package },
     ],
   },
   {
@@ -273,7 +270,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <div className="flex flex-col gap-0.5">
-                {grupo.items.map((item) => (
+                {grupo.items.filter((item) => !(item.id === 'planCandado' && obtenerModoAcceso())).map((item) => (
                   <ItemBoton
                     key={item.id}
                     item={item}
@@ -311,7 +308,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.18 · v182" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.19 · v183" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -327,7 +324,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.18 · v182</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.19 · v183</p>
             </div>
           )}
         </div>

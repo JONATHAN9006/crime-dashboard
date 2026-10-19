@@ -95,7 +95,7 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     descargas: true,
     actualizarInformacion: true,
     accesosCai: true,
-    planCandado: true,
+    planCandado: false,
     // Sin la «X» de las capas (para no borrar capas compartidas por error).
     eliminarCapas: false,
   },
