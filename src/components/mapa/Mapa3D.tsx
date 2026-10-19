@@ -187,7 +187,7 @@ export default function Mapa3D({ modo, setModo, datos, centro, zoom, onSalir, pu
   const [panelConfig, setPanelConfig] = useState(false);
   const [panelCamara, setPanelCamara] = useState(() => typeof window === 'undefined' || window.innerHeight >= 860);
   const [descargando, setDescargando] = useState(false);
-  const [opDescarga, setOpDescarga] = useState<{ ancho: 0 | 1920 | 3840; transparente: boolean; leyenda: boolean }>({ ancho: 1920, transparente: true, leyenda: true });
+  const [opDescarga, setOpDescarga] = useState<{ ancho: 0 | 1920 | 3840; transparente: boolean; leyenda: boolean }>({ ancho: 1920, transparente: true, leyenda: false });
   useEffect(() => { try { localStorage.setItem(CLAVE_CONFIG, JSON.stringify(config)); } catch { /* opcional */ } }, [config]);
   const cfg = (c: Partial<Config3D>) => setConfig((p) => ({ ...p, ...c }));
 
@@ -338,14 +338,18 @@ export default function Mapa3D({ modo, setModo, datos, centro, zoom, onSalir, pu
     if (!mapa || !puedeDescargar) return;
     setDescargando(true);
     const ratioOriginal = mapa.getPixelRatio();
-    const transparente = opDescarga.transparente && config.aislar;
+    // Con «Aislar jurisdicción», lo de afuera se pinta con un color llave para
+    // poder RECORTAR la imagen justo a los municipios (y dejarla transparente
+    // si se pide). Sin aislar, sale la vista completa.
+    const usarLlave = config.aislar;
+    const transparente = opDescarga.transparente && usarLlave;
     try {
       const css = mapa.getCanvas().clientWidth;
       const glCtx = (mapa.getCanvas().getContext('webgl2') ?? mapa.getCanvas().getContext('webgl')) as WebGLRenderingContext | null;
       const maxTex = glCtx ? (glCtx.getParameter(glCtx.MAX_RENDERBUFFER_SIZE) as number) : undefined;
       let ratio = opDescarga.ancho ? opDescarga.ancho / css : ratioOriginal;
       if (maxTex) ratio = Math.min(ratio, maxTex / Math.max(css, mapa.getCanvas().clientHeight));
-      if (transparente) {
+      if (usarLlave) {
         // Color llave en lo que se volverá transparente (fondo, cielo y máscara).
         mapa.setPaintProperty('fondo', 'background-color', COLOR_LLAVE);
         if (mapa.getLayer('mascara')) mapa.setPaintProperty('mascara', 'fill-color', COLOR_LLAVE);
@@ -358,7 +362,7 @@ export default function Mapa3D({ modo, setModo, datos, centro, zoom, onSalir, pu
       c.width = gl.width; c.height = gl.height;
       const ctx = c.getContext('2d', { willReadFrequently: true })!;
       ctx.drawImage(gl, 0, 0);
-      if (transparente) {
+      if (usarLlave) {
         const img = ctx.getImageData(0, 0, c.width, c.height);
         const d = img.data;
         for (let i = 0; i < d.length; i += 4) {
@@ -423,16 +427,37 @@ export default function Mapa3D({ modo, setModo, datos, centro, zoom, onSalir, pu
         ctx.font = '500 9.5px system-ui'; ctx.fillStyle = transparente ? '#334155' : '#e2e8f0';
         ctx.fillText(`${FUENTE_MUNICIPIOS} · Elevación: Terrain Tiles (SRTM)`, 16, c.height / k - 10);
       }
+      // Recorte justo a lo dibujado (municipios, paredes y nombres), con un
+      // margen pequeño; sin aislar, se deja la vista completa.
+      let salida = c;
+      if (usarLlave) {
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+        for (let y = 0; y < c.height; y++) {
+          for (let x = 0; x < c.width; x++) {
+            if (d[(y * c.width + x) * 4 + 3] > 16) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+          }
+        }
+        if (x1 >= x0 && y1 >= y0) {
+          const m = Math.round(Math.max(c.width, c.height) * 0.015);
+          x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(c.width - 1, x1 + m); y1 = Math.min(c.height - 1, y1 + m);
+          salida = document.createElement('canvas');
+          salida.width = x1 - x0 + 1; salida.height = y1 - y0 + 1;
+          const sc = salida.getContext('2d')!;
+          if (!transparente) { sc.fillStyle = COLOR_FONDO_AISLADO; sc.fillRect(0, 0, salida.width, salida.height); }
+          sc.drawImage(c, x0, y0, salida.width, salida.height, 0, 0, salida.width, salida.height);
+        }
+      }
       const a = document.createElement('a');
-      a.download = `mapa-3d-mepoy-${c.width}x${c.height}${transparente ? '-transparente' : ''}.png`;
-      a.href = c.toDataURL('image/png');
+      a.download = `mapa-3d-mepoy-${salida.width}x${salida.height}${transparente ? '-transparente' : ''}.png`;
+      a.href = salida.toDataURL('image/png');
       a.click();
     } catch (e) {
       console.error('[Mapa 3D] No se pudo descargar:', e);
       setErrorCarga('No fue posible generar la imagen 3D (alguna fuente del mapa no permite exportar).');
     } finally {
       mapa.setPixelRatio(ratioOriginal);
-      if (transparente) {
+      if (usarLlave) {
         mapa.setPaintProperty('fondo', 'background-color', COLOR_FONDO_AISLADO);
         if (mapa.getLayer('mascara')) mapa.setPaintProperty('mascara', 'fill-color', COLOR_FONDO_AISLADO);
         mapa.setSky({ 'sky-color': COLOR_FONDO_AISLADO, 'horizon-color': COLOR_FONDO_AISLADO, 'fog-color': COLOR_FONDO_AISLADO, 'sky-horizon-blend': 0, 'horizon-fog-blend': 0, 'fog-ground-blend': 1, 'atmosphere-blend': 0 } as never);
@@ -499,7 +524,8 @@ export default function Mapa3D({ modo, setModo, datos, centro, zoom, onSalir, pu
                     ))}
                   </div>
                   <label className="mt-1 flex items-center gap-1.5"><input type="checkbox" className="accent-[#116762]" checked={opDescarga.transparente} disabled={!config.aislar} onChange={(e) => setOpDescarga((o) => ({ ...o, transparente: e.target.checked }))} /> Fondo transparente {config.aislar ? '' : '(requiere «Aislar jurisdicción»)'}</label>
-                  <label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[#116762]" checked={opDescarga.leyenda} onChange={(e) => setOpDescarga((o) => ({ ...o, leyenda: e.target.checked }))} /> Incluir leyenda</label>
+                  <p className="text-[10.5px] text-slate-400">{config.aislar ? 'La imagen se recorta justo a los municipios.' : 'Sin aislar sale la vista completa.'}</p>
+                  <label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[#116762]" checked={opDescarga.leyenda} onChange={(e) => setOpDescarga((o) => ({ ...o, leyenda: e.target.checked }))} /> Incluir leyenda y créditos</label>
                 </>
               )}
             </div>
