@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ChevronDown, Info } from 'lucide-react';
 import clsx from 'clsx';
 import { formatNumero } from '../../utils/aggregations';
+import { VariacionCasos } from '../charts/RankingAporte';
 
 // Piezas visuales del módulo Mapa / Georreferenciación. Solo presentan lo
 // que la página ya calculó (no filtran ni cuentan nada por su cuenta).
@@ -12,6 +13,8 @@ export interface FilaTerritorial {
   key: string;
   casos: number;
   aportePct: number;
+  /** Casos por año (cuando el análisis abarca dos o más años). */
+  porAnio?: Record<number, number>;
 }
 
 const fmtPct = (v: number) => `${v.toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
@@ -62,16 +65,32 @@ export function recortarTop<T>(filas: T[], top: ValorTopMapa): T[] {
 }
 
 /** Lista de barras: nombre | barra | casos | (aporte %). El máximo va resaltado. */
-export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], textoVacio = 'Sin registros con los filtros actuales.' }: {
+export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], textoVacio = 'Sin registros con los filtros actuales.', anios = [] }: {
   filas: FilaTerritorial[];
+  /** Con dos o más años: casos de cada año + variación (sin aporte %). */
+  anios?: number[];
   onFila?: (key: string) => void;
   seleccionados?: string[];
   textoVacio?: string;
 }) {
   if (filas.length === 0) return <p className="py-6 text-center text-xs text-slate-400">{textoVacio}</p>;
   const max = Math.max(...filas.map((f) => f.casos), 1);
+  const porAnios = anios.length >= 2 && filas.some((f) => f.porAnio);
+  const ultimo = anios[anios.length - 1];
+  const penultimo = anios[anios.length - 2];
+  const columnas = porAnios
+    ? { gridTemplateColumns: `minmax(0,34%) minmax(0,1fr) ${anios.map(() => '38px').join(' ')} 54px` }
+    : undefined;
   return (
     <ul className="space-y-[5px]">
+      {porAnios && (
+        <li className="grid w-full items-center gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400" style={columnas}>
+          <span />
+          <span />
+          {anios.map((a) => <span key={a} className="text-right">{a}</span>)}
+          <span className="text-right" title={`Variación ${penultimo} → ${ultimo}`}>Var.</span>
+        </li>
+      )}
       {filas.map((f, i) => {
         const esMax = i === 0 && f.casos === max;
         const marcado = seleccionados.includes(f.key);
@@ -87,19 +106,30 @@ export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], text
                 }}
               />
             </span>
-            <span className="text-right text-[12.5px] font-bold tabular-nums text-[#10233f]">{formatNumero(f.casos)}</span>
-            <span className="text-right text-[11.5px] tabular-nums text-slate-500">({fmtPct(f.aportePct)})</span>
+            {porAnios ? (
+              <>
+                {anios.map((a) => (
+                  <span key={a} className={clsx('text-right text-[12.5px] tabular-nums', a === ultimo ? 'font-bold text-[#10233f]' : 'font-semibold text-slate-500')}>{formatNumero(f.porAnio?.[a] ?? 0)}</span>
+                ))}
+                <span className="text-right text-[12px]"><VariacionCasos actual={f.porAnio?.[ultimo] ?? 0} anterior={f.porAnio?.[penultimo] ?? 0} /></span>
+              </>
+            ) : (
+              <>
+                <span className="text-right text-[12.5px] font-bold tabular-nums text-[#10233f]">{formatNumero(f.casos)}</span>
+                <span className="text-right text-[11.5px] tabular-nums text-slate-500">({fmtPct(f.aportePct)})</span>
+              </>
+            )}
           </>
         );
-        const clases = 'grid w-full items-center gap-2 [grid-template-columns:minmax(0,38%)_minmax(0,1fr)_42px_50px]';
+        const clases = porAnios ? 'grid w-full items-center gap-2' : 'grid w-full items-center gap-2 [grid-template-columns:minmax(0,38%)_minmax(0,1fr)_42px_50px]';
         return (
           <li key={f.key}>
             {onFila ? (
-              <button type="button" onClick={() => onFila(f.key)} title={marcado ? `Quitar "${f.key}" del filtro` : `Filtrar por "${f.key}"`} className={clsx(clases, 'rounded px-0.5 hover:bg-slate-50')}>
+              <button type="button" onClick={() => onFila(f.key)} title={marcado ? `Quitar "${f.key}" del filtro` : `Filtrar por "${f.key}"`} className={clsx(clases, 'rounded px-0.5 hover:bg-slate-50')} style={columnas}>
                 {contenido}
               </button>
             ) : (
-              <div className={clsx(clases, 'px-0.5')}>{contenido}</div>
+              <div className={clsx(clases, 'px-0.5')} style={columnas}>{contenido}</div>
             )}
           </li>
         );
@@ -109,7 +139,8 @@ export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], text
 }
 
 /** Tarjeta del análisis territorial inferior (Comunas, Barrios, Delitos, CAI, Zonas, Cuadrantes). */
-export function TarjetaTerritorial({ titulo, icono, filas, topInicial = 10, nota, onFila, seleccionados, textoVacio }: {
+export function TarjetaTerritorial({ titulo, icono, filas, topInicial = 10, nota, onFila, seleccionados, textoVacio, anios }: {
+  anios?: number[];
   titulo: string;
   icono: ReactNode;
   filas: FilaTerritorial[];
@@ -132,7 +163,7 @@ export function TarjetaTerritorial({ titulo, icono, filas, topInicial = 10, nota
         <SelectorTopMapa valor={top} onChange={setTop} />
       </header>
       <div className={clsx(top === 'todas' && 'max-h-[300px] overflow-y-auto pr-1')}>
-        <ListaBarrasTerritorial filas={visibles} onFila={onFila} seleccionados={seleccionados} textoVacio={textoVacio} />
+        <ListaBarrasTerritorial filas={visibles} onFila={onFila} seleccionados={seleccionados} textoVacio={textoVacio} anios={anios} />
       </div>
       {nota && (
         <p className="mt-auto flex items-start gap-1 pt-2 text-[10.5px] leading-snug text-slate-400">

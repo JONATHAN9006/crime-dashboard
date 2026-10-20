@@ -47,6 +47,7 @@ import { aplicarFiltros } from '../utils/filters';
 import { esSoloConsulta, tieneAcceso, puedeDescargar } from '../utils/permisos';
 import { usePlanCandado, marcadoresParaExportar, filasLeyendaPlanCandado } from '../components/mapa/PlanCandado';
 import { IrATerritorio } from '../components/mapa/RelieveTerreno';
+import { agregarCasosPorAnio, aniosDePeriodos } from '../utils/casosPorAnio';
 import { calcularKernelDensidad } from '../utils/kernelDensity';
 // La vista 3D (MapLibre GL) solo se descarga cuando alguien la abre.
 
@@ -2203,26 +2204,34 @@ export function MapaGeorreferenciacion() {
   // que la lista no se reduzca al elegir uno y se puedan ir SUMANDO barrios
   // a la selección (los elegidos quedan marcados). Mismos registros que las
   // flechas de barrios más afectados.
+  // Dos o más años en el análisis (multifecha con periodos de años
+  // distintos, o el filtro Año con varios años): las tarjetas muestran los
+  // casos de cada año y la variación en vez del aporte %.
+  const aniosTarjetas = useMemo(() => {
+    if (periodos.length > 0) return aniosDePeriodos(periodos);
+    return filtrosPrincipales.anio.length >= 2 ? [...filtrosPrincipales.anio].map(Number).sort((a, b) => a - b) : [];
+  }, [periodos, filtrosPrincipales.anio]);
   const rankingBarrios = useMemo(() => {
     const total = registrosSinFiltroBarrio.length;
-    return agruparPor(registrosSinFiltroBarrio, (r) => r.barrioHecho)
+    const filas = agruparPor(registrosSinFiltroBarrio, (r) => r.barrioHecho)
       .filter((f) => esBarrioReal(f.key))
       .map((f) => ({ key: f.key, casos: f.casos, aportePct: total > 0 ? (f.casos / total) * 100 : 0 }));
-  }, [registrosSinFiltroBarrio]);
+    return agregarCasosPorAnio(filas, registrosSinFiltroBarrio, (r) => r.barrioHecho, aniosTarjetas);
+  }, [registrosSinFiltroBarrio, aniosTarjetas]);
   const rankingDelitos = useMemo(
-    () => conAporte(agruparPor(filteredRecords, (r) => r.delito).filter((f) => esValorReal(f.key))),
+    () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => r.delito).filter((f) => esValorReal(f.key))), filteredRecords, (r) => r.delito, aniosTarjetas),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredRecords],
+    [filteredRecords, aniosTarjetas],
   );
   const rankingCai = useMemo(
-    () => conAporte(agruparPor(filteredRecords, (r) => (esValorReal(r.cai) ? formatoCaiCanonico(r.cai) : '')).filter((f) => /^CAI\s+\S/i.test(f.key))),
+    () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => (esValorReal(r.cai) ? formatoCaiCanonico(r.cai) : '')).filter((f) => /^CAI\s+\S/i.test(f.key))), filteredRecords, (r) => (esValorReal(r.cai) ? formatoCaiCanonico(r.cai) : ''), aniosTarjetas),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredRecords],
+    [filteredRecords, aniosTarjetas],
   );
   const rankingZonas = useMemo(
-    () => conAporte(agruparPor(filteredRecords, (r) => r.cuadrante).filter((f) => esValorReal(f.key))),
+    () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => r.cuadrante).filter((f) => esValorReal(f.key))), filteredRecords, (r) => r.cuadrante, aniosTarjetas),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredRecords],
+    [filteredRecords, aniosTarjetas],
   );
 
   // Comunas y cuadrantes no vienen como columna en la base de Delictividad
@@ -2250,36 +2259,45 @@ export function MapaGeorreferenciacion() {
     }).filter((g) => g.nombre && isFinite(g.minX));
     if (features.length === 0) return null;
     const conteo = new Map<string, number>();
+    const porAnio = new Map<string, Record<number, number>>();
     let conCoordenada = 0;
     for (const r of filteredRecords) {
       if (r.lat == null || r.lon == null || !esCoordenadaValida(r.lat, r.lon)) continue;
       conCoordenada++;
       const g = features.find((x) => r.lon! >= x.minX && r.lon! <= x.maxX && r.lat! >= x.minY && r.lat! <= x.maxY && puntoEnFeatureGeoJSON(r.lon!, r.lat!, x.f));
-      if (g) conteo.set(g.nombre, (conteo.get(g.nombre) ?? 0) + 1);
+      if (g) {
+        conteo.set(g.nombre, (conteo.get(g.nombre) ?? 0) + 1);
+        if (r.anio != null) { const m = porAnio.get(g.nombre) ?? {}; m[r.anio] = (m[r.anio] ?? 0) + 1; porAnio.set(g.nombre, m); }
+      }
     }
     const filas = Array.from(conteo.entries()).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos);
-    return { capa: capa.nombre, conCoordenada, filas };
+    return { capa: capa.nombre, conCoordenada, filas, porAnio };
   };
   const rankingComunas = useMemo(() => {
     const espacial = conteoEspacialPorCapa(/comuna/i, /COMUNA|NOMBRE|NOM_|^NOM|NUM/i);
     if (espacial && espacial.filas.length > 0) {
-      return { filas: conAporte(espacial.filas), nota: `Por ubicación del hecho en la capa "${espacial.capa}" (${formatNumero(espacial.conCoordenada)} de ${formatNumero(totalFiltrado)} registros con coordenadas).` };
+      const conAnios = aniosTarjetas.length >= 2
+        ? conAporte(espacial.filas).map((f) => ({ ...f, porAnio: Object.fromEntries(aniosTarjetas.map((a) => [a, espacial.porAnio.get(f.key)?.[a] ?? 0])) as Record<number, number> }))
+        : conAporte(espacial.filas);
+      return { filas: conAnios, nota: `Por ubicación del hecho en la capa "${espacial.capa}" (${formatNumero(espacial.conCoordenada)} de ${formatNumero(totalFiltrado)} registros con coordenadas).` };
     }
     const porCai = agruparPor(filteredRecords, (r) => {
       const m = formatoCaiCanonico(r.cai ?? '').match(/^CAI (\d+)$/);
       return m ? `Comuna ${m[1]}` : '';
     }).filter((f) => f.key.startsWith('Comuna '));
-    return { filas: conAporte(porCai), nota: 'Comuna N ↔ CAI N (misma equivalencia de MACRI). Carga la capa de comunas para calcularlo por ubicación.' };
+    const comunaDe = (r: CrimeRecord) => { const m = formatoCaiCanonico(r.cai ?? '').match(/^CAI (\d+)$/); return m ? `Comuna ${m[1]}` : ''; };
+    return { filas: agregarCasosPorAnio(conAporte(porCai), filteredRecords, comunaDe, aniosTarjetas), nota: 'Comuna N ↔ CAI N (misma equivalencia de MACRI). Carga la capa de comunas para calcularlo por ubicación.' };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredRecords, capas, camposUnionAutoDetectados]);
+  }, [filteredRecords, capas, camposUnionAutoDetectados, aniosTarjetas]);
   // Horas más afectadas: mismos registros filtrados que el mapa (r.hora).
   const etiquetaHoraMapa = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
   const rankingHoras = useMemo(() => {
     const conteo = new Map<number, number>();
     for (const r of filteredRecords) if (r.hora !== null && r.hora !== undefined) conteo.set(r.hora, (conteo.get(r.hora) ?? 0) + 1);
-    return conAporte(Array.from(conteo.entries()).sort((x, y) => y[1] - x[1] || x[0] - y[0]).map(([h, casos]) => ({ key: etiquetaHoraMapa(String(h)), casos })));
+    const filas = conAporte(Array.from(conteo.entries()).sort((x, y) => y[1] - x[1] || x[0] - y[0]).map(([h, casos]) => ({ key: etiquetaHoraMapa(String(h)), casos })));
+    return agregarCasosPorAnio(filas, filteredRecords, (r) => (r.hora != null ? etiquetaHoraMapa(String(r.hora)) : ''), aniosTarjetas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredRecords]);
+  }, [filteredRecords, aniosTarjetas]);
   // Clic en una hora = filtrar por esa hora en el filtro principal; otro clic la quita.
   const alternarHora = (hora: string) => setFilters((prev: FilterState) => ({
     ...prev,
@@ -3408,14 +3426,15 @@ export function MapaGeorreferenciacion() {
                   <span className="text-[12px] text-slate-500">Responde a los filtros activos · clic en una fila para sumarla o quitarla del filtro</span>
                 </div>
                 <div className="grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[1000px]:grid-cols-3">
-                  <TarjetaTerritorial titulo="Delitos por comuna" icono={<Landmark size={15} />} filas={rankingComunas.filas} topInicial={10} nota={rankingComunas.nota} />
-                  <TarjetaTerritorial titulo="Barrios afectados" icono={<Home size={15} />} filas={rankingBarrios} topInicial={10} onFila={(k) => alternarValorFiltro('barrioHecho', k)} seleccionados={filtrosMapa.barrioHecho} />
-                  <TarjetaTerritorial titulo="Tipos de delito" icono={<ShieldAlert size={15} />} filas={rankingDelitos} topInicial={5} onFila={(k) => alternarValorFiltro('delito', k)} seleccionados={filtrosMapa.delito} />
-                  <TarjetaTerritorial titulo="CAI más afectados" icono={<Shield size={15} />} filas={rankingCai} topInicial={10} onFila={(k) => alternarValorFiltro('cai', k)} seleccionados={filtrosMapa.cai} />
-                  <TarjetaTerritorial titulo="Zonas de atención" icono={<MapPin size={15} />} filas={rankingZonas} topInicial={10} onFila={(k) => alternarValorFiltro('cuadrante', k)} seleccionados={filtrosMapa.cuadrante} />
+                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Delitos por comuna" icono={<Landmark size={15} />} filas={rankingComunas.filas} topInicial={10} nota={rankingComunas.nota} />
+                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Barrios afectados" icono={<Home size={15} />} filas={rankingBarrios} topInicial={10} onFila={(k) => alternarValorFiltro('barrioHecho', k)} seleccionados={filtrosMapa.barrioHecho} />
+                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Tipos de delito" icono={<ShieldAlert size={15} />} filas={rankingDelitos} topInicial={5} onFila={(k) => alternarValorFiltro('delito', k)} seleccionados={filtrosMapa.delito} />
+                  <TarjetaTerritorial anios={aniosTarjetas} titulo="CAI más afectados" icono={<Shield size={15} />} filas={rankingCai} topInicial={10} onFila={(k) => alternarValorFiltro('cai', k)} seleccionados={filtrosMapa.cai} />
+                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Zonas de atención" icono={<MapPin size={15} />} filas={rankingZonas} topInicial={10} onFila={(k) => alternarValorFiltro('cuadrante', k)} seleccionados={filtrosMapa.cuadrante} />
                   {/* "Cuadrantes" se reemplazó por "Horas más afectadas" (a pedido). */}
                   <TarjetaTerritorial
                     titulo="Horas más afectadas"
+                    anios={aniosTarjetas}
                     icono={<Clock size={15} />}
                     filas={rankingHoras}
                     topInicial={5}

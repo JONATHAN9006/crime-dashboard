@@ -6,6 +6,7 @@ import { KpiCard } from '../components/ui/KpiCard';
 import { formatNumero } from '../utils/aggregations';
 import { IndicadorMultifecha } from '../components/filters/SelectorMultifecha';
 import { RankingAporte } from '../components/charts/RankingAporte';
+import { agregarCasosPorAnio } from '../utils/casosPorAnio';
 import { BarChart3, Building2, Clock, Crosshair, Home, Hourglass, MapPin, MapPinned, Plus, Store, Timer } from 'lucide-react';
 import type { FilterState } from '../types/crime';
 import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
@@ -149,7 +150,7 @@ export function ComparativoMultifecha() {
     etiqueta?: (k: string) => string; valorFiltro?: (k: string) => string;
   }) {
     const limite = topDe(id, defecto);
-    const filas = rankingDe(getter, limite).map((f) => ({ ...f, key: etiqueta ? etiqueta(f.key) : f.key }));
+    const filas = agregarCasosPorAnio(rankingDe(getter, limite), unionPeriodos, getter, aniosPeriodos).map((f) => ({ ...f, key: etiqueta ? etiqueta(f.key) : f.key }));
     const seleccion = ((filters[campo] as string[]) ?? []).map((v) => (etiqueta ? etiqueta(v) : v));
     return (
       <Card
@@ -169,6 +170,7 @@ export function ComparativoMultifecha() {
       >
         <RankingAporte
           data={filas}
+          anios={aniosPeriodos}
           cabeza={cabeza}
           seleccionados={seleccion}
           onClick={(k) => drillDown(campo, valorFiltro ? valorFiltro(k) : k)}
@@ -211,7 +213,9 @@ export function ComparativoMultifecha() {
       {/* Consolidado de todos los periodos — mismas tarjetas de Delictividad por Unidad */}
       <div>
         <p className="mb-2 text-[15px] font-extrabold text-[#10233f]">Análisis consolidado de los periodos</p>
-        <p className="mb-3 text-[12px] text-slate-500">Mismas barras y aporte % de Delictividad por Unidad. Clic en una fila para filtrar por ese valor; otro clic lo quita.</p>
+        <p className="mb-3 text-[12px] text-slate-500">{aniosPeriodos.length >= 2
+          ? <>Casos de cada año ({aniosPeriodos.join(' y ')}) solo en las fechas elegidas · <span className="font-semibold text-[#dc2626]">↑ aumento</span> · <span className="font-semibold text-[#15803d]">↓ reducción</span> frente a {aniosPeriodos[aniosPeriodos.length - 2]}. Clic en una fila para filtrar por ese valor; otro clic lo quita.</>
+          : 'Mismas barras y aporte % de Delictividad por Unidad. Clic en una fila para filtrar por ese valor; otro clic lo quita.'}</p>
         <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
           <TarjetaConsolidada id="delito" titulo="Análisis de delitos — Top por cantidad" icono={ico(BarChart3)} cabeza="Delito" campo="delito" getter={(r) => r.delito} />
           <TarjetaConsolidada id="estacion" titulo="Casos por estación" icono={ico(Building2)} cabeza="Estación" campo="estacion" getter={(r) => r.estacion} />
