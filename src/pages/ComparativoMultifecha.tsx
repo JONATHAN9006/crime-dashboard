@@ -12,7 +12,7 @@ import { TablaVigencias, VarAbs, VarPct } from '../components/multifecha/TablaVi
 import { SelectorVigencias } from '../components/multifecha/SelectorVigencias';
 import { MatrizDiaHora, matrizDiaHora, maxMatriz, DIAS_MATRIZ } from '../components/multifecha/MatrizDiaHora';
 import { UltimasSemanasMultifecha, colorVigencia } from '../components/multifecha/UltimasSemanasMultifecha';
-import { MapaRnmc } from '../components/rnmc/MapaRnmc';
+import { MapaCalorMultifecha } from '../components/multifecha/MapaCalorMultifecha';
 import { maxDensidadKernel } from '../utils/kernelDensity';
 import { esCoordenadaValida } from '../utils/geodesia';
 import { GraficoMultifechaDiario, etiquetaPeriodo, type SeriePeriodo } from '../components/charts/GraficoMultifechaDiario';
@@ -37,13 +37,14 @@ const COLORES_DONA = ['#10233f', '#159089', '#f97316', '#8a86da', '#a3acb9'];
 
 function KpiMultifecha({ icono, titulo, detalle, children, tono = 'bg-[#e3f2ef] text-[#116762]' }: { icono: ReactNode; titulo: string; detalle?: ReactNode; children: ReactNode; tono?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <span className={clsx('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl', tono)}>{icono}</span>
-      <div className="min-w-0">
-        <p className="text-[12px] font-bold text-slate-600">{titulo}</p>
-        <div className="mt-0.5 text-[26px] font-extrabold leading-none text-[#10233f]">{children}</div>
-        {detalle && <p className="mt-1 truncate text-[11px] text-slate-500">{detalle}</p>}
+    <div className="relative flex min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-[0_2px_8px_rgba(16,35,63,0.06)]">
+      <span className={clsx('flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl', tono)}>{icono}</span>
+      <div className="relative z-[1] min-w-0">
+        <p className="text-[12.5px] font-bold leading-tight text-[#10233f]">{titulo}</p>
+        <div className="mt-1 text-[28px] font-extrabold leading-none text-[#10233f]">{children}</div>
+        {detalle && <p className="mt-1.5 truncate text-[11px] text-slate-500">{detalle}</p>}
       </div>
+      <BarChart3 size={40} strokeWidth={2.4} className="pointer-events-none absolute bottom-3 right-3 text-slate-200" aria-hidden />
     </div>
   );
 }
@@ -120,7 +121,6 @@ export function ComparativoMultifecha() {
     if (!vigVista || !escalaComun) return undefined;
     return Math.max(0, ...vigencias.map((v) => maxDensidadKernel(v.registros.filter((r) => esCoordenadaValida(r.lat, r.lon)).map((r) => ({ lat: r.lat!, lon: r.lon! })))));
   }, [vigencias, vigVista, escalaComun]);
-  const conCoord = registrosVista.filter((r) => esCoordenadaValida(r.lat, r.lon)).length;
 
   // Serie diaria por vigencia (gráfico de jornadas, ya existente).
   const seriesDiarias: SeriePeriodo[] = useMemo(() => vigencias.map((v) => {
@@ -189,21 +189,21 @@ export function ComparativoMultifecha() {
             <KpiMultifecha icono={<Layers size={24} />} titulo="Vigencias comparadas" detalle={vigencias.map((v) => v.etiqueta).join(', ')}>{vigencias.length}</KpiMultifecha>
           </div>
 
-          {/* Resumen + Comparativo por delito */}
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(300px,0.9fr)_2fr]">
-            <Card className="h-full" title="Resumen ejecutivo" subtitle="Se genera con las cifras actuales" descargable="multifecha-resumen" icono={ico(FileText)} claseTitulo={T}>
-              <ul className="space-y-2 text-[12.5px] leading-snug text-slate-700">
-                {resumen.map((t, i) => <li key={i} className="flex gap-2"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#116762]" /><span>{t}</span></li>)}
-              </ul>
-            </Card>
-            <TablaVigencias id="delito" titulo="Comparativo por delito" icono={ico(BarChart3)} cabeza="Delito" filas={tablas.delito} topInicial={10} {...comunes('delito')} />
-          </div>
+          {/* Resumen ejecutivo */}
+          <Card title="Resumen ejecutivo" subtitle="Se genera con las cifras actuales" descargable="multifecha-resumen" icono={ico(FileText)} claseTitulo={T}>
+            <ul className="gap-x-8 text-[12.5px] leading-snug text-slate-700 lg:columns-2">
+              {resumen.map((t, i) => <li key={i} className="mb-2 flex break-inside-avoid gap-2"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#116762]" /><span>{t}</span></li>)}
+            </ul>
+          </Card>
+
+          {/* Comparativo por delito */}
+          <TablaVigencias id="delito" titulo="Comparativo por delito" icono={ico(BarChart3)} cabeza="Delito" filas={tablas.delito} topInicial={10} {...comunes('delito')} />
 
           {/* Territorio */}
           <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
             <TablaVigencias id="estacion" titulo="Casos por estación" icono={ico(Building2)} cabeza="Estación" filas={tablas.estacion} topInicial={5} {...comunes('estacion')} />
-            <TablaVigencias id="cai" titulo="CAI más afectados" icono={ico(MapPin)} cabeza="CAI" filas={tablas.cai} topInicial={5} {...comunes('cai')} />
             <TablaVigencias id="zona" titulo="Zonas de Atención más afectadas" icono={ico(MapPinned)} cabeza="Zona de atención" filas={tablas.zona} topInicial={5} {...comunes('cuadrante')} />
+            <TablaVigencias id="cai" titulo="CAI más afectados" icono={ico(MapPin)} cabeza="CAI" filas={tablas.cai} topInicial={5} {...comunes('cai')} />
             <TablaVigencias id="barrio" titulo="Barrios más afectados" icono={ico(Home)} cabeza="Barrio" filas={tablas.barrio} topInicial={5} {...comunes('barrioHecho')} />
           </div>
 
@@ -222,13 +222,13 @@ export function ComparativoMultifecha() {
               </label>
             </div>
           </div>
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[1.25fr_1fr]">
+          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
             <Card className="h-full" title="Distribución de casos por día y hora" subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta} (${vigVista.rango})` : 'Todas las vigencias seleccionadas'} · ${formatNumero(registrosVista.length)} casos`} descargable="multifecha-matriz" icono={ico(Clock)} claseTitulo={T}>
               <MatrizDiaHora registros={registrosVista} maxEscala={vigVista && escalaComun ? maxMatrizComun : undefined} />
             </Card>
             <Card className="h-full" title="Mapa de calor por delitos" subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta}` : 'Todas las vigencias'} · densidad Kernel (radio 200 m)${vigVista && escalaComun ? ' · escala común' : ''}`} descargable="multifecha-mapa" icono={ico(IconoMapa)} claseTitulo={T}>
-              <div className="h-[330px]">
-                <MapaRnmc key={`${vista}-${escalaComun}`} registros={registrosVista} conZoom alto={330} maxFijo={maxKernelComun} texto={`${formatNumero(conCoord)} de ${formatNumero(registrosVista.length)} casos con coordenadas`} />
+              <div className="h-[420px]">
+                <MapaCalorMultifecha key={`${vista}-${escalaComun}`} registros={registrosVista} alto={420} maxFijo={maxKernelComun} />
               </div>
             </Card>
           </div>

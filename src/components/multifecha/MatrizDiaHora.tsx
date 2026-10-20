@@ -69,25 +69,23 @@ export function MatrizDiaHora({ registros, maxEscala, onCelda }: {
   const maxDia = Math.max(1, ...totalesDia);
 
   return (
-    <div className="overflow-x-auto">
-      <div className="grid min-w-[620px] gap-[2px] text-[10.5px]" style={{ gridTemplateColumns: '68px repeat(24, minmax(18px, 1fr)) 40px' }}>
-        <div />
-        {Array.from({ length: 24 }, (_, h) => <div key={h} className="text-center font-semibold text-slate-500">{h}</div>)}
-        <div className="text-right font-bold text-slate-500">Total</div>
-        {m.map((fila, d) => (
-          <FilaMatriz key={d} dia={d} fila={fila} max={max} total={totalesDia[d]} esMaxDia={totalesDia[d] === maxDia && totalesDia[d] > 0} onCelda={onCelda} />
-        ))}
-        <div className="pt-0.5 text-right font-bold text-slate-500">Total</div>
-        {totalesHora.map((v, h) => (
-          <div key={h} className={clsx('pt-0.5 text-center tabular-nums', v === maxHora && v > 0 ? 'font-extrabold text-[#dc2626]' : 'text-slate-500')}>{v || ''}</div>
-        ))}
-        <div className="pt-0.5 text-right font-extrabold tabular-nums text-[#10233f]">{formatNumero(total)}</div>
+    <div className="flex items-stretch gap-3">
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="grid min-w-[400px] gap-[2px] text-[10px]" style={{ gridTemplateColumns: '62px repeat(24, minmax(12px, 1fr)) 30px' }}>
+          {m.map((fila, d) => (
+            <FilaMatriz key={d} dia={d} fila={fila} max={max} total={totalesDia[d]} esMaxDia={totalesDia[d] === maxDia && totalesDia[d] > 0} onCelda={onCelda} />
+          ))}
+          <div />
+          {Array.from({ length: 24 }, (_, h) => <div key={h} className={clsx('pt-1 text-center font-semibold', totalesHora[h] === maxHora && maxHora > 0 ? 'text-[#dc2626]' : 'text-slate-500')} title={`${totalesHora[h]} casos a las ${h}:00`}>{h}</div>)}
+          <div className="pt-1 text-right font-extrabold tabular-nums text-[#10233f]" title="Total">{formatNumero(total)}</div>
+        </div>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10.5px] text-slate-500">
-        <span>Menor concentración</span>
-        <span className="h-2.5 w-36 rounded-full" style={{ background: `linear-gradient(90deg, ${[0, 0.35, 0.55, 0.78, 1].map((f) => colorCalor(f)).join(',')})` }} />
-        <span>Mayor ({formatNumero(max)} caso{max === 1 ? '' : 's'} por celda)</span>
-        <span className="ml-1 inline-block h-2.5 w-2.5 rounded-sm bg-[#eef2f0] ring-1 ring-slate-200" /> <span>sin casos</span>
+      <div className="flex shrink-0 items-stretch gap-1.5 py-1 text-[10.5px] font-semibold leading-tight text-slate-600">
+        <span className="w-3.5 rounded-sm" style={{ background: `linear-gradient(0deg, ${[0, 0.35, 0.55, 0.78, 1].map((f) => colorCalor(f)).join(',')})` }} />
+        <span className="flex w-[62px] flex-col justify-between text-[10px]">
+          <span>Mayor concentración<br /><span className="font-normal text-slate-400">{formatNumero(max)} por celda</span></span>
+          <span>Menor concentración</span>
+        </span>
       </div>
     </div>
   );
@@ -96,7 +94,7 @@ export function MatrizDiaHora({ registros, maxEscala, onCelda }: {
 function FilaMatriz({ dia, fila, max, total, esMaxDia, onCelda }: { dia: number; fila: number[]; max: number; total: number; esMaxDia: boolean; onCelda?: (dia: number, hora: number) => void }) {
   return (
     <>
-      <div className={clsx('flex items-center justify-end pr-1.5 text-[11px]', esMaxDia ? 'font-extrabold text-[#dc2626]' : 'font-semibold text-slate-600')}>{DIAS_MATRIZ[dia]}</div>
+      <div className={clsx('flex items-center justify-end pr-1.5 text-[11.5px]', esMaxDia ? 'font-extrabold text-[#dc2626]' : 'font-semibold text-slate-700')}>{DIAS_MATRIZ[dia]}</div>
       {fila.map((v, h) => (
         <button
           key={h}
@@ -104,11 +102,9 @@ function FilaMatriz({ dia, fila, max, total, esMaxDia, onCelda }: { dia: number;
           disabled={!onCelda || v === 0}
           onClick={() => onCelda?.(dia, h)}
           title={`${DIAS_MATRIZ[dia]} ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 · ${v} caso${v === 1 ? '' : 's'}`}
-          className="flex h-[22px] items-center justify-center rounded-[3px] text-[9.5px] font-bold tabular-nums text-white/95 disabled:cursor-default"
-          style={{ background: v > 0 ? colorCalor(v / max) : '#eef2f0' }}
-        >
-          {v > 0 && v / max >= 0.55 ? v : ''}
-        </button>
+          className="h-[38px] rounded-[2px] transition hover:outline hover:outline-2 hover:outline-[#10233f] disabled:cursor-default"
+          style={{ background: v > 0 ? colorCalor(v / max) : '#d5ece1' }}
+        />
       ))}
       <div className="flex items-center justify-end text-[11px] font-bold tabular-nums text-[#10233f]">{formatNumero(total)}</div>
     </>

@@ -15,12 +15,12 @@ import type { FilaVigencias, VigenciaMF } from '../../hooks/useMultifecha';
 export const COLOR_AUMENTO = '#dc2626';
 export const COLOR_REDUCCION = '#15803d';
 
-export function VarAbs({ valor, grande = false }: { valor: number; grande?: boolean }) {
-  if (valor === 0) return <span className="font-semibold text-slate-400">0</span>;
+export function VarAbs({ valor, grande = false, flecha = true }: { valor: number; grande?: boolean; flecha?: boolean }) {
+  if (valor === 0) return <span className={clsx('font-semibold text-slate-400', grande && 'text-[24px] leading-none')}>0</span>;
   const sube = valor > 0;
   return (
     <span className={clsx('inline-flex items-center justify-end gap-0.5 font-bold tabular-nums', grande && 'text-[24px] leading-none')} style={{ color: sube ? COLOR_AUMENTO : COLOR_REDUCCION }}>
-      {sube ? <ArrowUp size={grande ? 22 : 13} strokeWidth={3} /> : <ArrowDown size={grande ? 22 : 13} strokeWidth={3} />}
+      {flecha && (sube ? <ArrowUp size={grande ? 22 : 13} strokeWidth={3} /> : <ArrowDown size={grande ? 22 : 13} strokeWidth={3} />)}
       {sube ? '+' : '−'}{formatNumero(Math.abs(valor))}
     </span>
   );
@@ -81,7 +81,6 @@ export function TablaVigencias({ id, titulo, subtitulo, icono, cabeza, filas, vi
   const visibles = conTop && top ? filas.slice(0, top) : filas;
   const n = vigencias.length;
   const comparable = n >= 2;
-  const maxUltima = Math.max(1, ...visibles.map((f) => f.ultima));
   const primera = vigencias[0];
   const ultima = vigencias[n - 1];
   const descarga = puedeDescargar();
@@ -124,8 +123,7 @@ export function TablaVigencias({ id, titulo, subtitulo, icono, cabeza, filas, vi
                   <th key={v.id} className={clsx(th, i === n - 1 && 'text-[#10233f]')} title={`${v.etiqueta}: ${v.rango}`}>{v.etiqueta}</th>
                 ))}
                 {comparable && <th className={th} title={`${ultima.etiqueta} − ${primera.etiqueta}`}>Var. abs.</th>}
-                {comparable && <th className={th} title={`(${ultima.etiqueta} − ${primera.etiqueta}) ÷ ${primera.etiqueta} × 100`}>Var. %</th>}
-                <th className={clsx(th, 'rounded-r-md text-left')}>Barra {ultima?.etiqueta}</th>
+                {comparable && <th className={clsx(th, 'rounded-r-md')} title={`(${ultima.etiqueta} − ${primera.etiqueta}) ÷ ${primera.etiqueta} × 100`}>Var. %</th>}
               </tr>
             </thead>
             <tbody>
@@ -140,16 +138,8 @@ export function TablaVigencias({ id, titulo, subtitulo, icono, cabeza, filas, vi
                     {vigencias.map((v, i) => (
                       <td key={v.id} className={clsx('border-b border-slate-100 px-2 py-[5px] text-right tabular-nums', i === n - 1 ? 'font-extrabold text-[#10233f]' : 'text-slate-600')}>{formatNumero(f.porVigencia[i] ?? 0)}</td>
                     ))}
-                    {comparable && <td className="border-b border-slate-100 px-2 py-[5px] text-right"><VarAbs valor={f.varAbs} /></td>}
+                    {comparable && <td className="border-b border-slate-100 px-2 py-[5px] text-right"><VarAbs valor={f.varAbs} flecha={false} /></td>}
                     {comparable && <td className="border-b border-slate-100 px-2 py-[5px] text-right"><VarPct valor={f.varPct} /></td>}
-                    <td className="border-b border-slate-100 px-2 py-[5px]">
-                      <div className="flex min-w-[110px] items-center gap-2">
-                        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                          <div className="h-full rounded-full bg-[#116762]" style={{ width: `${f.ultima > 0 ? Math.max(3, (f.ultima / maxUltima) * 100) : 0}%` }} />
-                        </div>
-                        <span className="w-8 text-right text-[11.5px] font-semibold tabular-nums text-slate-600">{formatNumero(f.ultima)}</span>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
