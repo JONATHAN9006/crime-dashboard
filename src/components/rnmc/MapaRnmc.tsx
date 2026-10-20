@@ -69,7 +69,11 @@ function esCapaDe(capa: CapaGeografica, tipo: CapaReferencia): boolean {
   return capa.dimension === 'barrioHecho' || /BARRIO/.test(n);
 }
 
-export function MapaRnmc({ registros, capaReferencia = null, conZoom = false, alto = 300 }: {
+export function MapaRnmc({ registros, capaReferencia = null, conZoom = false, alto = 300, maxFijo, texto }: {
+  /** Máximo común de densidad (escala comparable entre varios mapas). */
+  maxFijo?: number;
+  /** Texto de la esquina (por defecto, cuántos registros tienen coordenadas). */
+  texto?: string;
   registros: { lat: number | null; lon: number | null }[];
   /** Si se indica, se dibuja solo la capa de ese tipo (zona de atención, comuna o barrio), si existe. */
   capaReferencia?: CapaReferencia | null;
@@ -126,11 +130,11 @@ export function MapaRnmc({ registros, capaReferencia = null, conZoom = false, al
         {contornoVisible.length > 0 && (
           <GeoJSONLayer key={`${capaReferencia ?? 'todas'}-${contornoVisible.length}`} data={{ type: 'FeatureCollection', features: contornoVisible } as never} style={{ color: '#1f2937', weight: 1.4, fillColor: '#ffffff', fillOpacity: 0.04 }} />
         )}
-        <KernelHeatmapLayer puntos={puntos} colores={PALETA} opacidad={0.75} />
+        <KernelHeatmapLayer puntos={puntos} colores={PALETA} opacidad={0.75} maxFijo={maxFijo} />
         <Encuadrar contorno={encuadre} puntos={puntos} />
       </MapContainer>
       <span className="pointer-events-none absolute bottom-1.5 left-1.5 z-[400] rounded bg-white/85 px-1.5 py-0.5 text-[10px] text-slate-600">
-        {puntos.length.toLocaleString('es-CO')} con coordenadas
+        {texto ?? `${puntos.length.toLocaleString('es-CO')} con coordenadas`}
       </span>
     </div>
   );

@@ -77,7 +77,7 @@ export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], text
   const max = Math.max(...filas.map((f) => f.casos), 1);
   const porAnios = anios.length >= 2 && filas.some((f) => f.porAnio);
   const ultimo = anios[anios.length - 1];
-  const penultimo = anios[anios.length - 2];
+  const primero = anios[0]; // la variación compara la PRIMERA con la ÚLTIMA vigencia
   const columnas = porAnios
     ? { gridTemplateColumns: `minmax(0,34%) minmax(0,1fr) ${anios.map(() => '38px').join(' ')} 54px` }
     : undefined;
@@ -88,7 +88,7 @@ export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], text
           <span />
           <span />
           {anios.map((a) => <span key={a} className="text-right">{a}</span>)}
-          <span className="text-right" title={`Variación ${penultimo} → ${ultimo}`}>Var.</span>
+          <span className="text-right" title={`Variación ${primero} → ${ultimo}`}>Var.</span>
         </li>
       )}
       {filas.map((f, i) => {
@@ -111,7 +111,7 @@ export function ListaBarrasTerritorial({ filas, onFila, seleccionados = [], text
                 {anios.map((a) => (
                   <span key={a} className={clsx('text-right text-[12.5px] tabular-nums', a === ultimo ? 'font-bold text-[#10233f]' : 'font-semibold text-slate-500')}>{formatNumero(f.porAnio?.[a] ?? 0)}</span>
                 ))}
-                <span className="text-right text-[12px]"><VariacionCasos actual={f.porAnio?.[ultimo] ?? 0} anterior={f.porAnio?.[penultimo] ?? 0} /></span>
+                <span className="text-right text-[12px]"><VariacionCasos actual={f.porAnio?.[ultimo] ?? 0} anterior={f.porAnio?.[primero] ?? 0} /></span>
               </>
             ) : (
               <>

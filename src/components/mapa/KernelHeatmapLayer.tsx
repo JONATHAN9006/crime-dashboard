@@ -9,6 +9,8 @@ export interface KernelHeatmapLayerProps {
   opacidad?: number;
   /** Avisa el resultado del cálculo (máximo, metadatos) — para la leyenda y la consulta por clic. */
   onResultado?: (resultado: ResultadoKernel | null) => void;
+  /** Máximo común (escala comparable entre mapas). */
+  maxFijo?: number;
 }
 
 // A diferencia de HeatmapLayer (leaflet.heat, que recalcula el radio en
@@ -17,7 +19,7 @@ export interface KernelHeatmapLayerProps {
 // mapa como una imagen georreferenciada (L.imageOverlay) — el zoom solo
 // escala esa imagen como cualquier otra capa del mapa, nunca vuelve a
 // ejecutar el cálculo del kernel ni cambia su clasificación de colores.
-export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75, onResultado }: KernelHeatmapLayerProps) {
+export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75, onResultado, maxFijo }: KernelHeatmapLayerProps) {
   const map = useMap();
   const layerRef = useRef<L.ImageOverlay | null>(null);
 
@@ -37,7 +39,7 @@ export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75, onResulta
       layerRef.current.remove();
       layerRef.current = null;
     }
-    const resultado = calcularKernelDensidad(puntos, colores);
+    const resultado = calcularKernelDensidad(puntos, colores, maxFijo);
     onResultado?.(resultado);
     if (!resultado) return;
     const overlay = L.imageOverlay(resultado.dataUrl, resultado.bounds, {
@@ -52,7 +54,7 @@ export function KernelHeatmapLayer({ puntos, colores, opacidad = 0.75, onResulta
       if (layerRef.current === overlay) layerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firma, firmaColores, opacidad, map]);
+  }, [firma, firmaColores, opacidad, map, maxFijo]);
 
   return null;
 }

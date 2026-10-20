@@ -203,7 +203,19 @@ export function calcularSuperficieKernel(validos: PuntoDensidad[]) {
  * grilla geográfica fija, la clasifica en 5 niveles por fracción del valor
  * máximo, y la renderiza como una imagen PNG anclada a coordenadas reales.
  */
-export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string | null)[] = paletaPorDefecto()): ResultadoKernel | null {
+/** Densidad máxima (eventos/m²) de un conjunto de puntos — para usar una
+ *  escala común entre varios mapas (p. ej. vigencias del multifecha). */
+export function maxDensidadKernel(puntos: PuntoDensidad[]): number {
+  const validos = puntosValidosParaKernel(puntos);
+  if (validos.length === 0) return 0;
+  const { densidad } = calcularSuperficieKernel(validos);
+  let m = 0;
+  for (let i = 0; i < densidad.length; i++) if (densidad[i] > m) m = densidad[i];
+  return m;
+}
+
+/** `maxFijo` (opcional): máximo común para que varios mapas usen la misma escala. */
+export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string | null)[] = paletaPorDefecto(), maxFijo?: number): ResultadoKernel | null {
   // 0) Validación de coordenadas: fuera nulos, NaN, (0,0) y fuera de rango.
   const validos = puntosValidosParaKernel(puntos);
   if (validos.length === 0) return null;
@@ -219,7 +231,7 @@ export function calcularKernelDensidad(puntos: PuntoDensidad[], colores: (string
   const valoresConDensidad = Array.from(densidad).filter((v) => v > 1e-9);
   if (valoresConDensidad.length === 0) return null;
 
-  const maxValor = maxDe(valoresConDensidad);
+  const maxValor = Math.max(maxDe(valoresConDensidad), maxFijo && maxFijo > 0 ? maxFijo : 0);
   // Siempre 5 bandas, siempre en el mismo rango fijo (ANCLAS_FRACCION_FIJAS)
   // — el array "colores" recibido debe tener 5 posiciones siempre (una por
   // banda); cada posición es su color de siempre, o null si el usuario la

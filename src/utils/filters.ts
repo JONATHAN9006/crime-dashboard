@@ -70,14 +70,14 @@ export function contarFiltrosActivos(f: FilterState): number {
 // compararlo contra el rango horaInicial-horaFinal de un periodo. Usa la
 // hora ya calculada del registro (r.hora, 0-23); si no existe, se asume
 // 00:00 (el registro solo se descarta por fecha, nunca por hora faltante).
-function fechaHoraDeRegistro(r: CrimeRecord): Date | null {
+export function fechaHoraDeRegistro(r: CrimeRecord): Date | null {
   if (!r.fecha) return null;
   const d = new Date(r.fecha);
   d.setHours(r.hora ?? 0, 0, 0, 0);
   return d;
 }
 
-function limiteDePeriodo(fecha: string, hora: string): Date {
+export function limiteDePeriodo(fecha: string, hora: string): Date {
   const [anio, mes, dia] = fecha.split('-').map(Number);
   const [h, m] = hora.split(':').map(Number);
   return new Date(anio, mes - 1, dia, h, m, 0, 0);
@@ -94,7 +94,9 @@ function limiteDePeriodo(fecha: string, hora: string): Date {
 export function aplicarFiltrosConPeriodos(records: CrimeRecord[], f: FilterState, periodos: PeriodoAnalisis[]): CrimeRecord[] {
   if (periodos.length === 0) return aplicarFiltros(records, f);
 
-  const sinFecha = aplicarFiltros(records, { ...f, fechaInicial: null, fechaFinal: null });
+  // Con periodos, el tiempo lo definen SOLO los periodos (cada vigencia con
+  // su propio rango): Año y Mes no se aplican, para no excluir vigencias.
+  const sinFecha = aplicarFiltros(records, { ...f, fechaInicial: null, fechaFinal: null, anio: [], mes: [] });
   const ventanas = periodos.map((p) => ({
     inicio: limiteDePeriodo(p.fechaInicial, p.horaInicial || '00:00'),
     fin: limiteDePeriodo(p.fechaFinal, p.horaFinal || '23:59'),

@@ -278,8 +278,12 @@ export function FilterPanel() {
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 bg-white p-3 sm:grid-cols-2 lg:grid-cols-4 rounded-b-xl">
-              <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
-              <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
+              <div className={multifechaActiva ? 'pointer-events-none opacity-50' : undefined} title={multifechaActiva ? 'En multifecha, el año lo definen las vigencias' : undefined}>
+                <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
+              </div>
+              <div className={multifechaActiva ? 'pointer-events-none opacity-50' : undefined} title={multifechaActiva ? 'En multifecha, el mes lo definen las vigencias' : undefined}>
+                <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
+              </div>
               <CampoFecha id="filtro-fecha-inicial" etiqueta="Fecha inicial" tono={TONOS.fecha.campo} multifecha={multifechaActiva} activa={!!filters.fechaInicial}>
                 <input
                   id="filtro-fecha-inicial"

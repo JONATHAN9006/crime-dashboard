@@ -75,7 +75,7 @@ export function RankingAporte({ data, cabeza, onClick, seleccionados = [], anios
 }
 
 // Misma tabla, pero con los casos de CADA año (solo los de las fechas
-// analizadas) y la variación entre los dos últimos años en vez del aporte.
+// analizadas) y la variación entre el primer y el último año en vez del aporte.
 function RankingPorAnios({ data, cabeza, onClick, seleccionados, anios, max }: {
   data: { key: string; casos: number; porAnio?: Record<number, number> }[];
   cabeza: string;
@@ -85,14 +85,14 @@ function RankingPorAnios({ data, cabeza, onClick, seleccionados, anios, max }: {
   max: number;
 }) {
   const ultimo = anios[anios.length - 1];
-  const penultimo = anios[anios.length - 2];
+  const primero = anios[0]; // la variación compara la PRIMERA con la ÚLTIMA vigencia
   const cab = 'pb-1 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400';
   return (
     <div className="grid items-center gap-x-2.5 text-[12.5px]" style={{ gridTemplateColumns: `minmax(0, max-content) minmax(50px, 1fr) ${anios.map(() => 'auto').join(' ')} auto` }}>
       <div className="pb-1 pl-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{cabeza}</div>
       <div />
       {anios.map((a) => <div key={a} className={cab}>{a}</div>)}
-      <div className={cab} title={`Variación ${penultimo} → ${ultimo}`}>Var.</div>
+      <div className={cab} title={`Variación ${primero} → ${ultimo}`}>Var.</div>
       {data.map((d, i) => {
         const esMaximo = d.casos === max;
         const color = esMaximo ? VERDE_MAXIMO : PALETA[i % PALETA.length];
@@ -114,7 +114,7 @@ function RankingPorAnios({ data, cabeza, onClick, seleccionados, anios, max }: {
               <div key={a} onClick={clic} className={`py-[4px] text-right tabular-nums ${a === ultimo ? 'font-bold text-[#10233f]' : 'font-semibold text-slate-500'} ${fila}`}>{formatNumero(d.porAnio?.[a] ?? 0)}</div>
             ))}
             <div onClick={clic} className={`rounded-r py-[4px] pl-1 pr-1 text-right ${fila}`}>
-              <VariacionCasos actual={d.porAnio?.[ultimo] ?? 0} anterior={d.porAnio?.[penultimo] ?? 0} />
+              <VariacionCasos actual={d.porAnio?.[ultimo] ?? 0} anterior={d.porAnio?.[primero] ?? 0} />
             </div>
           </Fragment>
         );
