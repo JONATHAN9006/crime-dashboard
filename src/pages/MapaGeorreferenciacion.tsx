@@ -27,7 +27,7 @@ import {
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
 import { calcularTopBarrios, normalizarNombre, esBarrioReal } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
-import { exportarPoligonoAislado, generarDataUrlPoligonoAislado } from '../utils/exportarPoligonoMapa';
+import { exportarPoligonoAislado, generarDataUrlPoligonoAislado, type PuntoMarcadoExport } from '../utils/exportarPoligonoMapa';
 import { maxDe } from '../utils/mathSeguro';
 import { mapearCuadrante } from '../data/db2Transform';
 import { MAPA_ESTACION } from '../data/db2Mapeos';
@@ -767,7 +767,14 @@ export function MapaGeorreferenciacion() {
   }, [records]);
 
   const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
-  const [modoVisualizacion, setModoVisualizacion] = useState<'calor' | 'puntos'>('calor');
+  // Mapa de calor y Puntos se pueden activar juntos (al menos uno queda activo).
+  // La descarga dibuja exactamente lo que esté activo.
+  const [verCalor, setVerCalor] = useState(true);
+  const [verPuntos, setVerPuntos] = useState(false);
+  function alternarModoVista(modo: 'calor' | 'puntos') {
+    if (modo === 'calor') { if (verCalor && !verPuntos) return; setVerCalor((v) => !v); }
+    else { if (verPuntos && !verCalor) return; setVerPuntos((v) => !v); }
+  }
   const [coordenadaManual, setCoordenadaManual] = useState<{ lat: number; lon: number } | null>(null);
   const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
   // Estado SOLO visual del rediseño (no filtra ni calcula nada).
@@ -1858,10 +1865,33 @@ export function MapaGeorreferenciacion() {
     if (!(dLon > 0) || !(dLat > 0) || t.x <= 0 || t.y <= 0) return undefined;
     return { pxPorGradoLon: t.x / dLon, pxPorGradoLat: t.y / dLat };
   }
+  // Los mismos puntos (color, tamaño y relleno) que se ven en modo «Puntos».
+  function puntosParaExportar(): PuntoMarcadoExport[] {
+    if (!verPuntos) return [];
+    const lista: PuntoMarcadoExport[] = [];
+    if (mostrarCalorDelitos) for (const p of puntosDelitosParaMostrar) {
+      const delito = (p as any).delitoCorto ?? null;
+      const color = colorDelitoFinal('delitos', delito, colorPorDelitoSimple(delito));
+      lista.push({ lat: p.lat, lon: p.lon, color, radio: radioDe('delitos', 4), relleno: 0.75, grosor: 1 });
+    }
+    if (mostrarCalorIrisp1) for (const p of puntosIrisp1ParaMostrar) {
+      const delito = (p as any).delitoCorto ?? null;
+      const color = colorDelitoFinal('irisp1', delito, colorPorDelitoSimple(delito));
+      lista.push({ lat: p.lat, lon: p.lon, color, radio: radioDe('irisp1', 4), relleno: 0.4, grosor: 2 });
+    }
+    if (mostrarCalorOperatividad) for (const p of puntosOperatividadParaMostrar) lista.push({ lat: p.lat, lon: p.lon, color: colorCapa('operatividad', '#d97706'), radio: radioDe('operatividad', 4), relleno: 0.75, grosor: 1 });
+    if (mostrarCalorMacri) for (const p of puntosMacriParaMostrar) lista.push({ lat: p.lat, lon: p.lon, color: colorCapa('macri', '#7c3aed'), radio: radioDe('macri', 4), relleno: 0.75, grosor: 1 });
+    if (mostrarCalorRnmc) for (const p of puntosRnmcParaMostrar) lista.push({ lat: p.lat, lon: p.lon, color: colorCapa('rnmc', '#db2777'), radio: radioDe('rnmc', 4), relleno: 0.75, grosor: 1 });
+    return lista;
+  }
+
   function conOpcionesDescarga<T extends { flechas?: unknown[]; etiquetas: string[]; gruposEtiquetas?: unknown[] }>(o: T, vista?: L.LatLngBounds): T {
     const marcadores = marcadoresParaExportar(planCandado, mapaRef.current);
     return {
       ...o,
+      // Calor y/o puntos: exactamente lo que está activo en pantalla.
+      mostrarCalor: verCalor,
+      puntosMarcados: puntosParaExportar(),
       flechas: opcionesDescarga.rotulos ? o.flechas : [],
       etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
       gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
@@ -2441,20 +2471,22 @@ export function MapaGeorreferenciacion() {
                 <span className="flex-1 truncate">Comparar IRISP1 vs Delitos</span>
               </label>
             </div>
-            <div className="mt-2.5 grid grid-cols-2 gap-1 rounded-lg bg-white/5 p-1" role="radiogroup" aria-label="Modo de visualización">
-              {([['calor', 'Mapa de calor'], ['puntos', 'Puntos']] as const).map(([modo, texto]) => (
+            <div className="mt-2.5 grid grid-cols-2 gap-1 rounded-lg bg-white/5 p-1" role="group" aria-label="Modo de visualización (se pueden activar los dos)">
+              {([['calor', 'Mapa de calor', verCalor], ['puntos', 'Puntos', verPuntos]] as const).map(([modo, texto, activo]) => (
                 <button
                   key={modo}
                   type="button"
-                  role="radio"
-                  aria-checked={modoVisualizacion === modo}
-                  onClick={() => setModoVisualizacion(modo)}
-                  className={clsx('rounded-md px-2 py-1.5 text-[12px] font-semibold', modoVisualizacion === modo ? 'bg-white text-[#10233f]' : 'text-slate-200 hover:bg-white/10')}
+                  aria-pressed={activo}
+                  onClick={() => alternarModoVista(modo)}
+                  title={activo ? `Ocultar ${texto.toLowerCase()} (debe quedar al menos uno)` : `Mostrar también ${texto.toLowerCase()}`}
+                  className={clsx('flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-semibold', activo ? 'bg-white text-[#10233f]' : 'text-slate-200 hover:bg-white/10')}
                 >
+                  <span className={clsx('flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[9px] leading-none', activo ? 'border-[#116762] bg-[#116762] text-white' : 'border-white/40')}>{activo ? '✓' : ''}</span>
                   {texto}
                 </button>
               ))}
             </div>
+            <p className="mt-1 text-[10.5px] leading-snug text-slate-400">Puede activar los dos. La descarga sale con lo que esté activo.</p>
           </SeccionPanelOscuro>
 
           <SeccionPanelOscuro titulo="Área geográfica" icono={<LocateFixed size={15} />}>
@@ -2705,10 +2737,10 @@ export function MapaGeorreferenciacion() {
                 </div>
 
                 {/* Leyendas de las demás fuentes (la de Delitos va sobre el mapa) */}
-                {((modoVisualizacion === 'calor' && (mostrarCalorIrisp1 || mostrarCalorOperatividad || mostrarCalorMacri || mostrarCalorRnmc || (modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1)))
-                  || (modoVisualizacion === 'puntos' && (mostrarCalorDelitos || mostrarCalorIrisp1))) && (
+                {((verCalor && (mostrarCalorIrisp1 || mostrarCalorOperatividad || mostrarCalorMacri || mostrarCalorRnmc || (modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1)))
+                  || (verPuntos && (mostrarCalorDelitos || mostrarCalorIrisp1))) && (
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
-                    {modoVisualizacion === 'calor' && (
+                    {verCalor && (
                       <>
                         {mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
                         {mostrarCalorOperatividad && (
@@ -2732,7 +2764,7 @@ export function MapaGeorreferenciacion() {
                       </>
                     )}
                     {/* Modo "Puntos" — color de cada delito realmente presente. */}
-                    {modoVisualizacion === 'puntos' && ([
+                    {verPuntos && ([
                       ['delitos', 'Delitos', mostrarCalorDelitos], ['irisp1', 'IRISP1', mostrarCalorIrisp1], ['operatividad', 'Operatividad', mostrarCalorOperatividad], ['macri', 'Macri', mostrarCalorMacri], ['rnmc', 'RNMC', mostrarCalorRnmc],
                     ] as const).filter(([clave, , activo]) => activo && clave !== 'delitos' && clave !== 'irisp1' && coloresCapa[clave]).map(([clave, etiqueta]) => (
                       <span key={`fijo-${clave}`} className="flex items-center gap-1.5">
@@ -2740,7 +2772,7 @@ export function MapaGeorreferenciacion() {
                         {etiqueta}
                       </span>
                     ))}
-                    {modoVisualizacion === 'puntos' && Array.from(new Set([
+                    {verPuntos && Array.from(new Set([
                       ...(mostrarCalorDelitos ? puntosDelitosParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
                       ...(mostrarCalorIrisp1 ? puntosIrisp1ParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
                     ])).sort().map((delito) => (
@@ -2953,7 +2985,7 @@ export function MapaGeorreferenciacion() {
             {coordenadaManual && <AjustarVistaAPunto punto={coordenadaManual} info={infoCoordenadaManual} />}
             {puntosDelBarrioSeleccionado.length > 0 && <AjustarVistaAPuntos puntos={puntosDelBarrioSeleccionado} />}
 
-            {mostrarCalorDelitos && modoVisualizacion === 'calor' && (
+            {mostrarCalorDelitos && verCalor && (
               <KernelHeatmapLayer
                 puntos={puntosDelitosParaMostrar}
                 colores={paletaCalorDelitos}
@@ -2975,7 +3007,7 @@ export function MapaGeorreferenciacion() {
                 distinta a la de Delitos. Se calcula EXCLUSIVAMENTE con los
                 puntos de capas tipo "irisp1", y depende únicamente del
                 checkbox "IRISP1" de arriba, igual que Delitos. */}
-            {mostrarCalorIrisp1 && modoVisualizacion === 'calor' && (
+            {mostrarCalorIrisp1 && verCalor && (
               <KernelHeatmapLayer
                 puntos={puntosIrisp1ParaMostrar}
                 colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
@@ -2987,7 +3019,7 @@ export function MapaGeorreferenciacion() {
                 propia escala (rosado → magenta) para distinguirse de
                 Delitos/IRISP1/Operatividad/Macri. Usa la latitud/longitud
                 que trae la matriz de comparendos. */}
-            {mostrarCalorRnmc && modoVisualizacion === 'calor' && (
+            {mostrarCalorRnmc && verCalor && (
               <KernelHeatmapLayer
                 puntos={puntosRnmcParaMostrar}
                 colores={['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843']}
@@ -3000,7 +3032,7 @@ export function MapaGeorreferenciacion() {
                 colores), pero sin modo "pantalla completa" propio ni
                 participación en "Comparar" — eso sigue siendo
                 específicamente IRISP1 vs Delitos. */}
-            {mostrarCalorOperatividad && modoVisualizacion === 'calor' && (
+            {mostrarCalorOperatividad && verCalor && (
               <KernelHeatmapLayer
                 puntos={puntosOperatividadParaMostrar}
                 colores={paletaCalorDelitos}
@@ -3008,21 +3040,21 @@ export function MapaGeorreferenciacion() {
                 onResultado={setKernelOperatividad}
               />
             )}
-            {mostrarCalorOperatividad && modoVisualizacion === 'calor' && consultarOperatividad && (
+            {mostrarCalorOperatividad && verCalor && consultarOperatividad && (
               <ConsultaDensidadKernel
                 puntos={puntosOperatividadParaMostrar}
                 densidadMaxima={kernelOperatividad?.metadatos.densidadMaxima ?? null}
                 titulo="Operatividad — consulta de zona"
               />
             )}
-            {mostrarCalorMacri && modoVisualizacion === 'calor' && (
+            {mostrarCalorMacri && verCalor && (
               <KernelHeatmapLayer puntos={puntosMacriParaMostrar} colores={PALETA_CALOR_MACRI} opacidad={opacidades.calor / 100} />
             )}
 
             {/* Modo "Puntos" — en vez de la superficie de densidad, cada
                 delito/IRISP1 se marca individualmente (mismo color que su
                 fuente), respetando los mismos checkboxes de arriba. */}
-            {modoVisualizacion === 'puntos' && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => {
+            {verPuntos && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => {
               const delito = (p as any).delitoCorto ?? null;
               const color = colorDelitoFinal('delitos', delito, colorPorDelitoSimple(delito));
               return (
@@ -3031,7 +3063,7 @@ export function MapaGeorreferenciacion() {
                 </CircleMarker>
               );
             })}
-            {modoVisualizacion === 'puntos' && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => {
+            {verPuntos && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => {
               const delito = (p as any).delitoCorto ?? null;
               const color = colorDelitoFinal('irisp1', delito, colorPorDelitoSimple(delito));
               return (
@@ -3040,17 +3072,17 @@ export function MapaGeorreferenciacion() {
                 </CircleMarker>
               );
             })}
-            {modoVisualizacion === 'puntos' && mostrarCalorOperatividad && puntosOperatividadParaMostrar.map((p, i) => (
+            {verPuntos && mostrarCalorOperatividad && puntosOperatividadParaMostrar.map((p, i) => (
               <CircleMarker key={`po-${i}`} center={[p.lat, p.lon]} radius={radioDe('operatividad', 4)} pathOptions={{ color: colorCapa('operatividad', '#d97706'), weight: 1, fillColor: colorCapa('operatividad', '#d97706'), fillOpacity: 0.75 }}>
                 <Popup>Operatividad</Popup>
               </CircleMarker>
             ))}
-            {modoVisualizacion === 'puntos' && mostrarCalorMacri && puntosMacriParaMostrar.map((p, i) => (
+            {verPuntos && mostrarCalorMacri && puntosMacriParaMostrar.map((p, i) => (
               <CircleMarker key={`pm-${i}`} center={[p.lat, p.lon]} radius={radioDe('macri', 4)} pathOptions={{ color: colorCapa('macri', '#7c3aed'), weight: 1, fillColor: colorCapa('macri', '#7c3aed'), fillOpacity: 0.75 }}>
                 <Popup>Macri</Popup>
               </CircleMarker>
             ))}
-            {modoVisualizacion === 'puntos' && mostrarCalorRnmc && puntosRnmcParaMostrar.map((p, i) => (
+            {verPuntos && mostrarCalorRnmc && puntosRnmcParaMostrar.map((p, i) => (
               <CircleMarker key={`pr-${i}`} center={[p.lat, p.lon]} radius={radioDe('rnmc', 4)} pathOptions={{ color: colorCapa('rnmc', '#db2777'), weight: 1, fillColor: colorCapa('rnmc', '#db2777'), fillOpacity: 0.75 }}>
                 <Popup>RNMC — {(p as any).delitoCorto ?? 'Comparendo'}</Popup>
               </CircleMarker>
@@ -3202,8 +3234,8 @@ export function MapaGeorreferenciacion() {
                     </button>
                     {leyendaAbierta && (
                       <div className="max-h-[min(420px,60vh)] space-y-2.5 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2">
-                        {modoVisualizacion === 'puntos' && <ControlTamanoPuntos escala={escalaPuntos} onChange={setEscalaPuntos} />}
-                        {modoVisualizacion === 'calor' && mostrarCalorDelitos && (
+                        {verPuntos && <ControlTamanoPuntos escala={escalaPuntos} onChange={setEscalaPuntos} />}
+                        {verCalor && mostrarCalorDelitos && (
                           <div>
                             <p className="mb-1 font-semibold text-[#10233f]">Intensidad delictiva</p>
                             <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
@@ -3212,7 +3244,7 @@ export function MapaGeorreferenciacion() {
                         )}
                         {([['delitos', 'Delitos'], ['irisp1', 'IRISP1']] as const).filter(([fuente]) => convencionesDelitos[fuente].length > 0).map(([fuente, nombre]) => {
                           const lista = convencionesDelitos[fuente];
-                          const conColor = modoVisualizacion === 'puntos';
+                          const conColor = verPuntos;
                           return (
                             <div key={fuente}>
                               <p className="font-semibold text-[#10233f]">{nombre} en el mapa</p>
@@ -3252,7 +3284,7 @@ export function MapaGeorreferenciacion() {
                             </div>
                           );
                         })}
-                        {modoVisualizacion === 'puntos' && ([
+                        {verPuntos && ([
                           ['operatividad', 'Operatividad', '#d97706', mostrarCalorOperatividad, puntosOperatividadParaMostrar.length],
                           ['macri', 'Macri', '#7c3aed', mostrarCalorMacri, puntosMacriParaMostrar.length],
                           ['rnmc', 'RNMC', '#db2777', mostrarCalorRnmc, puntosRnmcParaMostrar.length],

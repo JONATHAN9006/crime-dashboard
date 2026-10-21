@@ -48,6 +48,9 @@ function cargarImagen(url: string, conCors: boolean): Promise<HTMLImageElement> 
   });
 }
 
+/** Punto individual del modo «Puntos» (mismo color y tamaño que en pantalla). */
+export interface PuntoMarcadoExport { lat: number; lon: number; color: string; radio: number; relleno: number; grosor: number }
+
 export interface OpcionesPoligonoAislado {
   feature: any;
   puntos: PuntoParaMapaCalor[];
@@ -101,6 +104,10 @@ export interface OpcionesPoligonoAislado {
   // recibidos (descarga general: los que se ven en pantalla). Por defecto
   // solo los que caen dentro del área (descarga de un CAI o zona).
   ampliarParaMarcadores?: 'todos' | 'dentro';
+  // false = sin mapa de calor (en pantalla solo se ven los puntos). Por defecto true.
+  mostrarCalor?: boolean;
+  // Modo «Puntos» activo en pantalla: cada punto con su color y tamaño.
+  puntosMarcados?: PuntoMarcadoExport[];
   // Alto relieve activo en pantalla: se pinta el mismo relieve (DEM).
   relieve?: { modo: ModoRelieve; exageracion: number; vias: boolean };
 }
@@ -110,7 +117,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], mostrarCalor = true, puntosMarcados = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -356,7 +363,7 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   }
 
   // 3) Mapa de calor — superficie continua (Kernel Density, Silverman/ArcGIS).
-  if (puntos.length > 0) {
+  if (mostrarCalor && puntos.length > 0) {
     const resultadoKernel = calcularKernelDensidad(puntos as PuntoDensidad[], colores);
     if (resultadoKernel) {
       const img = await cargarImagen(resultadoKernel.dataUrl, false);
@@ -372,6 +379,27 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       ctx.globalAlpha = 1;
       ctx.restore();
     }
+  }
+
+  // 3b) Puntos individuales (modo «Puntos»), con el mismo color, tamaño y
+  //     relleno de pantalla. Se recortan al área, salvo con el mapa completo.
+  if (puntosMarcados.length > 0) {
+    const k = escalaPantalla ? Math.min(1.8, Math.max(0.55, (lonAX(1) - lonAX(0)) / escalaPantalla.pxPorGradoLon)) : Math.max(0.6, anchoLienzo / 1200);
+    ctx.save();
+    if (!fondoCompleto) { trazarAnillosComoRuta(); ctx.clip(); }
+    for (const p of puntosMarcados) {
+      const x = lonAX(p.lon), y = latAY(p.lat);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1.5, p.radio * k), 0, Math.PI * 2);
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.relleno));
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = Math.max(0.8, p.grosor * k);
+      ctx.strokeStyle = p.color;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // 4) Borde del polígono, sin recorte.
