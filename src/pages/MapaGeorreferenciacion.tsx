@@ -2620,30 +2620,6 @@ export function MapaGeorreferenciacion() {
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-xs [scrollbar-width:thin]">
               {pestanaPanel === 'capas' ? (
                 <div className="space-y-3.5">
-                  {/* Delitos (filtro principal) */}
-                  <section className="rounded-xl border border-slate-200 p-2.5">
-                    <p className="mb-1.5 text-[13px] font-extrabold text-[#10233f]">Delitos</p>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-2.5 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full" style={{ background: filtrosMapa.delito.length ? colorPorDelitoSimple(filtrosMapa.delito[0]) : '#94a3b8' }} />
-                      <select
-                        value={filtrosMapa.delito.length === 1 ? filtrosMapa.delito[0] : ''}
-                        onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, delito: e.target.value ? [e.target.value] : [] }))}
-                        aria-label="Delito"
-                        className="h-9 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-7 pr-7 text-[12.5px] font-semibold text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
-                      >
-                        <option value="">{filtrosMapa.delito.length > 1 ? `${filtrosMapa.delito.length} delitos elegidos` : 'Todos los delitos'}</option>
-                        {opcionesFiltroMapa.delito.map((d) => <option key={d} value={d}>{d}</option>)}
-                      </select>
-                      <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    </div>
-                    {filtrosMapa.delito.length > 0 && (
-                      <p className="mt-1.5 flex items-center gap-1.5 rounded-lg bg-[#e8f0fb] px-2 py-1.5 text-[11.5px] text-[#1e4f8f]">
-                        <span className="min-w-0 flex-1 truncate"><b>Filtro activo:</b> {filtrosMapa.delito.join(', ')}</span>
-                        <button type="button" onClick={() => setFiltrosMapa((prev) => ({ ...prev, delito: [] }))} aria-label="Quitar el filtro de delito" className="rounded p-0.5 hover:bg-white"><X size={13} /></button>
-                      </p>
-                    )}
-                  </section>
-
                   {/* Año */}
                   {aniosMapa.length > 0 && (
                     <section className={clsx('rounded-xl border border-slate-200 p-2.5', periodos.length > 0 && 'opacity-50')} title={periodos.length > 0 ? 'En multifecha, los años los definen las vigencias' : undefined}>

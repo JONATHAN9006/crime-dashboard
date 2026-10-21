@@ -6,24 +6,18 @@ import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { useData } from '../../context/DataContext';
 import { formatFecha, formatFechaHora, formatNumero } from '../../utils/aggregations';
 import { UpdateDataModal } from '../upload/UpdateDataModal';
-import { useDatosExportacionPptx, generarPowerPoint } from '../../data/pptxExport';
 import { esSoloConsulta, puedeDescargar } from '../../utils/permisos';
 
 export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
   const { records, meta, filteredRecords, recordsBase, filters, backendUrl, remoteStatus, remoteError, remoteMeta, sincronizar, actualizacionDisponible, descartarAvisoActualizacion } = useData();
   const [modalAbierto, setModalAbierto] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
-  const [generandoPptx, setGenerandoPptx] = useState(false);
   const soloLectura = esSoloConsulta();
   const descargas = puedeDescargar();
   // Microgerencia (antes en «Filtros de análisis»): mismo acceso de siempre.
   const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
   const modoAcceso = obtenerModoAcceso();
   const accesoMicrogerencia = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].microgerencia;
-
-  // Todos los cálculos del PowerPoint provienen de los mismos hooks que usan
-  // las páginas del dashboard — ver data/pptxExport.ts.
-  const datosPptx = useDatosExportacionPptx(filteredRecords, recordsBase, filters, records, meta?.fechaMaxParametro);
 
   const actualizadoHoy = meta?.ultimaActualizacion
     ? (Date.now() - meta.ultimaActualizacion.getTime()) < 1000 * 60 * 60 * 24 * 30
@@ -35,15 +29,6 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
     setSincronizando(false);
   }
 
-  async function onDescargarPptx() {
-    if (filteredRecords.length === 0) return;
-    setGenerandoPptx(true);
-    try {
-      await generarPowerPoint({ ...datosPptx, filteredRecords, filters });
-    } finally {
-      setGenerandoPptx(false);
-    }
-  }
 
   return (
     <>
@@ -93,16 +78,6 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
                 className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
                 <RefreshCw size={14} className={sincronizando ? 'animate-spin' : ''} /> <span className="hidden sm:inline">Sincronizar</span>
-              </button>
-            )}
-            {!soloLectura && descargas && (
-              <button
-                onClick={onDescargarPptx}
-                disabled={generandoPptx || filteredRecords.length === 0}
-                title="Descargar PowerPoint (PPT) según los filtros actualmente seleccionados"
-                className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <FileDown size={14} /> <span className="hidden sm:inline">{generandoPptx ? 'Generando...' : 'PPT'}</span>
               </button>
             )}
             {modoAcceso !== 'cai' && records.length > 0 && (
