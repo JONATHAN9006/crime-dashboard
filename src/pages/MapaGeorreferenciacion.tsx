@@ -7,7 +7,7 @@ import {
   AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
   Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
   SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
-  Scale, Sparkles, ChartColumn, Landmark,
+  Scale, Sparkles, ChartColumn, Landmark, Search, ChevronsLeft, ChevronsRight, MoreHorizontal, Settings2, Globe2,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card } from '../components/ui/Card';
@@ -21,7 +21,7 @@ import { ConsultaDensidadKernel } from '../components/mapa/ConsultaDensidadKerne
 import type { ResultadoKernel } from '../utils/kernelDensity';
 import { esCoordenadaValida } from '../utils/geodesia';
 import {
-  IconoCaja, TarjetaTerritorial, KpiMapa, IndicadorEncabezado, SeccionPanelOscuro,
+  IconoCaja, TarjetaTerritorial,
   SelectorColorRapido, ControlTamanoPuntos,
 } from '../components/mapa/PanelesMapa';
 import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
@@ -2403,392 +2403,437 @@ export function MapaGeorreferenciacion() {
 
 
 
+
+  // ── REDISEÑO: gestor de capas · panel derecho · buscador ─────────────────
+  // Solo organiza la interfaz alrededor de las capas que YA existen
+  // (capas, capasPuntos, capa temporal): no cambia sus datos ni su lógica.
+  const [gestorAbierto, setGestorAbierto] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1280);
+  const [pestanaDerecha, setPestanaDerecha] = useState<'config' | 'leyenda' | 'analisis'>('leyenda');
+  const [filtroGestor, setFiltroGestor] = useState('');
+  const [gruposCerrados, setGruposCerrados] = useState<Record<string, boolean>>({});
+  const [menuCapaAbierto, setMenuCapaAbierto] = useState<string | null>(null);
+  const [textoUbicacion, setTextoUbicacion] = useState('');
+  const [opcionesDescargaAbiertas, setOpcionesDescargaAbiertas] = useState(false);
+
+  type GrupoCapa = 'policial' | 'territorial' | 'contexto' | 'personalizada';
+  const grupoDeCapa = (c: CapaGeografica): GrupoCapa => {
+    const n = normalizar(c.nombre).replace(/[_-]/g, ' ');
+    if (c.dimension === 'estacion' || c.dimension === 'cuadrante' || /ESTACION|\bCAI\b|CUADRANT|ZONAS? (DE )?ATENCION|JURIS|POLICIA|MEPOY/.test(n)) return 'policial';
+    if (c.dimension === 'barrioHecho' || /MUNICIP|COMUNA|BARRIO|LIMITE|VEREDA|CORREGIM|PERIMETRO|URBAN|RURAL|DEPARTAMENT|MANZANA|SECTOR|LOCALIDAD/.test(n)) return 'territorial';
+    if (/\bVIA|VIAL|CALLE|RIO|HIDRO|QUEBRADA|COLEGIO|ESCUELA|HOSPITAL|SALUD|EQUIPAMIENTO|CAMARA|PARQUE|ESTABLECIMIENTO|COMERCI|INSTITUC|IGLESIA|TRANSPORTE|ESTACION DE SERVICIO/.test(n)) return 'contexto';
+    return 'personalizada';
+  };
+  const tipoGeometria = (c: CapaGeografica): string => {
+    const tipos = new Set(extraerFeatures(c.geojson).slice(0, 200).map((f: any) => String(f?.geometry?.type ?? '')));
+    const pol = tipos.has('Polygon') || tipos.has('MultiPolygon');
+    const lin = tipos.has('LineString') || tipos.has('MultiLineString');
+    const pto = tipos.has('Point') || tipos.has('MultiPoint');
+    return [pol && 'Polígono', lin && 'Línea', pto && 'Punto'].filter(Boolean).join(' · ') || 'Geometría';
+  };
+  const acercarACapa = (geojson: unknown) => {
+    try {
+      const b = L.geoJSON(geojson as any).getBounds();
+      if (b.isValid()) mapaRef.current?.fitBounds(b, { padding: [24, 24], maxZoom: 17 });
+    } catch { /* geometría inválida */ }
+  };
+  const GRUPOS_GESTOR: { id: GrupoCapa; titulo: string; color: string; icono: React.ReactNode }[] = [
+    { id: 'territorial', titulo: 'Límites territoriales', color: '#2f6fdb', icono: <MapIcon size={16} /> },
+    { id: 'policial', titulo: 'Estructura policial', color: '#116762', icono: <Shield size={16} /> },
+    { id: 'contexto', titulo: 'Capas de contexto', color: '#7c3aed', icono: <Landmark size={16} /> },
+    { id: 'personalizada', titulo: 'Capas personalizadas y otras', color: '#d97706', icono: <FolderOpen size={16} /> },
+  ];
+  const capasPorGrupo = useMemo(() => {
+    const m: Record<GrupoCapa, CapaGeografica[]> = { policial: [], territorial: [], contexto: [], personalizada: [] };
+    for (const c of capas) m[grupoDeCapa(c)].push(c);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capas]);
+  const coincideGestor = (nombre: string) => !filtroGestor.trim() || normalizar(nombre).includes(normalizar(filtroGestor));
+  const alternarGrupo = (id: string) => setGruposCerrados((prev) => ({ ...prev, [id]: !prev[id] }));
+  const todosLosGrupos = ['eventos', ...GRUPOS_GESTOR.map((g) => g.id)];
+
+  // Buscador de ubicación: nombres reales de las geometrías cargadas
+  // (barrios, CAI, estaciones, zonas, comunas, municipios…).
+  const indiceUbicaciones = useMemo(() => {
+    const lista: { capaId: string; capa: string; nombre: string; feature: any }[] = [];
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id) ?? capa.campoUnion ?? null;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const props = f?.properties ?? {};
+        const v = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /NOMBRE|NOM_|BARRIO|\bCAI\b|ESTACION|COMUNA|ZONA|CUADRANTE|MUNICIP|NAME/i.test(k))?.[1];
+        const nombre = String(v ?? '').trim();
+        if (nombre) lista.push({ capaId: capa.id, capa: capa.nombre, nombre, feature: f });
+      }
+    }
+    return lista;
+  }, [capas, camposUnionAutoDetectados]);
+  const resultadosUbicacion = useMemo(() => {
+    const q = normalizar(textoUbicacion);
+    if (q.length < 2) return [];
+    const vistos = new Set<string>();
+    return indiceUbicaciones.filter((u) => {
+      const k = `${u.capaId}|${normalizar(u.nombre)}`;
+      if (vistos.has(k) || !normalizar(u.nombre).includes(q)) return false;
+      vistos.add(k);
+      return true;
+    }).slice(0, 8);
+  }, [textoUbicacion, indiceUbicaciones]);
+  const irAUbicacion = (u: { capaId: string; nombre: string; feature: any }) => {
+    acercarACapa(u.feature);
+    setZonaSeleccionada({ capaId: u.capaId, feature: u.feature, nombre: u.nombre });
+    setDelitoZonaSeleccionada(null);
+    setTextoUbicacion('');
+  };
+  const centrarEnJurisdiccion = () => {
+    const visibles = capas.filter((c) => c.visible);
+    if (visibles.length > 0) { acercarACapa({ type: 'FeatureCollection', features: visibles.flatMap((c) => extraerFeatures(c.geojson)) }); return; }
+    const pts = todosLosPuntosDelitosVisibles;
+    if (pts.length > 1) mapaRef.current?.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon] as [number, number])), { padding: [24, 24] });
+  };
+
+  // Fuentes de eventos (barra superior y gestor): cifras REALES y filtradas.
+  const FUENTES_EVENTOS = [
+    { tipo: 'delitos' as const, etiqueta: 'Delitos', color: '#dc2626', icono: <ShieldAlert size={14} /> },
+    { tipo: 'operatividad' as const, etiqueta: 'Operatividad', color: '#d97706', icono: <ClipboardList size={14} /> },
+    { tipo: 'irisp1' as const, etiqueta: 'IRISP1', color: '#2563eb', icono: <FileText size={14} /> },
+    { tipo: 'macri' as const, etiqueta: 'Macri', color: '#7c3aed', icono: <Crosshair size={14} /> },
+    { tipo: 'rnmc' as const, etiqueta: 'RNMC', color: '#db2777', icono: <Scale size={14} /> },
+  ];
+  const enMapaPorFuente: Record<string, number> = {
+    delitos: puntosDelitosParaMostrar.length, operatividad: puntosOperatividadParaMostrar.length, irisp1: puntosIrisp1ParaMostrar.length,
+    macri: puntosMacriParaMostrar.length, rnmc: puntosRnmcParaMostrar.length,
+  };
+  const fuenteCargada = (tipo: TipoCapaPuntos) => capasPuntos.some((c) => c.tipo === tipo);
+  const fuenteVisible = (tipo: TipoCapaPuntos) => capasPuntos.some((c) => c.tipo === tipo && c.visible);
+  const fuentesCargadas = FUENTES_EVENTOS.filter((f) => fuenteCargada(f.tipo));
+  const todasVisibles = fuentesCargadas.length > 0 && fuentesCargadas.every((f) => fuenteVisible(f.tipo));
+  const totalEnMapa = FUENTES_EVENTOS.reduce((a, f) => a + (fuenteVisible(f.tipo) ? enMapaPorFuente[f.tipo] : 0), 0);
+  const capasVisiblesPoligono = capas.filter((c) => c.visible);
+  const columnasMapa = `${gestorAbierto ? '276px' : '46px'} minmax(0,1fr) ${configAbierta ? '308px' : '46px'}`;
+  const altoMapa = 'clamp(560px, calc(100vh - 210px), 980px)';
+
   return (
-    <div className="space-y-4">
-      {/* ── ENCABEZADO ── */}
-      <header className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-white to-[#eaf5f2] px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.05)]">
-        <div className="flex min-w-[280px] flex-1 items-center gap-3">
-          <IconoCaja tono="bg-[#10233f] text-white" tamano="lg"><MapIcon size={22} /></IconoCaja>
+    <div className="space-y-3">
+      {/* ── A. ENCABEZADO COMPACTO ── */}
+      <header className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-[0_1px_2px_rgba(16,35,63,0.05)]">
+        <div className="flex min-w-[260px] flex-1 items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#116762] to-[#0b4a46] text-white shadow-sm"><MapIcon size={21} /></span>
           <div className="min-w-0">
-            <h1 className="text-[21px] font-extrabold uppercase leading-tight tracking-tight text-[#10233f]">Mapa / Georreferenciación</h1>
-            <p className="text-[13px] text-slate-500">Visualiza, analiza y compara las diferentes capas geográficas sobre el territorio.</p>
+            <h1 className="text-[20px] font-extrabold leading-tight tracking-tight text-[#10233f]">Mapa / Georreferenciación</h1>
+            <p className="text-[12.5px] text-slate-500">Visualiza, analiza y compara la distribución territorial de los eventos</p>
           </div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
-          <IndicadorEncabezado icono={<CalendarDays size={20} />} titulo="Vigencia del mapa" valor={textoVigencia} />
-          <IndicadorEncabezado icono={<Database size={20} />} titulo="Registros analizados" valor={formatNumero(kpisFuentes.total)} />
-          <IndicadorEncabezado icono={<Layers size={20} />} titulo="Capas activas" valor={`${capasActivas} de ${capasDisponibles}`} />
-          <IndicadorEncabezado icono={<Clock size={20} />} titulo="Última actualización" valor={textoUltimaActualizacion} />
-        </div>
-        <button
-          type="button"
-          onClick={() => recargarCapasDelMapa()}
-          disabled={actualizandoMapa}
-          title="Vuelve a leer las capas guardadas y las compartidas por los demás equipos"
-          className="flex h-11 shrink-0 items-center gap-2 rounded-xl bg-[#10233f] px-4 text-[13px] font-bold text-white shadow-sm hover:bg-[#1c3557] disabled:opacity-60"
-        >
-          <RefreshCw size={16} className={clsx(actualizandoMapa && 'animate-spin')} /> {actualizandoMapa ? 'Actualizando…' : 'Actualizar mapa'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Periodo aplicado al mapa">
+            <CalendarDays size={18} className="text-[#116762]" />
+            <div className="leading-tight">
+              <p className="text-[10.5px] text-slate-500">Vigencia del mapa</p>
+              <p className="max-w-[220px] truncate text-[13px] font-bold text-[#10233f]" title={textoVigencia}>{textoVigencia}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Registros filtrados de las fuentes cargadas · de ellos, los que tienen coordenadas y se dibujan en el mapa">
+            <Database size={18} className="text-[#116762]" />
+            <div className="leading-tight">
+              <p className="text-[10.5px] text-slate-500">Registros filtrados · en el mapa</p>
+              <p className="text-[13px] font-bold text-[#10233f]">{formatNumero(kpisFuentes.total)} <span className="font-semibold text-slate-400">·</span> <span className="text-[#116762]">{formatNumero(totalEnMapa)}</span></p>
+            </div>
+          </div>
+          <div className="hidden items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 2xl:flex" title="Última actualización de los datos">
+            <Clock size={18} className="text-[#116762]" />
+            <div className="leading-tight">
+              <p className="text-[10.5px] text-slate-500">Actualización</p>
+              <p className="text-[13px] font-bold text-[#10233f]">{textoUltimaActualizacion}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => recargarCapasDelMapa()}
+            disabled={actualizandoMapa}
+            title="Vuelve a leer las capas guardadas y las compartidas por los demás equipos"
+            className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[#116762] px-4 text-[13px] font-bold text-white shadow-sm hover:bg-[#0f5f57] disabled:opacity-60"
+          >
+            <RefreshCw size={15} className={clsx(actualizandoMapa && 'animate-spin')} /> {actualizandoMapa ? 'Actualizando…' : 'Actualizar mapa'}
+          </button>
+          <button type="button" onClick={() => setPantallaCompleta((v) => !v)} title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'} aria-label="Pantalla completa" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#10233f] hover:bg-slate-50">
+            {pantallaCompleta ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[264px_minmax(0,1fr)]">
-        {/* ── PANEL IZQUIERDO: capas, área geográfica, capas cargadas, barrios ── */}
-        <aside className="order-2 rounded-2xl bg-[#10233f] text-white shadow-sm lg:order-none lg:sticky lg:top-0 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto [scrollbar-width:thin]">
-          <SeccionPanelOscuro titulo="Capas de visualización" icono={<Layers size={15} />}>
-            <div className="space-y-1">
-              {([
-                ['delitos', 'Delitos', '#dc2626'], ['operatividad', 'Operatividad', '#d97706'], ['irisp1', 'IRISP1', '#2563eb'], ['macri', 'Macri', '#7c3aed'], ['rnmc', 'RNMC', '#db2777'],
-              ] as const).map(([tipo, etiqueta, color]) => {
-                const cargada = capasPuntos.some((c) => c.tipo === tipo);
-                const n = tipo === 'delitos' ? kpisFuentes.enMapaDelitos : kpisFuentes.valores[tipo];
-                return (
-                  <label key={tipo} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-white/5">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-[#22a67a]"
-                      checked={capasPuntos.some((c) => c.tipo === tipo && c.visible)}
-                      onChange={(e) => alternarVisibilidadPorTipo(tipo, e.target.checked)}
-                    />
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: colorCapa(tipo, color) }} />
-                    <span className="flex-1 truncate">{etiqueta}</span>
-                    <span className="text-[11px] tabular-nums text-slate-400">{cargada && n != null ? formatNumero(n) : 'sin capa'}</span>
-                  </label>
-                );
-              })}
-              {capasPuntos.filter((c) => c.tipo === 'generico').map((capa) => (
-                <label key={capa.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-white/5">
-                  <input type="checkbox" className="h-4 w-4 accent-[#22a67a]" checked={capa.visible} onChange={(e) => actualizarCapaPuntos(capa.id, { visible: e.target.checked })} />
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: '#116762' }} />
-                  <span className="flex-1 truncate" title={capa.nombre}>{capa.nombre}</span>
-                  <span className="text-[11px] tabular-nums text-slate-400">{formatNumero(capa.puntos.length)}</span>
-                </label>
-              ))}
-              <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-white/5">
-                <input type="checkbox" className="h-4 w-4 accent-[#22a67a]" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} />
-                <span className="flex-1 truncate">Comparar IRISP1 vs Delitos</span>
-              </label>
-            </div>
-            <div className="mt-2.5 grid grid-cols-2 gap-1 rounded-lg bg-white/5 p-1" role="group" aria-label="Modo de visualización (se pueden activar los dos)">
-              {([['calor', 'Mapa de calor', verCalor], ['puntos', 'Puntos', verPuntos]] as const).map(([modo, texto, activo]) => (
-                <button
-                  key={modo}
-                  type="button"
-                  aria-pressed={activo}
-                  onClick={() => alternarModoVista(modo)}
-                  title={activo ? `Ocultar ${texto.toLowerCase()} (debe quedar al menos uno)` : `Mostrar también ${texto.toLowerCase()}`}
-                  className={clsx('flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-semibold', activo ? 'bg-white text-[#10233f]' : 'text-slate-200 hover:bg-white/10')}
-                >
-                  <span className={clsx('flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[9px] leading-none', activo ? 'border-[#116762] bg-[#116762] text-white' : 'border-white/40')}>{activo ? '✓' : ''}</span>
-                  {texto}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-[10.5px] leading-snug text-slate-400">Puede activar los dos. La descarga sale con lo que esté activo.</p>
-          </SeccionPanelOscuro>
-
-          <SeccionPanelOscuro titulo="Área geográfica" icono={<LocateFixed size={15} />}>
-            <IrACoordenadas oscuro onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
-            <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">Ubica una coordenada en el mapa: muestra su estación, CAI, cuadrante y barrio.</p>
-          </SeccionPanelOscuro>
-
-          <SeccionPanelOscuro titulo={`Capas cargadas (${capas.length})`} icono={<FolderOpen size={15} />}>
-            {estadoCompartir && (
-              <p className="mb-2 rounded-md bg-white/10 px-2 py-1.5 text-[11px] leading-snug text-slate-200">{estadoCompartir}</p>
-            )}
-            {capas.length === 0 ? (
-              <p className="text-[11.5px] text-slate-400">Sin capas geográficas cargadas. El mapa se centra en Popayán por defecto.</p>
-            ) : (
-              <div className="space-y-0.5">
-                {capas.map((capa) => {
-                  const detectado = camposUnionAutoDetectados.get(capa.id);
-                  return (
-                    <div key={capa.id}>
-                      <div className="flex items-center gap-1.5 rounded-md px-1 py-[3px] hover:bg-white/5">
-                        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[12.5px]">
-                          <input type="checkbox" className="h-3.5 w-3.5 accent-[#22a67a]" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
-                          <span className="truncate" title={capa.nombre}>{capa.nombre}</span>
-                        </label>
-                        {/* Compartida = la ven todos los equipos (link interno y jefe).
-                            Si no, botón para compartirla (capas cargadas antes de que existiera esto). */}
-                        {capa.compartida ? (
-                          <span title="Compartida: la ven todos los equipos" className="shrink-0 text-emerald-300"><Cloud size={13} /></span>
-                        ) : hayServidorParaCapas() && !soloLectura ? (
-                          <button
-                            type="button"
-                            disabled={compartiendo != null}
-                            onClick={() => compartirCapa(capa)}
-                            title="Solo está en este equipo — clic para compartirla con los demás"
-                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 ring-1 ring-amber-300/50 hover:bg-white/10 disabled:opacity-50"
-                          >
-                            {compartiendo === capa.id ? 'Subiendo…' : 'Compartir'}
-                          </button>
-                        ) : null}
-                        {puedeEliminarCapas && <button
-                          type="button"
-                          onClick={() => quitarCapa(capa.id)}
-                          title={`Eliminar capa "${capa.nombre}"`}
-                          className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-red-400"
-                        >
-                          <X size={13} />
-                        </button>}
-                      </div>
-                      {/* Si no se pudo detectar sola qué columna trae el nombre
-                          (CAI/Estación/Cuadrante), se elige a mano aquí. */}
-                      {!detectado && !soloLectura && (
-                        <div className="ml-6 mt-1 rounded-lg bg-amber-500/10 p-2 text-[11px] text-amber-200">
-                          <p className="mb-1">No se detectó sola qué columna nombra esta capa — elige el campo correcto:</p>
-                          <select
-                            value=""
-                            onChange={(e) => actualizarCapa(capa.id, { campoUnion: e.target.value || null })}
-                            className="w-full rounded border border-amber-400/30 bg-slate-800 px-1.5 py-1 text-white"
-                          >
-                            <option value="">— Selecciona el campo —</option>
-                            {propiedadesDisponibles(capa.geojson).map((p) => <option key={p} value={p}>{p}</option>)}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <div className="mt-3 grid gap-1.5">
+      {/* ── B. BARRA DE FUENTES · MODO · BÚSQUEDA ── */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-[0_1px_2px_rgba(16,35,63,0.04)]">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Fuentes de eventos en el mapa">
+          <button
+            type="button"
+            aria-pressed={todasVisibles}
+            disabled={fuentesCargadas.length === 0}
+            onClick={() => fuentesCargadas.forEach((f) => alternarVisibilidadPorTipo(f.tipo, !todasVisibles))}
+            title={todasVisibles ? 'Ocultar todas las fuentes cargadas' : 'Mostrar todas las fuentes cargadas'}
+            className={clsx('flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12.5px] font-bold transition', todasVisibles ? 'border-[#116762] bg-[#116762] text-white shadow-sm' : 'border-slate-200 bg-white text-[#10233f] hover:border-[#116762]/50')}
+          >
+            <Layers size={14} /> Todos
+            <span className={clsx('rounded-full px-1.5 text-[11px] font-bold tabular-nums', todasVisibles ? 'bg-white/20' : 'bg-slate-100 text-slate-600')}>{formatNumero(kpisFuentes.total)}</span>
+          </button>
+          {FUENTES_EVENTOS.map((f) => {
+            const cargada = fuenteCargada(f.tipo);
+            const activa = fuenteVisible(f.tipo);
+            const valor = kpisFuentes.valores[f.tipo];
+            const color = colorCapa(f.tipo, f.color);
+            return (
               <button
+                key={f.tipo}
                 type="button"
-                onClick={() => setMostrarSelectorFuentes(true)}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[12px] font-semibold hover:bg-white/20"
+                aria-pressed={activa}
+                disabled={!cargada}
+                onClick={() => alternarVisibilidadPorTipo(f.tipo, !activa)}
+                title={!cargada ? `${f.etiqueta}: sin datos cargados` : `${activa ? 'Ocultar' : 'Mostrar'} ${f.etiqueta} · ${formatNumero(valor ?? 0)} filtrados, ${formatNumero(enMapaPorFuente[f.tipo])} en el mapa`}
+                className={clsx('flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-55', activa ? 'text-[#10233f] shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300')}
+                style={activa ? { borderColor: color, background: `${color}14` } : undefined}
               >
-                <ListChecks size={14} /> Seleccionar fuentes
+                <span className="flex h-5 w-5 items-center justify-center rounded-full text-white" style={{ background: activa ? color : '#cbd5e1' }}>{f.icono}</span>
+                {f.etiqueta}
+                <span className="rounded-full bg-slate-100 px-1.5 text-[10.5px] font-bold tabular-nums text-slate-600">{cargada && valor != null ? formatNumero(valor) : 'Sin datos'}</span>
               </button>
-              {!soloLectura && (
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  title={'Shapefile (.zip) o GeoJSON. "Delitos" y "Operatividad" se toman automáticamente de "Actualizar información" cuando ese archivo trae Latitud/Longitud; RNMC se carga desde su propia pantalla.'}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-[12px] font-semibold hover:bg-white/20"
-                >
-                  <FileUp size={14} /> {cargando ? 'Procesando...' : 'Cargar capa'}
-                </button>
-              )}
-            </div>
-          </SeccionPanelOscuro>
-
-          <SeccionPanelOscuro titulo="Señalar barrios en el mapa" icono={<Home size={15} />}>
-            <div className="rounded-lg bg-white/5 p-2.5">
-              <p className="mb-1.5 text-[12px] font-semibold text-slate-200">Barrios más afectados</p>
-              <div className="grid grid-cols-3 gap-1">
-                {([[0, 'No'], [3, 'Top 3'], [5, 'Top 5']] as const).map(([valor, texto]) => (
-                  <button
-                    key={valor}
-                    type="button"
-                    onClick={() => setCantidadFlechasBarrio(valor)}
-                    className={clsx('rounded-md px-2 py-1.5 text-xs font-semibold', cantidadFlechasBarrio === valor ? 'bg-white text-brand-navy' : 'bg-white/10 hover:bg-white/20')}
-                  >
-                    {texto}
+            );
+          })}
+        </div>
+        <span className="mx-1 hidden h-7 w-px bg-slate-200 lg:block" />
+        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Modo de visualización (se pueden activar los dos)">
+          {([['calor', 'Mapa de calor', verCalor], ['puntos', 'Puntos', verPuntos]] as const).map(([modo, texto, activo]) => (
+            <button
+              key={modo}
+              type="button"
+              aria-pressed={activo}
+              onClick={() => alternarModoVista(modo)}
+              title={activo ? `Ocultar ${texto.toLowerCase()} (debe quedar al menos uno)` : `Mostrar también ${texto.toLowerCase()} · la descarga sale con lo que esté activo`}
+              className={clsx('flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-semibold transition', activo ? 'bg-white text-[#10233f] shadow-sm' : 'text-slate-500 hover:text-[#10233f]')}
+            >
+              <span className={clsx('flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[9px] leading-none', activo ? 'border-[#116762] bg-[#116762] text-white' : 'border-slate-300')}>{activo ? '✓' : ''}</span>
+              {texto}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+          <IrATerritorio capas={capas} obtenerMapa={() => mapaRef.current} />
+          <div className="relative min-w-0 flex-1 sm:w-[260px] sm:flex-none">
+            <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={textoUbicacion}
+              onChange={(e) => setTextoUbicacion(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && resultadosUbicacion[0]) irAUbicacion(resultadosUbicacion[0]); if (e.key === 'Escape') setTextoUbicacion(''); }}
+              placeholder="Buscar barrio, CAI, estación, zona…"
+              aria-label="Buscar ubicación en las capas cargadas"
+              className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-8 pr-2 text-[12.5px] text-[#10233f] placeholder:text-slate-400 focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
+            />
+            {textoUbicacion.trim().length >= 2 && (
+              <div className="absolute right-0 top-full z-[1200] mt-1 w-full min-w-[260px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                {resultadosUbicacion.length === 0 ? (
+                  <p className="px-3 py-2 text-[12px] text-slate-400">Sin coincidencias en las capas cargadas.</p>
+                ) : resultadosUbicacion.map((u) => (
+                  <button key={`${u.capaId}-${u.nombre}`} type="button" onClick={() => irAUbicacion(u)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-[#f1f8f6]">
+                    <MapPin size={13} className="shrink-0 text-[#116762]" />
+                    <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{u.nombre}</span>
+                    <span className="max-w-[110px] truncate text-[10.5px] text-slate-400">{u.capa}</span>
                   </button>
                 ))}
               </div>
-              <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">
-                Para señalar más barrios, elígelos en el filtro <b className="text-slate-300">Barrio</b>: se suman al Top, que sigue visible.
-              </p>
-              {flechasBarrios.some((f) => f.manual) && (
-                <ul className="mt-2 space-y-0.5 text-[11px] text-slate-200">
-                  {flechasBarrios.filter((f) => f.manual).map((f) => (
-                    <li key={f.barrio} className="flex items-center justify-between gap-2">
-                      <span className="truncate">
-                        {f.barrio}
-                        <span className="ml-1 rounded bg-sky-400/20 px-1 text-[9.5px] font-semibold text-sky-200">agregado</span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1">
-                        <b>{f.casos.toLocaleString('es-CO')}</b>
-                        <button
-                          type="button"
-                          title={`Quitar ${f.barrio}`}
-                          onClick={() => setFiltrosMapa((prev) => ({ ...prev, barrioHecho: prev.barrioHecho.filter((b) => normalizarNombre(b) !== normalizarNombre(f.barrio)) }))}
-                          className="rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-red-300"
-                        >
-                          <X size={11} />
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {barriosManualesSinUbicar.length > 0 && (
-                <p className="mt-1.5 text-[10.5px] leading-snug text-amber-300">
-                  Sin ubicación en el mapa (no tienen casos con coordenadas con estos filtros ni polígono de barrio cargado): {barriosManualesSinUbicar.join(', ')}.
-                </p>
-              )}
-              {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && barriosManuales.length === 0 && (
-                <p className="mt-2 text-[11px] text-slate-400">Sin barrios con casos ubicables para estos filtros.</p>
-              )}
-              {flechasBarrios.length > 0 && (
-                <p className="mt-2 text-[10.5px] leading-snug text-slate-400">Arrastra cualquier rótulo en el mapa para reubicarlo; la flecha lo sigue y la descarga sale igual.</p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setPosicionesRotulo({})}
-              disabled={Object.keys(posicionesRotulo).length === 0}
-              title={Object.keys(posicionesRotulo).length === 0 ? 'Los rótulos ya están en su posición automática' : 'Devuelve los rótulos arrastrados a su posición automática'}
-              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/20 px-2 py-1.5 text-[12px] font-semibold hover:bg-white/10 disabled:cursor-default disabled:opacity-50"
-            >
-              <RotateCcw size={13} /> Reacomodar automáticamente
-            </button>
-          </SeccionPanelOscuro>
-        </aside>
-
-        {/* ── ÁREA PRINCIPAL ── (en tablet/celular va primero: filtros y mapa arriba, el panel de capas después) */}
-        <div className="order-1 min-w-0 space-y-4 lg:order-none">
-          {/* Los filtros del mapa son los del FILTRO PRINCIPAL (arriba de la
-              página): no hay un segundo panel. Aquí solo se recuerda qué está
-              aplicado, con acceso directo para limpiar. */}
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#cfe8e1] bg-[#f3faf8] px-3 py-2 text-[12.5px] text-[#0b4a46]">
-            <SlidersHorizontal size={15} className="shrink-0" />
-            <span className="font-semibold">El mapa usa el filtro principal.</span>
-            <span className="text-slate-600">{chipsFiltros.length > 0 ? chipsFiltros.map((c) => c.texto).join(' · ') : 'Sin filtros'}{limiteVigenciaActual ? ` · solo vigencia ${limiteVigenciaActual.inicio.getFullYear()} (elige Año o Fecha para otro periodo)` : ''}</span>
-            <span className="ml-auto text-slate-600"><b className="text-[#10233f]">{formatNumero(filteredRecords.length)}</b> registros de delitos</span>
+            )}
           </div>
+        </div>
+      </div>
 
-          <div className={clsx('grid grid-cols-1 items-start gap-4', configAbierta ? '2xl:grid-cols-[minmax(0,1fr)_272px]' : '2xl:grid-cols-[minmax(0,1fr)_48px]')}>
-            <div className="min-w-0 space-y-4">
-              {/* KPIs — mismos conjuntos filtrados que dibuja el mapa */}
-              <div className="@container"><div className="grid grid-cols-2 gap-2.5 @min-[560px]:grid-cols-4 @min-[1000px]:grid-cols-7">
-                <KpiMapa destacado titulo="Registros analizados" valor={kpisFuentes.total} detalle="Fuentes filtradas" icono={<Target size={18} />} tono={TONOS_KPI.slate} />
-                {([
-                  ['delitos', 'Delitos', <ShieldAlert key="i" size={16} />, TONOS_KPI.verde],
-                  ['operatividad', 'Operatividad', <ClipboardList key="i" size={16} />, TONOS_KPI.ambar],
-                  ['irisp1', 'IRISP1', <FileText key="i" size={16} />, TONOS_KPI.azul],
-                  ['macri', 'Macri', <Crosshair key="i" size={16} />, TONOS_KPI.violeta],
-                  ['rnmc', 'RNMC', <Scale key="i" size={16} />, TONOS_KPI.rosa],
-                ] as const).map(([clave, titulo, icono, tono]) => {
-                  const valor = kpisFuentes.valores[clave];
-                  const pct = valor != null && kpisFuentes.total > 0 ? `${((valor / kpisFuentes.total) * 100).toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% del total` : 'Sin capa cargada';
-                  const detalle = pct;
-                  return <KpiMapa key={clave} titulo={titulo} valor={valor} detalle={detalle} icono={icono} tono={tono} />;
-                })}
-                <KpiMapa titulo="Capas activas" valor={capasActivas} detalle={`de ${capasDisponibles} disponibles`} icono={<Layers size={16} />} tono={TONOS_KPI.slate} />
-              </div></div>
+      {(chipsFiltros.length > 0 || limiteVigenciaActual) && (
+        <p className="flex flex-wrap items-center gap-1.5 px-1 text-[11.5px] text-slate-500">
+          <SlidersHorizontal size={13} className="text-[#116762]" />
+          <span className="font-semibold text-[#0b4a46]">El mapa usa el filtro principal:</span>
+          {chipsFiltros.length > 0 ? chipsFiltros.map((c) => c.texto).join(' · ') : 'sin filtros'}
+          {limiteVigenciaActual ? ` · solo vigencia ${limiteVigenciaActual.inicio.getFullYear()} (elija Año o Fecha para otro periodo)` : ''}
+        </p>
+      )}
 
-              {/* ── MAPA ── */}
-              <div className={clsx('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', pantallaCompleta && 'fixed inset-0 z-[9999] flex h-[100dvh] w-screen flex-col rounded-none border-0')}>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Fuentes visibles en el mapa">
-                    {([
-                      ['delitos', 'Delitos', '#dc2626'], ['operatividad', 'Operatividad', '#d97706'], ['irisp1', 'IRISP1', '#2563eb'], ['macri', 'Macri', '#7c3aed'], ['rnmc', 'RNMC', '#db2777'],
-                    ] as const).map(([tipo, etiqueta, color]) => {
-                      const activa = capasPuntos.some((c) => c.tipo === tipo && c.visible);
-                      return (
-                        <button
-                          key={tipo}
-                          type="button"
-                          aria-pressed={activa}
-                          onClick={() => alternarVisibilidadPorTipo(tipo, !activa)}
-                          title={activa ? `Ocultar ${etiqueta} del mapa` : `Mostrar ${etiqueta} en el mapa`}
-                          className={clsx('flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition', activa ? 'border-[#0f5f57] bg-[#0f5f57] text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300')}
-                        >
-                          <span className="h-2 w-2 rounded-full" style={{ background: activa ? '#ffffff' : colorCapa(tipo, color) }} /> {etiqueta}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Mapa base">
-                      {([['mapa', 'Mapa'], ['satelite', 'Satélite'], ['hibrido', 'Híbrido']] as const).map(([valor, texto]) => (
-                        <button
-                          key={valor}
-                          type="button"
-                          aria-pressed={tipoMapa === valor}
-                          onClick={() => setTipoMapa(valor)}
-                          className={clsx('rounded-md px-3 py-1 text-[12px] font-semibold', tipoMapa === valor ? 'bg-[#10233f] text-white shadow-sm' : 'text-slate-600 hover:bg-white')}
-                        >
-                          {texto}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setPantallaCompleta((v) => !v)}
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      {pantallaCompleta ? <><Minimize2 size={14} /> Salir de pantalla completa</> : <><Maximize2 size={14} /> Pantalla completa</>}
+      {/* ── C · D · E: GESTOR DE CAPAS · MAPA · PANEL DERECHO ── */}
+      <div className="grid grid-cols-1 items-start gap-3 xl:[grid-template-columns:var(--cols-mapa)]" style={{ ['--cols-mapa' as string]: columnasMapa }}>
+        {/* C. GESTOR DE CAPAS */}
+        {gestorAbierto ? (
+          <aside className="order-2 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,35,63,0.04)] xl:order-none xl:sticky xl:top-0" style={{ maxHeight: altoMapa }} aria-label="Gestor de capas">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
+              <span className="flex items-center gap-2 text-[15px] font-extrabold text-[#10233f]"><Layers size={18} className="text-[#116762]" /> Gestor de capas</span>
+              <button type="button" onClick={() => setGestorAbierto(false)} title="Contraer el gestor" aria-label="Contraer el gestor de capas" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"><ChevronsLeft size={17} /></button>
+            </div>
+            <div className="space-y-2 border-b border-slate-100 px-3 py-2">
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input type="search" value={filtroGestor} onChange={(e) => setFiltroGestor(e.target.value)} placeholder="Buscar capas…" aria-label="Buscar capas" className="h-8 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-[12.5px] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20" />
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 text-[11.5px] font-semibold text-slate-600">
+                <button type="button" onClick={() => setGruposCerrados({})} className="rounded-lg border border-slate-200 py-1 hover:bg-slate-50">Expandir todo</button>
+                <button type="button" onClick={() => setGruposCerrados(Object.fromEntries(todosLosGrupos.map((g) => [g, true])))} className="rounded-lg border border-slate-200 py-1 hover:bg-slate-50">Contraer todo</button>
+              </div>
+              {estadoCompartir && <p className="rounded-md bg-[#eef7f4] px-2 py-1.5 text-[11px] leading-snug text-[#0b4a46]">{estadoCompartir}</p>}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin]">
+              {/* 1. Eventos delictivos */}
+              {(() => {
+                const filas = [
+                  ...FUENTES_EVENTOS.filter((f) => coincideGestor(f.etiqueta)).map((f) => ({ id: f.tipo, nombre: f.etiqueta, color: colorCapa(f.tipo, f.color), cargada: fuenteCargada(f.tipo), visible: fuenteVisible(f.tipo), n: f.tipo === 'delitos' ? kpisFuentes.enMapaDelitos : kpisFuentes.valores[f.tipo], alternar: (v: boolean) => alternarVisibilidadPorTipo(f.tipo, v) })),
+                  ...capasPuntos.filter((c) => c.tipo === 'generico' && coincideGestor(c.nombre)).map((c) => ({ id: c.id, nombre: c.nombre, color: '#116762', cargada: true, visible: c.visible, n: c.puntos.length as number | null, alternar: (v: boolean) => actualizarCapaPuntos(c.id, { visible: v }) })),
+                ];
+                const cerrado = gruposCerrados.eventos;
+                return (
+                  <section className="mb-1.5">
+                    <button type="button" onClick={() => alternarGrupo('eventos')} aria-expanded={!cerrado} className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-slate-50">
+                      <span className="text-[#dc2626]"><Target size={16} /></span>
+                      <span className="flex-1 text-[13px] font-bold text-[#10233f]">Eventos delictivos <span className="font-semibold text-slate-400">({filas.length})</span></span>
+                      <ChevronDown size={15} className={clsx('text-slate-400 transition', cerrado && '-rotate-90')} />
                     </button>
-                    {/* Descarga del mapa GENERAL — siempre disponible. La imagen
-                        se arma con el mapa de calles, sea cual sea el mapa base. */}
-                    <button
-                      type="button"
-                      onClick={descargarMapaGeneral}
-                      disabled={descargandoZona}
-                      title="Descarga la vista actual (la imagen usa el mapa de calles)"
-                      className="flex items-center gap-1.5 rounded-lg bg-brand-green px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Download size={14} /> {descargandoZona ? 'Generando...' : 'Descargar mapa'}
-                    </button>
-                    <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] text-slate-700" title="Qué incluir en la imagen descargada">
-                      <span className="font-semibold text-slate-500">En la descarga:</span>
-                      <label className="flex cursor-pointer items-center gap-1"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.rotulos} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, rotulos: e.target.checked }))} /> Etiquetas de barrios</label>
-                      <label className="flex cursor-pointer items-center gap-1"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.totales} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, totales: e.target.checked }))} /> Cuadro de totales</label>
-                      <label className="flex cursor-pointer items-center gap-1" title="Sin marcar: el mapa de calles cubre toda la imagen"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.fondoTransparente} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, fondoTransparente: e.target.checked }))} /> Fondo transparente</label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Leyendas de las demás fuentes (la de Delitos va sobre el mapa) */}
-                {((verCalor && (mostrarCalorIrisp1 || mostrarCalorOperatividad || mostrarCalorMacri || mostrarCalorRnmc || (modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1)))
-                  || (verPuntos && (mostrarCalorDelitos || mostrarCalorIrisp1))) && (
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
-                    {verCalor && (
-                      <>
-                        {mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
-                        {mostrarCalorOperatividad && (
-                          <LeyendaDensidadKernel
-                            titulo="Densidad de operatividad"
-                            colores={paletaCalorDelitos}
-                            resultado={kernelOperatividad}
-                            eventos={puntosOperatividadParaMostrar.length}
-                            consultando={consultarOperatividad}
-                            onConsultar={() => setConsultarOperatividad((v) => !v)}
-                          />
-                        )}
-                        {mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
-                        {mostrarCalorRnmc && <LeyendaGradiente titulo="RNMC" colores={['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843']} />}
-                        {modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1 && (
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-3 w-3 rounded-full" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} />
-                            Correspondencia espacial (pasa el mouse sobre el mapa)
-                          </span>
-                        )}
-                      </>
+                    {!cerrado && (
+                      <div className="space-y-0.5 pb-1 pl-1">
+                        {filas.map((f) => (
+                          <label key={f.id} className={clsx('flex items-center gap-2 rounded-md px-1.5 py-1 text-[12.5px] hover:bg-slate-50', f.cargada ? 'cursor-pointer text-[#10233f]' : 'cursor-not-allowed text-slate-400')}>
+                            <input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" disabled={!f.cargada} checked={f.visible} onChange={(e) => f.alternar(e.target.checked)} />
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: f.cargada ? f.color : '#cbd5e1' }} />
+                            <span className="min-w-0 flex-1 truncate" title={f.nombre}>{f.nombre}</span>
+                            <span className="text-[10.5px] tabular-nums text-slate-400">{f.cargada && f.n != null ? formatNumero(f.n) : 'sin datos'}</span>
+                          </label>
+                        ))}
+                        <button type="button" onClick={() => setMostrarSelectorFuentes(true)} className="mt-1 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-semibold text-[#116762] hover:bg-[#f1f8f6]"><ListChecks size={13} /> Seleccionar fuentes (IRISP1 / Macri)</button>
+                      </div>
                     )}
-                    {/* Modo "Puntos" — color de cada delito realmente presente. */}
-                    {verPuntos && ([
-                      ['delitos', 'Delitos', mostrarCalorDelitos], ['irisp1', 'IRISP1', mostrarCalorIrisp1], ['operatividad', 'Operatividad', mostrarCalorOperatividad], ['macri', 'Macri', mostrarCalorMacri], ['rnmc', 'RNMC', mostrarCalorRnmc],
-                    ] as const).filter(([clave, , activo]) => activo && clave !== 'delitos' && clave !== 'irisp1' && coloresCapa[clave]).map(([clave, etiqueta]) => (
-                      <span key={`fijo-${clave}`} className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full ring-1 ring-slate-300" style={{ backgroundColor: coloresCapa[clave] }} />
-                        {etiqueta}
-                      </span>
-                    ))}
-                    {verPuntos && Array.from(new Set([
-                      ...(mostrarCalorDelitos ? puntosDelitosParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
-                      ...(mostrarCalorIrisp1 ? puntosIrisp1ParaMostrar.map((p) => (p as any).delitoCorto ?? 'Sin delito') : []),
-                    ])).sort().map((delito) => (
-                      <span key={delito} className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorDelitoFinal(mostrarCalorDelitos ? 'delitos' : 'irisp1', delito, colorPorDelitoSimple(delito)) }} />
-                        {delito}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                  </section>
+                );
+              })()}
 
-                <div
-                  data-mapa-contenedor
-                  className={clsx('relative isolate w-full', pantallaCompleta && 'min-h-0 flex-1')}
-                  style={pantallaCompleta ? undefined : { height: 'clamp(480px, 66vh, 800px)' }}
-                >
+              {/* 2–5. Capas geográficas, agrupadas por su tipo real */}
+              {GRUPOS_GESTOR.map((g) => {
+                const lista = capasPorGrupo[g.id].filter((c) => coincideGestor(c.nombre));
+                const esTemporal = g.id === 'personalizada' && capaArchivoGeorreferenciado.archivo && coincideGestor(capaArchivoGeorreferenciado.archivo.name ?? 'Capa temporal');
+                if (lista.length === 0 && !esTemporal && (filtroGestor.trim() || capasPorGrupo[g.id].length === 0) && g.id !== 'personalizada') return null;
+                const cerrado = gruposCerrados[g.id];
+                const visibles = capasPorGrupo[g.id].filter((c) => c.visible).length;
+                return (
+                  <section key={g.id} className="mb-1.5 border-t border-slate-100 pt-1.5">
+                    <button type="button" onClick={() => alternarGrupo(g.id)} aria-expanded={!cerrado} className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-slate-50">
+                      <span style={{ color: g.color }}>{g.icono}</span>
+                      <span className="flex-1 text-[13px] font-bold text-[#10233f]">{g.titulo} <span className="font-semibold text-slate-400">({capasPorGrupo[g.id].length + (g.id === 'personalizada' && capaArchivoGeorreferenciado.archivo ? 1 : 0)})</span></span>
+                      {visibles > 0 && <span className="rounded-full px-1.5 text-[10px] font-bold text-white" style={{ background: g.color }}>{visibles}</span>}
+                      <ChevronDown size={15} className={clsx('text-slate-400 transition', cerrado && '-rotate-90')} />
+                    </button>
+                    {!cerrado && (
+                      <div className="space-y-0.5 pb-1 pl-1">
+                        {lista.length === 0 && !esTemporal && <p className="px-1.5 py-1 text-[11px] text-slate-400">{filtroGestor ? 'Sin coincidencias.' : 'Sin capas en este grupo.'}</p>}
+                        {lista.map((capa) => {
+                          const detectado = camposUnionAutoDetectados.get(capa.id);
+                          const menu = menuCapaAbierto === capa.id;
+                          return (
+                            <div key={capa.id} className="relative">
+                              <div className="group flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-slate-50">
+                                <input type="checkbox" className="h-3.5 w-3.5 shrink-0 accent-[#116762]" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} aria-label={`Mostrar ${capa.nombre}`} />
+                                <span className="h-2.5 w-2.5 shrink-0 rounded-sm border" style={{ borderColor: g.color, background: capa.visible ? `${g.color}33` : 'transparent' }} />
+                                <button type="button" onClick={() => actualizarCapa(capa.id, { visible: !capa.visible })} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-[#10233f]" title={`${capa.nombre} · ${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`}>{capa.nombre}</button>
+                                {capa.compartida ? <Cloud size={12} className="shrink-0 text-emerald-500" aria-label="Compartida con todos los equipos" /> : !detectado ? <AlertCircle size={12} className="shrink-0 text-amber-500" aria-label="Falta elegir el campo de nombre" /> : null}
+                                <button type="button" onClick={() => setMenuCapaAbierto(menu ? null : capa.id)} aria-expanded={menu} aria-label={`Opciones de ${capa.nombre}`} className="shrink-0 rounded p-0.5 text-slate-400 opacity-70 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"><MoreHorizontal size={14} /></button>
+                              </div>
+                              {menu && (
+                                <div className="mx-1.5 mb-1 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11.5px]">
+                                  <p className="text-slate-500">{tipoGeometria(capa)} · {formatNumero(contarFeatures(capa.geojson))} elementos{detectado ? ` · campo: ${detectado}` : ''}</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    <button type="button" onClick={() => { acercarACapa(capa.geojson); setMenuCapaAbierto(null); }} className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-0.5 font-semibold text-[#10233f] hover:bg-[#f1f8f6]"><LocateFixed size={12} /> Acercar</button>
+                                    {!capa.compartida && hayServidorParaCapas() && !soloLectura && (
+                                      <button type="button" disabled={compartiendo != null} onClick={() => compartirCapa(capa)} className="flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"><Cloud size={12} /> {compartiendo === capa.id ? 'Subiendo…' : 'Compartir'}</button>
+                                    )}
+                                    {puedeEliminarCapas && (
+                                      <button type="button" onClick={() => { quitarCapa(capa.id); setMenuCapaAbierto(null); }} className="flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-0.5 font-semibold text-rose-600 hover:bg-rose-50"><Trash2 size={12} /> Retirar</button>
+                                    )}
+                                  </div>
+                                  {!soloLectura && (
+                                    <label className="block text-slate-500">
+                                      Campo que nombra la capa
+                                      <select value={detectado ?? ''} onChange={(e) => actualizarCapa(capa.id, { campoUnion: e.target.value || null })} className="mt-0.5 w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-[11.5px] text-[#10233f]">
+                                        <option value="">— Detectar automáticamente —</option>
+                                        {propiedadesDisponibles(capa.geojson).map((p) => <option key={p} value={p}>{p}</option>)}
+                                      </select>
+                                    </label>
+                                  )}
+                                </div>
+                              )}
+                              {!detectado && !soloLectura && !menu && (
+                                <button type="button" onClick={() => setMenuCapaAbierto(capa.id)} className="ml-6 text-[10.5px] font-semibold text-amber-600 hover:underline">Elegir el campo de nombre</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {esTemporal && (
+                          <p className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px] text-[#10233f]">
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#d97706]" />
+                            <span className="min-w-0 flex-1 truncate">{capaArchivoGeorreferenciado.archivo?.name ?? 'Capa temporal'}</span>
+                            <span className="rounded bg-amber-100 px-1 text-[9.5px] font-bold uppercase text-amber-700">temporal</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+            {!soloLectura && (
+              <div className="border-t border-slate-100 p-3">
+                <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#116762] px-3 py-2.5 text-[13px] font-bold text-white shadow-sm hover:bg-[#0f5f57]">
+                  <FileUp size={16} /> {cargando ? 'Procesando…' : 'Cargar capa georreferenciada'}
+                </button>
+                <p className="mt-1.5 text-center text-[10.5px] text-slate-400">Shapefile (.zip) o GeoJSON. Archivos con coordenadas (CSV, XLS, XLSX): «Capa temporal», debajo del mapa.</p>
+              </div>
+            )}
+          </aside>
+        ) : (
+          <button type="button" onClick={() => setGestorAbierto(true)} title="Abrir el gestor de capas" className="order-2 flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-[12.5px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50 xl:order-none xl:sticky xl:top-0 xl:flex-col xl:px-0 xl:py-4">
+            <Layers size={17} className="text-[#116762]" />
+            <span className="xl:[writing-mode:vertical-rl]">Gestor de capas</span>
+            <span className="rounded-full bg-[#116762] px-1.5 text-[10px] font-bold text-white">{capasActivas}</span>
+          </button>
+        )}
+
+        {/* D. MAPA PROTAGONISTA */}
+        <div className="order-1 min-w-0 xl:order-none">
+          <div className={clsx('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', pantallaCompleta && 'fixed inset-0 z-[9999] flex h-[100dvh] w-screen flex-col rounded-none border-0')}>
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-2.5 py-1.5">
+              <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Fondo del mapa">
+                {([['mapa', 'Mapa', <MapIcon key="i" size={14} />], ['satelite', 'Satélite', <Globe2 key="i" size={14} />], ['hibrido', 'Híbrido', <Layers key="i" size={14} />]] as const).map(([valor, texto, icono]) => (
+                  <button key={valor} type="button" aria-pressed={tipoMapa === valor} onClick={() => setTipoMapa(valor)} className={clsx('flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px] font-semibold transition', tipoMapa === valor ? 'bg-[#116762] text-white shadow-sm' : 'text-slate-600 hover:bg-white')}>
+                    {icono} {texto}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={centrarEnJurisdiccion} title="Encuadrar las capas visibles (o los puntos)" className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"><LocateFixed size={14} /> Encuadrar</button>
+              <span className="hidden text-[11.5px] text-slate-500 md:inline">{capasVisiblesPoligono.length} capa{capasVisiblesPoligono.length === 1 ? '' : 's'} geográfica{capasVisiblesPoligono.length === 1 ? '' : 's'} visible{capasVisiblesPoligono.length === 1 ? '' : 's'} · {formatNumero(totalEnMapa)} punto{totalEnMapa === 1 ? '' : 's'} en el mapa</span>
+              <div className="ml-auto flex items-center gap-1.5">
+                <div className="relative">
+                  <div className="flex overflow-hidden rounded-xl">
+                    <button type="button" onClick={descargarMapaGeneral} disabled={descargandoZona} title="Descarga la vista actual (la imagen usa el mapa de calles) con el calor y/o los puntos que estén activos" className="flex items-center gap-1.5 bg-[#116762] px-3 py-1.5 text-[12px] font-bold text-white hover:bg-[#0f5f57] disabled:cursor-not-allowed disabled:opacity-60">
+                      <Download size={14} /> {descargandoZona ? 'Generando…' : 'Descargar mapa'}
+                    </button>
+                    <button type="button" onClick={() => setOpcionesDescargaAbiertas((v) => !v)} aria-expanded={opcionesDescargaAbiertas} aria-label="Opciones de la descarga" title="Qué incluir en la imagen" className="border-l border-white/25 bg-[#116762] px-1.5 text-white hover:bg-[#0f5f57]"><ChevronDown size={14} /></button>
+                  </div>
+                  {opcionesDescargaAbiertas && (
+                    <div className="absolute right-0 top-full z-[1300] mt-1 w-56 space-y-1.5 rounded-xl border border-slate-200 bg-white p-3 text-[12px] text-slate-700 shadow-lg">
+                      <p className="font-bold text-[#10233f]">En la descarga</p>
+                      <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.rotulos} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, rotulos: e.target.checked }))} /> Etiquetas de barrios</label>
+                      <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.totales} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, totales: e.target.checked }))} /> Cuadro de totales</label>
+                      <label className="flex cursor-pointer items-center gap-1.5" title="Sin marcar: el mapa de calles cubre toda la imagen"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.fondoTransparente} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, fondoTransparente: e.target.checked }))} /> Fondo transparente</label>
+                    </div>
+                  )}
+                </div>
+                <button type="button" onClick={() => setPantallaCompleta((v) => !v)} className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50">
+                  {pantallaCompleta ? <><Minimize2 size={14} /> Salir</> : <><Maximize2 size={14} /> Pantalla completa</>}
+                </button>
+              </div>
+            </div>
+
+            <div
+              data-mapa-contenedor
+              className={clsx('relative isolate w-full', pantallaCompleta && 'min-h-0 flex-1')}
+              style={pantallaCompleta ? undefined : { height: altoMapa }}
+            >
           {/* Controles de exploración por delito — solo en pantalla
               completa: elegir fuente (IRISP1/Delitos), ver su tabla de
               delitos con conteo, elegir uno para filtrar el mapa, y limpiar
@@ -2869,6 +2914,7 @@ export function MapaGeorreferenciacion() {
               )}
             </div>
           )}
+
           <MapContainer center={CENTRO_DEFECTO} zoom={12} zoomControl={false} style={{ height: '100%', width: '100%' }}>
             <ZoomSliderControl />
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
@@ -3226,22 +3272,216 @@ export function MapaGeorreferenciacion() {
             />
           </MapContainer>
 
-                  {/* Leyenda del mapa: intensidad de Delitos y límites geográficos */}
-                  <div className="absolute bottom-6 right-3 z-[1000] w-[220px] rounded-xl border border-slate-200 bg-white/95 text-xs shadow-lg backdrop-blur-sm">
-                    <button type="button" onClick={() => setLeyendaAbierta((v) => !v)} aria-expanded={leyendaAbierta} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-bold text-[#10233f]">
-                      <span className="flex items-center gap-1.5"><Palette size={13} /> Leyenda</span>
-                      <ChevronDown size={14} className={clsx('transition', leyendaAbierta && 'rotate-180')} />
+              {/* Escala de intensidad compacta sobre el mapa (la leyenda completa va en el panel derecho) */}
+              {verCalor && (mostrarCalorDelitos || mostrarCalorOperatividad) && (
+                <div className="pointer-events-none absolute bottom-6 left-3 z-[1000] w-[170px] rounded-lg bg-white/92 px-2.5 py-1.5 text-[10.5px] shadow-md backdrop-blur-sm">
+                  <p className="mb-1 font-bold text-[#10233f]">Intensidad {mostrarCalorDelitos ? 'delictiva' : 'de operatividad'}</p>
+                  <span className="block h-2 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                  <div className="mt-0.5 flex justify-between text-slate-500"><span>Baja</span><span>Alta</span></div>
+                </div>
+              )}
+          {/* Panel flotante de la zona seleccionada — aparece con un clic
+              sobre cualquier polígono de una capa cargada (ej. el CAI 5).
+              El botón de descarga usa exactamente el mismo motor de
+              exportación de imágenes que el resto del dashboard. */}
+          {filtroDemasiadoAmplio && (
+            <div className="absolute right-3 top-3 z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
+              <p className="text-sm font-semibold text-amber-800">Este filtro coincide con demasiados polígonos</p>
+              <p className="mt-1 text-xs text-amber-700">
+                Probablemente hay una capa cargada (revisa "JURIS_ESTACIONES_2026") cuyos valores no corresponden
+                de verdad a esta Estación/CAI/Cuadrante — por seguridad, no se intenta dibujar. Quita esa capa o
+                revisa cuál es la correcta.
+              </p>
+            </div>
+          )}
+          {zonaActiva && (
+            <div className="absolute right-3 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>
+                  <p className="text-sm font-bold text-slate-800">{zonaActiva.nombre}</p>
+                </div>
+                <button onClick={() => setZonaSeleccionada(null)} className="text-slate-400 hover:text-slate-600" title="Quitar selección">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <label className="mb-1 block text-[11px] font-semibold text-slate-500">Delito dentro de esta zona</label>
+              <select
+                value={delitoZonaSeleccionada ?? ''}
+                onChange={(e) => setDelitoZonaSeleccionada(e.target.value || null)}
+                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+              >
+                <option value="">Todos los delitos</option>
+                {delitosDisponiblesEnZona.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+
+              <p className="mb-2 text-xs text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono</p>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={descargarZonaSeleccionada}
+                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-brand-green px-3 py-2 text-xs font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={13} />
+                  {descargandoZona ? '...' : 'Descargar'}
+                </button>
+                <button
+                  onClick={copiarZonaAlPortapapeles}
+                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  📋 Copiar
+                </button>
+              </div>
+            </div>
+          )}
+
+            </div>
+          </div>
+        </div>
+
+        {/* E. PANEL DERECHO: CONFIGURACIÓN · LEYENDA · ANÁLISIS */}
+        {configAbierta ? (
+          <aside className="order-3 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,35,63,0.04)] xl:order-none xl:sticky xl:top-0" style={{ maxHeight: altoMapa }} aria-label="Configuración, leyenda y análisis">
+            <div className="flex items-center gap-1 border-b border-slate-100 p-1.5" role="tablist">
+              {([['config', 'Configuración', <Settings2 key="i" size={14} />], ['leyenda', 'Leyenda', <ListChecks key="i" size={14} />], ['analisis', 'Análisis', <ChartColumn key="i" size={14} />]] as const).map(([id, texto, icono]) => (
+                <button key={id} type="button" role="tab" aria-selected={pestanaDerecha === id} onClick={() => setPestanaDerecha(id)} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-bold transition', pestanaDerecha === id ? 'bg-[#116762] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50')}>
+                  {icono} {texto}
+                </button>
+              ))}
+              <button type="button" onClick={() => setConfigAbierta(false)} aria-label="Contraer el panel" title="Contraer el panel" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"><ChevronsRight size={16} /></button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 text-xs [scrollbar-width:thin]">
+              {pestanaDerecha === 'config' && (
+                <div className="space-y-4">
+                  {verPuntos && (
+                    <section>
+                      <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Puntos</p>
+                      <ControlTamanoPuntos escala={escalaPuntos} onChange={setEscalaPuntos} />
+                      <p className="mt-1 text-[10.5px] text-slate-400">El color de cada delito o fuente se cambia en la pestaña Leyenda.</p>
+                    </section>
+                  )}
+<section className="space-y-0">
+          <label className="mb-4 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600">
+            <input type="checkbox" checked={colorearZonasPorCai} onChange={(e) => setColorearZonasPorCai(e.target.checked)} className="mt-0.5" />
+            <span>
+              <span className="font-semibold text-slate-700">Colorear zonas por CAI</span>
+              <br />
+              Pinta cada polígono de CAI con su propio color (ver "Colores de CAI" abajo). Apagado por defecto para una vista limpia — actívalo solo si necesitas distinguir los CAI visualmente en el mapa.
+            </span>
+          </label>
+
+          <p className="mb-2 text-[12.5px] font-bold text-[#10233f]">Colores del mapa de calor (Delitos)</p>
+          <div className="mb-4 space-y-1">
+            {OPCIONES_COLOR_CALOR.map((o) => {
+              const activo = coloresSeleccionadosCalor.includes(o.id);
+              return (
+                <label key={o.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={activo} onChange={(e) => alternarColorCalor(o.id, e.target.checked)} />
+                  <span className="h-3 w-3 shrink-0 rounded-full border border-slate-300" style={{ background: o.hex }} />
+                  {o.etiqueta}
+                </label>
+              );
+            })}
+          </div>
+          <p className="mb-4 text-[11px] text-slate-400">
+            Desmarca un color para quitarlo del degradado — el orden de la lista (de menos a más intensidad) se mantiene siempre. Debe quedar al menos uno marcado.
+          </p>
+
+          <p className="mb-2 text-[12.5px] font-bold text-[#10233f]">Colores de CAI</p>
+          {opcionesFiltroMapa.cai.length === 0 ? (
+            <p className="mb-4 text-xs text-slate-400">Todavía no hay CAI en los datos cargados.</p>
+          ) : (
+            <div className="mb-4 space-y-1.5">
+              {opcionesFiltroMapa.cai.map((nombreCai) => (
+                <div key={nombreCai} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate text-slate-600" title={nombreCai}>{nombreCai}</span>
+                  <input
+                    type="color"
+                    value={colorDeCai(nombreCai)}
+                    onChange={(e) => setColoresCai((prev) => ({ ...prev, [nombreCai]: e.target.value }))}
+                    className="h-6 w-9 shrink-0 cursor-pointer rounded border border-slate-200"
+                    title={`Color de ${nombreCai}`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="mb-2 text-[12.5px] font-bold text-[#10233f]">Transparencia</p>
+          <div className="space-y-3">
+            {([
+              ['calor', 'Mapa de calor'], ['poligono', 'Polígono'], ['etiquetas', 'Etiquetas'],
+            ] as const).map(([clave, etiqueta]) => (
+              <div key={clave}>
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                  <span>{etiqueta}</span>
+                  <span className="font-semibold text-slate-700">{opacidades[clave]}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={opacidades[clave]}
+                  onChange={(e) => setOpacidades((prev) => ({ ...prev, [clave]: Number(e.target.value) }))}
+                  className="w-full accent-brand-green"
+                />
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-slate-400">Los colores de CAI y la transparencia se guardan mientras uses el dashboard.</p>
+</section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Barrios señalados en el mapa</p>
+                    <div className="grid grid-cols-3 gap-1">
+                      {([[0, 'No'], [3, 'Top 3'], [5, 'Top 5']] as const).map(([valor, texto]) => (
+                        <button key={valor} type="button" onClick={() => setCantidadFlechasBarrio(valor)} className={clsx('rounded-md px-2 py-1 text-[11.5px] font-semibold', cantidadFlechasBarrio === valor ? 'bg-[#116762] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>{texto}</button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">Para señalar más barrios, elíjalos en el filtro Barrio: se suman al Top. Los rótulos se pueden arrastrar.</p>
+                    {flechasBarrios.some((f) => f.manual) && (
+                      <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
+                        {flechasBarrios.filter((f) => f.manual).map((f) => (
+                          <li key={f.barrio} className="flex items-center justify-between gap-2">
+                            <span className="truncate">{f.barrio} <span className="rounded bg-sky-100 px-1 text-[9.5px] font-semibold text-sky-700">agregado</span></span>
+                            <span className="flex shrink-0 items-center gap-1">
+                              <b>{f.casos.toLocaleString('es-CO')}</b>
+                              <button type="button" title={`Quitar ${f.barrio}`} onClick={() => setFiltrosMapa((prev) => ({ ...prev, barrioHecho: prev.barrioHecho.filter((b) => normalizarNombre(b) !== normalizarNombre(f.barrio)) }))} className="rounded p-0.5 text-slate-400 hover:text-red-500"><X size={11} /></button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {barriosManualesSinUbicar.length > 0 && <p className="mt-1.5 text-[10.5px] leading-snug text-amber-600">Sin ubicación en el mapa: {barriosManualesSinUbicar.join(', ')}.</p>}
+                    {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && barriosManuales.length === 0 && <p className="mt-1.5 text-[11px] text-slate-400">Sin barrios con casos ubicables para estos filtros.</p>}
+                    <button type="button" onClick={() => setPosicionesRotulo({})} disabled={Object.keys(posicionesRotulo).length === 0} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                      <RotateCcw size={12} /> Reacomodar rótulos
                     </button>
-                    {leyendaAbierta && (
-                      <div className="max-h-[min(420px,60vh)] space-y-2.5 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2">
-                        {verPuntos && <ControlTamanoPuntos escala={escalaPuntos} onChange={setEscalaPuntos} />}
-                        {verCalor && mostrarCalorDelitos && (
-                          <div>
-                            <p className="mb-1 font-semibold text-[#10233f]">Intensidad delictiva</p>
-                            <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
-                            <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
-                          </div>
-                        )}
+                  </section>
+                </div>
+              )}
+
+              {pestanaDerecha === 'leyenda' && (
+                <div className="space-y-3">
+                  {verCalor && mostrarCalorDelitos && (
+                    <div>
+                      <p className="mb-1 font-semibold text-[#10233f]">Intensidad delictiva (densidad Kernel)</p>
+                      <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                      <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
+                    </div>
+                  )}
+                  {verCalor && mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
+                  {verCalor && mostrarCalorOperatividad && (
+                    <LeyendaDensidadKernel titulo="Densidad de operatividad" colores={paletaCalorDelitos} resultado={kernelOperatividad} eventos={puntosOperatividadParaMostrar.length} consultando={consultarOperatividad} onConsultar={() => setConsultarOperatividad((v) => !v)} />
+                  )}
+                  {verCalor && mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
+                  {verCalor && mostrarCalorRnmc && <LeyendaGradiente titulo="RNMC" colores={['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843']} />}
+                  {modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1 && (
+                    <p className="flex items-center gap-1.5 text-slate-600"><span className="h-3 w-3 rounded-full" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} /> Correspondencia espacial IRISP1 vs Delitos</p>
+                  )}
                         {([['delitos', 'Delitos'], ['irisp1', 'IRISP1']] as const).filter(([fuente]) => convencionesDelitos[fuente].length > 0).map(([fuente, nombre]) => {
                           const lista = convencionesDelitos[fuente];
                           const conColor = verPuntos;
@@ -3313,142 +3553,134 @@ export function MapaGeorreferenciacion() {
                             </div>
                           );
                         })}
-                        <div>
-                          <p className="mb-1 font-semibold text-[#10233f]">Límites geográficos</p>
-                          {capas.length === 0 ? (
-                            <p className="text-[11px] text-slate-400">Sin capas cargadas.</p>
-                          ) : (
-                            <div className="space-y-0.5">
-                              {capas.map((capa) => (
-                                <label key={capa.id} className="flex cursor-pointer items-center gap-2 text-[11.5px] text-slate-600">
-                                  <input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} />
-                                  <span className="h-3 w-3 shrink-0 rounded-sm border-2 border-slate-800" style={{ background: capa.visible ? 'rgba(17,103,98,0.18)' : 'transparent' }} />
-                                  <span className="truncate" title={capa.nombre}>{capa.nombre}</span>
-                                </label>
-                              ))}
+
+                  <div>
+                    <p className="mb-1 font-semibold text-[#10233f]">Capas geográficas visibles</p>
+                    {capasVisiblesPoligono.length === 0 ? (
+                      <p className="text-[11px] text-slate-400">Ninguna visible. Actívelas en el gestor de capas.</p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {capasVisiblesPoligono.map((capa) => {
+                          const g = GRUPOS_GESTOR.find((x) => x.id === grupoDeCapa(capa))!;
+                          return (
+                            <div key={capa.id} className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                              <span className="h-3 w-3 shrink-0 rounded-sm border-2" style={{ borderColor: g.color, background: `${g.color}22` }} />
+                              <span className="min-w-0 flex-1 truncate" title={capa.nombre}>{capa.nombre}</span>
+                              <span className="text-[10px] text-slate-400">{g.titulo.split(' ')[0]}</span>
                             </div>
-                          )}
-                        </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
+                  {!verCalor && !verPuntos && <p className="text-[11px] text-slate-400">Sin capas de eventos activas.</p>}
+                </div>
+              )}
 
-          {/* Panel flotante de la zona seleccionada — aparece con un clic
-              sobre cualquier polígono de una capa cargada (ej. el CAI 5).
-              El botón de descarga usa exactamente el mismo motor de
-              exportación de imágenes que el resto del dashboard. */}
-          {filtroDemasiadoAmplio && (
-            <div className="absolute right-3 top-3 z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
-              <p className="text-sm font-semibold text-amber-800">Este filtro coincide con demasiados polígonos</p>
-              <p className="mt-1 text-xs text-amber-700">
-                Probablemente hay una capa cargada (revisa "JURIS_ESTACIONES_2026") cuyos valores no corresponden
-                de verdad a esta Estación/CAI/Cuadrante — por seguridad, no se intenta dibujar. Quita esa capa o
-                revisa cuál es la correcta.
-              </p>
+              {pestanaDerecha === 'analisis' && (
+                <div className="space-y-4">
+                  <section>
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Registros visibles en el mapa</p>
+                    <table className="w-full text-[11.5px]">
+                      <thead><tr className="text-[10px] uppercase tracking-wide text-slate-400"><th className="pb-1 text-left">Fuente</th><th className="pb-1 text-right">Filtrados</th><th className="pb-1 text-right">En el mapa</th></tr></thead>
+                      <tbody>
+                        {FUENTES_EVENTOS.map((f) => {
+                          const valor = kpisFuentes.valores[f.tipo];
+                          return (
+                            <tr key={f.tipo} className={clsx('border-t border-slate-100', !fuenteVisible(f.tipo) && 'text-slate-400')}>
+                              <td className="py-1"><span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: colorCapa(f.tipo, f.color) }} />{f.etiqueta}</span></td>
+                              <td className="py-1 text-right tabular-nums">{fuenteCargada(f.tipo) && valor != null ? formatNumero(valor) : 'Sin datos'}</td>
+                              <td className="py-1 text-right font-semibold tabular-nums">{fuenteCargada(f.tipo) ? formatNumero(fuenteVisible(f.tipo) ? enMapaPorFuente[f.tipo] : 0) : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <p className="mt-1 text-[10.5px] leading-snug text-slate-400">«En el mapa» = registros con coordenadas válidas que se dibujan; puede ser menor que los filtrados.</p>
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Entidad seleccionada</p>
+                    {zonaActiva ? (
+                      <div className="rounded-lg bg-[#f1f8f6] p-2.5">
+                        <p className="text-[13px] font-bold text-[#10233f]">{zonaActiva.nombre}</p>
+                        <p className="text-[11px] text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono{delitoZonaSeleccionada ? ` · ${delitoZonaSeleccionada}` : ''}</p>
+                        {(() => {
+                          const conteo = new Map<string, number>();
+                          for (const p of puntosEnZonaParaCalor) { const k = (p as any).delitoCorto ?? 'No reportado'; conteo.set(k, (conteo.get(k) ?? 0) + 1); }
+                          const filas = Array.from(conteo.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+                          return filas.length > 0 && (
+                            <ul className="mt-1.5 space-y-0.5">
+                              {filas.map(([k, n]) => <li key={k} className="flex justify-between gap-2 text-[11.5px]"><span className="truncate text-slate-600">{k}</span><b className="tabular-nums text-[#10233f]">{formatNumero(n)}</b></li>)}
+                            </ul>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">Haga clic en un polígono del mapa o búsquelo arriba para ver sus casos.</p>
+                    )}
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Consultar una coordenada</p>
+                    <IrACoordenadas onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
+                    <p className="mt-1 text-[10.5px] leading-snug text-slate-400">Muestra su estación, CAI, cuadrante y barrio.</p>
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 accent-[#116762]" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
+                      <span><span className="text-[12.5px] font-bold text-[#10233f]">Comparar IRISP1 vs Delitos</span><br /><span className="text-[10.5px] text-slate-500">Marca las zonas donde coinciden ambas fuentes (pase el mouse sobre el mapa).</span></span>
+                    </label>
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-bold text-[#10233f]">
+                      <input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={mostrarPronosticoIA} onChange={(e) => setMostrarPronosticoIA(e.target.checked)} />
+                      <Sparkles size={13} className="text-indigo-500" /> Pronóstico IA por CAI
+                    </label>
+                    {mostrarPronosticoIA && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        {([24, 48, 72, 168] as const).map((h) => (
+                          <button key={h} type="button" onClick={() => setHorizontePronosticoIA(h)} className={clsx('rounded px-2 py-0.5 text-[11px] font-semibold', horizontePronosticoIA === h ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100')}>{h === 168 ? '7 días' : `${h}h`}</button>
+                        ))}
+                        <p className="mt-1 text-[10.5px] text-slate-400">Concentración pronosticada según patrones históricos — no es certeza de ocurrencia.</p>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
             </div>
-          )}
-          {zonaActiva && (
-            <div className="absolute right-3 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>
-                  <p className="text-sm font-bold text-slate-800">{zonaActiva.nombre}</p>
-                </div>
-                <button onClick={() => setZonaSeleccionada(null)} className="text-slate-400 hover:text-slate-600" title="Quitar selección">
-                  <X size={16} />
-                </button>
-              </div>
+          </aside>
+        ) : (
+          <button type="button" onClick={() => setConfigAbierta(true)} title="Abrir configuración, leyenda y análisis" className="order-3 flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-[12.5px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50 xl:order-none xl:sticky xl:top-0 xl:flex-col xl:px-0 xl:py-4">
+            <Settings2 size={17} className="text-[#116762]" />
+            <span className="xl:[writing-mode:vertical-rl]">Configuración · Leyenda · Análisis</span>
+          </button>
+        )}
+      </div>
 
-              <label className="mb-1 block text-[11px] font-semibold text-slate-500">Delito dentro de esta zona</label>
-              <select
-                value={delitoZonaSeleccionada ?? ''}
-                onChange={(e) => setDelitoZonaSeleccionada(e.target.value || null)}
-                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-              >
-                <option value="">Todos los delitos</option>
-                {delitosDisponiblesEnZona.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+      {modalCapaPuntos && (
+        <CargaCapaPuntosModal nombreCapa={modalCapaPuntos} onCerrar={() => setModalCapaPuntos(null)} onGuardar={guardarNuevaCapaPuntos} />
+      )}
+      <input ref={inputRef} type="file" accept=".zip,.geojson,.json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }} />
 
-              <p className="mb-2 text-xs text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono</p>
-
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={descargarZonaSeleccionada}
-                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-brand-green px-3 py-2 text-xs font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download size={13} />
-                  {descargandoZona ? '...' : 'Descargar'}
-                </button>
-                <button
-                  onClick={copiarZonaAlPortapapeles}
-                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  📋 Copiar
-                </button>
-              </div>
-            </div>
-          )}
-                </div>
-              </div>
-
-              {/* Herramientas que ya tenía el mapa: Pronóstico IA y capa temporal georreferenciada */}
-              <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.04)]">
-                <div className="mb-2 flex items-center gap-2">
-                  <IconoCaja tamano="sm"><Sparkles size={15} /></IconoCaja>
-                  <h2 className="text-[14px] font-bold text-[#10233f]">Herramientas de análisis</h2>
-                </div>
-                {/* Capa "Pronóstico analítico" — colorea los CAI según la
-                    concentración pronosticada (utils/analisisPredictivo.ts). */}
-                <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
-                  <label className="flex cursor-pointer items-center gap-1.5 font-medium">
-                    <input type="checkbox" checked={mostrarPronosticoIA} onChange={(e) => setMostrarPronosticoIA(e.target.checked)} />
-                    🔮 Pronóstico IA
-                  </label>
-                  {mostrarPronosticoIA && (
-                    <>
-                      <span className="h-4 w-px bg-indigo-200" />
-                      <span className="text-indigo-500">Horizonte:</span>
-                      {([24, 48, 72, 168] as const).map((h) => (
-                        <button
-                          key={h}
-                          onClick={() => setHorizontePronosticoIA(h)}
-                          className={`rounded px-2 py-0.5 ${horizontePronosticoIA === h ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}
-                        >
-                          {h === 168 ? '7 días' : `${h}h`}
-                        </button>
-                      ))}
-                      <span className="text-indigo-400">Concentración pronosticada según patrones históricos — no es certeza de ocurrencia.</span>
-                    </>
-                  )}
-                </div>
-                {/* Capa TEMPORAL de análisis — CSV/XLS/XLSX propio con coordenadas
-                    (aislada: no toca Delitos, IRISP1 ni los filtros). */}
-                {!soloLectura && <PanelArchivoGeorreferenciado {...capaArchivoGeorreferenciado} />}
-        {error && (
-          <div className="mb-3 flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <p>{error}</p>
+      {/* Capa temporal (CSV/XLS/XLSX con coordenadas) — aislada de Delitos e IRISP1 */}
+      {!soloLectura && (
+        <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.04)]">
+          <div className="mb-2 flex items-center gap-2">
+            <IconoCaja tamano="sm"><FileUp size={15} /></IconoCaja>
+            <h2 className="text-[14px] font-bold text-[#10233f]">Capa temporal georreferenciada <span className="font-normal text-slate-500">· CSV, XLS o XLSX con coordenadas</span></h2>
           </div>
-        )}
-
-        {modalCapaPuntos && (
-          <CargaCapaPuntosModal
-            nombreCapa={modalCapaPuntos}
-            onCerrar={() => setModalCapaPuntos(null)}
-            onGuardar={guardarNuevaCapaPuntos}
-          />
-        )}
-
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".zip,.geojson,.json"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }}
-        />
-              </section>
+          <PanelArchivoGeorreferenciado {...capaArchivoGeorreferenciado} />
+        </section>
+      )}
 
               {/* ── ANÁLISIS TERRITORIAL ── */}
               <section className="@container">
@@ -3522,110 +3754,13 @@ export function MapaGeorreferenciacion() {
         </Card>
       )}
 
-              {limiteVigenciaActual && (
-                <p className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-500">
-                  <Info size={15} className="mt-[1px] shrink-0 text-[#116762]" />
-                  Sin un año, mes o fecha seleccionados, el mapa muestra solo la vigencia {limiteVigenciaActual.inicio.getFullYear()} (hasta {limiteVigenciaActual.fin.toLocaleDateString('es-CO')}, la fecha de corte más reciente) — no todo el histórico. Selecciona un año, mes o fecha en los filtros de arriba para ver otra vigencia.
-                </p>
-              )}
-            </div>
 
-            {/* ── CONFIGURACIÓN VISUAL (plegable) ── */}
-            {configAbierta ? (
-              <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,35,63,0.04)] 2xl:sticky 2xl:top-0 2xl:max-h-[calc(100vh-2.5rem)] 2xl:overflow-y-auto [scrollbar-width:thin]">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <IconoCaja tamano="sm"><Palette size={15} /></IconoCaja>
-                    <h2 className="text-[14px] font-bold text-[#10233f]">Configuración visual</h2>
-                  </div>
-                  <button type="button" onClick={() => setConfigAbierta(false)} aria-label="Plegar configuración visual" title="Plegar" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-
-          <label className="mb-4 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600">
-            <input type="checkbox" checked={colorearZonasPorCai} onChange={(e) => setColorearZonasPorCai(e.target.checked)} className="mt-0.5" />
-            <span>
-              <span className="font-semibold text-slate-700">Colorear zonas por CAI</span>
-              <br />
-              Pinta cada polígono de CAI con su propio color (ver "Colores de CAI" abajo). Apagado por defecto para una vista limpia — actívalo solo si necesitas distinguir los CAI visualmente en el mapa.
-            </span>
-          </label>
-
-          <p className="mb-2 text-[12.5px] font-bold text-[#10233f]">Colores del mapa de calor (Delitos)</p>
-          <div className="mb-4 space-y-1">
-            {OPCIONES_COLOR_CALOR.map((o) => {
-              const activo = coloresSeleccionadosCalor.includes(o.id);
-              return (
-                <label key={o.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
-                  <input type="checkbox" checked={activo} onChange={(e) => alternarColorCalor(o.id, e.target.checked)} />
-                  <span className="h-3 w-3 shrink-0 rounded-full border border-slate-300" style={{ background: o.hex }} />
-                  {o.etiqueta}
-                </label>
-              );
-            })}
-          </div>
-          <p className="mb-4 text-[11px] text-slate-400">
-            Desmarca un color para quitarlo del degradado — el orden de la lista (de menos a más intensidad) se mantiene siempre. Debe quedar al menos uno marcado.
-          </p>
-
-          <p className="mb-2 text-[12.5px] font-bold text-[#10233f]">Colores de CAI</p>
-          {opcionesFiltroMapa.cai.length === 0 ? (
-            <p className="mb-4 text-xs text-slate-400">Todavía no hay CAI en los datos cargados.</p>
-          ) : (
-            <div className="mb-4 space-y-1.5">
-              {opcionesFiltroMapa.cai.map((nombreCai) => (
-                <div key={nombreCai} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="truncate text-slate-600" title={nombreCai}>{nombreCai}</span>
-                  <input
-                    type="color"
-                    value={colorDeCai(nombreCai)}
-                    onChange={(e) => setColoresCai((prev) => ({ ...prev, [nombreCai]: e.target.value }))}
-                    className="h-6 w-9 shrink-0 cursor-pointer rounded border border-slate-200"
-                    title={`Color de ${nombreCai}`}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          <p className="mb-2 text-[12.5px] font-bold text-[#10233f]">Transparencia</p>
-          <div className="space-y-3">
-            {([
-              ['calor', 'Mapa de calor'], ['poligono', 'Polígono'], ['etiquetas', 'Etiquetas'],
-            ] as const).map(([clave, etiqueta]) => (
-              <div key={clave}>
-                <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-                  <span>{etiqueta}</span>
-                  <span className="font-semibold text-slate-700">{opacidades[clave]}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={opacidades[clave]}
-                  onChange={(e) => setOpacidades((prev) => ({ ...prev, [clave]: Number(e.target.value) }))}
-                  className="w-full accent-brand-green"
-                />
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-[11px] text-slate-400">Los colores de CAI y la transparencia se guardan mientras uses el dashboard.</p>
-              </aside>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfigAbierta(true)}
-                title="Abrir configuración visual"
-                className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-[12.5px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50 2xl:sticky 2xl:top-0 2xl:flex-col 2xl:px-0 2xl:py-4"
-              >
-                <Palette size={17} className="text-[#116762]" />
-                <span className="2xl:[writing-mode:vertical-rl]">Configuración visual</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      {limiteVigenciaActual && (
+        <p className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-500">
+          <Info size={15} className="mt-[1px] shrink-0 text-[#116762]" />
+          Sin un año, mes o fecha seleccionados, el mapa muestra solo la vigencia {limiteVigenciaActual.inicio.getFullYear()} (hasta {limiteVigenciaActual.fin.toLocaleDateString('es-CO')}, la fecha de corte más reciente) — no todo el histórico. Seleccione un año, mes o fecha en los filtros de arriba para ver otra vigencia.
+        </p>
+      )}
 
       {mostrarSelectorFuentes && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarSelectorFuentes(false)}>
@@ -3654,6 +3789,7 @@ export function MapaGeorreferenciacion() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
