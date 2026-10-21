@@ -72,7 +72,9 @@ export function anioDePeriodo(p: PeriodoAnalisis): number | null {
 /** Mismo día/mes en otro año (para proponer el rango de una vigencia nueva). */
 export function rangoParaAnio(anio: number, referencia: RangoVigencia | undefined): RangoVigencia {
   if (!referencia) return { fechaInicial: `${anio}-09-01`, fechaFinal: `${anio}-09-04` };
-  return { fechaInicial: `${anio}${referencia.fechaInicial.slice(4)}`, fechaFinal: `${anio}${referencia.fechaFinal.slice(4)}` };
+  const bisiesto = (anio % 4 === 0 && anio % 100 !== 0) || anio % 400 === 0;
+  const mmdd = (iso: string) => (iso.slice(5) === '02-29' && !bisiesto ? '02-28' : iso.slice(5));
+  return { fechaInicial: `${anio}-${mmdd(referencia.fechaInicial)}`, fechaFinal: `${anio}-${mmdd(referencia.fechaFinal)}` };
 }
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -83,4 +85,17 @@ export function textoRango(fechaInicial: string, fechaFinal: string): string {
   const [, m1, d1] = fechaFinal.split('-').map(Number);
   if (m0 === m1) return d0 === d1 ? `${d0} ${MESES[m0 - 1]}` : `${d0}–${d1} ${MESES[m0 - 1]}`;
   return `${d0} ${MESES[m0 - 1]} – ${d1} ${MESES[m1 - 1]}`;
+}
+
+/**
+ * Rango de una vigencia: el guardado/inicial si existe; si no (un año nuevo
+ * que llegó con los datos), el mismo día y mes de la vigencia configurada
+ * más cercana — así cualquier año detectado se puede comparar de una vez.
+ */
+export function rangoVigencia(anio: number, presets: Record<number, RangoVigencia>): RangoVigencia {
+  if (presets[anio]) return presets[anio];
+  const conRango = Object.keys(presets).map(Number);
+  if (conRango.length === 0) return rangoParaAnio(anio, undefined);
+  const cercano = conRango.sort((a, b) => Math.abs(a - anio) - Math.abs(b - anio) || b - a)[0];
+  return rangoParaAnio(anio, presets[cercano]);
 }

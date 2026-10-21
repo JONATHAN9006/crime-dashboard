@@ -168,6 +168,11 @@ export function FilterPanel() {
       boton: { activo: 'border-[#e0b03c] bg-[#fbe6a6] text-[#5c3d00]', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#e0b03c]/60 hover:bg-[#fffaf0]', badgeActivo: 'bg-white text-[#8a5a00]', badge: 'bg-[#fdf3d6] text-[#8a5a00]', icono: 'text-[#b7841c]' },
       panel: { banda: 'bg-[#fdf7e7]', borde: 'border-[#f3e2b0]', tile: 'bg-[#f2c14e] text-[#5c3d00]', campo: 'bg-[#fdf3d6] text-[#b7841c]', campoActivo: 'bg-[#e0a92c] text-white' },
     },
+    multifecha: {
+      titulo: 'Multifecha', descripcion: 'Compare vigencias (años), cada una con su propio rango de fechas', icono: (t) => <CalendarRange size={t} />,
+      boton: { activo: 'border-[#0e7490] bg-[#0e7490] text-white', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#0e7490]/50 hover:bg-[#f0f9fb]', badgeActivo: 'bg-white text-[#0e7490]', badge: 'bg-[#e7f5f9] text-[#0e7490]', icono: 'text-[#0e7490]' },
+      panel: { banda: 'bg-[#eef8fb]', borde: 'border-[#cbe8f0]', tile: 'bg-[#0e7490] text-white', campo: 'bg-[#e7f5f9] text-[#0e7490]', campoActivo: 'bg-[#0e7490] text-white' },
+    },
     mas: {
       titulo: 'Más filtros', descripcion: 'Filtros adicionales de análisis', icono: (t) => <SlidersHorizontal size={t} />,
       boton: { activo: 'border-[#a78bfa] bg-[#ede4fb] text-[#4c1d95]', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#a78bfa]/60 hover:bg-[#f8f4fe]', badgeActivo: 'bg-[#7c3aed] text-white', badge: 'bg-[#f1eafd] text-[#6d28d9]', icono: 'text-[#7c3aed]' },
@@ -176,10 +181,11 @@ export function FilterPanel() {
   };
   const n = (k: keyof FilterState) => ((filters[k] as string[] | null | undefined) ?? []).length > 0 ? 1 : 0;
   const conteos: Record<Categoria, number> = {
-    fecha: n('anio') + n('mes') + (filters.fechaInicial || filters.fechaFinal ? 1 : 0) + n('franjaHoraria') + n('turno') + n('diaSemana') + n('diaMes') + n('horaExacta') + (multifechaActiva ? 1 : 0),
+    fecha: n('anio') + n('mes') + (filters.fechaInicial || filters.fechaFinal ? 1 : 0) + n('franjaHoraria') + n('turno') + n('diaSemana') + n('diaMes') + n('horaExacta'),
     ubicacion: n('estacion') + n('cuadrante') + n('cai') + n('barrioHecho'),
     delito: n('delito') + (categoriaOperatividadSel.length > 0 ? 1 : 0),
     mas: CAMPOS_MAS.reduce((a, k) => a + n(k), 0),
+    multifecha: periodos.length,
   };
   const campo = (key: CampoFiltro, icono: ReactNode, cat: Categoria) => {
     const def = [...CAMPOS_PRINCIPALES, ...CAMPOS_ADICIONALES].find((c) => c.key === key)!;
@@ -278,7 +284,7 @@ export function FilterPanel() {
         <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-[#f7faf9] px-4 py-2">
           <span className="mr-1 text-[10.5px] font-bold uppercase tracking-wide text-[#116762]">Filtros activos</span>
           {multifechaActiva && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[#116762]/30 bg-white py-[3px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0b4a46] shadow-sm">
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#0e7490]/35 bg-[#f0f9fb] py-[3px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0e5a6f] shadow-sm">
               Multifecha: {periodos.length} vigencia{periodos.length === 1 ? '' : 's'}
               <button type="button" onClick={() => alternarMultifecha(false)} aria-label="Quitar análisis multifecha" className="rounded-full p-0.5 hover:bg-[#116762]/15"><X size={12} /></button>
             </span>
@@ -317,14 +323,6 @@ export function FilterPanel() {
                   <button type="button" disabled={multifechaActiva} onClick={() => fechaInicialRef.current?.focus()} aria-pressed={personalizadoActivo} title="Elija usted mismo la fecha inicial y la final" className={botonRapido(personalizadoActivo)}>
                     Personalizado
                   </button>
-                  <label className="ml-1 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#cfe8e1] bg-white px-2.5 py-1 text-[11.5px] font-bold text-[#10233f]" title="Compara vigencias (años) con su propio rango de fechas. Mientras esté activo, reemplaza Fecha inicial/final, Año y Mes.">
-                    <CalendarRange size={14} className="text-[#116762]" />
-                    Análisis multifecha
-                    <input type="checkbox" role="switch" className="peer sr-only" checked={multifechaActiva} onChange={(e) => alternarMultifecha(e.target.checked)} />
-                    <span className={`relative inline-block h-5 w-9 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-[#116762]/50 ${multifechaActiva ? 'bg-[#116762]' : 'bg-slate-300'}`}>
-                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${multifechaActiva ? 'left-[18px]' : 'left-0.5'}`} />
-                    </span>
-                  </label>
                 </div>
               )}
             </div>
@@ -351,11 +349,16 @@ export function FilterPanel() {
                   {campo('diaMes', <CalendarDays size={18} />, 'fecha')}
                 </div>
                 {multifechaActiva && (
-                  <div className="rounded-xl border border-dashed border-[#116762]/35 bg-[#f6fbfa] px-3 py-2.5">
-                    <p className="mb-2 text-[11.5px] text-slate-500">Marque las vigencias a comparar. Cada una usa su propio rango de fechas (lápiz para cambiarlo); las variaciones comparan la primera contra la última vigencia.</p>
-                    <SelectorVigencias />
-                  </div>
+                  <p className="flex flex-wrap items-center gap-2 rounded-lg bg-[#eef8fb] px-3 py-2 text-[12px] text-[#0e5a6f]">
+                    <CalendarRange size={14} /> El análisis multifecha está activo: las fechas, el año y el mes los definen las vigencias.
+                    <button type="button" onClick={() => setCategoria('multifecha')} className="font-bold underline underline-offset-2 hover:text-[#0e7490]">Ver vigencias</button>
+                  </p>
                 )}
+              </div>
+            )}
+            {categoria === 'multifecha' && (
+              <div className="rounded-b-xl bg-white p-3">
+                <SelectorVigencias />
               </div>
             )}
             {categoria === 'ubicacion' && (
@@ -394,8 +397,8 @@ export function FilterPanel() {
   );
 }
 
-type Categoria = 'fecha' | 'ubicacion' | 'delito' | 'mas';
-const ORDEN_CATS: Categoria[] = ['fecha', 'ubicacion', 'delito', 'mas'];
+type Categoria = 'fecha' | 'multifecha' | 'ubicacion' | 'delito' | 'mas';
+const ORDEN_CATS: Categoria[] = ['fecha', 'multifecha', 'ubicacion', 'delito', 'mas'];
 // «Más filtros»: todos los adicionales MENOS el CAI (ya está en Ubicación geográfica).
 const CAMPOS_MAS: CampoFiltro[] = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad'];
 
