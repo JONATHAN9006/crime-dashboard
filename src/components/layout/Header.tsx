@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { Menu, FolderOpen, Info, RefreshCw, Cloud, CloudOff, FileDown, X } from 'lucide-react';
+import { Menu, FolderOpen, Info, RefreshCw, Cloud, CloudOff, FileDown, X, Map as MapIcon } from 'lucide-react';
+import { SelectorFuentesMicrogerencia } from '../microgerencia/SelectorFuentesMicrogerencia';
+import { obtenerModoAcceso } from '../../utils/modoAcceso';
+import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { useData } from '../../context/DataContext';
 import { formatFecha, formatFechaHora, formatNumero } from '../../utils/aggregations';
 import { UpdateDataModal } from '../upload/UpdateDataModal';
@@ -13,6 +16,10 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
   const [generandoPptx, setGenerandoPptx] = useState(false);
   const soloLectura = esSoloConsulta();
   const descargas = puedeDescargar();
+  // Microgerencia (antes en «Filtros de análisis»): mismo acceso de siempre.
+  const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
+  const modoAcceso = obtenerModoAcceso();
+  const accesoMicrogerencia = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].microgerencia;
 
   // Todos los cálculos del PowerPoint provienen de los mismos hooks que usan
   // las páginas del dashboard — ver data/pptxExport.ts.
@@ -92,10 +99,20 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
               <button
                 onClick={onDescargarPptx}
                 disabled={generandoPptx || filteredRecords.length === 0}
-                title="Genera un PowerPoint según los filtros actualmente seleccionados"
+                title="Descargar PowerPoint (PPT) según los filtros actualmente seleccionados"
                 className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
-                <FileDown size={14} /> <span className="hidden sm:inline">{generandoPptx ? 'Generando...' : 'Descargar PowerPoint'}</span>
+                <FileDown size={14} /> <span className="hidden sm:inline">{generandoPptx ? 'Generando...' : 'PPT'}</span>
+              </button>
+            )}
+            {modoAcceso !== 'cai' && records.length > 0 && (
+              <button
+                onClick={() => { if (accesoMicrogerencia) setMostrarMicrogerencia(true); }}
+                disabled={!accesoMicrogerencia}
+                title={accesoMicrogerencia ? 'Microgerencia: mapas por estación, CAI o zona' : 'Próximamente — en desarrollo.'}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <MapIcon size={14} /> <span className="hidden sm:inline">Microgerencia</span>
               </button>
             )}
             {!soloLectura && (
@@ -109,6 +126,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
           </div>
         </div>
       </header>
+      {mostrarMicrogerencia && <SelectorFuentesMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
       <UpdateDataModal abierto={modalAbierto} onCerrar={() => setModalAbierto(false)} />
     </>
   );

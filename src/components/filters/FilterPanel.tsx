@@ -256,23 +256,6 @@ export function FilterPanel() {
           })}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#e3f2ef] px-3 py-2 text-[12.5px] font-semibold text-[#0b4a46]" aria-live="polite">
-            <Database size={15} />
-            {filteredRecords.length.toLocaleString('es-CO')} de {records.length.toLocaleString('es-CO')} registros
-          </span>
-          {modoAcceso !== 'cai' && (
-          <button
-            type="button"
-            onClick={() => { if (accesoMicrogerencia) setMostrarMicrogerencia(true); }}
-            disabled={!accesoMicrogerencia}
-            title={accesoMicrogerencia ? undefined : 'Próximamente — en desarrollo.'}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-semibold transition-colors ${accesoMicrogerencia ? 'border-[#10233f]/25 bg-white text-[#10233f] shadow-sm hover:bg-[#eaf2fb]' : 'cursor-not-allowed border-slate-200 text-slate-300'}`}
-          >
-            <MapIcon size={16} />
-            Microgerencia
-            {!accesoMicrogerencia && <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-400">Próx.</span>}
-          </button>
-          )}
           <button type="button" onClick={() => setExpandido((v) => !v)} aria-expanded={expandido} aria-controls="panel-filtros" aria-label={expandido ? 'Contraer filtros' : 'Expandir filtros'} className="rounded-md p-1.5 text-[#10233f] hover:bg-slate-100">
             {expandido ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
@@ -301,7 +284,6 @@ export function FilterPanel() {
         </div>
       )}
 
-      {mostrarMicrogerencia && <SelectorFuentesMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
 
       {expandido && (
         <div id="panel-filtros" role="tabpanel" className="border-t border-slate-100 p-3 sm:p-4">
@@ -398,7 +380,7 @@ export function FilterPanel() {
 }
 
 type Categoria = 'fecha' | 'multifecha' | 'ubicacion' | 'delito' | 'mas';
-const ORDEN_CATS: Categoria[] = ['fecha', 'multifecha', 'ubicacion', 'delito', 'mas'];
+const ORDEN_CATS: Categoria[] = ['fecha', 'ubicacion', 'delito', 'mas', 'multifecha'];
 // «Más filtros»: todos los adicionales MENOS el CAI (ya está en Ubicación geográfica).
 const CAMPOS_MAS: CampoFiltro[] = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad'];
 

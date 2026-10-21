@@ -10,7 +10,6 @@ import { Card, PageHeader } from '../components/ui/Card';
 import { ComponenteBloqueado } from '../components/ui/ComponenteBloqueado';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../config/dashboardAccess';
-import { BotonGenerarPdf } from '../components/ui/BotonGenerarPdf';
 import { ProveedorRegistroPdf } from '../context/RegistroPdfContext';
 import { GroupedBarChart } from '../components/charts/GroupedBarChart';
 import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
@@ -25,7 +24,6 @@ import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart'
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
 import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays, ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
-import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
 
 const OPCIONES_TOP = [
   { label: 'Top 5', valor: 5 },
@@ -308,23 +306,7 @@ export function AnalisisUnidad() {
   return (
     <ProveedorRegistroPdf>
       <div className="space-y-4">
-        <PageHeader
-          title="Análisis por Unidad"
-          subtitle="Lectura integral: estaciones, cuadrantes, barrios, zonas, población, arma, modalidad, sitio, causa de lesión y horario."
-          acciones={<BotonGenerarPdf nombreArchivo="MEPOY_Analisis_Unidad" />}
-        />
-        <IndicadorVigencia ventana={ventana} />
-
-        {ventana.disponible && (
-          <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11.5px] leading-snug text-slate-600">
-            <Info size={14} className="mt-0.5 shrink-0 text-brand-navy" />
-            <p>
-              {ventana.esRangoPersonalizado
-                ? <>Comparando el rango <strong>{formatFecha(ventana.actualInicio)} – {formatFecha(ventana.actualFin)}</strong> ({ventana.anioActual}) contra el mismo rango un año atrás: <strong>{formatFecha(ventana.anteriorInicio)} – {formatFecha(ventana.anteriorFin)}</strong> ({ventana.anioAnterior}).</>
-                : <>Por defecto se compara el año {ventana.anioActual} del 1 de enero al {formatFecha(ventana.actualFin)} ("a la fecha") contra el mismo tramo de {ventana.anioAnterior}. "Total General" corresponde al año {ventana.anioAnterior} completo (cierre 31 de diciembre), respetando el delito/estación seleccionados.</>}
-            </p>
-          </div>
-        )}
+        <PageHeader title="Análisis por Unidad" />
 
         {ventana.disponible && (
           <>
