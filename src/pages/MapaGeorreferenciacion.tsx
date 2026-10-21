@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents, ScaleControl, Marker, Rectangle } from 'react-leaflet';
 import shp from 'shpjs';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -7,7 +7,7 @@ import {
   AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
   Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
   SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
-  Scale, Sparkles, ChartColumn, Landmark, Search, ChevronsLeft, ChevronsRight, MoreHorizontal, Settings2, Globe2, Filter, Flame, Building2, MapPinned,
+  Scale, Sparkles, ChartColumn, Landmark, Search, ChevronsLeft, ChevronsRight, MoreHorizontal, Settings2, Globe2, Filter, Flame, Building2, MapPinned, Navigation2,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card } from '../components/ui/Card';
@@ -586,7 +586,7 @@ const FILTROS_MAPA_VACIOS = {
 };
 
 export function MapaGeorreferenciacion() {
-  const { records, periodos, filters: filtrosPrincipales, setFilters, meta, remoteMeta } = useData();
+  const { records, periodos, filters: filtrosPrincipales, setFilters, clearFilters, meta, remoteMeta } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
   // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
@@ -2437,8 +2437,8 @@ export function MapaGeorreferenciacion() {
     } catch { /* geometría inválida */ }
   };
   const GRUPOS_GESTOR: { id: GrupoCapa; titulo: string; color: string; icono: React.ReactNode }[] = [
-    { id: 'territorial', titulo: 'Límites territoriales', color: '#2f6fdb', icono: <MapIcon size={16} /> },
-    { id: 'policial', titulo: 'Estructura policial', color: '#116762', icono: <Shield size={16} /> },
+    { id: 'policial', titulo: 'Zonas de atención, estaciones y CAI', color: '#159089', icono: <MapIcon size={16} /> },
+    { id: 'territorial', titulo: 'Otras capas geográficas', color: '#2f6fdb', icono: <Globe2 size={16} /> },
     { id: 'contexto', titulo: 'Capas de contexto', color: '#7c3aed', icono: <Landmark size={16} /> },
     { id: 'personalizada', titulo: 'Capas personalizadas y otras', color: '#d97706', icono: <FolderOpen size={16} /> },
   ];
@@ -2512,7 +2512,13 @@ export function MapaGeorreferenciacion() {
   const columnasMapa = `${gestorAbierto ? '300px' : '46px'} minmax(0,1fr)`;
   const [pestanaPanel, setPestanaPanel] = useState<'capas' | 'apariencia'>('capas');
   const [pestanaApariencia, setPestanaApariencia] = useState<'calor' | 'puntos' | 'poligonos'>('calor');
-  const [leyendaMapaAbierta, setLeyendaMapaAbierta] = useState(true);
+  const [leyendaMapaAbierta, setLeyendaMapaAbierta] = useState(false);
+  const aniosMapa = useMemo(() => Array.from(new Set((meta?.aniosDisponibles ?? []).map(String))).sort(), [meta]);
+  const elementosVisibles = capasVisiblesPoligono.reduce((a, c) => a + contarFeatures(c.geojson), 0);
+  const tituloFuentes = (() => {
+    const v = FUENTES_EVENTOS.filter((f) => fuenteVisible(f.tipo)).map((f) => f.etiqueta);
+    return v.length === 0 ? 'eventos' : v.length === 1 ? v[0] : v.length === 2 ? v.join(' y ') : 'eventos (varias fuentes)';
+  })();
   const [analisisAbierto, setAnalisisAbierto] = useState(false);
   // «Capa principal»: clic = ver solo esa fuente (las demás se ocultan).
   const TIPOS_EVENTOS: TipoCapaPuntos[] = ['delitos', 'operatividad', 'irisp1', 'macri', 'rnmc'];
@@ -2601,8 +2607,8 @@ export function MapaGeorreferenciacion() {
         {/* C. PANEL «CAPAS Y VISUALIZACIÓN» (opciones 6 + 7) */}
         {gestorAbierto ? (
           <aside className="order-2 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(16,35,63,0.06)] xl:order-none xl:sticky xl:top-0" style={{ maxHeight: altoMapa }} aria-label="Capas y visualización">
-            <div className="flex items-center justify-between gap-2 bg-[#116762] px-3 py-2.5 text-white">
-              <span className="flex items-center gap-2 text-[15px] font-extrabold"><Filter size={17} fill="currentColor" /> Capas y visualización</span>
+            <div className="flex items-center justify-between gap-2 border-t-4 border-[#159089] bg-gradient-to-r from-[#0f5f57] to-[#116762] px-3 py-3 text-white">
+              <span className="flex items-center gap-2 text-[16px] font-extrabold"><MapIcon size={19} /> Visualización del mapa</span>
               <button type="button" onClick={() => setGestorAbierto(false)} title="Contraer el panel" aria-label="Contraer el panel de capas" className="rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white"><ChevronsLeft size={17} /></button>
             </div>
             <div className="grid grid-cols-2 gap-1 border-b border-slate-100 p-2" role="tablist">
@@ -2614,6 +2620,46 @@ export function MapaGeorreferenciacion() {
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-xs [scrollbar-width:thin]">
               {pestanaPanel === 'capas' ? (
                 <div className="space-y-3.5">
+                  {/* Delitos (filtro principal) */}
+                  <section className="rounded-xl border border-slate-200 p-2.5">
+                    <p className="mb-1.5 text-[13px] font-extrabold text-[#10233f]">Delitos</p>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full" style={{ background: filtrosMapa.delito.length ? colorPorDelitoSimple(filtrosMapa.delito[0]) : '#94a3b8' }} />
+                      <select
+                        value={filtrosMapa.delito.length === 1 ? filtrosMapa.delito[0] : ''}
+                        onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, delito: e.target.value ? [e.target.value] : [] }))}
+                        aria-label="Delito"
+                        className="h-9 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-7 pr-7 text-[12.5px] font-semibold text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
+                      >
+                        <option value="">{filtrosMapa.delito.length > 1 ? `${filtrosMapa.delito.length} delitos elegidos` : 'Todos los delitos'}</option>
+                        {opcionesFiltroMapa.delito.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    </div>
+                    {filtrosMapa.delito.length > 0 && (
+                      <p className="mt-1.5 flex items-center gap-1.5 rounded-lg bg-[#e8f0fb] px-2 py-1.5 text-[11.5px] text-[#1e4f8f]">
+                        <span className="min-w-0 flex-1 truncate"><b>Filtro activo:</b> {filtrosMapa.delito.join(', ')}</span>
+                        <button type="button" onClick={() => setFiltrosMapa((prev) => ({ ...prev, delito: [] }))} aria-label="Quitar el filtro de delito" className="rounded p-0.5 hover:bg-white"><X size={13} /></button>
+                      </p>
+                    )}
+                  </section>
+
+                  {/* Año */}
+                  {aniosMapa.length > 0 && (
+                    <section className={clsx('rounded-xl border border-slate-200 p-2.5', periodos.length > 0 && 'opacity-50')} title={periodos.length > 0 ? 'En multifecha, los años los definen las vigencias' : undefined}>
+                      <p className="mb-1.5 text-[13px] font-extrabold text-[#10233f]">Año</p>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        {aniosMapa.map((a) => (
+                          <label key={a} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[#10233f]">
+                            <input type="checkbox" disabled={periodos.length > 0} className="h-4 w-4 accent-[#2f6fdb]" checked={filtrosMapa.anio.includes(a)} onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, anio: e.target.checked ? [...prev.anio, a].sort() : prev.anio.filter((x) => x !== a) }))} />
+                            {a}
+                          </label>
+                        ))}
+                      </div>
+                      {filtrosMapa.anio.length === 0 && limiteVigenciaActual && <p className="mt-1 text-[10.5px] text-slate-400">Sin año elegido: vigencia {limiteVigenciaActual.inicio.getFullYear()} a la fecha.</p>}
+                    </section>
+                  )}
+
                   {/* Capa principal */}
                   <section>
                     <p className="mb-1.5 text-[12.5px] font-extrabold text-[#10233f]">Capa principal</p>
@@ -2650,18 +2696,6 @@ export function MapaGeorreferenciacion() {
                     </div>
                   </section>
 
-                  {/* Capas territoriales (interruptores rápidos sobre las capas reales) */}
-                  {ATAJOS_TERRITORIALES.length > 0 && (
-                    <section className="border-t border-slate-100 pt-3">
-                      <p className="mb-1.5 text-[12.5px] font-extrabold text-[#10233f]">Capas territoriales</p>
-                      <div className="space-y-1.5">
-                        {ATAJOS_TERRITORIALES.map((a) => (
-                          <Interruptor key={a.id} texto={a.texto} icono={a.icono} activo={a.capas.some((c) => c.visible)} onChange={(v) => visibilidadCapas(a.capas.map((c) => c.id), v)} titulo={a.capas.map((c) => c.nombre).join(', ')} />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
                   {/* Fondo de mapa */}
                   <section className="border-t border-slate-100 pt-3">
                     <p className="mb-1.5 text-[12.5px] font-extrabold text-[#10233f]">Fondo de mapa</p>
@@ -2680,7 +2714,7 @@ export function MapaGeorreferenciacion() {
                   {/* Todas las capas (opción 7): búsqueda + grupos */}
                   <section className="border-t border-slate-100 pt-3">
                     <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <p className="text-[12.5px] font-extrabold text-[#10233f]">Todas las capas <span className="font-semibold text-slate-400">({capas.length})</span></p>
+                      <p className="text-[13px] font-extrabold text-[#10233f]">Capas de visualización <span className="font-semibold text-slate-400">({capas.length})</span></p>
                       <span className="flex gap-1 text-[10.5px] font-semibold text-[#116762]">
                         <button type="button" onClick={() => setGruposCerrados({})} className="hover:underline">Expandir</button>·
                         <button type="button" onClick={() => setGruposCerrados(Object.fromEntries(todosLosGrupos.map((g) => [g, true])))} className="hover:underline">Contraer</button>
@@ -2698,15 +2732,15 @@ export function MapaGeorreferenciacion() {
                 const cerrado = gruposCerrados[g.id];
                 const visibles = capasPorGrupo[g.id].filter((c) => c.visible).length;
                 return (
-                  <section key={g.id} className="mb-1.5 border-t border-slate-100 pt-1.5">
-                    <button type="button" onClick={() => alternarGrupo(g.id)} aria-expanded={!cerrado} className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-slate-50">
+                  <section key={g.id} className="mb-2 overflow-hidden rounded-xl border border-slate-200">
+                    <button type="button" onClick={() => alternarGrupo(g.id)} aria-expanded={!cerrado} className="flex w-full items-center gap-2 bg-slate-50 px-2.5 py-2 text-left hover:bg-slate-100">
                       <span style={{ color: g.color }}>{g.icono}</span>
                       <span className="flex-1 text-[13px] font-bold text-[#10233f]">{g.titulo} <span className="font-semibold text-slate-400">({capasPorGrupo[g.id].length + (g.id === 'personalizada' && capaArchivoGeorreferenciado.archivo ? 1 : 0)})</span></span>
                       {visibles > 0 && <span className="rounded-full px-1.5 text-[10px] font-bold text-white" style={{ background: g.color }}>{visibles}</span>}
                       <ChevronDown size={15} className={clsx('text-slate-400 transition', cerrado && '-rotate-90')} />
                     </button>
                     {!cerrado && (
-                      <div className="space-y-0.5 pb-1 pl-1">
+                      <div className="space-y-0.5 px-1 py-1">
                         {lista.length === 0 && !esTemporal && <p className="px-1.5 py-1 text-[11px] text-slate-400">{filtroGestor ? 'Sin coincidencias.' : 'Sin capas en este grupo.'}</p>}
                         {lista.map((capa) => {
                           const detectado = camposUnionAutoDetectados.get(capa.id);
@@ -2717,7 +2751,9 @@ export function MapaGeorreferenciacion() {
                                 <input type="checkbox" className="h-3.5 w-3.5 shrink-0 accent-[#116762]" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} aria-label={`Mostrar ${capa.nombre}`} />
                                 <span className="h-2.5 w-2.5 shrink-0 rounded-sm border" style={{ borderColor: g.color, background: capa.visible ? `${g.color}33` : 'transparent' }} />
                                 <button type="button" onClick={() => actualizarCapa(capa.id, { visible: !capa.visible })} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-[#10233f]" title={`${capa.nombre} · ${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`}>{capa.nombre}</button>
+                                <span title={`${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`} className="shrink-0 text-slate-300"><Info size={12} /></span>
                                 {capa.compartida ? <Cloud size={12} className="shrink-0 text-emerald-500" aria-label="Compartida con todos los equipos" /> : !detectado ? <AlertCircle size={12} className="shrink-0 text-amber-500" aria-label="Falta elegir el campo de nombre" /> : null}
+                                <span className="h-3.5 w-6 shrink-0 rounded border-2" style={{ borderColor: g.color, background: `${g.color}1f` }} />
                                 <button type="button" onClick={() => setMenuCapaAbierto(menu ? null : capa.id)} aria-expanded={menu} aria-label={`Opciones de ${capa.nombre}`} className="shrink-0 rounded p-0.5 text-slate-400 opacity-70 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"><MoreHorizontal size={14} /></button>
                               </div>
                               {menu && (
@@ -2861,8 +2897,9 @@ export function MapaGeorreferenciacion() {
                   <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
                 </div>
               )}
+              <button type="button" onClick={clearFilters} className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 py-2.5 text-[13px] font-bold text-[#10233f] hover:bg-slate-200"><Trash2 size={15} /> Limpiar filtros</button>
               <div className="grid grid-cols-2 gap-1.5">
-                <button type="button" onClick={restablecerVisualizacion} className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-1.5 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50"><RotateCcw size={13} /> Restablecer</button>
+                <button type="button" onClick={restablecerVisualizacion} className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-1.5 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50"><RotateCcw size={13} /> Restablecer vista</button>
                 {!soloLectura ? (
                   <button type="button" onClick={() => inputRef.current?.click()} title="Shapefile (.zip) o GeoJSON" className="flex items-center justify-center gap-1.5 rounded-lg bg-[#116762] py-1.5 text-[11.5px] font-bold text-white hover:bg-[#0f5f57]"><FileUp size={13} /> {cargando ? 'Procesando…' : 'Cargar capa'}</button>
                 ) : <span />}
@@ -2907,7 +2944,6 @@ export function MapaGeorreferenciacion() {
                   </div>
                 )}
               </div>
-              <button type="button" onClick={centrarEnJurisdiccion} title="Encuadrar las capas visibles (o los puntos)" className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"><LocateFixed size={14} /> Encuadrar</button>
               <div className="ml-auto flex items-center gap-1.5">
                 <button type="button" onClick={() => setAnalisisAbierto((v) => !v)} aria-pressed={analisisAbierto} title="Registros visibles, zona seleccionada, coordenadas, comparación y pronóstico" className={clsx('flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[12px] font-semibold transition', analisisAbierto ? 'border-[#116762] bg-[#e3f2ef] text-[#0b4a46]' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}>
                   <ChartColumn size={14} /> Análisis
@@ -2928,9 +2964,6 @@ export function MapaGeorreferenciacion() {
                     </div>
                   )}
                 </div>
-                <button type="button" onClick={() => setPantallaCompleta((v) => !v)} className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50">
-                  {pantallaCompleta ? <><Minimize2 size={14} /> Salir</> : <><Maximize2 size={14} /> Pantalla completa</>}
-                </button>
               </div>
             </div>
 
@@ -3022,6 +3055,8 @@ export function MapaGeorreferenciacion() {
 
           <MapContainer center={CENTRO_DEFECTO} zoom={12} zoomControl={false} style={{ height: '100%', width: '100%' }}>
             <ZoomSliderControl />
+            <ScaleControl position="bottomleft" imperial={false} />
+            <EtiquetasZonas capas={capasVisiblesPoligono} camposUnion={camposUnionAutoDetectados} satelital={tipoMapa !== 'mapa'} />
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
             <CapturarInstanciaDeMapa mapaRef={mapaRef} />
             <SeleccionPorClicEnMapa
@@ -3377,8 +3412,45 @@ export function MapaGeorreferenciacion() {
             />
           </MapContainer>
 
-              {/* Leyenda flotante (solo lo que está activo) */}
-              <div className="absolute bottom-6 right-3 z-[1000] w-[230px] rounded-xl border border-slate-200 bg-white/95 text-xs shadow-lg backdrop-blur-sm">
+              {/* Encabezado oscuro sobre el mapa: título, subtítulo y escala de densidad */}
+              <div className="pointer-events-none absolute left-14 right-3 top-3 z-[1000] flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-[#0d1b2a]/88 px-3.5 py-2.5 text-white shadow-lg backdrop-blur-sm">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#159089] to-[#2f6fdb]"><Layers size={20} /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[17px] font-extrabold leading-tight">Mapa de {tituloFuentes}</p>
+                  <p className="truncate text-[12px] text-slate-300">{filtrosMapa.delito.length ? filtrosMapa.delito.join(', ') : 'Todos los delitos'} • {textoVigencia}</p>
+                </div>
+                {verCalor && (
+                  <div className="w-[190px] shrink-0">
+                    <p className="mb-1 text-[11px] font-semibold text-slate-200">Densidad de casos</p>
+                    <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                    <div className="mt-0.5 flex justify-between text-[10px] text-slate-300"><span>Baja</span><span>Alta</span></div>
+                  </div>
+                )}
+              </div>
+
+              {/* Controles: encuadrar y pantalla completa (bajo el zoom) */}
+              <div className="absolute bottom-[96px] left-3 z-[1000] flex flex-col gap-1.5">
+                <button type="button" onClick={centrarEnJurisdiccion} title="Encuadrar las capas visibles" aria-label="Encuadrar" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[#10233f] shadow-md hover:bg-slate-50"><LocateFixed size={17} /></button>
+                <button type="button" onClick={() => setPantallaCompleta((v) => !v)} title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'} aria-label="Pantalla completa" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[#10233f] shadow-md hover:bg-slate-50">{pantallaCompleta ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+              </div>
+
+              {/* Rosa de los vientos */}
+              <div className="pointer-events-none absolute right-3 top-[86px] z-[999] flex h-11 w-11 flex-col items-center justify-center rounded-full border border-white/40 bg-[#0d1b2a]/80 text-white shadow-md" aria-label="Norte arriba">
+                <span className="text-[10px] font-extrabold leading-none">N</span>
+                <Navigation2 size={16} className="fill-white" />
+              </div>
+
+              {/* Vista general + contadores */}
+              <div className="absolute bottom-3 right-3 z-[1000] flex flex-col items-end gap-2">
+                <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><MapIcon size={13} /> Zonas visibles: <b>{formatNumero(elementosVisibles)}</b></span>
+                  <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><ChartColumn size={13} /> Casos mostrados: <b>{formatNumero(totalEnMapa)}</b></span>
+                </div>
+              </div>
+
+              {/* Leyenda (plegable) */}
+              <div className="absolute bottom-[40px] left-14 z-[1000] w-[230px] rounded-xl border border-slate-200 bg-white/95 text-xs shadow-lg backdrop-blur-sm">
                 <button type="button" onClick={() => setLeyendaMapaAbierta((v) => !v)} aria-expanded={leyendaMapaAbierta} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-bold text-[#10233f]">
                   <span className="flex items-center gap-1.5"><Palette size={13} className="text-[#116762]" /> Leyenda</span>
                   <ChevronDown size={14} className={clsx('transition', leyendaMapaAbierta && 'rotate-180')} />
@@ -3500,7 +3572,7 @@ export function MapaGeorreferenciacion() {
 
               {/* Panel de análisis (se abre con el botón «Análisis») */}
               {analisisAbierto && (
-                <div className="absolute bottom-3 right-3 top-3 z-[1100] flex w-[300px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute bottom-3 right-3 top-[84px] z-[1100] flex w-[300px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
                     <span className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#10233f]"><ChartColumn size={15} className="text-[#116762]" /> Análisis del mapa</span>
                     <button type="button" onClick={() => setAnalisisAbierto(false)} aria-label="Cerrar análisis" className="rounded p-0.5 text-slate-400 hover:text-slate-600"><X size={15} /></button>
@@ -3591,7 +3663,7 @@ export function MapaGeorreferenciacion() {
               El botón de descarga usa exactamente el mismo motor de
               exportación de imágenes que el resto del dashboard. */}
           {filtroDemasiadoAmplio && (
-            <div className="absolute right-3 top-3 z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
+            <div className="absolute right-16 top-[84px] z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
               <p className="text-sm font-semibold text-amber-800">Este filtro coincide con demasiados polígonos</p>
               <p className="mt-1 text-xs text-amber-700">
                 Probablemente hay una capa cargada (revisa "JURIS_ESTACIONES_2026") cuyos valores no corresponden
@@ -3601,7 +3673,7 @@ export function MapaGeorreferenciacion() {
             </div>
           )}
           {zonaActiva && !analisisAbierto && (
-            <div className="absolute right-3 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+            <div className="absolute right-16 top-[84px] z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>
@@ -3672,32 +3744,6 @@ export function MapaGeorreferenciacion() {
         </section>
       )}
 
-              {/* ── ANÁLISIS TERRITORIAL ── */}
-              <section className="@container">
-                <div className="mb-2.5 flex flex-wrap items-center gap-2">
-                  <IconoCaja><ChartColumn size={17} /></IconoCaja>
-                  <h2 className="text-[16px] font-extrabold text-[#10233f]">Análisis territorial</h2>
-                  <span className="text-[12px] text-slate-500">Responde a los filtros activos · clic en una fila para sumarla o quitarla del filtro</span>
-                </div>
-                <div className="grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[1000px]:grid-cols-3">
-                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Delitos por comuna" icono={<Landmark size={15} />} filas={rankingComunas.filas} topInicial={10} nota={rankingComunas.nota} />
-                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Barrios afectados" icono={<Home size={15} />} filas={rankingBarrios} topInicial={10} onFila={(k) => alternarValorFiltro('barrioHecho', k)} seleccionados={filtrosMapa.barrioHecho} />
-                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Tipos de delito" icono={<ShieldAlert size={15} />} filas={rankingDelitos} topInicial={5} onFila={(k) => alternarValorFiltro('delito', k)} seleccionados={filtrosMapa.delito} />
-                  <TarjetaTerritorial anios={aniosTarjetas} titulo="CAI más afectados" icono={<Shield size={15} />} filas={rankingCai} topInicial={10} onFila={(k) => alternarValorFiltro('cai', k)} seleccionados={filtrosMapa.cai} />
-                  <TarjetaTerritorial anios={aniosTarjetas} titulo="Zonas de atención" icono={<MapPin size={15} />} filas={rankingZonas} topInicial={10} onFila={(k) => alternarValorFiltro('cuadrante', k)} seleccionados={filtrosMapa.cuadrante} />
-                  {/* "Cuadrantes" se reemplazó por "Horas más afectadas" (a pedido). */}
-                  <TarjetaTerritorial
-                    titulo="Horas más afectadas"
-                    anios={aniosTarjetas}
-                    icono={<Clock size={15} />}
-                    filas={rankingHoras}
-                    topInicial={5}
-                    onFila={(etiqueta) => alternarHora(String(parseInt(etiqueta, 10)))}
-                    seleccionados={filtrosPrincipales.horaExacta.map(etiquetaHoraMapa)}
-                  />
-                </div>
-              </section>
-
       {caiDeEstacionActiva.length > 0 && (
         <Card>
           <p className="mb-3 text-sm font-bold text-slate-700">CAI de {filtrosMapa.estacion[0]} — mapa de calor por CAI</p>
@@ -3745,12 +3791,6 @@ export function MapaGeorreferenciacion() {
       )}
 
 
-      {limiteVigenciaActual && (
-        <p className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-500">
-          <Info size={15} className="mt-[1px] shrink-0 text-[#116762]" />
-          Sin un año, mes o fecha seleccionados, el mapa muestra solo la vigencia {limiteVigenciaActual.inicio.getFullYear()} (hasta {limiteVigenciaActual.fin.toLocaleDateString('es-CO')}, la fecha de corte más reciente) — no todo el histórico. Seleccione un año, mes o fecha en los filtros de arriba para ver otra vigencia.
-        </p>
-      )}
 
       {mostrarSelectorFuentes && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarSelectorFuentes(false)}>
@@ -3809,4 +3849,86 @@ function Deslizador({ texto, valor, onChange }: { texto: string; valor: number; 
       <input type="range" min={0} max={100} value={valor} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-[#116762]" aria-label={texto} />
     </div>
   );
+}
+
+/** Nombre de cada polígono de las capas visibles, sobre el mapa (solo capas con pocas zonas, para no saturar). */
+function EtiquetasZonas({ capas, camposUnion, satelital }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; satelital: boolean }) {
+  const etiquetas = useMemo(() => {
+    const lista: { clave: string; nombre: string; pos: [number, number] }[] = [];
+    for (const capa of capas) {
+      const features = extraerFeatures(capa.geojson);
+      if (features.length === 0 || features.length > 40) continue;
+      const campo = camposUnion.get(capa.id) ?? capa.campoUnion ?? null;
+      features.forEach((f: any, i: number) => {
+        const props = f?.properties ?? {};
+        const v = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /NOMBRE|NOM_|ESTACION|ZONA|CAI|COMUNA|BARRIO|NAME/i.test(k))?.[1];
+        const nombre = String(v ?? '').trim();
+        if (!nombre) return;
+        try {
+          const c = L.geoJSON(f).getBounds().getCenter();
+          lista.push({ clave: `${capa.id}-${i}`, nombre, pos: [c.lat, c.lng] });
+        } catch { /* geometría inválida */ }
+      });
+    }
+    return lista;
+  }, [capas, camposUnion]);
+  const color = satelital ? '#ffffff' : '#10233f';
+  const halo = satelital ? '0 0 4px #000,0 1px 3px #000' : '0 0 3px #fff,0 0 2px #fff,0 0 1px #fff';
+  return (
+    <>
+      {etiquetas.map((e) => (
+        <Marker
+          key={e.clave}
+          position={e.pos}
+          interactive={false}
+          pane="markerPane"
+          icon={L.divIcon({ className: '', iconSize: [0, 0], html: `<div style="transform:translate(-50%,-50%);white-space:nowrap;font:800 13px/1 system-ui,Arial,sans-serif;color:${color};text-shadow:${halo};pointer-events:none">${e.nombre.replace(/</g, '&lt;')}</div>` })}
+        />
+      ))}
+    </>
+  );
+}
+
+/** «Vista general»: minimapa con el recuadro de lo que se ve en el mapa principal. */
+function MiniMapaGeneral({ mapaRef, tipoMapa, capas }: { mapaRef: React.MutableRefObject<L.Map | null>; tipoMapa: 'mapa' | 'satelite' | 'hibrido'; capas: CapaGeografica[] }) {
+  const [vista, setVista] = useState<{ bounds: L.LatLngBounds; centro: L.LatLng; zoom: number } | null>(null);
+  const [abierto, setAbierto] = useState(true);
+  useEffect(() => {
+    let mapa: L.Map | null = null;
+    const leer = () => { if (mapa) setVista({ bounds: mapa.getBounds(), centro: mapa.getCenter(), zoom: mapa.getZoom() }); };
+    const t = window.setInterval(() => {
+      if (mapaRef.current && mapaRef.current !== mapa) {
+        mapa?.off('moveend', leer);
+        mapa = mapaRef.current;
+        mapa.on('moveend', leer);
+        leer();
+      }
+    }, 500);
+    return () => { window.clearInterval(t); mapa?.off('moveend', leer); };
+  }, [mapaRef]);
+  if (!vista) return null;
+  const contorno = capas.flatMap((c) => extraerFeatures(c.geojson)).slice(0, 400);
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/30 bg-[#0d1b2a]/88 shadow-lg">
+      <button type="button" onClick={() => setAbierto((v) => !v)} className="flex w-full items-center justify-between gap-2 px-2.5 py-1 text-[11px] font-bold text-white">Vista general <ChevronDown size={12} className={clsx('transition', !abierto && '-rotate-90')} /></button>
+      {abierto && (
+        <div className="h-[110px] w-[170px]">
+          <MapContainer center={vista.centro} zoom={Math.max(1, vista.zoom - 4)} zoomControl={false} attributionControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} boxZoom={false} keyboard={false} touchZoom={false} style={{ height: '100%', width: '100%', background: '#0d1b2a' }}>
+            <SincronizarMiniMapa centro={vista.centro} zoom={Math.max(1, vista.zoom - 4)} />
+            {tipoMapa === 'mapa'
+              ? <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              : <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />}
+            {contorno.length > 0 && <GeoJSONLayer key={contorno.length} data={{ type: 'FeatureCollection', features: contorno } as never} interactive={false} style={{ color: '#ffffff', weight: 0.8, opacity: 0.7, fillOpacity: 0 }} />}
+            <Rectangle bounds={vista.bounds} pathOptions={{ color: '#5eead4', weight: 1.5, fillColor: '#5eead4', fillOpacity: 0.18 }} interactive={false} />
+          </MapContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SincronizarMiniMapa({ centro, zoom }: { centro: L.LatLng; zoom: number }) {
+  const map = useMap();
+  useEffect(() => { map.setView(centro, zoom, { animate: false }); }, [map, centro, zoom]);
+  return null;
 }
