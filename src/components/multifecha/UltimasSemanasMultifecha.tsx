@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { CrimeRecord } from '../../types/crime';
 import type { VigenciaMF } from '../../hooks/useMultifecha';
 import { formatNumero } from '../../utils/aggregations';
@@ -13,7 +13,7 @@ import { VarAbs } from './TablaVigencias';
 // días disponibles y se advierte.
 
 const MS_DIA = 86400000;
-export const PALETA_VIGENCIAS = ['#94a3b8', '#8a86da', '#0891b2', '#f59e0b', '#f97316', '#a3a3a3', '#14b8a6', '#6366f1', '#e879f9', '#84cc16', '#64748b', '#0ea5e9'];
+export const PALETA_VIGENCIAS = ['#9fd8cf', '#5fb8ad', '#94a3b8', '#159089', '#8a86da', '#0891b2', '#cbd5e1', '#14b8a6', '#6366f1', '#64748b', '#0ea5e9', '#a3a3a3'];
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const corta = (d: Date) => `${d.getDate()} ${MESES[d.getMonth()]}`;
 
@@ -21,7 +21,21 @@ interface SemanaVig { inicio: Date; fin: Date; casos: number; dias: number }
 interface VentanaVig { v: VigenciaMF; semanas: SemanaVig[]; total: number; incompleta: boolean; inicio: Date; fin: Date }
 
 export function colorVigencia(i: number, n: number): string {
-  return i === n - 1 ? '#10233f' : PALETA_VIGENCIAS[i % PALETA_VIGENCIAS.length];
+  if (i === n - 1) return '#10233f';
+  if (i === n - 2) return '#159089';
+  return PALETA_VIGENCIAS[i % PALETA_VIGENCIAS.length];
+}
+
+/** Etiqueta del eje: «Semana N» y debajo las fechas de la vigencia más reciente. */
+function EtiquetaSemana({ x, y, payload, ventanas }: { x?: number; y?: number; payload?: { value: string; index: number }; ventanas: VentanaVig[] }) {
+  const w = ventanas[ventanas.length - 1];
+  const s = payload && w ? w.semanas[payload.index] : null;
+  return (
+    <g transform={`translate(${x ?? 0},${y ?? 0})`}>
+      <text dy={13} textAnchor="middle" fontSize={11.5} fontWeight={700} fill="#10233f">{payload?.value}</text>
+      {s && <text dy={27} textAnchor="middle" fontSize={10} fill="#64748b">{corta(s.inicio)} – {corta(s.fin)}</text>}
+    </g>
+  );
 }
 
 export function UltimasSemanasMultifecha({ vigencias, base, fechaMin, fechaMax }: {
@@ -59,7 +73,7 @@ export function UltimasSemanasMultifecha({ vigencias, base, fechaMin, fechaMax }
   if (n === 0) return <p className="py-6 text-center text-sm text-slate-400">Seleccione al menos una vigencia con fechas completas.</p>;
 
   const datos = [0, 1, 2, 3].map((i) => {
-    const fila: Record<string, string | number> = { semana: i === 3 ? 'Semana 4 (cierre)' : `Semana ${i + 1}` };
+    const fila: Record<string, string | number> = { semana: i === 3 ? 'Semana 4 · cierre' : `Semana ${i + 1}` };
     for (const w of ventanas) fila[w.v.etiqueta] = w.semanas[i].casos;
     return fila;
   });
@@ -72,31 +86,28 @@ export function UltimasSemanasMultifecha({ vigencias, base, fechaMin, fechaMax }
         Serie principal <b className="text-[#10233f]">{reciente.v.etiqueta}</b>: del {corta(reciente.inicio)} al {corta(reciente.fin)} {reciente.fin.getFullYear()} (cierra el último día de su periodo de referencia, {reciente.v.rango}).
         {n > 1 && ' Las demás vigencias se comparan con su ventana equivalente de 4 semanas, que cierra en el último día de su propio periodo.'}
       </p>
-      <div className="h-[230px]">
+      <div className="grid grid-cols-1 items-center gap-4 xl:grid-cols-[1.25fr_1fr]">
+      <div className="h-[280px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={datos} margin={{ top: 12, right: 16, left: -12, bottom: 0 }}>
+          <BarChart data={datos} margin={{ top: 22, right: 8, left: -14, bottom: 0 }} barCategoryGap="22%" barGap={3}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-            <XAxis dataKey="semana" tick={{ fontSize: 11, fill: '#475569' }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} />
+            <XAxis dataKey="semana" tick={<EtiquetaSemana ventanas={ventanas} />} interval={0} height={40} tickLine={false} axisLine={{ stroke: '#cbd5e1' }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
             <Tooltip
-              formatter={(valor, nombre) => {
-                const w = ventanas.find((x) => x.v.etiqueta === nombre);
-                return [`${formatNumero(Number(valor))} casos`, w ? `${nombre}` : String(nombre)];
-              }}
-              labelFormatter={(l, payload) => {
+              cursor={{ fill: 'rgba(17,103,98,0.06)' }}
+              formatter={(valor, nombre) => [`${formatNumero(Number(valor))} casos`, String(nombre)]}
+              labelFormatter={(l) => {
                 const i = datos.findIndex((d) => d.semana === l);
-                const partes = (payload ?? []).map((p) => {
-                  const w = ventanas.find((x) => x.v.etiqueta === p.dataKey);
-                  return w && i >= 0 ? `${w.v.etiqueta}: ${corta(w.semanas[i].inicio)}–${corta(w.semanas[i].fin)}` : '';
-                }).filter(Boolean);
-                return `${l}${partes.length ? ` · ${partes.slice(-2).join(' · ')}` : ''}`;
+                return i >= 0 ? `${l} · ${reciente.v.etiqueta}: ${corta(reciente.semanas[i].inicio)}–${corta(reciente.semanas[i].fin)}` : String(l);
               }}
             />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11.5 }} iconType="circle" />
             {ventanas.map((w, i) => (
-              <Line key={w.v.id} type="monotone" dataKey={w.v.etiqueta} stroke={colorVigencia(i, n)} strokeWidth={i === n - 1 ? 3 : 1.6} dot={{ r: i === n - 1 ? 4 : 2.5 }} isAnimationActive={false} label={i === n - 1 ? { position: 'top', fontSize: 11, fontWeight: 700, fill: '#10233f' } : undefined} />
+              <Bar key={w.v.id} dataKey={w.v.etiqueta} fill={colorVigencia(i, n)} radius={[5, 5, 0, 0]} maxBarSize={46} isAnimationActive={false}>
+                <LabelList dataKey={w.v.etiqueta} position="top" style={{ fontSize: i === n - 1 ? 12 : 10.5, fontWeight: i === n - 1 ? 800 : 600, fill: i === n - 1 ? '#10233f' : '#64748b' }} />
+              </Bar>
             ))}
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
       </div>
       <div className="overflow-x-auto">
@@ -122,6 +133,7 @@ export function UltimasSemanasMultifecha({ vigencias, base, fechaMin, fechaMax }
             ))}
           </tbody>
         </table>
+      </div>
       </div>
       {incompletas.length > 0 && (
         <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">

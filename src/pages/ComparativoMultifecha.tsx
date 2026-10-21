@@ -9,8 +9,9 @@ import { formatNumero, formatDecimal } from '../utils/aggregations';
 import { useData } from '../context/DataContext';
 import { useMultifecha, type FilaVigencias } from '../hooks/useMultifecha';
 import { TablaVigencias, VarAbs, VarPct } from '../components/multifecha/TablaVigencias';
-import { SelectorVigencias } from '../components/multifecha/SelectorVigencias';
-import { MatrizDiaHora, matrizDiaHora, maxMatriz, DIAS_MATRIZ } from '../components/multifecha/MatrizDiaHora';
+import { matrizDiaHora, DIAS_MATRIZ } from '../components/multifecha/MatrizDiaHora';
+import { useHeatmap, type CeldaHeatmap, type VistaHeatmap } from '../hooks/useHeatmap';
+import { TablaMatriz, Leyenda } from './MatrizCalor';
 import { UltimasSemanasMultifecha, colorVigencia } from '../components/multifecha/UltimasSemanasMultifecha';
 import { MapaCalorMultifecha } from '../components/multifecha/MapaCalorMultifecha';
 import { maxDensidadKernel } from '../utils/kernelDensity';
@@ -91,7 +92,7 @@ function useResumenEjecutivo(mf: ReturnType<typeof useMultifecha>, tablas: Recor
 }
 
 export function ComparativoMultifecha() {
-  const { meta } = useData();
+  const { meta, setFilters } = useData();
   const mf = useMultifecha();
   const { vigencias, primera, ultima, comparable, union, base, tabla, drillDown, filters } = mf;
 
@@ -116,7 +117,15 @@ export function ComparativoMultifecha() {
   const [escalaComun, setEscalaComun] = useState(true);
   const vigVista = vigencias.find((v) => v.id === vista) ?? null;
   const registrosVista = vigVista ? vigVista.registros : union;
-  const maxMatrizComun = useMemo(() => Math.max(0, ...vigencias.map((v) => maxMatriz(matrizDiaHora(v.registros)))), [vigencias]);
+  // Matriz de calor: la MISMA del módulo «Matriz de Calor» (niveles por percentiles).
+  const [vistaMatriz, setVistaMatriz] = useState<VistaHeatmap>('hora');
+  const datosMatriz = useHeatmap(registrosVista, vistaMatriz);
+  const filtrarCelda = (celda: CeldaHeatmap) => setFilters((prev) => ({
+    ...prev,
+    diaSemana: [celda.dia],
+    horaExacta: vistaMatriz === 'hora' ? [celda.columna] : [],
+    franjaHoraria: vistaMatriz === 'franja' ? [celda.columna] : [],
+  }));
   const maxKernelComun = useMemo(() => {
     if (!vigVista || !escalaComun) return undefined;
     return Math.max(0, ...vigencias.map((v) => maxDensidadKernel(v.registros.filter((r) => esCoordenadaValida(r.lat, r.lon)).map((r) => ({ lat: r.lat!, lon: r.lon! })))));
@@ -167,14 +176,8 @@ export function ComparativoMultifecha() {
         </div>
       </div>
 
-      {/* Selector de vigencias */}
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <p className="mb-2 text-[13px] font-extrabold text-[#10233f]">Seleccionar vigencias para el análisis</p>
-        <SelectorVigencias compacto />
-      </div>
-
       {vigencias.length === 0 ? (
-        <Card><p className="py-8 text-center text-sm text-slate-500">Seleccione al menos una vigencia con fecha inicial y final completas.</p></Card>
+        <Card><p className="py-8 text-center text-sm text-slate-500">Marque al menos una vigencia con fecha inicial y final completas en «¿Desea incluir otras fechas para el análisis?» (panel de filtros).</p></Card>
       ) : (
         <>
           {/* KPIs */}
@@ -186,66 +189,22 @@ export function ComparativoMultifecha() {
             <KpiMultifecha icono={<Flame size={24} />} tono={mf.varAbs > 0 ? 'bg-rose-50 text-[#dc2626]' : 'bg-[#e3f2ef] text-[#15803d]'} titulo={comparable ? `Variación porcentual (${ultima!.etiqueta} vs ${primera!.etiqueta})` : 'Variación porcentual'} detalle={comparable ? 'Primera contra última vigencia' : 'Seleccione al menos dos vigencias'}>
               {comparable ? <VarPct valor={mf.varPct} grande /> : <span className="text-slate-300">—</span>}
             </KpiMultifecha>
-            <KpiMultifecha icono={<Layers size={24} />} titulo="Vigencias comparadas" detalle={vigencias.map((v) => v.etiqueta).join(', ')}>{vigencias.length}</KpiMultifecha>
+            <KpiMultifecha icono={<Layers size={24} />} titulo="Vigencias comparadas" detalle={vigencias.map((v) => `${v.etiqueta} (${v.rango})`).join(' · ')}>{vigencias.length}</KpiMultifecha>
           </div>
 
-          {/* Resumen ejecutivo */}
-          <Card title="Resumen ejecutivo" subtitle="Se genera con las cifras actuales" descargable="multifecha-resumen" icono={ico(FileText)} claseTitulo={T}>
-            <ul className="gap-x-8 text-[12.5px] leading-snug text-slate-700 lg:columns-2">
-              {resumen.map((t, i) => <li key={i} className="mb-2 flex break-inside-avoid gap-2"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#116762]" /><span>{t}</span></li>)}
-            </ul>
-          </Card>
-
-          {/* Comparativo por delito */}
-          <TablaVigencias id="delito" titulo="Comparativo por delito" icono={ico(BarChart3)} cabeza="Delito" filas={tablas.delito} topInicial={10} {...comunes('delito')} />
-
-          {/* Territorio */}
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+          {/* Componentes: 3 por fila */}
+          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <Card className="h-full" title="Resumen ejecutivo" subtitle="Se genera con las cifras actuales" descargable="multifecha-resumen" icono={ico(FileText)} claseTitulo={T}>
+              <ul className="space-y-2 text-[12.5px] leading-snug text-slate-700">
+                {resumen.map((t, i) => <li key={i} className="flex gap-2"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#116762]" /><span>{t}</span></li>)}
+              </ul>
+            </Card>
+            <TablaVigencias id="delito" titulo="Comparativo por delito" icono={ico(BarChart3)} cabeza="Delito" filas={tablas.delito} topInicial={10} {...comunes('delito')} />
             <TablaVigencias id="estacion" titulo="Casos por estación" icono={ico(Building2)} cabeza="Estación" filas={tablas.estacion} topInicial={5} {...comunes('estacion')} />
-            <TablaVigencias id="zona" titulo="Zonas de Atención más afectadas" icono={ico(MapPinned)} cabeza="Zona de atención" filas={tablas.zona} topInicial={5} {...comunes('cuadrante')} />
             <TablaVigencias id="cai" titulo="CAI más afectados" icono={ico(MapPin)} cabeza="CAI" filas={tablas.cai} topInicial={5} {...comunes('cai')} />
+            <TablaVigencias id="zona" titulo="Zonas de Atención más afectadas" icono={ico(MapPinned)} cabeza="Zona de atención" filas={tablas.zona} topInicial={5} {...comunes('cuadrante')} />
             <TablaVigencias id="barrio" titulo="Barrios más afectados" icono={ico(Home)} cabeza="Barrio" filas={tablas.barrio} topInicial={5} {...comunes('barrioHecho')} />
-          </div>
-
-          {/* Matriz día × hora + mapa de calor */}
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-            <div className="flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="font-bold text-[#10233f]">Matriz y mapa de calor:</span>
-              <div className="flex flex-wrap gap-1">
-                <button type="button" onClick={() => setVista('todas')} aria-pressed={vista === 'todas'} className={clsx('rounded-full px-2.5 py-0.5 font-semibold', vista === 'todas' ? 'bg-[#10233f] text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50')}>Todas las vigencias</button>
-                {vigencias.map((v, i) => (
-                  <button key={v.id} type="button" onClick={() => setVista(v.id)} aria-pressed={vista === v.id} className={clsx('rounded-full px-2.5 py-0.5 font-semibold', vista === v.id ? 'text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50')} style={vista === v.id ? { background: colorVigencia(i, vigencias.length) } : undefined}>{v.etiqueta}</button>
-                ))}
-              </div>
-              <label className={clsx('ml-auto flex items-center gap-1.5', !vigVista && 'opacity-50')} title="Con una vigencia elegida, usa la misma escala de color para todas, así las diferencias entre años no engañan">
-                <input type="checkbox" className="accent-[#116762]" checked={escalaComun} disabled={!vigVista} onChange={(e) => setEscalaComun(e.target.checked)} /> Escala comparable entre vigencias
-              </label>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-            <Card className="h-full" title="Distribución de casos por día y hora" subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta} (${vigVista.rango})` : 'Todas las vigencias seleccionadas'} · ${formatNumero(registrosVista.length)} casos`} descargable="multifecha-matriz" icono={ico(Clock)} claseTitulo={T}>
-              <MatrizDiaHora registros={registrosVista} maxEscala={vigVista && escalaComun ? maxMatrizComun : undefined} />
-            </Card>
-            <Card className="h-full" title="Mapa de calor por delitos" subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta}` : 'Todas las vigencias'} · densidad Kernel (radio 200 m)${vigVista && escalaComun ? ' · escala común' : ''}`} descargable="multifecha-mapa" icono={ico(IconoMapa)} claseTitulo={T}>
-              <div className="h-[420px]">
-                <MapaCalorMultifecha key={`${vista}-${escalaComun}`} registros={registrosVista} alto={420} maxFijo={maxKernelComun} />
-              </div>
-            </Card>
-          </div>
-
-          {/* Últimas 4 semanas */}
-          <Card title="Últimas 4 semanas por vigencia" subtitle="4 semanas que cierran el último día del periodo de referencia de cada vigencia" descargable="multifecha-4-semanas" icono={ico(CalendarDays)} claseTitulo={T}>
-            <UltimasSemanasMultifecha vigencias={vigencias} base={base} fechaMin={meta?.fechaMin ?? null} fechaMax={meta?.fechaMax ?? null} />
-          </Card>
-
-          {/* Comportamiento diario (jornadas) */}
-          <Card title={`Comportamiento diario por vigencia — ${filters.delito.length ? filters.delito.join(', ') : 'Todos los delitos'}`} subtitle="Casos por día en cada vigencia · rojo: día con más casos · franja amarilla: promedio diario" descargable="multifecha-diario" icono={ico(IconoLinea)} claseTitulo={T}>
-            <GraficoMultifechaDiario series={seriesDiarias} />
-          </Card>
-
-          {/* Más dimensiones */}
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-3">
-            <TablaVigencias id="hora" titulo="Horas más afectadas" icono={ico(Clock)} cabeza="Hora" filas={tablas.hora} topInicial={5} etiqueta={etiquetaHora} vigencias={vigencias} seleccionados={sel('horaExacta').map((h) => h)} onFila={(k) => drillDown('horaExacta', String(parseInt(k, 10)))} />
+            <TablaVigencias id="hora" titulo="Horas más afectadas" icono={ico(Clock)} cabeza="Hora" filas={tablas.hora} topInicial={5} etiqueta={etiquetaHora} vigencias={vigencias} seleccionados={sel('horaExacta')} onFila={(k) => drillDown('horaExacta', String(parseInt(k, 10)))} />
             <TablaVigencias id="turno" titulo="Turno de vigilancia" icono={ico(Hourglass)} cabeza="Turno" filas={tablas.turno} conTop={false} {...comunes('turno')} />
             <TablaVigencias id="armas" titulo="Armas empleadas" icono={ico(Crosshair)} cabeza="Arma" filas={tablas.armas} topInicial={5} {...comunes('armas')} />
             <TablaVigencias id="modalidad" titulo="Modalidades principales" icono={ico(Timer)} cabeza="Modalidad" filas={tablas.modalidad} topInicial={5} {...comunes('modalidad')} />
@@ -264,6 +223,60 @@ export function ComparativoMultifecha() {
               <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={totalDe(porGrupoEdad)} colores={COLORES_DONA} compacta />
             </Card>
           </div>
+
+
+          {/* Matriz de calor + mapa de calor: 2 por fila, más grandes */}
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-[12px]">
+              <span className="font-bold text-[#10233f]">Matriz y mapa de calor:</span>
+              <div className="flex flex-wrap gap-1">
+                <button type="button" onClick={() => setVista('todas')} aria-pressed={vista === 'todas'} className={clsx('rounded-full px-2.5 py-0.5 font-semibold', vista === 'todas' ? 'bg-[#10233f] text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50')}>Todas las vigencias</button>
+                {vigencias.map((v) => (
+                  <button key={v.id} type="button" onClick={() => setVista(v.id)} aria-pressed={vista === v.id} className={clsx('rounded-full px-2.5 py-0.5 font-semibold', vista === v.id ? 'bg-[#116762] text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50')}>{v.etiqueta}</button>
+                ))}
+              </div>
+              <label className={clsx('ml-auto flex items-center gap-1.5', !vigVista && 'opacity-50')} title="Con una vigencia elegida, el mapa usa la misma escala de color para todas, así las diferencias entre años no engañan">
+                <input type="checkbox" className="accent-[#116762]" checked={escalaComun} disabled={!vigVista} onChange={(e) => setEscalaComun(e.target.checked)} /> Escala comparable entre vigencias (mapa)
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[1.15fr_1fr]">
+            <Card
+              className="h-full"
+              title={vistaMatriz === 'hora' ? 'Matriz de calor por día y hora' : 'Matriz de calor por día y franja horaria'}
+              subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta} (${vigVista.rango})` : 'Todas las vigencias seleccionadas'} · ${formatNumero(registrosVista.length)} casos · clic en una celda para filtrar`}
+              descargable="multifecha-matriz"
+              icono={ico(Clock)}
+              claseTitulo={T}
+              actions={
+                <div className="flex overflow-hidden rounded-full border border-slate-200 bg-slate-50 p-0.5">
+                  {(['hora', 'franja'] as const).map((v) => (
+                    <button key={v} type="button" onClick={() => setVistaMatriz(v)} aria-pressed={vistaMatriz === v} className={clsx('rounded-full px-2.5 py-0.5 text-[11px] font-semibold', vistaMatriz === v ? 'bg-[#116762] text-white' : 'text-slate-600 hover:bg-white')}>{v === 'hora' ? 'Por hora' : 'Por franja'}</button>
+                  ))}
+                </div>
+              }
+            >
+              <div className="space-y-3">
+                <TablaMatriz data={datosMatriz} seleccion={datosMatriz.celdaMax} onCelda={filtrarCelda} compacta />
+                <Leyenda data={datosMatriz} compacta />
+              </div>
+            </Card>
+            <Card className="h-full" title="Mapa de calor por delitos" subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta}` : 'Todas las vigencias'} · densidad Kernel (radio 200 m)${vigVista && escalaComun ? ' · escala común' : ''}`} descargable="multifecha-mapa" icono={ico(IconoMapa)} claseTitulo={T}>
+              <div className="h-[600px]">
+                <MapaCalorMultifecha key={`${vista}-${escalaComun}`} registros={registrosVista} alto={600} maxFijo={maxKernelComun} />
+              </div>
+            </Card>
+          </div>
+
+          {/* Últimas 4 semanas */}
+          <Card title="Últimas 4 semanas por vigencia" subtitle="4 semanas que cierran el último día del periodo de referencia de cada vigencia" descargable="multifecha-4-semanas" icono={ico(CalendarDays)} claseTitulo={T}>
+            <UltimasSemanasMultifecha vigencias={vigencias} base={base} fechaMin={meta?.fechaMin ?? null} fechaMax={meta?.fechaMax ?? null} />
+          </Card>
+
+          {/* Comportamiento diario (jornadas) */}
+          <Card title={`Comportamiento diario por vigencia — ${filters.delito.length ? filters.delito.join(', ') : 'Todos los delitos'}`} subtitle="Casos por día en cada vigencia · rojo: día con más casos · franja amarilla: promedio diario" descargable="multifecha-diario" icono={ico(IconoLinea)} claseTitulo={T}>
+            <GraficoMultifechaDiario series={seriesDiarias} />
+          </Card>
 
           {/* Gráficos de la versión anterior (plegados, para no repetir la información de las tablas) */}
           <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">

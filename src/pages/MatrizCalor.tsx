@@ -55,19 +55,19 @@ function IconoFranja({ i }: { i: number }) {
 }
 
 /** La tabla de la matriz (hora o franja), con totales y celdas resaltadas. */
-function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda }: { data: HeatmapResumen; seleccion: CeldaHeatmap | null; seleccionadas?: { dia: number; col: number }[]; onCelda: (c: CeldaHeatmap) => void }) {
+export function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda, compacta = false }: { data: HeatmapResumen; seleccion: CeldaHeatmap | null; seleccionadas?: { dia: number; col: number }[]; onCelda: (c: CeldaHeatmap) => void; /** Más angosta (para ponerla al lado de otro componente). */ compacta?: boolean }) {
   const esHora = data.vista === 'hora';
   const maxFila = maxDe(data.totalesFila);
   const maxCol = maxDe(data.totalesColumna);
   const nivelTotal = calcularNiveles(data.totalesColumna);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-separate text-[13px]" style={{ borderSpacing: esHora ? 3 : 4 }}>
+      <table className={`w-full border-separate ${compacta ? 'text-[11.5px]' : 'text-[13px]'}`} style={{ borderSpacing: esHora ? (compacta ? 2 : 3) : 4 }}>
         <thead>
           <tr>
-            <th className="rounded-md bg-slate-100 px-3 py-2 text-left text-[12.5px] font-semibold" style={{ color: AZUL }}>Día {esHora ? '/ Hora' : '\\ Franja'}</th>
+            <th className={`rounded-md bg-slate-100 py-2 text-left font-semibold ${compacta ? 'px-1.5 text-[11px]' : 'px-3 text-[12.5px]'}`} style={{ color: AZUL }}>Día{compacta ? '' : esHora ? ' / Hora' : ' \\ Franja'}</th>
             {data.columnasLabel.map((label, c) => (
-              <th key={c} className={`rounded-md bg-slate-100 py-2 text-center font-semibold ${esHora ? 'min-w-[38px] text-[12px]' : 'min-w-[130px] px-2 text-[12.5px]'}`} style={{ color: AZUL }}>
+              <th key={c} className={`rounded-md bg-slate-100 py-2 text-center font-semibold ${esHora ? (compacta ? 'min-w-[17px] text-[9.5px]' : 'min-w-[38px] text-[12px]') : (compacta ? 'min-w-[96px] px-1 text-[11.5px]' : 'min-w-[130px] px-2 text-[12.5px]')}`} style={{ color: AZUL }}>
                 {esHora ? label : (
                   <span className="flex items-center justify-center gap-2">
                     <IconoFranja i={c} />
@@ -76,13 +76,13 @@ function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda }: { data: H
                 )}
               </th>
             ))}
-            <th className="rounded-md bg-slate-100 px-3 py-2 text-center text-[12px] font-semibold uppercase" style={{ color: AZUL }}>Total día</th>
+            <th className={`rounded-md bg-slate-100 py-2 text-center font-semibold uppercase ${compacta ? 'px-1 text-[10px]' : 'px-3 text-[12px]'}`} style={{ color: AZUL }}>{compacta ? 'Total' : 'Total día'}</th>
           </tr>
         </thead>
         <tbody>
           {data.diasLabel.map((diaLabel, d) => (
             <tr key={diaLabel}>
-              <td className="whitespace-nowrap rounded-md bg-slate-50 px-3 font-semibold" style={{ color: AZUL }}>{diaLabel}</td>
+              <td className={`whitespace-nowrap rounded-md bg-slate-50 font-semibold ${compacta ? 'px-1.5' : 'px-3'}`} style={{ color: AZUL }}>{diaLabel}</td>
               {data.columnasLabel.map((_, c) => {
                 const celda = data.celdas[d * data.columnasLabel.length + c];
                 const esSel = (seleccion && celda.diaIndex === seleccion.diaIndex && celda.columnaIndex === seleccion.columnaIndex)
@@ -93,7 +93,7 @@ function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda }: { data: H
                       type="button"
                       onClick={() => onCelda(celda)}
                       title={`${diaLabel} · ${etiquetaColumna(data.vista, celda.columnaLabel)} — ${formatNumero(celda.valor)} casos (${formatDecimal(celda.porcentaje, 1)} % del total)`}
-                      className={`flex w-full items-center justify-center rounded-md font-semibold transition hover:brightness-95 ${esHora ? 'h-7 text-[13px]' : 'h-9 text-[14px]'} ${celda.nivel === 'crítica' ? 'text-white' : 'text-slate-800'}`}
+                      className={`flex w-full items-center justify-center rounded-md font-semibold transition hover:brightness-95 ${esHora ? (compacta ? 'h-8 text-[10px]' : 'h-7 text-[13px]') : 'h-9 text-[14px]'} ${celda.nivel === 'crítica' ? 'text-white' : 'text-slate-800'}`}
                       style={{
                         backgroundColor: COLOR_NIVEL[celda.nivel],
                         // Recuadro rojo: el momento seleccionado (por defecto, la celda
@@ -116,7 +116,7 @@ function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda }: { data: H
             </tr>
           ))}
           <tr>
-            <td className="whitespace-nowrap rounded-md bg-slate-100 px-3 py-1.5 text-[12px] font-bold uppercase" style={{ color: AZUL }}>Total {esHora ? 'hora' : 'franja'}</td>
+            <td className={`whitespace-nowrap rounded-md bg-slate-100 py-1.5 font-bold uppercase ${compacta ? 'px-1.5 text-[10px]' : 'px-3 text-[12px]'}`} style={{ color: AZUL }}>Total{compacta ? '' : esHora ? ' hora' : ' franja'}</td>
             {data.totalesColumna.map((t, c) => {
               // Total por hora/franja pintado con la MISMA escala de
               // concentración de las celdas (cuantiles de los totales).
@@ -125,7 +125,7 @@ function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda }: { data: H
                 <td
                   key={c}
                   title={`Total ${esHora ? 'hora' : 'franja'} ${etiquetaColumna(data.vista, data.columnasLabel[c])}: ${formatNumero(t)} casos — concentración ${nivel}`}
-                  className={`rounded-md py-1.5 text-center font-bold ${esHora ? 'text-[12.5px]' : 'text-[14px]'}`}
+                  className={`rounded-md py-1.5 text-center font-bold ${esHora ? (compacta ? 'text-[10px]' : 'text-[12.5px]') : 'text-[14px]'}`}
                   style={{
                     backgroundColor: COLOR_NIVEL[nivel],
                     color: nivel === 'crítica' ? '#ffffff' : AZUL,
@@ -152,7 +152,7 @@ const REGLA_NIVEL: Record<string, string> = {
   'crítica': 'el 5 % más alto',
 };
 
-function Leyenda({ titulo, data }: { titulo?: string; data?: HeatmapResumen }) {
+export function Leyenda({ titulo, data, compacta = false }: { titulo?: string; data?: HeatmapResumen; compacta?: boolean }) {
   // Cuánto pesa cada nivel: rango de casos por celda y % del total de casos.
   const resumen = new Map<string, { min: number; max: number; casos: number; celdas: number }>();
   for (const c of data?.celdas ?? []) {
@@ -165,7 +165,7 @@ function Leyenda({ titulo, data }: { titulo?: string; data?: HeatmapResumen }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
       {titulo && <p className="mb-2 text-[13px] font-semibold" style={{ color: AZUL }}>{titulo}</p>}
-      <div className="flex flex-wrap items-center gap-x-9 gap-y-2">
+      <div className={`flex flex-wrap items-center gap-y-2 ${compacta ? "gap-x-6" : "gap-x-9"}`}>
         {NIVELES_LEYENDA.map((n) => (
           <div key={n.nivel} className="flex items-center gap-2.5">
             <span className="h-5 w-5 shrink-0 rounded" style={{ backgroundColor: n.color }} />
@@ -187,7 +187,7 @@ function Leyenda({ titulo, data }: { titulo?: string; data?: HeatmapResumen }) {
             </span>
           </div>
         ))}
-        <p className="flex flex-1 items-start gap-1.5 border-l border-slate-200 pl-4 text-[11px] leading-snug text-slate-500">
+        <p className={compacta ? "flex basis-full items-start gap-1.5 border-t border-slate-200 pt-2 text-[10.5px] leading-snug text-slate-500" : "flex flex-1 items-start gap-1.5 border-l border-slate-200 pl-4 text-[11px] leading-snug text-slate-500"}>
           <Info size={14} className="mt-0.5 shrink-0" />
           Los niveles representan concentración relativa dentro del periodo seleccionado: se ordenan las celdas con casos y se cortan en los percentiles 50, 80 y 95. El % indica qué parte del total de casos cae en las celdas de ese nivel. Se recalcula con los filtros.
         </p>

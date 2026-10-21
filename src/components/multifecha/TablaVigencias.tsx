@@ -84,7 +84,7 @@ export function TablaVigencias({ id, titulo, subtitulo, icono, cabeza, filas, vi
   const primera = vigencias[0];
   const ultima = vigencias[n - 1];
   const descarga = puedeDescargar();
-  const th = 'whitespace-nowrap px-2 py-1.5 text-right text-[10.5px] font-bold uppercase tracking-wide text-slate-500';
+  const th = 'whitespace-nowrap px-1.5 py-1.5 text-right text-[10.5px] font-bold uppercase tracking-wide text-slate-500';
 
   return (
     <Card
@@ -132,14 +132,14 @@ export function TablaVigencias({ id, titulo, subtitulo, icono, cabeza, filas, vi
                 const clic = onFila ? () => onFila(f.key) : undefined;
                 return (
                   <tr key={f.key} onClick={clic} title={onFila ? (marcado ? `Quitar el filtro "${f.key}"` : `Filtrar por "${f.key}" (otro clic lo quita)`) : undefined} className={clsx('border-b border-slate-100', onFila && 'cursor-pointer', marcado ? 'bg-[#e3f2ef]' : onFila && 'hover:bg-slate-50')}>
-                    <td className={clsx('sticky left-0 z-[1] max-w-[190px] truncate border-b border-slate-100 px-2 py-[5px]', marcado ? 'bg-[#e3f2ef] font-bold text-[#0b4a46]' : 'bg-white text-slate-800')}>
+                    <td className={clsx('sticky left-0 z-[1] max-w-[170px] truncate border-b border-slate-100 px-1.5 py-[5px]', marcado ? 'bg-[#e3f2ef] font-bold text-[#0b4a46]' : 'bg-white text-slate-800')}>
                       <span className="flex items-center gap-1.5">{iconoFila?.(f.key)}<span className="truncate">{marcado ? '✓ ' : ''}{etiqueta ? etiqueta(f.key) : f.key}</span></span>
                     </td>
                     {vigencias.map((v, i) => (
-                      <td key={v.id} className={clsx('border-b border-slate-100 px-2 py-[5px] text-right tabular-nums', i === n - 1 ? 'font-extrabold text-[#10233f]' : 'text-slate-600')}>{formatNumero(f.porVigencia[i] ?? 0)}</td>
+                      <td key={v.id} className={clsx('border-b border-slate-100 px-1.5 py-[5px] text-right tabular-nums', i === n - 1 ? 'font-extrabold text-[#10233f]' : 'text-slate-600')}>{formatNumero(f.porVigencia[i] ?? 0)}</td>
                     ))}
-                    {comparable && <td className="border-b border-slate-100 px-2 py-[5px] text-right"><VarAbs valor={f.varAbs} flecha={false} /></td>}
-                    {comparable && <td className="border-b border-slate-100 px-2 py-[5px] text-right"><VarPct valor={f.varPct} /></td>}
+                    {comparable && <td className="border-b border-slate-100 px-1.5 py-[5px] text-right"><VarAbs valor={f.varAbs} flecha={false} /></td>}
+                    {comparable && <td className="border-b border-slate-100 px-1.5 py-[5px] text-right"><VarPct valor={f.varPct} /></td>}
                   </tr>
                 );
               })}
