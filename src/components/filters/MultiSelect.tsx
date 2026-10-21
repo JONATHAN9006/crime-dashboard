@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 
-export function MultiSelect({ label, options, selected, onChange, labels, institucional = false, icono, tonoIcono = 'bg-slate-100 text-slate-600' }: {
+export function MultiSelect({ label, options, selected, onChange, labels, institucional = false, icono, tonoIcono = 'bg-slate-100 text-slate-600', tonoIconoActivo = 'bg-[#116762] text-white' }: {
+  /** Color del recuadro del ícono cuando hay selección (por defecto, verde institucional). */
+  tonoIconoActivo?: string;
   label: string;
   /** Estilo del panel "Filtros de análisis" (altura fija, borde institucional y resaltado si hay selección). Opcional: las demás páginas no cambian. */
   institucional?: boolean;
@@ -34,7 +36,7 @@ export function MultiSelect({ label, options, selected, onChange, labels, instit
   return (
     <div ref={ref} className={institucional ? 'relative flex items-end gap-2' : 'relative'}>
       {institucional && icono && (
-        <span aria-hidden="true" className={`mb-[1px] flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${selected.length > 0 ? 'bg-[#116762] text-white' : tonoIcono}`}>{icono}</span>
+        <span aria-hidden="true" className={`mb-[1px] flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${selected.length > 0 ? tonoIconoActivo : tonoIcono}`}>{icono}</span>
       )}
       <div className={institucional ? 'min-w-0 flex-1' : undefined}>
       <label className={institucional ? 'mb-1 block truncate text-[12px] font-semibold text-[#10233f]' : 'mb-1 block text-xs font-medium text-slate-500'}>

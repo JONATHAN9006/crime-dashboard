@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Activity, Building2, CalendarCheck, CalendarDays, CalendarRange, ChevronDown, ChevronUp, ClipboardList, Clock, Crosshair, Database,
-  FileText, Filter, Hourglass, House, Landmark, Map as MapIcon, MapPin, MapPinned, RotateCcw, SlidersHorizontal, Store, Target,
+  Activity, Building2, CalendarCheck, CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock, Crosshair, Database,
+  FileText, Filter, Hourglass, House, Map as MapIcon, MapPin, MapPinned, RotateCcw, SlidersHorizontal, Store, Target,
   ShieldCheck, Users, UsersRound, X,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
@@ -9,7 +9,7 @@ import type { CrimeRecord, FilterState } from '../../types/crime';
 import { aplicarFiltros, contarFiltrosActivos } from '../../utils/filters';
 import { uniqueSorted } from '../../utils/aggregations';
 import { MultiSelect } from './MultiSelect';
-import { SelectorMultifecha } from './SelectorMultifecha';
+import { SelectorVigencias, periodosIniciales } from '../multifecha/SelectorVigencias';
 import { SelectorFuentesMicrogerencia } from '../microgerencia/SelectorFuentesMicrogerencia';
 import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
@@ -46,7 +46,7 @@ export const CAMPOS_ADICIONALES: { key: CampoFiltro; label: string; getter: (r: 
 ];
 
 export function FilterPanel() {
-  const { records, filters, setFilters, clearFilters, filteredRecords, meta, periodos, operatividadRecords } = useData();
+  const { records, filters, setFilters, clearFilters, filteredRecords, meta, periodos, setPeriodos, operatividadRecords } = useData();
   // Categorías de operatividad que existen en los datos cargados (nunca una lista inventada).
   const categoriasOperatividad = useMemo(
     () => Array.from(new Set(operatividadRecords.map((r) => (r.categoria ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')),
@@ -54,10 +54,10 @@ export function FilterPanel() {
   );
   const categoriaOperatividadSel = filters.categoriaOperatividad ?? [];
   const [expandido, setExpandido] = useState(true);
+  const [categoria, setCategoria] = useState<Categoria>('fecha');
   const [mostrarMicrogerencia, setMostrarMicrogerencia] = useState(false);
   const modoAcceso = obtenerModoAcceso();
   const accesoMicrogerencia = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].microgerencia;
-  const [mostrarAdicionales, setMostrarAdicionales] = useState(false);
   const fechaInicialRef = useRef<HTMLInputElement>(null);
 
   // Años de delitos Y de operatividad (el histórico de cada uno se puede subir por separado).
@@ -149,23 +149,47 @@ export function FilterPanel() {
     if (vals.length > 0) chips.push({ id: c.key, texto: `${c.label}: ${resumirValores(vals)}`, quitar: () => actualizar(c.key, []) });
   }
 
-  // ── Secciones (solo presentación; los campos y su lógica son los mismos) ──
-  // Cada sección tiene su propio tono (azul, verde petróleo, azul pizarra)
-  // para leerse de un vistazo, siempre dentro de la paleta institucional.
-  const TONOS = {
-    fecha: { banda: 'bg-[#eaf2fb] border-[#d3e3f4]', tile: 'bg-[#1e4f8f] text-white', campo: 'bg-[#e8f0fa] text-[#1e4f8f]' },
-    ubicacion: { banda: 'bg-[#e6f4f0] border-[#cfe8e1]', tile: 'bg-[#116762] text-white', campo: 'bg-[#e3f2ef] text-[#116762]' },
-    hecho: { banda: 'bg-[#eef1f8] border-[#dde3ef]', tile: 'bg-[#10233f] text-white', campo: 'bg-[#eceff6] text-[#10233f]' },
-  } as const;
-  type Tono = keyof typeof TONOS;
-  const campo = (key: CampoFiltro, icono: ReactNode, tono: Tono) => {
+  // ── Categorías (solo presentación; los campos y su lógica son los mismos) ──
+  // Cada categoría tiene su color: verde institucional = fecha, azul =
+  // ubicación, amarillo = delito y operatividad, violeta = más filtros.
+  const CATS: Record<Categoria, { titulo: string; descripcion: string; icono: (t: number) => ReactNode; boton: { activo: string; inactivo: string; badgeActivo: string; badge: string; icono: string }; panel: { banda: string; borde: string; tile: string; campo: string; campoActivo: string } }> = {
+    fecha: {
+      titulo: 'Fecha y periodo', descripcion: 'Seleccione el rango de fechas y la temporalidad del análisis', icono: (t) => <CalendarDays size={t} />,
+      boton: { activo: 'border-[#116762] bg-[#116762] text-white', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#116762]/50 hover:bg-[#f1f8f6]', badgeActivo: 'bg-white text-[#116762]', badge: 'bg-[#e3f2ef] text-[#116762]', icono: 'text-[#116762]' },
+      panel: { banda: 'bg-[#eef7f4]', borde: 'border-[#cfe8e1]', tile: 'bg-[#116762] text-white', campo: 'bg-[#e3f2ef] text-[#116762]', campoActivo: 'bg-[#116762] text-white' },
+    },
+    ubicacion: {
+      titulo: 'Ubicación geográfica', descripcion: 'Filtre por la ubicación de los eventos', icono: (t) => <MapPinned size={t} />,
+      boton: { activo: 'border-[#2f6fdb] bg-[#2f6fdb] text-white', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#2f6fdb]/50 hover:bg-[#f2f7fe]', badgeActivo: 'bg-white text-[#2f6fdb]', badge: 'bg-[#e6effc] text-[#2f6fdb]', icono: 'text-[#2f6fdb]' },
+      panel: { banda: 'bg-[#eef4fd]', borde: 'border-[#cfdff6]', tile: 'bg-[#2f6fdb] text-white', campo: 'bg-[#e6effc] text-[#2f6fdb]', campoActivo: 'bg-[#2f6fdb] text-white' },
+    },
+    delito: {
+      titulo: 'Delito y operatividad', descripcion: 'Filtre por las características de los eventos', icono: (t) => <FileText size={t} />,
+      boton: { activo: 'border-[#e0b03c] bg-[#fbe6a6] text-[#5c3d00]', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#e0b03c]/60 hover:bg-[#fffaf0]', badgeActivo: 'bg-white text-[#8a5a00]', badge: 'bg-[#fdf3d6] text-[#8a5a00]', icono: 'text-[#b7841c]' },
+      panel: { banda: 'bg-[#fdf7e7]', borde: 'border-[#f3e2b0]', tile: 'bg-[#f2c14e] text-[#5c3d00]', campo: 'bg-[#fdf3d6] text-[#b7841c]', campoActivo: 'bg-[#e0a92c] text-white' },
+    },
+    mas: {
+      titulo: 'Más filtros', descripcion: 'Filtros adicionales de análisis', icono: (t) => <SlidersHorizontal size={t} />,
+      boton: { activo: 'border-[#a78bfa] bg-[#ede4fb] text-[#4c1d95]', inactivo: 'border-slate-200 bg-white text-[#10233f] hover:border-[#a78bfa]/60 hover:bg-[#f8f4fe]', badgeActivo: 'bg-[#7c3aed] text-white', badge: 'bg-[#f1eafd] text-[#6d28d9]', icono: 'text-[#7c3aed]' },
+      panel: { banda: 'bg-[#f6f1fd]', borde: 'border-[#e2d5f8]', tile: 'bg-[#ddd0f7] text-[#5b21b6]', campo: 'bg-[#f1eafd] text-[#7c3aed]', campoActivo: 'bg-[#7c3aed] text-white' },
+    },
+  };
+  const n = (k: keyof FilterState) => ((filters[k] as string[] | null | undefined) ?? []).length > 0 ? 1 : 0;
+  const conteos: Record<Categoria, number> = {
+    fecha: n('anio') + n('mes') + (filters.fechaInicial || filters.fechaFinal ? 1 : 0) + n('franjaHoraria') + n('turno') + n('diaSemana') + n('diaMes') + n('horaExacta') + (multifechaActiva ? 1 : 0),
+    ubicacion: n('estacion') + n('cuadrante') + n('cai') + n('barrioHecho'),
+    delito: n('delito') + (categoriaOperatividadSel.length > 0 ? 1 : 0),
+    mas: CAMPOS_MAS.reduce((a, k) => a + n(k), 0),
+  };
+  const campo = (key: CampoFiltro, icono: ReactNode, cat: Categoria) => {
     const def = [...CAMPOS_PRINCIPALES, ...CAMPOS_ADICIONALES].find((c) => c.key === key)!;
     return (
       <MultiSelect
         key={key}
         institucional
         icono={icono}
-        tonoIcono={TONOS[tono].campo}
+        tonoIcono={CATS[cat].panel.campo}
+        tonoIconoActivo={CATS[cat].panel.campoActivo}
         label={etiquetaDe.get(key) ?? key}
         options={opcionesPara(def.key, def.getter)}
         selected={filters[key] as string[]}
@@ -174,36 +198,59 @@ export function FilterPanel() {
     );
   };
   const claseFecha = (activa: boolean) => `h-10 w-full rounded-lg border bg-white px-2.5 text-[13px] text-[#10233f] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#116762]/40 disabled:bg-slate-100 disabled:text-slate-400 ${activa ? 'border-[#116762] bg-[#116762]/[0.06] font-semibold' : 'border-slate-300 hover:border-[#116762]/60'}`;
-  const adicionalesActivos = CAMPOS_ADICIONALES.filter((c) => (filters[c.key] as string[]).length > 0).length;
-  const columnasUbicacion = mostrarAdicionales ? 'sm:grid-cols-2 lg:grid-cols-5' : 'sm:grid-cols-3';
-  const columnasHecho = mostrarAdicionales ? 'sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7' : 'grid-cols-1';
   const textoPeriodo = multifechaActiva
     ? 'Análisis multifecha'
     : rapidoActivo ? RAPIDOS.find((r) => r.id === rapidoActivo)!.texto
       : personalizadoActivo ? 'Personalizado'
         : filters.anio.length > 0 || filters.mes.length > 0 ? 'Año / mes elegidos' : 'Todo el periodo';
-  const botonRapido = (activo: boolean) => `rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${activo ? 'border-[#10233f] bg-[#10233f] text-white shadow-sm' : 'border-slate-300 bg-white text-[#10233f] hover:border-[#1e4f8f] hover:bg-[#eaf2fb]'}`;
+  const botonRapido = (activo: boolean) => `rounded-lg border px-2.5 py-1 text-[11.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${activo ? 'border-[#116762] bg-[#116762] text-white shadow-sm' : 'border-slate-300 bg-white text-[#10233f] hover:border-[#116762] hover:bg-[#eef7f4]'}`;
+  function elegirCategoria(c: Categoria) {
+    if (c === categoria && expandido) { setExpandido(false); return; }
+    setCategoria(c);
+    setExpandido(true);
+  }
+  function alternarMultifecha(activar: boolean) {
+    setPeriodos(activar ? periodosIniciales(meta?.aniosDisponibles ?? []) : []);
+    if (activar) setFilters((prev) => (prev.anio.length || prev.mes.length ? { ...prev, anio: [], mes: [] } : prev));
+  }
+  const cat = CATS[categoria];
 
   return (
     <section aria-label="Filtros de análisis" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* Encabezado */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-        <button type="button" onClick={() => setExpandido((v) => !v)} aria-expanded={expandido} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#e3f2ef] text-[#116762]">
-            <Filter size={24} strokeWidth={2.2} fill="currentColor" />
+      {/* Encabezado: título · categorías · registros · Microgerencia · contraer */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3">
+        <div className="flex min-w-0 flex-none items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#e3f2ef] text-[#116762]">
+            <Filter size={22} strokeWidth={2.2} fill="currentColor" />
           </span>
           <span className="min-w-0">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-[20px] font-bold leading-tight text-[#10233f]">Filtros de análisis</span>
-              {activos > 0 && (
-                <span className="rounded-full bg-[#116762] px-2.5 py-[2px] text-[11px] font-semibold text-white">{activos} {activos === 1 ? 'activo' : 'activos'}</span>
-              )}
-            </span>
-            <span className="block text-[12.5px] text-slate-500">Seleccione los criterios de análisis. Los gráficos, tablas y mapas se actualizarán automáticamente.</span>
+            <span className="block text-[19px] font-bold leading-tight text-[#10233f]">Filtros de análisis</span>
+            <span className="block text-[12px] text-slate-500">Seleccione los criterios para filtrar los datos</span>
           </span>
-        </button>
-        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#e3f2ef] px-3 py-2 text-[12.5px] font-semibold text-[#0b4a46]" aria-live="polite">
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:min-w-max lg:flex-nowrap" role="tablist" aria-label="Categorías de filtros">
+          {ORDEN_CATS.map((c) => {
+            const def = CATS[c];
+            const seleccionada = categoria === c && expandido;
+            return (
+              <button
+                key={c}
+                type="button"
+                role="tab"
+                aria-selected={seleccionada}
+                aria-controls="panel-filtros"
+                onClick={() => elegirCategoria(c)}
+                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 py-2 text-[12.5px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[#116762]/50 ${seleccionada ? `${def.boton.activo} shadow-sm` : def.boton.inactivo}`}
+              >
+                <span className={seleccionada ? '' : def.boton.icono}>{def.icono(17)}</span>
+                {def.titulo}
+                <span className={`min-w-[20px] rounded-full px-1.5 py-[1px] text-center text-[11px] font-bold ${seleccionada ? def.boton.badgeActivo : conteos[c] > 0 ? def.boton.badge : 'bg-slate-100 text-slate-400'}`}>{conteos[c]}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#e3f2ef] px-3 py-2 text-[12.5px] font-semibold text-[#0b4a46]" aria-live="polite">
             <Database size={15} />
             {filteredRecords.length.toLocaleString('es-CO')} de {records.length.toLocaleString('es-CO')} registros
           </span>
@@ -213,197 +260,144 @@ export function FilterPanel() {
             onClick={() => { if (accesoMicrogerencia) setMostrarMicrogerencia(true); }}
             disabled={!accesoMicrogerencia}
             title={accesoMicrogerencia ? undefined : 'Próximamente — en desarrollo.'}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition-colors ${accesoMicrogerencia ? 'border-[#10233f]/25 bg-white text-[#10233f] shadow-sm hover:bg-[#eaf2fb]' : 'cursor-not-allowed border-slate-200 text-slate-300'}`}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-semibold transition-colors ${accesoMicrogerencia ? 'border-[#10233f]/25 bg-white text-[#10233f] shadow-sm hover:bg-[#eaf2fb]' : 'cursor-not-allowed border-slate-200 text-slate-300'}`}
           >
             <MapIcon size={16} />
             Microgerencia
             {!accesoMicrogerencia && <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-400">Próx.</span>}
           </button>
           )}
-          <button type="button" onClick={() => setExpandido((v) => !v)} aria-label={expandido ? 'Contraer filtros' : 'Expandir filtros'} className="rounded-md p-1.5 text-[#10233f] hover:bg-slate-100">
+          <button type="button" onClick={() => setExpandido((v) => !v)} aria-expanded={expandido} aria-controls="panel-filtros" aria-label={expandido ? 'Contraer filtros' : 'Expandir filtros'} className="rounded-md p-1.5 text-[#10233f] hover:bg-slate-100">
             {expandido ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
         </div>
       </div>
 
-      {/* Filtros activos — cada chip quita solo ese filtro */}
-      {chips.length > 0 && (
+      {/* Filtros activos — cada chip quita solo ese filtro; siempre visibles (aun contraído) */}
+      {(chips.length > 0 || multifechaActiva) && (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-[#f7faf9] px-4 py-2">
           <span className="mr-1 text-[10.5px] font-bold uppercase tracking-wide text-[#116762]">Filtros activos</span>
+          {multifechaActiva && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#116762]/30 bg-white py-[3px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0b4a46] shadow-sm">
+              Multifecha: {periodos.length} vigencia{periodos.length === 1 ? '' : 's'}
+              <button type="button" onClick={() => alternarMultifecha(false)} aria-label="Quitar análisis multifecha" className="rounded-full p-0.5 hover:bg-[#116762]/15"><X size={12} /></button>
+            </span>
+          )}
           {chips.map((c) => (
             <span key={c.id} className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#116762]/30 bg-white py-[3px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0b4a46] shadow-sm">
               <span className="truncate" title={c.texto}>{c.texto}</span>
               <button type="button" onClick={c.quitar} aria-label={`Quitar ${c.texto}`} className="rounded-full p-0.5 hover:bg-[#116762]/15"><X size={12} /></button>
             </span>
           ))}
+          <button type="button" onClick={clearFilters} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-[12px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50">
+            <RotateCcw size={13} /> Limpiar filtros
+          </button>
         </div>
       )}
 
       {mostrarMicrogerencia && <SelectorFuentesMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
 
       {expandido && (
-        <div className="space-y-3 border-t border-slate-100 p-4">
-          {/* A. FECHA Y PERIODO */}
-          <div className="overflow-visible rounded-xl border border-[#d3e3f4]">
-            <div className={`flex flex-wrap items-center justify-between gap-2 rounded-t-xl border-b px-3 py-2.5 ${TONOS.fecha.banda}`}>
-              <EncabezadoSeccion tono={TONOS.fecha.tile} icono={<CalendarDays size={18} />} titulo="Fecha y periodo" descripcion="Seleccione el rango de fechas y la temporalidad del análisis" />
-              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Accesos rápidos de fecha">
-                <span className="mr-1 inline-flex items-center gap-1.5 rounded-lg border border-[#d3e3f4] bg-white px-3 py-1.5 text-[12px] font-bold text-[#10233f] shadow-sm">
-                  <CalendarRange size={15} className="text-[#1e4f8f]" />
-                  {textoPeriodo}
-                </span>
-                {RAPIDOS.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    disabled={!corte || multifechaActiva}
-                    onClick={() => aplicarRapido(r.desde)}
-                    aria-pressed={rapidoActivo === r.id}
-                    title={corte ? `Hasta la fecha de corte de los datos (${corte.toLocaleDateString('es-CO')}). Llena Fecha inicial y Fecha final, y quita Año y Mes.` : undefined}
-                    className={botonRapido(rapidoActivo === r.id)}
-                  >
-                    {r.texto}
+        <div id="panel-filtros" role="tabpanel" className="border-t border-slate-100 p-3 sm:p-4">
+          <div className={`overflow-visible rounded-xl border ${cat.panel.borde}`}>
+            {/* Encabezado del panel, con el color de la categoría */}
+            <div className={`flex flex-wrap items-center justify-between gap-2 rounded-t-xl border-b px-3 py-2.5 ${cat.panel.banda} ${cat.panel.borde}`}>
+              <EncabezadoSeccion tono={cat.panel.tile} icono={cat.icono(18)} titulo={cat.titulo} descripcion={cat.descripcion} />
+              {categoria === 'fecha' && (
+                <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Accesos rápidos de fecha">
+                  <span className="mr-0.5 inline-flex items-center gap-1.5 rounded-lg border border-[#cfe8e1] bg-white px-2.5 py-1 text-[11.5px] font-bold text-[#10233f]">
+                    <CalendarRange size={14} className="text-[#116762]" />
+                    {textoPeriodo}
+                  </span>
+                  {RAPIDOS.map((r) => (
+                    <button key={r.id} type="button" disabled={!corte || multifechaActiva} onClick={() => aplicarRapido(r.desde)} aria-pressed={rapidoActivo === r.id} title={corte ? `Hasta la fecha de corte de los datos (${corte.toLocaleDateString('es-CO')}). Llena Fecha inicial y Fecha final, y quita Año y Mes.` : undefined} className={botonRapido(rapidoActivo === r.id)}>
+                      {r.texto}
+                    </button>
+                  ))}
+                  <button type="button" disabled={multifechaActiva} onClick={() => fechaInicialRef.current?.focus()} aria-pressed={personalizadoActivo} title="Elija usted mismo la fecha inicial y la final" className={botonRapido(personalizadoActivo)}>
+                    Personalizado
                   </button>
-                ))}
-                <button
-                  type="button"
-                  disabled={multifechaActiva}
-                  onClick={() => fechaInicialRef.current?.focus()}
-                  aria-pressed={personalizadoActivo}
-                  title="Elija usted mismo la fecha inicial y la final"
-                  className={botonRapido(personalizadoActivo)}
-                >
-                  Personalizado
-                </button>
-              </div>
+                  <label className="ml-1 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#cfe8e1] bg-white px-2.5 py-1 text-[11.5px] font-bold text-[#10233f]" title="Compara vigencias (años) con su propio rango de fechas. Mientras esté activo, reemplaza Fecha inicial/final, Año y Mes.">
+                    <CalendarRange size={14} className="text-[#116762]" />
+                    Análisis multifecha
+                    <input type="checkbox" role="switch" className="peer sr-only" checked={multifechaActiva} onChange={(e) => alternarMultifecha(e.target.checked)} />
+                    <span className={`relative inline-block h-5 w-9 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-[#116762]/50 ${multifechaActiva ? 'bg-[#116762]' : 'bg-slate-300'}`}>
+                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${multifechaActiva ? 'left-[18px]' : 'left-0.5'}`} />
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
-            <div className="grid grid-cols-1 gap-3 bg-white p-3 sm:grid-cols-2 lg:grid-cols-4 rounded-b-xl">
-              <div className={multifechaActiva ? 'pointer-events-none opacity-50' : undefined} title={multifechaActiva ? 'En multifecha, el año lo definen las vigencias' : undefined}>
-                <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
-              </div>
-              <div className={multifechaActiva ? 'pointer-events-none opacity-50' : undefined} title={multifechaActiva ? 'En multifecha, el mes lo definen las vigencias' : undefined}>
-                <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={TONOS.fecha.campo} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
-              </div>
-              <CampoFecha id="filtro-fecha-inicial" etiqueta="Fecha inicial" tono={TONOS.fecha.campo} multifecha={multifechaActiva} activa={!!filters.fechaInicial}>
-                <input
-                  id="filtro-fecha-inicial"
-                  ref={fechaInicialRef}
-                  type="date"
-                  min={minFecha}
-                  max={maxFecha}
-                  value={filters.fechaInicial ?? ''}
-                  disabled={multifechaActiva}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, fechaInicial: e.target.value || null }))}
-                  className={claseFecha(!!filters.fechaInicial)}
-                />
-              </CampoFecha>
-              <CampoFecha id="filtro-fecha-final" etiqueta="Fecha final" tono={TONOS.fecha.campo} multifecha={multifechaActiva} activa={!!filters.fechaFinal}>
-                <input
-                  id="filtro-fecha-final"
-                  type="date"
-                  min={minFecha}
-                  max={maxFecha}
-                  value={filters.fechaFinal ?? ''}
-                  disabled={multifechaActiva}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, fechaFinal: e.target.value || null }))}
-                  className={claseFecha(!!filters.fechaFinal)}
-                />
-              </CampoFecha>
-              {campo('franjaHoraria', <Clock size={18} />, 'fecha')}
-              {campo('turno', <Hourglass size={18} />, 'fecha')}
-              {campo('diaSemana', <CalendarCheck size={18} />, 'fecha')}
-              {campo('diaMes', <CalendarDays size={18} />, 'fecha')}
-            </div>
-          </div>
 
-          {/* B. UBICACIÓN + C. CARACTERÍSTICAS — lado a lado mientras los adicionales están cerrados */}
-          <div className={`grid grid-cols-1 gap-3 ${mostrarAdicionales ? '' : 'xl:grid-cols-[3fr_1.2fr]'}`}>
-            <div className="rounded-xl border border-[#cfe8e1]">
-              <div className={`rounded-t-xl border-b px-3 py-2.5 ${TONOS.ubicacion.banda}`}>
-                <EncabezadoSeccion tono={TONOS.ubicacion.tile} icono={<MapPinned size={18} />} titulo="Ubicación geográfica" descripcion="Filtre por la ubicación de los eventos" />
+            {/* Campos de la categoría */}
+            {categoria === 'fecha' && (
+              <div className="space-y-3 rounded-b-xl bg-white p-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className={multifechaActiva ? 'pointer-events-none opacity-50' : undefined} title={multifechaActiva ? 'En multifecha, el año lo definen las vigencias' : undefined}>
+                    <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={cat.panel.campo} tonoIconoActivo={cat.panel.campoActivo} label="Año" options={anios} selected={filters.anio} onChange={(v) => actualizar('anio', v)} />
+                  </div>
+                  <div className={multifechaActiva ? 'pointer-events-none opacity-50' : undefined} title={multifechaActiva ? 'En multifecha, el mes lo definen las vigencias' : undefined}>
+                    <MultiSelect institucional icono={<CalendarDays size={18} />} tonoIcono={cat.panel.campo} tonoIconoActivo={cat.panel.campoActivo} label="Mes" options={meses} selected={filters.mes} onChange={(v) => actualizar('mes', v)} labels={etiquetasMeses} />
+                  </div>
+                  <CampoFecha id="filtro-fecha-inicial" etiqueta="Fecha inicial" tono={cat.panel.campo} multifecha={multifechaActiva} activa={!!filters.fechaInicial}>
+                    <input id="filtro-fecha-inicial" ref={fechaInicialRef} type="date" min={minFecha} max={maxFecha} value={filters.fechaInicial ?? ''} disabled={multifechaActiva} onChange={(e) => setFilters((prev) => ({ ...prev, fechaInicial: e.target.value || null }))} className={claseFecha(!!filters.fechaInicial)} />
+                  </CampoFecha>
+                  <CampoFecha id="filtro-fecha-final" etiqueta="Fecha final" tono={cat.panel.campo} multifecha={multifechaActiva} activa={!!filters.fechaFinal}>
+                    <input id="filtro-fecha-final" type="date" min={minFecha} max={maxFecha} value={filters.fechaFinal ?? ''} disabled={multifechaActiva} onChange={(e) => setFilters((prev) => ({ ...prev, fechaFinal: e.target.value || null }))} className={claseFecha(!!filters.fechaFinal)} />
+                  </CampoFecha>
+                  {campo('franjaHoraria', <Clock size={18} />, 'fecha')}
+                  {campo('turno', <Hourglass size={18} />, 'fecha')}
+                  {campo('diaSemana', <CalendarCheck size={18} />, 'fecha')}
+                  {campo('diaMes', <CalendarDays size={18} />, 'fecha')}
+                </div>
+                {multifechaActiva && (
+                  <div className="rounded-xl border border-dashed border-[#116762]/35 bg-[#f6fbfa] px-3 py-2.5">
+                    <p className="mb-2 text-[11.5px] text-slate-500">Marque las vigencias a comparar. Cada una usa su propio rango de fechas (lápiz para cambiarlo); las variaciones comparan la primera contra la última vigencia.</p>
+                    <SelectorVigencias />
+                  </div>
+                )}
               </div>
-              <div className={`grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 ${columnasUbicacion}`}>
+            )}
+            {categoria === 'ubicacion' && (
+              <div className="grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 sm:grid-cols-2 xl:grid-cols-4">
                 {campo('estacion', <Building2 size={18} />, 'ubicacion')}
                 {campo('cuadrante', <MapIcon size={18} />, 'ubicacion')}
+                {campo('cai', <ShieldCheck size={18} />, 'ubicacion')}
                 {campo('barrioHecho', <House size={18} />, 'ubicacion')}
-                {mostrarAdicionales && campo('zona', <MapPin size={18} />, 'ubicacion')}
-                {mostrarAdicionales && campo('cai', <Landmark size={18} />, 'ubicacion')}
               </div>
-            </div>
-            <div className="rounded-xl border border-[#dde3ef]">
-              <div className={`rounded-t-xl border-b px-3 py-2.5 ${TONOS.hecho.banda}`}>
-                <EncabezadoSeccion tono={TONOS.hecho.tile} icono={<ClipboardList size={18} />} titulo="Características del hecho" descripcion="Filtre por las características de los eventos" />
-              </div>
-              <div className={`grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 ${columnasHecho}`}>
-                {campo('delito', <FileText size={18} />, 'hecho')}
-                {categoriasOperatividad.length > 0 && (
-                  <MultiSelect
-                    institucional
-                    icono={<ShieldCheck size={18} />}
-                    tonoIcono={TONOS.hecho.campo}
-                    label="Categoría de operatividad"
-                    options={categoriasOperatividad}
-                    selected={categoriaOperatividadSel}
-                    onChange={(v) => setFilters((prev) => ({ ...prev, categoriaOperatividad: v }))}
-                  />
+            )}
+            {categoria === 'delito' && (
+              <div className="grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 md:grid-cols-2">
+                {campo('delito', <FileText size={18} />, 'delito')}
+                {categoriasOperatividad.length > 0 ? (
+                  <MultiSelect institucional icono={<ShieldCheck size={18} />} tonoIcono={cat.panel.campo} tonoIconoActivo={cat.panel.campoActivo} label="Categoría de operatividad" options={categoriasOperatividad} selected={categoriaOperatividadSel} onChange={(v) => setFilters((prev) => ({ ...prev, categoriaOperatividad: v }))} />
+                ) : (
+                  <p className="self-end pb-2 text-[11.5px] text-slate-400">Categoría de operatividad: no hay datos de operatividad cargados.</p>
                 )}
-                {mostrarAdicionales && campo('genero', <Users size={18} />, 'hecho')}
-                {mostrarAdicionales && campo('armas', <Crosshair size={18} />, 'hecho')}
-                {mostrarAdicionales && campo('modalidad', <Target size={18} />, 'hecho')}
-                {mostrarAdicionales && campo('claseSitio', <Store size={18} />, 'hecho')}
-                {mostrarAdicionales && campo('causaLesion', <Activity size={18} />, 'hecho')}
-                {mostrarAdicionales && campo('grupoEdad', <UsersRound size={18} />, 'hecho')}
               </div>
-            </div>
-          </div>
-
-          {/* Filtros adicionales (interruptor para expandir / contraer) */}
-          <button
-            type="button"
-            role="switch"
-            onClick={() => setMostrarAdicionales((v) => !v)}
-            aria-checked={mostrarAdicionales}
-            className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-[#f8fafc] px-3 py-2.5 text-left hover:bg-slate-100"
-          >
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#10233f] ring-1 ring-slate-200"><SlidersHorizontal size={16} /></span>
-              <span className="text-[13.5px] font-bold text-[#10233f]">Filtros adicionales</span>
-              <span className="text-[11.5px] text-slate-500">Zona, CAI, género, arma, modalidad, clase de sitio, causa de lesión y grupo de edad</span>
-              {adicionalesActivos > 0 && <span className="rounded-full bg-[#116762] px-2 py-[1px] text-[10.5px] font-semibold text-white">{adicionalesActivos} activo{adicionalesActivos === 1 ? '' : 's'}</span>}
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <span className={`relative inline-block h-5 w-9 rounded-full transition-colors ${mostrarAdicionales ? 'bg-[#116762]' : 'bg-slate-300'}`}>
-                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${mostrarAdicionales ? 'left-[18px]' : 'left-0.5'}`} />
-              </span>
-              {mostrarAdicionales ? <ChevronUp size={17} className="text-[#10233f]" /> : <ChevronDown size={17} className="text-[#10233f]" />}
-            </span>
-          </button>
-
-          {/* Análisis multifecha (opción avanzada) */}
-          <div className="rounded-xl border border-dashed border-[#1e4f8f]/30 bg-[#f7f9fd] px-3 py-2.5">
-            <SelectorMultifecha />
-          </div>
-
-          {/* Pie: limpiar + contador (los filtros se aplican solos al elegirlos) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50"
-            >
-              <RotateCcw size={15} /> Limpiar filtros
-            </button>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#e3f2ef] px-3 py-2 text-[12.5px] font-semibold text-[#0b4a46]">
-              <Database size={15} />
-              {filteredRecords.length.toLocaleString('es-CO')} de {records.length.toLocaleString('es-CO')} registros
-              <span className="font-normal text-[#116762]">· se actualiza automáticamente</span>
-            </span>
+            )}
+            {categoria === 'mas' && (
+              <div className="grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+                {campo('zona', <MapPin size={18} />, 'mas')}
+                {campo('genero', <Users size={18} />, 'mas')}
+                {campo('armas', <Crosshair size={18} />, 'mas')}
+                {campo('modalidad', <Target size={18} />, 'mas')}
+                {campo('claseSitio', <Store size={18} />, 'mas')}
+                {campo('causaLesion', <Activity size={18} />, 'mas')}
+                {campo('grupoEdad', <UsersRound size={18} />, 'mas')}
+              </div>
+            )}
           </div>
         </div>
       )}
     </section>
   );
 }
+
+type Categoria = 'fecha' | 'ubicacion' | 'delito' | 'mas';
+const ORDEN_CATS: Categoria[] = ['fecha', 'ubicacion', 'delito', 'mas'];
+// «Más filtros»: todos los adicionales MENOS el CAI (ya está en Ubicación geográfica).
+const CAMPOS_MAS: CampoFiltro[] = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad'];
 
 function EncabezadoSeccion({ icono, titulo, descripcion, tono }: { icono: ReactNode; titulo: string; descripcion: string; tono: string }) {
   return (
