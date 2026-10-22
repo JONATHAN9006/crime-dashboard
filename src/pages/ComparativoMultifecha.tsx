@@ -133,14 +133,25 @@ export function ComparativoMultifecha() {
 
   // Serie diaria por vigencia (gráfico de jornadas, ya existente).
   const seriesDiarias: SeriePeriodo[] = useMemo(() => vigencias.map((v) => {
-    const ini = new Date(v.inicio.getFullYear(), v.inicio.getMonth(), v.inicio.getDate());
-    const fin = new Date(v.fin.getFullYear(), v.fin.getMonth(), v.fin.getDate());
+    // Días de TODOS los periodos del año (sin los días intermedios entre periodos).
     const clave = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const conteo = new Map<string, number>();
     for (const r of v.registros) if (r.fecha) { const k = clave(new Date(r.fecha)); conteo.set(k, (conteo.get(k) ?? 0) + 1); }
     const dias: { fecha: Date; casos: number }[] = [];
-    for (let d = new Date(ini); d <= fin && dias.length < 400; d.setDate(d.getDate() + 1)) dias.push({ fecha: new Date(d), casos: conteo.get(clave(d)) ?? 0 });
-    return { id: v.id, etiqueta: etiquetaPeriodo(ini, fin), total: v.registros.length, dias };
+    const vistos = new Set<string>();
+    for (const x of v.periodos) {
+      const fin = new Date(x.fin.getFullYear(), x.fin.getMonth(), x.fin.getDate());
+      for (let d = new Date(x.inicio.getFullYear(), x.inicio.getMonth(), x.inicio.getDate()); d <= fin && dias.length < 400; d.setDate(d.getDate() + 1)) {
+        const k = clave(d);
+        if (vistos.has(k)) continue;
+        vistos.add(k);
+        dias.push({ fecha: new Date(d), casos: conteo.get(k) ?? 0 });
+      }
+    }
+    dias.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
+    const ini = dias[0]?.fecha ?? v.inicio;
+    const fin = dias[dias.length - 1]?.fecha ?? v.fin;
+    return { id: v.id, etiqueta: v.periodos.length > 1 ? `${etiquetaPeriodo(ini, fin)} (${v.periodos.length} periodos)` : etiquetaPeriodo(ini, fin), total: v.registros.length, dias };
   }), [vigencias]);
   const aniosVig = useMemo(() => Array.from(new Set(vigencias.map((v) => v.anio))).sort((a, b) => a - b), [vigencias]);
 

@@ -180,12 +180,14 @@ export function FilterPanel() {
     },
   };
   const n = (k: keyof FilterState) => ((filters[k] as string[] | null | undefined) ?? []).length > 0 ? 1 : 0;
+  // Vigencias = años distintos (cada año puede tener varios periodos).
+  const vigenciasMf = new Set(periodos.map((p) => p.fechaInicial.slice(0, 4)).filter(Boolean)).size;
   const conteos: Record<Categoria, number> = {
     fecha: n('anio') + n('mes') + (filters.fechaInicial || filters.fechaFinal ? 1 : 0) + n('franjaHoraria') + n('turno') + n('diaSemana') + n('diaMes') + n('horaExacta'),
     ubicacion: n('estacion') + n('cuadrante') + n('cai') + n('barrioHecho'),
     delito: n('delito') + (categoriaOperatividadSel.length > 0 ? 1 : 0),
     mas: CAMPOS_MAS.reduce((a, k) => a + n(k), 0),
-    multifecha: periodos.length,
+    multifecha: vigenciasMf,
   };
   const campo = (key: CampoFiltro, icono: ReactNode, cat: Categoria) => {
     const def = [...CAMPOS_PRINCIPALES, ...CAMPOS_ADICIONALES].find((c) => c.key === key)!;
@@ -268,7 +270,7 @@ export function FilterPanel() {
           <span className="mr-1 text-[10.5px] font-bold uppercase tracking-wide text-[#116762]">Filtros activos</span>
           {multifechaActiva && (
             <span className="inline-flex items-center gap-1 rounded-full border border-[#0e7490]/35 bg-[#f0f9fb] py-[3px] pl-2.5 pr-1 text-[11.5px] font-medium text-[#0e5a6f] shadow-sm">
-              Multifecha: {periodos.length} vigencia{periodos.length === 1 ? '' : 's'}
+              Multifecha: {vigenciasMf} vigencia{vigenciasMf === 1 ? '' : 's'}{periodos.length > vigenciasMf ? ` · ${periodos.length} periodos` : ''}
               <button type="button" onClick={() => alternarMultifecha(false)} aria-label="Quitar análisis multifecha" className="rounded-full p-0.5 hover:bg-[#116762]/15"><X size={12} /></button>
             </span>
           )}
@@ -289,6 +291,7 @@ export function FilterPanel() {
         <div id="panel-filtros" role="tabpanel" className="border-t border-slate-100 p-3 sm:p-4">
           <div className={`overflow-visible rounded-xl border ${cat.panel.borde}`}>
             {/* Encabezado del panel, con el color de la categoría */}
+            {categoria !== 'multifecha' && (
             <div className={`flex flex-wrap items-center justify-between gap-2 rounded-t-xl border-b px-3 py-2.5 ${cat.panel.banda} ${cat.panel.borde}`}>
               <EncabezadoSeccion tono={cat.panel.tile} icono={cat.icono(18)} titulo={cat.titulo} descripcion={cat.descripcion} />
               {categoria === 'fecha' && (
@@ -309,6 +312,7 @@ export function FilterPanel() {
               )}
             </div>
 
+            )}
             {/* Campos de la categoría */}
             {categoria === 'fecha' && (
               <div className="space-y-3 rounded-b-xl bg-white p-3">

@@ -12,8 +12,8 @@ import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 //  · Filtros generales (delito, estación, CAI, …) se aplican primero; la
 //    fecha, el Año y el Mes NO, porque el tiempo lo define cada vigencia.
 //  · Cada vigencia cuenta SOLO los registros dentro de su propio rango
-//    (fecha + horario). Si dos rangos se cruzan, el registro va a la
-//    primera vigencia (cronológicamente) — nunca se cuenta dos veces.
+//    (fecha + horario); una vigencia (año) puede tener varios rangos y
+//    cuenta su UNIÓN — un registro nunca se cuenta dos veces.
 //  · Variación = ÚLTIMA vigencia − PRIMERA vigencia (orden cronológico).
 //    Variación % = variación / primera × 100; si la primera es 0 → null (N/A).
 // ───────────────────────────────────────────────────────────────────────────
@@ -21,11 +21,14 @@ import type { CrimeRecord, PeriodoAnalisis } from '../types/crime';
 export interface VigenciaMF {
   id: string;
   anio: number;
-  /** "2025" (o "2025 · 2" si hay dos rangos del mismo año). */
+  /** "2025". */
   etiqueta: string;
-  /** "4–7 sep". */
+  /** "4–7 sep" (o "4–7 sep + 20–23 sep" con varios periodos). */
   rango: string;
+  /** Primer periodo (el predeterminado). */
   periodo: PeriodoAnalisis;
+  /** Todos los periodos del año, en orden cronológico. */
+  periodos: { periodo: PeriodoAnalisis; inicio: Date; fin: Date }[];
   inicio: Date;
   fin: Date;
   registros: CrimeRecord[];
@@ -54,23 +57,38 @@ export function useMultifecha() {
   );
 
   const vigencias: VigenciaMF[] = useMemo(() => {
+    // Una vigencia = un AÑO, con uno o varios periodos (rangos) propios.
+    // Sus casos son la UNIÓN de esos rangos: un registro que caiga en dos
+    // periodos superpuestos se cuenta una sola vez.
     const validos = periodos
       .filter((p) => p.fechaInicial && p.fechaFinal && p.fechaInicial <= p.fechaFinal)
-      .map((p) => ({ p, inicio: limiteDePeriodo(p.fechaInicial, p.horaInicial || '00:00'), fin: limiteDePeriodo(p.fechaFinal, p.horaFinal || '23:59') }))
-      .sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+      .map((p) => ({ p, inicio: limiteDePeriodo(p.fechaInicial, p.horaInicial || '00:00'), fin: limiteDePeriodo(p.fechaFinal, p.horaFinal || '23:59') }));
+    const porAnio = new Map<number, typeof validos>();
+    for (const v of validos) {
+      const anio = anioDePeriodo(v.p) ?? v.inicio.getFullYear();
+      porAnio.set(anio, [...(porAnio.get(anio) ?? []), v]);
+    }
+    const anios = Array.from(porAnio.keys()).sort((a, b) => a - b);
     const asignados = new Set<string>();
-    const vistos = new Map<number, number>();
-    return validos.map(({ p, inicio, fin }) => {
-      const anio = anioDePeriodo(p) ?? inicio.getFullYear();
-      const n = (vistos.get(anio) ?? 0) + 1;
-      vistos.set(anio, n);
+    return anios.map((anio) => {
+      const rangos = porAnio.get(anio)!.sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
       const registros: CrimeRecord[] = [];
       for (const r of base) {
         if (asignados.has(r.__id)) continue;
         const fh = fechaHoraDeRegistro(r);
-        if (fh && fh >= inicio && fh <= fin) { registros.push(r); asignados.add(r.__id); }
+        if (fh && rangos.some((x) => fh >= x.inicio && fh <= x.fin)) { registros.push(r); asignados.add(r.__id); }
       }
-      return { id: p.id, anio, etiqueta: n > 1 ? `${anio} · ${n}` : String(anio), rango: textoRango(p.fechaInicial, p.fechaFinal), periodo: p, inicio, fin, registros };
+      return {
+        id: `vig-${anio}`,
+        anio,
+        etiqueta: String(anio),
+        rango: rangos.map((x) => textoRango(x.p.fechaInicial, x.p.fechaFinal)).join(' + '),
+        periodo: rangos[0].p,
+        periodos: rangos.map((x) => ({ periodo: x.p, inicio: x.inicio, fin: x.fin })),
+        inicio: rangos[0].inicio,
+        fin: rangos.reduce((m, x) => (x.fin > m ? x.fin : m), rangos[0].fin),
+        registros,
+      };
     });
   }, [periodos, base]);
 
