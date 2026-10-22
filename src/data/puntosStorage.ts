@@ -1,6 +1,16 @@
 import * as XLSX from 'xlsx';
 import { esCoordenadaValida } from '../utils/geodesia';
 import { getDb, STORE_PUNTOS } from './db';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { puntoEnPopayan } from '../utils/territorioPiloto';
+
+// Perfil piloto (/piloto): las capas de puntos viven SOLO en memoria y
+// únicamente con los puntos que caen dentro del límite de Popayán.
+const esPiloto = () => obtenerModoAcceso() === 'piloto';
+let capasPuntosPiloto: CapaPuntos[] = [];
+export function restringirCapasPuntosAPopayan(capas: CapaPuntos[]): CapaPuntos[] {
+  return capas.map((c) => ({ ...c, puntos: (c.puntos ?? []).filter((p) => puntoEnPopayan(p?.lat, p?.lon)) }));
+}
 import { MAPA_DELITO_IDX, MAPA_ESTACION_IDX, MAPA_BARRIO_IDX, normalizarClave } from './db2Transform';
 
 export interface PuntoGeo {
@@ -241,11 +251,13 @@ export function dependenciasIrispEquivalentes(estacionesDelDashboard: string[], 
 // --- Persistencia (IndexedDB) ---------------------------------------------
 
 export async function guardarCapasPuntos(capas: CapaPuntos[]) {
+  if (esPiloto()) { capasPuntosPiloto = restringirCapasPuntosAPopayan(capas); return; }
   const db = await getDb();
   await db.put(STORE_PUNTOS, capas, 'capas');
 }
 
 export async function cargarCapasPuntos(): Promise<CapaPuntos[]> {
+  if (esPiloto()) return capasPuntosPiloto;
   try {
     const db = await getDb();
     const data = await db.get(STORE_PUNTOS, 'capas');

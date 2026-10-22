@@ -139,7 +139,7 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
   const bloqueado = modoAcceso
     ? !DASHBOARD_ACCESS[modoAcceso][item.id as keyof typeof DASHBOARD_ACCESS['jefe']]
     : false;
-  const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : modoAcceso === 'cai' ? 'No habilitado para la consulta de los CAI.' : MENSAJE_BLOQUEADO;
+  const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : modoAcceso === 'cai' || modoAcceso === 'piloto' ? 'No habilitado para esta consulta.' : MENSAJE_BLOQUEADO;
   return (
     <button
       onClick={() => { if (bloqueado) return; onCambiar(item.id); onCerrar(); }}
@@ -261,7 +261,13 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
 
         {/* ── Secciones del menú ── */}
         <nav className={clsx('flex-1 overflow-y-auto py-3', colapsado ? 'px-2' : 'px-3')}>
-          {GRUPOS.filter((g) => (!g.soloCompleto || !esModoConsulta()) && (!g.soloAdmin || esAdmin)).map((grupo, gi) => (
+          {GRUPOS.filter((g) => (!g.soloCompleto || !esModoConsulta()) && (!g.soloAdmin || esAdmin))
+            // Perfil piloto (/piloto): solo los módulos autorizados; los demás
+            // DESAPARECEN (no se muestran atenuados) y una sección sin
+            // módulos visibles no se muestra. Mismos estilos de siempre.
+            .map((g) => (obtenerModoAcceso() === 'piloto' ? { ...g, items: g.items.filter((item) => tieneAcceso(item.id as Parameters<typeof tieneAcceso>[0])) } : g))
+            .filter((g) => g.items.length > 0)
+            .map((grupo, gi) => (
             <div key={grupo.titulo} className={clsx(gi > 0 && (colapsado ? 'mt-2.5 border-t border-white/10 pt-2.5' : 'mt-3 border-t border-white/10 pt-3'))}>
               {!colapsado && (
                 <p className="mb-1.5 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-100/55">
@@ -308,7 +314,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.22 · v198" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.22 · v199" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -320,11 +326,11 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
               {sesionAdmin && <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">Administrador</p>}
               {obtenerModoAcceso() && (
                 <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">
-                  {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : obtenerModoAcceso() === 'cai' ? `Consulta · ${sesionCai?.sesion.nombre ?? 'CAI'}` : 'Vista interna'}
+                  {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : obtenerModoAcceso() === 'cai' ? `Consulta · ${sesionCai?.sesion.nombre ?? 'CAI'}` : obtenerModoAcceso() === 'piloto' ? `Consulta piloto · ${sesionCai?.sesion.nombre ?? 'Estación'}` : 'Vista interna'}
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.22 · v198</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.22 · v199</p>
             </div>
           )}
         </div>

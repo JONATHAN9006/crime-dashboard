@@ -49,6 +49,10 @@ import { usePlanCandado, marcadoresParaExportar, filasLeyendaPlanCandado } from 
 import { IrATerritorio } from '../components/mapa/RelieveTerreno';
 import { agregarCasosPorAnio, aniosDePeriodos } from '../utils/casosPorAnio';
 import { calcularKernelDensidad } from '../utils/kernelDensity';
+import { CompuertaGeograficaPiloto, LimitarAPopayan, esPerfilPilotoActual } from '../components/mapa/RestriccionPiloto';
+import { restringirCapasAPopayan } from '../data/geoStorage';
+import { restringirCapasPuntosAPopayan } from '../data/puntosStorage';
+import { puntoEnPopayan } from '../utils/territorioPiloto';
 // La vista 3D (MapLibre GL) solo se descarga cuando alguien la abre.
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
@@ -585,7 +589,19 @@ const FILTROS_MAPA_VACIOS = {
   fechaFinal: '' as string,
 };
 
+// Perfil piloto (/piloto): si el ámbito territorial de Popayán no se puede
+// validar, el mapa no se abre (ver components/mapa/RestriccionPiloto.tsx).
+// Para los demás perfiles es exactamente el mismo mapa de siempre.
 export function MapaGeorreferenciacion() {
+  return (
+    <CompuertaGeograficaPiloto alto={420}>
+      <MapaGeorreferenciacionContenido />
+    </CompuertaGeograficaPiloto>
+  );
+}
+
+function MapaGeorreferenciacionContenido() {
+  const esPiloto = esPerfilPilotoActual();
   const { records, periodos, filters: filtrosPrincipales, setFilters, clearFilters, meta, remoteMeta } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
@@ -1018,7 +1034,10 @@ export function MapaGeorreferenciacion() {
   // El Plan Candado se maneja en su propio módulo (menú lateral «Plan Candado
   // 2026»); aquí ya no se muestra, así que la capa queda siempre apagada.
   useEffect(() => { if (planCandado.activo) planCandado.setActivo(false); }, [planCandado.activo]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [capas, setCapas] = useState<CapaGeografica[]>([]);
+  // Las capas ORIGINALES no se tocan; el perfil piloto ve una copia con
+  // solo los elementos que pertenecen a Popayán.
+  const [capasFuente, setCapas] = useState<CapaGeografica[]>([]);
+  const capas = useMemo(() => (esPiloto ? restringirCapasAPopayan(capasFuente) : capasFuente), [esPiloto, capasFuente]);
 
   // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
   // mano (si lo hizo), o si no, el que se detecte solo. Así el resaltado
@@ -1037,7 +1056,8 @@ export function MapaGeorreferenciacion() {
   const [horizontePronosticoIA, setHorizontePronosticoIA] = useState<Horizonte>(168);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
-  const [capasPuntos, setCapasPuntos] = useState<CapaPuntos[]>([]);
+  const [capasPuntosFuente, setCapasPuntos] = useState<CapaPuntos[]>([]);
+  const capasPuntos = useMemo(() => (esPiloto ? restringirCapasPuntosAPopayan(capasPuntosFuente) : capasPuntosFuente), [esPiloto, capasPuntosFuente]);
   // Zona seleccionada (clic sobre un polígono de una capa cargada) — para
   // recortar el mapa de calor a solo esa zona y poder descargarla aparte.
   const [zonaSeleccionada, setZonaSeleccionada] = useState<{ capaId: string; feature: any; nombre: string } | null>(null);
@@ -1320,7 +1340,7 @@ export function MapaGeorreferenciacion() {
   // siempre — así el calor nunca «desaparece» al sumar barrios.
   const puntosDelitosDesdeRegistros = useMemo(
     (): CapaPuntos['puntos'] => registrosSinFiltroBarrio
-      .filter((r) => esCoordenadaValida(r.lat, r.lon))
+      .filter((r) => esCoordenadaValida(r.lat, r.lon) && (!esPiloto || puntoEnPopayan(r.lat, r.lon)))
       .map((r) => ({
         lat: r.lat as number,
         lon: r.lon as number,
@@ -3032,6 +3052,7 @@ export function MapaGeorreferenciacion() {
 
           <MapContainer center={CENTRO_DEFECTO} zoom={12} zoomControl={false} style={{ height: '100%', width: '100%' }}>
             <ZoomSliderControl />
+            <LimitarAPopayan />
             <ScaleControl position="bottomleft" imperial={false} />
             <EtiquetasZonas capas={capasVisiblesPoligono} camposUnion={camposUnionAutoDetectados} satelital={tipoMapa !== 'mapa'} />
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
@@ -3419,7 +3440,7 @@ export function MapaGeorreferenciacion() {
 
               {/* Vista general + contadores */}
               <div className="absolute bottom-3 right-3 z-[1000] flex flex-col items-end gap-2">
-                <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />
+                {!esPiloto && <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />}
                 <div className="flex flex-wrap justify-end gap-1.5">
                   <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><MapIcon size={13} /> Zonas visibles: <b>{formatNumero(elementosVisibles)}</b></span>
                   <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><ChartColumn size={13} /> Casos mostrados: <b>{formatNumero(totalEnMapa)}</b></span>

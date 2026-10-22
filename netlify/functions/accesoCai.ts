@@ -19,12 +19,12 @@
 // leerlas; solo esta función, con la llave service_role.
 import type { Handler } from '@netlify/functions';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { esPerfil, firmar, leerToken, type PerfilAcceso } from '../lib/sesionesAcceso';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const UPDATE_TOKEN = process.env.UPDATE_TOKEN || '';
-const SECRETO = process.env.CAI_SECRETO || SUPABASE_SERVICE_ROLE_KEY;
 // Centro de Popayán (Parque Caldas) y radio permitido.
 const CENTRO = { lat: 2.4419, lon: -76.6063 };
 const RADIO_KM = Number(process.env.CAI_RADIO_KM || 15);
@@ -62,28 +62,6 @@ function verificarClave(clave: string, guardado: string | null): boolean {
   return h.length === esperado.length && timingSafeEqual(h, esperado);
 }
 
-function firmar(datos: Record<string, unknown>): string {
-  const cuerpo = Buffer.from(JSON.stringify(datos)).toString('base64url');
-  const firma = createHmac('sha256', SECRETO).update(cuerpo).digest('base64url');
-  return `${cuerpo}.${firma}`;
-}
-
-function leerToken(token: unknown): { u: string; s: string; exp: number } | null {
-  if (typeof token !== 'string' || !token.includes('.')) return null;
-  const [cuerpo, firma] = token.split('.');
-  const esperada = createHmac('sha256', SECRETO).update(cuerpo).digest('base64url');
-  const a = Buffer.from(firma);
-  const b = Buffer.from(esperada);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  try {
-    const datos = JSON.parse(Buffer.from(cuerpo, 'base64url').toString());
-    if (typeof datos.u !== 'string' || typeof datos.s !== 'string' || typeof datos.exp !== 'number') return null;
-    return datos;
-  } catch {
-    return null;
-  }
-}
-
 function distanciaKm(lat: number, lon: number): number {
   const R = 6371;
   const rad = (g: number) => (g * Math.PI) / 180;
@@ -99,6 +77,13 @@ function leerUbicacion(c: Cuerpo): { lat: number; lon: number; precision: number
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return null;
   const p = Number(c.precision);
   return { lat, lon, precision: Number.isFinite(p) ? p : null };
+}
+
+// Perfil que pide el enlace: /cai → 'cai'; /piloto → 'consulta_piloto'.
+// Lo decide el SERVIDOR comparándolo con el perfil guardado del usuario en
+// cai_usuarios — el navegador no puede "subirse" de perfil.
+function perfilPedido(c: Cuerpo): PerfilAcceso {
+  return esPerfil(c.perfil) ? c.perfil : 'cai';
 }
 
 export const handler: Handler = async (event) => {
@@ -124,6 +109,7 @@ export const handler: Handler = async (event) => {
       case 'login': return await login(db, c, ip, dispositivo);
       case 'verificar': return await verificar(db, c, ip, dispositivo);
       case 'salir': return await salir(db, c, ip, dispositivo);
+      case 'evento': return await evento(db, c, ip, dispositivo);
       case 'admin_resumen':
       case 'admin_clave':
       case 'admin_estado':
@@ -136,8 +122,8 @@ export const handler: Handler = async (event) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     // Tablas sin crear: mensaje claro para el administrador.
-    if (/cai_(usuarios|sesiones|accesos)/.test(msg) && /does not exist|not find|schema cache/i.test(msg)) {
-      return resp({ ok: false, error: 'Faltan las tablas de acceso de los CAI en Supabase (ejecuta supabase/accesos_cai.sql).' });
+    if (/cai_(usuarios|sesiones|accesos)|perfil/.test(msg) && /does not exist|not find|schema cache/i.test(msg)) {
+      return resp({ ok: false, error: 'Faltan las tablas de acceso de los CAI en Supabase (ejecuta supabase/accesos_cai.sql y supabase/piloto_consulta.sql).' });
     }
     return resp({ ok: false, error: `Error del servidor: ${msg}` });
   }
@@ -154,7 +140,7 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   const distancia = ubic ? distanciaKm(ubic.lat, ubic.lon) : null;
   const base = { usuario: usuario || '(vacío)', lat: ubic?.lat ?? null, lon: ubic?.lon ?? null, precision_m: ubic?.precision ?? null, distancia_km: distancia, dispositivo, ip };
 
-  const { data: u, error } = await db.from('cai_usuarios').select('usuario, nombre, clave_hash, activo').eq('usuario', usuario).maybeSingle();
+  const { data: u, error } = await db.from('cai_usuarios').select('usuario, nombre, clave_hash, activo, perfil').eq('usuario', usuario).maybeSingle();
   if (error) throw error;
   if (!u) {
     await registrar(db, { ...base, evento: 'fallido', detalle: 'Usuario no existe' });
@@ -169,6 +155,14 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   if ((count ?? 0) >= MAX_FALLIDOS) {
     await registrar(db, { ...base, evento: 'bloqueado', detalle: 'Demasiados intentos fallidos' });
     return resp({ ok: false, error: 'Demasiados intentos fallidos. Espera 15 minutos o comunícate con el administrador.' });
+  }
+  // El usuario existe pero es de OTRO enlace (un CAI intentando entrar por
+  // /piloto o al revés): mismo mensaje que una contraseña errada, para no
+  // revelar qué usuarios existen en cada perfil.
+  const perfil = perfilPedido(c);
+  if ((u.perfil || 'cai') !== perfil) {
+    await registrar(db, { ...base, evento: 'rechazado', detalle: `Perfil no autorizado para este enlace (${perfil})` });
+    return resp({ ok: false, error: 'Usuario o contraseña incorrectos.' });
   }
   if (!u.activo) {
     await registrar(db, { ...base, evento: 'rechazado', detalle: 'Usuario desactivado' });
@@ -203,17 +197,19 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   if (e2) throw e2;
   await registrar(db, { ...base, evento: 'ingreso', detalle: reemplaza ? 'Cerró una sesión que seguía abierta en otro equipo' : null });
   const exp = Date.now() + DURACION_SESION_MS;
-  return resp({ ok: true, token: firmar({ u: usuario, s: sesionId, exp }), usuario, nombre: u.nombre || usuario.toUpperCase(), expira: exp });
+  return resp({ ok: true, token: firmar({ u: usuario, s: sesionId, exp, p: perfil }), usuario, nombre: u.nombre || usuario.toUpperCase(), perfil, expira: exp });
 }
 
 async function verificar(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: string) {
   const t = leerToken(c.token);
   if (!t) return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida. Vuelve a ingresar.' });
   if (Date.now() > t.exp) return resp({ ok: false, motivo: 'expirada', error: 'La sesión expiró. Vuelve a ingresar.' });
+  if (t.p !== perfilPedido(c)) return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida para este enlace. Vuelve a ingresar.' });
   const [{ data: ses }, { data: u }] = await Promise.all([
     db.from('cai_sesiones').select('sesion_id').eq('usuario', t.u).maybeSingle(),
-    db.from('cai_usuarios').select('activo').eq('usuario', t.u).maybeSingle(),
+    db.from('cai_usuarios').select('activo, perfil').eq('usuario', t.u).maybeSingle(),
   ]);
+  if (u && (u.perfil || 'cai') !== t.p) return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida para este enlace. Vuelve a ingresar.' });
   if (!u || !u.activo) return resp({ ok: false, motivo: 'desactivado', error: 'Este usuario fue desactivado por el administrador.' });
   if (!ses || ses.sesion_id !== t.s) {
     return resp({ ok: false, motivo: 'otra-sesion', error: 'Tu usuario se abrió en otro equipo (o el administrador cerró la sesión). Vuelve a ingresar.' });
@@ -254,6 +250,21 @@ async function salir(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   return resp({ ok: true });
 }
 
+// Eventos de seguridad que reporta el navegador de una sesión válida (por
+// ejemplo, el mapa del piloto que no pudo validar el territorio). Solo se
+// aceptan códigos conocidos: nada de texto libre del navegador en la bitácora.
+const EVENTOS_PERMITIDOS: Record<string, string> = {
+  geo_denegado: 'Mapa no habilitado: no se pudo validar el ámbito territorial de Popayán',
+  geo_fuera: 'Intento de consultar una ubicación fuera de Popayán (rechazado)',
+};
+async function evento(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: string) {
+  const t = leerToken(c.token);
+  const codigo = String(c.codigo || '');
+  if (!t || Date.now() > t.exp || !EVENTOS_PERMITIDOS[codigo]) return resp({ ok: false, error: 'Evento no válido.' }, 400);
+  await registrar(db, { usuario: t.u, evento: 'seguridad', detalle: EVENTOS_PERMITIDOS[codigo], dispositivo, ip });
+  return resp({ ok: true });
+}
+
 async function admin(db: SupabaseClient, c: Cuerpo) {
   if (c.accion === 'admin_clave') {
     const usuario = normalizarUsuario(c.usuario);
@@ -286,7 +297,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
   const dias = Math.min(Math.max(Number(c.dias) || 30, 1), 365);
   const desde = new Date(Date.now() - dias * 86400000).toISOString();
   const [{ data: usuarios, error: e1 }, { data: sesiones, error: e2 }, { data: accesos, error: e3 }] = await Promise.all([
-    db.from('cai_usuarios').select('usuario, nombre, activo, clave_hash, actualizado').order('usuario'),
+    db.from('cai_usuarios').select('usuario, nombre, activo, clave_hash, actualizado, perfil').order('usuario'),
     db.from('cai_sesiones').select('usuario, inicio, ultima_actividad, dispositivo'),
     db.from('cai_accesos').select('id, usuario, fecha, evento, detalle, distancia_km, precision_m, dispositivo, ip').gte('fecha', desde).order('fecha', { ascending: false }).limit(2000),
   ]);
@@ -303,6 +314,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
       return {
         usuario: u.usuario,
         nombre: u.nombre,
+        perfil: u.perfil || 'cai',
         activo: u.activo,
         tieneClave: !!u.clave_hash,
         enLinea: !!s && ahora - new Date(s.ultima_actividad).getTime() < EN_LINEA_MS,

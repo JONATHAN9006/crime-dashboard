@@ -29,8 +29,10 @@ export type RemoteStatus = 'sin-configurar' | 'conectando' | 'conectado' | 'erro
 // comandantes de CAI, abran el dashboard a cada rato sin agotar el plan del
 // servidor). Cualquier otra escritura local borra el sello.
 const CLAVE_SELLO_REMOTO = 'mepoy-sello-delitos-remoto';
-const leerSelloRemoto = (): string | null => { try { return localStorage.getItem(CLAVE_SELLO_REMOTO); } catch { return null; } };
-const guardarSelloRemoto = (v: string | null) => { try { if (v) localStorage.setItem(CLAVE_SELLO_REMOTO, v); else localStorage.removeItem(CLAVE_SELLO_REMOTO); } catch { /* sin almacenamiento */ } };
+// Perfil piloto (/piloto): nunca usa ni toca la copia local de este equipo.
+const ES_PILOTO = obtenerModoAcceso() === 'piloto';
+const leerSelloRemoto = (): string | null => { if (ES_PILOTO) return null; try { return localStorage.getItem(CLAVE_SELLO_REMOTO); } catch { return null; } };
+const guardarSelloRemoto = (v: string | null) => { if (ES_PILOTO) return; try { if (v) localStorage.setItem(CLAVE_SELLO_REMOTO, v); else localStorage.removeItem(CLAVE_SELLO_REMOTO); } catch { /* sin almacenamiento */ } };
 
 const INTERVALO_SONDEO_MS = 90_000; // cada 90 segundos (antes 45) — con la
 // base ya en ~24 MB, cada sondeo puede implicar varias peticiones seguidas
@@ -88,6 +90,8 @@ interface DataContextValue {
 }
 
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { registroEnPopayan } from '../utils/territorioPiloto';
 
 const DataContext = createContext<DataContextValue | null>(null);
 
@@ -278,6 +282,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (!cancelado) setLoading(false);
           return;
         }
+      }
+
+      // Piloto: SOLO la fuente autorizada del servidor. Sin copia local ni
+      // archivo por defecto (que no están restringidos a Popayán).
+      if (ES_PILOTO) {
+        if (!cancelado) {
+          setLoadError('La información no está disponible en este momento. Intenta de nuevo más tarde.');
+          setLoading(false);
+        }
+        return;
       }
 
       try {
@@ -588,7 +602,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // "records" (usado para sincronizar/subir al backend) NUNCA se modifica,
   // así que la fuente de datos original permanece intacta.
   const registrosVisibles = useMemo(
-    () => records.filter((r) => !DELITOS_EXCLUIDOS_GLOBAL.has(r.delito)),
+    // Piloto: además, solo lo de Popayán (el servidor ya lo entrega así;
+    // esto es una segunda barrera en el navegador).
+    () => records.filter((r) => !DELITOS_EXCLUIDOS_GLOBAL.has(r.delito) && (!ES_PILOTO || registroEnPopayan(r))),
     [records],
   );
 
@@ -616,6 +632,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   function guardarOperatividadLocal(registros: OperatividadRecord[], ultimaActualizacion: Date, nombreArchivo: string) {
     setOperatividadRecords(registros);
     setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion, nombreArchivo });
+    if (ES_PILOTO) return; // piloto: solo en memoria, sin copia en el equipo ni capas guardadas
     try {
       localStorage.setItem('mepoy-operatividad', JSON.stringify({ registros, ultimaActualizacion, nombreArchivo }));
     } catch { /* si no cabe en localStorage, se queda solo en memoria para esta sesión */ }
@@ -642,6 +659,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [cargandoOperatividad, setCargandoOperatividad] = useState(true);
   const fechaCopiaOperatividad = useRef<number | null>(null);
   useEffect(() => {
+    if (ES_PILOTO) return; // piloto: no lee la copia local (puede ser de otro perfil)
     try {
       const guardado = localStorage.getItem('mepoy-operatividad');
       if (guardado) {
@@ -739,8 +757,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // campo equivalente de cada uno (Delito ↔ delitoAsociado, Estación,
   // Cuadrante, Barrio, Año, Mes, rango de fecha) — nunca los filtros que no
   // tienen equivalente en este dataset (armas, modalidad, género, etc.).
+  // Piloto: Operatividad limitada a las unidades / ubicaciones de Popayán.
+  const operatividadVisibles = useMemo(
+    () => (ES_PILOTO ? operatividadRecords.filter((r) => registroEnPopayan(r)) : operatividadRecords),
+    [operatividadRecords],
+  );
   const filteredOperatividadRecords = useMemo(() => {
-    return operatividadRecords.filter((r) => {
+    return operatividadVisibles.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
@@ -753,7 +776,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (filters.fechaFinal && (!r.fecha || r.fecha > new Date(filters.fechaFinal + 'T23:59:59'))) return false;
       return true;
     });
-  }, [operatividadRecords, filters]);
+  }, [operatividadVisibles, filters]);
 
   const value: DataContextValue = {
     records: registrosVisibles,
@@ -779,7 +802,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     sincronizar,
     recordsBase,
     actualizacionDisponible,
-    operatividadRecords,
+    operatividadRecords: operatividadVisibles,
     filteredOperatividadRecords,
     operatividadMeta,
     cargandoOperatividad,

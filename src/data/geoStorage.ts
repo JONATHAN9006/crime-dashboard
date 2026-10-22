@@ -1,4 +1,23 @@
 import { getDb, STORE_GEO } from './db';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { restringirGeojsonAPopayan } from '../utils/territorioPiloto';
+
+// Perfil piloto (/piloto): las capas viven SOLO en memoria (nada se guarda
+// en el equipo) y al leerlas se entregan ya recortadas a Popayán.
+const esPiloto = () => obtenerModoAcceso() === 'piloto';
+let capasPiloto: CapaGeografica[] = [];
+const contarElementos = (g: any): number => {
+  if (!g) return 0;
+  if (Array.isArray(g)) return g.reduce((n, x) => n + contarElementos(x), 0);
+  if (g.type === 'FeatureCollection') return (g.features ?? []).reduce((n: number, f: any) => n + (f?.type === 'FeatureCollection' ? contarElementos(f) : 1), 0);
+  return 1;
+};
+/** Copia de las capas con solo lo de Popayán; una capa que queda vacía (toda fuera) ni se lista. */
+export function restringirCapasAPopayan(capas: CapaGeografica[]): CapaGeografica[] {
+  return capas
+    .map((c) => ({ ...c, geojson: restringirGeojsonAPopayan(c.geojson) }))
+    .filter((c) => contarElementos(c.geojson) > 0);
+}
 
 export interface CapaGeografica {
   id: string;
@@ -20,11 +39,13 @@ export interface CapaGeografica {
 }
 
 export async function guardarCapas(capas: CapaGeografica[]) {
+  if (esPiloto()) { capasPiloto = restringirCapasAPopayan(capas); return; }
   const db = await getDb();
   await db.put(STORE_GEO, { capas, fecha: new Date().toISOString() }, 'capas');
 }
 
 export async function cargarCapas(): Promise<CapaGeografica[]> {
+  if (esPiloto()) return capasPiloto;
   try {
     const db = await getDb();
     const nuevo = await db.get(STORE_GEO, 'capas');
@@ -44,6 +65,7 @@ export async function cargarCapas(): Promise<CapaGeografica[]> {
 }
 
 export async function limpiarCapas() {
+  if (esPiloto()) { capasPiloto = []; return; }
   const db = await getDb();
   await db.delete(STORE_GEO, 'capas');
   await db.delete(STORE_GEO, 'capa');

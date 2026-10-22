@@ -25,6 +25,14 @@ import { AccesosCai } from './pages/AccesosCai';
 import { PlanCandado2026 } from './pages/PlanCandado2026';
 import { PuertaCai } from './cai/PuertaCai';
 import { PuertaAdmin } from './admin/PuertaAdmin';
+import { tieneAcceso } from './utils/permisos';
+
+// Protección de RUTA, no solo de menú: aunque algo intente abrir una página
+// no autorizada para el modo actual (/piloto, /cai, /jefe…), se muestra
+// Inicio / Resumen en su lugar. El administrador (ruta raíz) lo ve todo.
+function paginaPermitida(p: PaginaId): boolean {
+  return p in PAGINAS && tieneAcceso(p as Parameters<typeof tieneAcceso>[0]);
+}
 
 const PAGINAS: Record<PaginaId, React.ComponentType> = {
   resumen: ResumenEjecutivo,
@@ -63,12 +71,14 @@ function Shell() {
   const [pagina, setPagina] = useState<PaginaId>('resumen');
   const [menuAbierto, setMenuAbierto] = useState(false);
   const { loading, loadError, records } = useData();
-  const Pagina = PAGINAS[pagina];
-  const requiereDatos = !PAGINAS_SIN_DATOS.includes(pagina);
+  const paginaSegura: PaginaId = paginaPermitida(pagina) ? pagina : 'resumen';
+  const Pagina = PAGINAS[paginaSegura];
+  const requiereDatos = !PAGINAS_SIN_DATOS.includes(paginaSegura);
+  const cambiarPagina = (p: PaginaId) => setPagina(paginaPermitida(p) ? p : 'resumen');
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar activo={pagina} onCambiar={setPagina} abierto={menuAbierto} onCerrar={() => setMenuAbierto(false)} />
+      <Sidebar activo={paginaSegura} onCambiar={cambiarPagina} abierto={menuAbierto} onCerrar={() => setMenuAbierto(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onAbrirMenu={() => setMenuAbierto(true)} />
         <main className="flex-1 overflow-y-auto px-4 py-5 lg:px-6">
@@ -87,7 +97,7 @@ function Shell() {
                   generales del dashboard no se muestran ahí, mientras que
                   el resto de los módulos los sigue usando exactamente igual
                   que siempre. */}
-              {records.length > 0 && !PAGINAS_SIN_FILTRO_GENERAL.includes(pagina) && <FilterPanel />}
+              {records.length > 0 && !PAGINAS_SIN_FILTRO_GENERAL.includes(paginaSegura) && <FilterPanel />}
               <Pagina />
             </div>
           )}
@@ -121,7 +131,9 @@ export default function App() {
   // que ingresan con su usuario y contraseña desde Popayán.
   // Enlace principal (sin /interno, /jefe ni /cai): administrador, con
   // usuario y contraseña validados en el servidor.
-  if (modoAcceso === 'cai') return <PuertaCai>{app}</PuertaCai>;
+  // /piloto (Estaciones Norte y Sur): mismo ingreso validado en el servidor,
+  // con perfil consulta_piloto.
+  if (modoAcceso === 'cai' || modoAcceso === 'piloto') return <PuertaCai>{app}</PuertaCai>;
   if (modoAcceso === null) return <PuertaAdmin>{app}</PuertaAdmin>;
   return app;
 }

@@ -2,6 +2,8 @@ import { obtenerConfig } from '../config';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { obtenerCliente } from './supabaseApi';
 import { cargarCapas, guardarCapas, type CapaGeografica } from './geoStorage';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { llamarFuentePiloto } from './supabaseApi';
 
 // Capas geográficas (shapefile / GeoJSON) COMPARTIDAS entre equipos.
 //
@@ -103,6 +105,11 @@ export async function borrarCapaCompartida(capaId: string, partes: number) {
 }
 
 async function fichasRemotas(): Promise<MetaCapaCompartida[]> {
+  // Piloto: las capas se piden a la fuente autorizada (servidor), nunca a la base directamente.
+  if (obtenerModoAcceso() === 'piloto') {
+    const j = await llamarFuentePiloto({ accion: 'capas_fichas' });
+    return (j.fichas ?? []) as MetaCapaCompartida[];
+  }
   const s = servidor();
   if (!s) return [];
   const supabase = obtenerCliente(s.url, s.key);
@@ -112,6 +119,10 @@ async function fichasRemotas(): Promise<MetaCapaCompartida[]> {
 }
 
 async function geojsonRemoto(meta: MetaCapaCompartida): Promise<unknown> {
+  if (obtenerModoAcceso() === 'piloto') {
+    const j = await llamarFuentePiloto({ accion: 'capa', capaId: meta.capaId });
+    return j.geojson;
+  }
   const s = servidor()!;
   const supabase = obtenerCliente(s.url, s.key);
   const ids = Array.from({ length: meta.partes }, (_, i) => `${meta.capaId}#p${i}`);
@@ -149,7 +160,7 @@ export function sincronizarCapasDesdeServidor(): Promise<CapaGeografica[] | null
 }
 
 async function sincronizarInterno(): Promise<CapaGeografica[] | null> {
-  if (!servidor()) return null;
+  if (!servidor() && obtenerModoAcceso() !== 'piloto') return null;
   const locales = await cargarCapas();
   const fichas = await fichasRemotas();
   const porId = new Map(locales.map((c) => [c.id, c]));

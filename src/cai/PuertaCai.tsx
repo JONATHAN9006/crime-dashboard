@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, MapPin, ShieldAlert } from 'lucide-react';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { ingresar, leerSesionGuardada, obtenerUbicacion, salirCai, verificarSesion, type SesionCai } from './apiCai';
 
 // Puerta de entrada del enlace /cai: nada del dashboard (ni los datos) se
@@ -10,6 +11,12 @@ import { ingresar, leerSesionGuardada, obtenerUbicacion, salirCai, verificarSesi
 
 const INTERVALO_VERIFICACION_MS = 5 * 60 * 1000;
 const CAIS = Array.from({ length: 10 }, (_, i) => ({ usuario: `cai${i + 1}`, nombre: `CAI ${i + 1}` }));
+// Prueba piloto (/piloto, perfil consulta_piloto).
+const ESTACIONES_PILOTO = [
+  { usuario: 'estacionnorte', nombre: 'Estación Norte' },
+  { usuario: 'estacionsur', nombre: 'Estación Sur' },
+];
+const esPiloto = () => obtenerModoAcceso() === 'piloto';
 
 interface ContextoCai { sesion: SesionCai; salir: () => void }
 const CaiContext = createContext<ContextoCai | null>(null);
@@ -108,7 +115,7 @@ function Fondo({ children }: { children: ReactNode }) {
           </div>
           <div className="min-w-0">
             <p className="text-[17px] font-bold leading-tight text-[#10233f]">Análisis Delictivo</p>
-            <p className="text-[12.5px] text-slate-500">MEPOY · Popayán — Consulta comandantes de CAI</p>
+            <p className="text-[12.5px] text-slate-500">{esPiloto() ? 'MEPOY · Popayán — Consulta Estaciones Norte y Sur' : 'MEPOY · Popayán — Consulta comandantes de CAI'}</p>
           </div>
         </div>
         {children}
@@ -126,7 +133,7 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!usuario || !clave) { setError('Selecciona tu CAI y escribe la contraseña.'); return; }
+    if (!usuario || !clave) { setError(esPiloto() ? 'Selecciona tu estación y escribe la contraseña.' : 'Selecciona tu CAI y escribe la contraseña.'); return; }
     setError(null);
     setPaso('ubicando');
     const ubic = await obtenerUbicacion();
@@ -164,8 +171,8 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
             autoComplete="username"
           >
-            <option value="">Selecciona tu CAI…</option>
-            {CAIS.map((c) => <option key={c.usuario} value={c.usuario}>{c.nombre}</option>)}
+            <option value="">{esPiloto() ? 'Selecciona tu estación…' : 'Selecciona tu CAI…'}</option>
+            {(esPiloto() ? ESTACIONES_PILOTO : CAIS).map((c) => <option key={c.usuario} value={c.usuario}>{c.nombre}</option>)}
           </select>
         </label>
         <label className="block">

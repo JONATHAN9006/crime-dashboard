@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { obtenerModoAcceso } from '../../utils/modoAcceso';
+import { reportarEventoSeguridad } from '../../cai/apiCai';
 import { Pane, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import clsx from 'clsx';
@@ -188,8 +190,12 @@ export function IrATerritorio({ capas, obtenerMapa }: { capas: CapaConGeo[]; obt
     document.addEventListener('mousedown', fuera);
     return () => document.removeEventListener('mousedown', fuera);
   }, [abierto]);
+  // Perfil piloto: solo Popayán; cualquier otro destino se rechaza y queda registrado.
+  const piloto = obtenerModoAcceso() === 'piloto';
+  const territorios = piloto ? TERRITORIOS.filter((t) => t.id === 'popayan') : TERRITORIOS;
   function ir(t: TerritorioNavegable) {
     setAbierto(false);
+    if (piloto && t.id !== 'popayan') { reportarEventoSeguridad('geo_fuera'); return; }
     const map = obtenerMapa();
     if (!map) return;
     const coinciden = capas.flatMap((c) => featuresDe(c.geojson)).filter((f) => Object.values(f?.properties ?? {}).some((v) => t.patron.test(normalizar(v))));
@@ -204,7 +210,7 @@ export function IrATerritorio({ capas, obtenerMapa }: { capas: CapaConGeo[]; obt
       </button>
       {abierto && (
         <div className="absolute right-0 top-9 z-[1100] w-[210px] rounded-xl border border-slate-200 bg-white p-1.5 text-[12.5px] shadow-lg">
-          {TERRITORIOS.map((t) => (
+          {territorios.map((t) => (
             <button key={t.id} type="button" onClick={() => ir(t)} className="block w-full rounded-lg px-2.5 py-1.5 text-left hover:bg-[#e3f2ef]">
               <span className="font-semibold text-[#10233f]">{t.nombre}</span>
               {t.nota && <span className="block text-[10.5px] text-slate-400">{t.nota}</span>}

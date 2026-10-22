@@ -1,11 +1,44 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { CrimeRecord } from '../types/crime';
 import type { DatasetRemoto, RemoteMeta, RemotePushResult } from './remoteApi';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { tokenSesionActual } from '../cai/apiCai';
+import { registroEnPopayan } from '../utils/territorioPiloto';
+
+// ── Perfil piloto (/piloto) ────────────────────────────────────────────────
+// El piloto NUNCA lee la base directamente con la llave pública: pide los
+// datos a netlify/functions/datosPiloto con su token firmado, y el SERVIDOR
+// entrega solo lo de Popayán. Aquí se vuelve a filtrar (defensa en
+// profundidad) por si algo llegara distinto.
+const FUNCION_PILOTO = '/.netlify/functions/datosPiloto';
+const esPiloto = () => obtenerModoAcceso() === 'piloto';
+
+export async function llamarFuentePiloto(cuerpo: Record<string, unknown>): Promise<any> {
+  const token = tokenSesionActual();
+  if (!token) throw new Error('Sesión no válida.');
+  const r = await fetch(FUNCION_PILOTO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cuerpo, token }) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || `Consulta no disponible (${r.status}).`);
+  return j;
+}
+
+async function descargarRegistrosPiloto(): Promise<CrimeRecord[]> {
+  const registros: CrimeRecord[] = [];
+  let desde: number | null = 0;
+  for (let vuelta = 0; desde !== null && vuelta < 500; vuelta++) {
+    const j: { registros: any[]; siguiente: number | null } = await llamarFuentePiloto({ accion: 'registros', desde });
+    for (const d of j.registros || []) if (registroEnPopayan(d)) registros.push(filaADistancia(d));
+    desde = j.siguiente;
+  }
+  return registros;
+}
 
 // Un solo cliente reutilizado — createClient no es caro, pero no hay
 // necesidad de crear uno nuevo en cada llamada.
 let clienteCache: { url: string; anonKey: string; cliente: SupabaseClient } | null = null;
 export function obtenerCliente(url: string, anonKey: string): SupabaseClient {
+  // El perfil piloto NUNCA consulta la base directamente (solo vía datosPiloto).
+  if (obtenerModoAcceso() === 'piloto') throw new Error('Consulta directa no autorizada para este perfil.');
   if (clienteCache && clienteCache.url === url && clienteCache.anonKey === anonKey) return clienteCache.cliente;
   const cliente = createClient(url, anonKey);
   clienteCache = { url, anonKey, cliente };
@@ -26,6 +59,7 @@ function filaADistancia(datos: any): CrimeRecord {
 const TAMANO_PAGINA = 1000; // límite por defecto de PostgREST es 1000 filas por pedido
 
 export async function descargarRegistrosSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<CrimeRecord[]> {
+  if (esPiloto()) return dataset === 'delictividad' ? descargarRegistrosPiloto() : [];
   const supabase = obtenerCliente(url, anonKey);
   const registros: CrimeRecord[] = [];
   let desde = 0;
@@ -50,6 +84,10 @@ export async function descargarRegistrosSupabase(url: string, anonKey: string, d
 }
 
 export async function consultarMetaSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<RemoteMeta> {
+  if (esPiloto()) {
+    const j = await llamarFuentePiloto({ accion: 'meta' });
+    return { ok: true, ultimaActualizacion: j.ultimaActualizacion ?? null, ultimoUsuario: null };
+  }
   const supabase = obtenerCliente(url, anonKey);
   const { data, error } = await supabase
     .from('dataset_meta')
@@ -88,6 +126,7 @@ export async function subirRegistrosSupabase(
   forzar?: boolean,
   aniosABorrar?: number[],
 ): Promise<RemotePushResult> {
+  if (esPiloto()) throw new Error('Operación no autorizada para este perfil.');
   // Borrado por año — pedido en SU PROPIA llamada, antes de subir nada,
   // para el modo "reemplazar solo este año" (ver reemplazarAniosDelArchivo
   // en datasetOps.ts). Sin esto, un registro que ya no existe en el
@@ -140,6 +179,7 @@ export async function borrarRegistrosSupabase(
   criterio: { aniosABorrar?: number[]; idsABorrar?: string[] },
   dataset: DatasetRemoto = 'delictividad',
 ): Promise<void> {
+  if (esPiloto()) throw new Error('Operación no autorizada para este perfil.');
   const enviar = async (cuerpo: Record<string, unknown>) => {
     const resp = await fetch(functionUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, usuario, dataset, registros: [], ...cuerpo }) });
     const r = await resp.json().catch(() => null);

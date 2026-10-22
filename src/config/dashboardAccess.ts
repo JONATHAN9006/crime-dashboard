@@ -40,7 +40,7 @@ export interface AccesoHerramientas {
   eliminarCapas: boolean;
 }
 
-export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramientas> = {
+export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai' | 'piloto', AccesoHerramientas> = {
   // Vista para presentar a los superiores — solo lo ya validado. Para
   // desbloquear algo aquí, cambia su "false" a "true": aparece solo, sin
   // tocar ningún componente.
@@ -127,4 +127,36 @@ export const DASHBOARD_ACCESS: Record<'jefe' | 'interno' | 'cai', AccesoHerramie
     planCandado: false,
     eliminarCapas: false,
   },
+  // Perfil consulta_piloto (/piloto) — Estaciones Norte y Sur. SOLO estos
+  // seis módulos; todo lo demás desaparece del menú y su página no abre
+  // aunque se intente directamente (ver App.tsx). Sin cargas, descargas,
+  // edición ni módulos administrativos.
+  piloto: {
+    resumen: true,
+    unidad: true,
+    operatividadUnidad: true,
+    rnmc: false,
+    irisp1: false,
+    macri: false,
+    ultimasSemanas: true,
+    matrizCalor: true,
+    mapa: true,
+    tasaCosec: false,
+    comparativo: false,
+    tabla: false,
+    calidad: false,
+    productos: false,
+    tendenciaMensual: true,
+    tendenciaDiaria: true,
+    microgerencia: false,
+    analistaIA: false,
+    descargas: false,
+    actualizarInformacion: false,
+    accesosCai: false,
+    planCandado: false,
+    eliminarCapas: false,
+  },
 };
+
+/** ¿Es el perfil de la prueba piloto (todo lo geográfico limitado a Popayán)? */
+export const esPerfilPiloto = (modo: string | null | undefined) => modo === 'piloto';

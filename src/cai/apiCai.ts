@@ -1,6 +1,11 @@
 // Cliente del backend de acceso de los CAI (netlify/functions/accesoCai.ts).
 const FUNCION = '/.netlify/functions/accesoCai';
-const CLAVE_SESION = 'mepoy-cai-sesion';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+
+// Cada enlace guarda su PROPIA sesión: entrar por /piloto no reutiliza una
+// sesión de /cai (ni al revés). El perfil real lo valida el servidor.
+const perfilDelEnlace = () => (obtenerModoAcceso() === 'piloto' ? 'consulta_piloto' : 'cai');
+const claveSesion = () => (perfilDelEnlace() === 'consulta_piloto' ? 'mepoy-piloto-sesion' : 'mepoy-cai-sesion');
 const CLAVE_ADMIN = 'mepoy-admin-cai';
 
 export interface SesionCai { token: string; usuario: string; nombre: string; expira: number }
@@ -36,25 +41,25 @@ const datosUbicacion = (u: Ubicacion) => ('error' in u ? { errorUbicacion: u.err
 
 export function leerSesionGuardada(): SesionCai | null {
   try {
-    const s = JSON.parse(localStorage.getItem(CLAVE_SESION) || 'null');
+    const s = JSON.parse(localStorage.getItem(claveSesion()) || 'null');
     if (s && typeof s.token === 'string' && s.expira > Date.now()) return s;
   } catch { /* sin almacenamiento */ }
   return null;
 }
 function guardarSesion(s: SesionCai | null) {
-  try { if (s) localStorage.setItem(CLAVE_SESION, JSON.stringify(s)); else localStorage.removeItem(CLAVE_SESION); } catch { /* sin almacenamiento */ }
+  try { if (s) localStorage.setItem(claveSesion(), JSON.stringify(s)); else localStorage.removeItem(claveSesion()); } catch { /* sin almacenamiento */ }
 }
 
 export async function ingresar(usuario: string, clave: string, ubic: Ubicacion) {
   const r = await llamar<{ token?: string; usuario?: string; nombre?: string; expira?: number; requiereUbicacion?: boolean }>({
-    accion: 'login', usuario, clave, ...datosUbicacion(ubic), dispositivo: navigator.userAgent,
+    accion: 'login', perfil: perfilDelEnlace(), usuario, clave, ...datosUbicacion(ubic), dispositivo: navigator.userAgent,
   });
   if (r.ok && r.token) guardarSesion({ token: r.token, usuario: r.usuario!, nombre: r.nombre!, expira: r.expira! });
   return r;
 }
 
 export async function verificarSesion(s: SesionCai, ubic: Ubicacion) {
-  const r = await llamar<{ motivo?: string; sinConexion?: boolean }>({ accion: 'verificar', token: s.token, ...datosUbicacion(ubic), dispositivo: navigator.userAgent });
+  const r = await llamar<{ motivo?: string; sinConexion?: boolean }>({ accion: 'verificar', perfil: perfilDelEnlace(), token: s.token, ...datosUbicacion(ubic), dispositivo: navigator.userAgent });
   if (!r.ok && !r.sinConexion) guardarSesion(null);
   return r;
 }
@@ -64,8 +69,20 @@ export async function salirCai(s: SesionCai | null) {
   if (s) await llamar({ accion: 'salir', token: s.token, dispositivo: navigator.userAgent });
 }
 
+/** Token de la sesión del piloto (para netlify/functions/datosPiloto). */
+export function tokenSesionActual(): string | null {
+  return leerSesionGuardada()?.token ?? null;
+}
+
+/** Registra en la bitácora del servidor un evento de seguridad (código fijo). */
+export function reportarEventoSeguridad(codigo: 'geo_denegado' | 'geo_fuera') {
+  const token = tokenSesionActual();
+  if (!token) return;
+  llamar({ accion: 'evento', codigo, token, dispositivo: navigator.userAgent }).catch(() => { /* best-effort */ });
+}
+
 // ── Administrador ────────────────────────────────────────────────────────
-export interface UsuarioCai { usuario: string; nombre: string; activo: boolean; tieneClave: boolean; enLinea: boolean; sesionInicio: string | null; ultimaActividad: string | null }
+export interface UsuarioCai { usuario: string; nombre: string; perfil?: 'cai' | 'consulta_piloto'; activo: boolean; tieneClave: boolean; enLinea: boolean; sesionInicio: string | null; ultimaActividad: string | null }
 export interface AccesoCai { id: number; usuario: string; fecha: string; evento: string; detalle: string | null; distancia_km: number | null; precision_m: number | null; dispositivo: string | null; ip: string | null }
 export interface ResumenAccesos { usuarios: UsuarioCai[]; accesos: AccesoCai[]; radioKm: number; exigeUbicacion: boolean }
 

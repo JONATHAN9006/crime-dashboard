@@ -1,4 +1,5 @@
 import { obtenerConfig } from '../config';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { esCoordenadaValida } from '../utils/geodesia';
 import { obtenerCliente } from './supabaseApi';
@@ -73,6 +74,8 @@ function guardarExtrasLocal(e: ExtrasPlanCandado) {
 
 /** Ubicaciones + puntos agregados + eliminados, desde el servidor (si hay). */
 export async function sincronizarPlanCandado(): Promise<{ ubicaciones: MapaUbicaciones; extras: ExtrasPlanCandado } | null> {
+  // Plan Candado es solo del administrador: el perfil piloto ni lo consulta.
+  if (obtenerModoAcceso() === 'piloto') return null;
   const s = servidor();
   if (!s) return null;
   const supabase = obtenerCliente(s.url, s.key);

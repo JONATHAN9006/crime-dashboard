@@ -6,9 +6,11 @@ import { Crosshair } from 'lucide-react';
 import clsx from 'clsx';
 import { KernelHeatmapLayer } from '../mapa/KernelHeatmapLayer';
 import { FlechasBarrios, type PosicionesRotulo } from '../mapa/FlechasBarrios';
-import { cargarCapas, type CapaGeografica } from '../../data/geoStorage';
+import { cargarCapas, restringirCapasAPopayan, type CapaGeografica } from '../../data/geoStorage';
 import { sincronizarCapasDesdeServidor } from '../../data/geoSync';
-import { MUNICIPIOS_MEPOY, COCONUCO } from '../../data/municipiosMepoy';
+import { COCONUCO } from '../../data/municipiosMepoy';
+import { CompuertaGeograficaPiloto, LimitarAPopayan, esPerfilPilotoActual, municipiosVisibles } from '../mapa/RestriccionPiloto';
+import { puntoEnPopayan } from '../../utils/territorioPiloto';
 import { calcularTopBarrios, normalizarNombre } from '../../utils/barriosAfectados';
 import { esCoordenadaValida } from '../../utils/geodesia';
 import type { CrimeRecord } from '../../types/crime';
@@ -94,13 +96,26 @@ function Etiquetas({ barrios, municipios, satelital, nombresBarrios }: { barrios
   );
 }
 
-export function MapaCalorMultifecha({ registros, maxFijo, alto = 380 }: {
+interface PropsMapaMF {
   registros: CrimeRecord[];
   /** Máximo común de densidad (escala comparable entre vigencias). */
   maxFijo?: number;
   alto?: number;
-}) {
-  const [capas, setCapas] = useState<CapaGeografica[]>([]);
+}
+
+/** Perfil piloto: sin validación del ámbito de Popayán, el mapa no se abre. */
+export function MapaCalorMultifecha(props: PropsMapaMF) {
+  return (
+    <CompuertaGeograficaPiloto alto={props.alto ?? 380}>
+      <MapaCalorMultifechaContenido {...props} />
+    </CompuertaGeograficaPiloto>
+  );
+}
+
+function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsMapaMF) {
+  const [capasFuente, setCapas] = useState<CapaGeografica[]>([]);
+  // Piloto: copia con solo los elementos de Popayán (las capas originales no se tocan).
+  const capas = useMemo(() => (esPerfilPilotoActual() ? restringirCapasAPopayan(capasFuente) : capasFuente), [capasFuente]);
   const [base, setBase] = useState<Base>('hibrido');
   const [nombresBarrios, setNombresBarrios] = useState(true);
   const [top, setTop] = useState<0 | 3 | 5 | 10>(5);
@@ -143,11 +158,12 @@ export function MapaCalorMultifecha({ registros, maxFijo, alto = 380 }: {
   }, [capas]);
 
   const municipios = useMemo(() => {
-    const m = MUNICIPIOS_MEPOY.features.map((f) => ({ nombre: f.properties.municipio as string, pos: centroDe(f as unknown as Feature) })).filter((x): x is { nombre: string; pos: [number, number] } => x.pos != null);
+    const m = municipiosVisibles().features.map((f) => ({ nombre: f.properties.municipio as string, pos: centroDe(f as unknown as Feature) })).filter((x): x is { nombre: string; pos: [number, number] } => x.pos != null);
+    if (esPerfilPilotoActual()) return m; // piloto: solo el rótulo de Popayán
     return [...m.filter((x) => x.nombre !== 'Puracé'), ...m.filter((x) => x.nombre === 'Puracé'), { nombre: 'Coconuco', pos: COCONUCO }];
   }, []);
 
-  const puntos = useMemo(() => registros.filter((r) => esCoordenadaValida(r.lat, r.lon)).map((r) => ({ lat: r.lat as number, lon: r.lon as number })), [registros]);
+  const puntos = useMemo(() => registros.filter((r) => esCoordenadaValida(r.lat, r.lon) && (!esPerfilPilotoActual() || puntoEnPopayan(r.lat, r.lon))).map((r) => ({ lat: r.lat as number, lon: r.lon as number })), [registros]);
   const flechas = useMemo(() => (top === 0 ? [] : calcularTopBarrios(registros, top, { poligonosBarrio })), [registros, top, poligonosBarrio]);
   const satelital = base !== 'mapa';
   const trazo = satelital ? '#ffffff' : '#334155';
@@ -158,7 +174,8 @@ export function MapaCalorMultifecha({ registros, maxFijo, alto = 380 }: {
         {base === 'mapa' && <TileLayer key="mapa" url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" maxZoom={20} />}
         {base !== 'mapa' && <TileLayer key="sat" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} />}
         {base === 'hibrido' && <TileLayer key="vias" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} opacity={0.75} />}
-        <GeoJSONLayer key={`mun-${base}`} data={MUNICIPIOS_MEPOY as never} interactive={false} style={{ color: satelital ? '#ffffff' : '#10233f', weight: 2, opacity: 0.85, fillOpacity: 0, dashArray: '6 4' }} />
+        <LimitarAPopayan />
+        <GeoJSONLayer key={`mun-${base}`} data={municipiosVisibles() as never} interactive={false} style={{ color: satelital ? '#ffffff' : '#10233f', weight: 2, opacity: 0.85, fillOpacity: 0, dashArray: '6 4' }} />
         {barriosFeatures.length > 0 && (
           <GeoJSONLayer key={`bar-${base}-${barriosFeatures.length}`} data={{ type: 'FeatureCollection', features: barriosFeatures } as never} interactive={false} style={{ color: trazo, weight: 0.8, opacity: satelital ? 0.55 : 0.5, fillOpacity: 0 }} />
         )}

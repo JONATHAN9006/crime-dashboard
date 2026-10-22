@@ -1,5 +1,11 @@
 import type { CrimeRecord } from '../types/crime';
 import { getDb, STORE_RECORDS, STORE_META } from './db';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+
+// Perfil piloto (/piloto): NO lee ni escribe la copia local del navegador.
+// Así nunca ve datos completos que haya guardado otro perfil en ese equipo,
+// ni deja copia permanente de nada: todo vive solo en memoria de la sesión.
+const esPiloto = () => obtenerModoAcceso() === 'piloto';
 
 // Súbela cada vez que un cambio en db2Transform.ts (o en cualquier lógica
 // que afecte los VALORES ya guardados, ej. renombrar "Patrulla" -> "Z.
@@ -43,6 +49,7 @@ function deserialize(records: any[]): CrimeRecord[] {
 }
 
 export async function guardarDatos(records: CrimeRecord[], nombreArchivo: string, fechaMaxParametro?: Date | null) {
+  if (esPiloto()) return;
   const db = await getDb();
   const tx = db.transaction([STORE_RECORDS, STORE_META], 'readwrite');
   await tx.objectStore(STORE_RECORDS).put(serialize(records), 'dataset');
@@ -57,6 +64,7 @@ export async function guardarDatos(records: CrimeRecord[], nombreArchivo: string
 }
 
 export async function cargarDatosGuardados(): Promise<{ records: CrimeRecord[]; meta: StoredMeta } | null> {
+  if (esPiloto()) return null;
   try {
     const db = await getDb();
     const raw = await db.get(STORE_RECORDS, 'dataset');
@@ -75,6 +83,7 @@ export async function cargarDatosGuardados(): Promise<{ records: CrimeRecord[]; 
 }
 
 export async function limpiarDatos() {
+  if (esPiloto()) return;
   const db = await getDb();
   const tx = db.transaction([STORE_RECORDS, STORE_META], 'readwrite');
   await tx.objectStore(STORE_RECORDS).delete('dataset');
