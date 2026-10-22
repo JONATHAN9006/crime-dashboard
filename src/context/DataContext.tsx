@@ -82,6 +82,8 @@ interface DataContextValue {
   operatividadRecords: OperatividadRecord[];
   filteredOperatividadRecords: OperatividadRecord[];
   operatividadMeta: { totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null;
+  /** true mientras la operatividad aún no ha llegado (ni de la copia local ni del servidor). */
+  cargandoOperatividad: boolean;
   cargarArchivoOperatividad: (file: File, token?: string, usuario?: string, modo?: 'reemplazar' | 'agregar' | 'reemplazarAnio') => Promise<{ registros: number } | { error: string }>;
 }
 
@@ -630,59 +632,58 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // ── Carga de OPERATIVIDAD, en dos pasos ────────────────────────────────
+  // 1) De inmediato: la copia guardada en este navegador (si existe) se
+  //    muestra al instante, sin esperar a nada — la tabla aparece de una vez.
+  // 2) En segundo plano: se consulta si el servidor central tiene una
+  //    versión MÁS NUEVA; solo en ese caso se descarga completa. Sigue
+  //    esperando a que termine la carga de Delictividad (Apps Script no
+  //    tolera dos descargas simultáneas), pero ya no bloquea la pantalla.
+  const [cargandoOperatividad, setCargandoOperatividad] = useState(true);
+  const fechaCopiaOperatividad = useRef<number | null>(null);
   useEffect(() => {
-    // Espera a que la Delictividad termine de cargar/sincronizar antes de
-    // pedir Operatividad — NUNCA deben competir al mismo tiempo por el
-    // mismo backend. Google Apps Script (nivel gratuito) tiene un límite
-    // bajo de ejecuciones simultáneas; pedir los dos datasets a la vez
-    // puede hacer que una de las solicitudes de Delictividad falle o
-    // regrese una respuesta incompleta — visto de primera mano.
+    try {
+      const guardado = localStorage.getItem('mepoy-operatividad');
+      if (guardado) {
+        const datos = JSON.parse(guardado);
+        const registros: OperatividadRecord[] = reinterpretarOperatividad((datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null })));
+        if (registros.length > 0) {
+          const fecha = datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null;
+          fechaCopiaOperatividad.current = fecha ? fecha.getTime() : null;
+          setOperatividadRecords(registros);
+          setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: fecha, nombreArchivo: datos.nombreArchivo || '' });
+          setCargandoOperatividad(false);
+        }
+      }
+    } catch { /* copia local corrupta o bloqueada: se espera la del servidor */ }
+  }, []);
+
+  useEffect(() => {
     if (loading) return;
     let cancelado = false;
     (async () => {
-      // Margen de seguridad adicional: deja que la sincronización principal
-      // termine de asentarse antes de disparar la de Operatividad.
-      await new Promise((r) => setTimeout(r, 1500));
+      const hayCopia = fechaCopiaOperatividad.current !== null || operatividadRecords.length > 0;
+      // La pausa de seguridad solo hace falta si no hay nada que mostrar mientras tanto… y ni así: se acorta.
+      if (!hayCopia) await new Promise((r) => setTimeout(r, 300));
       if (cancelado) return;
-
-      // 1) Si hay backend, intenta traer la versión central primero — las
-      // dos llamadas van UNA DESPUÉS DE LA OTRA (no en paralelo), para no
-      // sumarle más carga simultánea al mismo backend compartido.
-      // Nota: Operatividad sigue en el backend de Apps Script/Drive de
-      // siempre (operatividadBackendUrl) — no se migró a Supabase todavía.
-      if (operatividadBackendUrl) {
-        try {
-          const csv = await descargarCsvRemoto(operatividadBackendUrl, 'operatividad');
-          const metaRemota = await consultarMetaRemota(operatividadBackendUrl, 'operatividad').catch(() => null);
-          if (cancelado) return;
-          const registros = parsearOperatividadDesdeCsv(csv);
-          if (registros.length > 0) {
-            guardarOperatividadLocal(
-              registros,
-              metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion) : new Date(),
-              'Servidor central',
-            );
-            return;
-          }
-        } catch { /* si falla la conexión, se sigue con lo que haya guardado localmente */ }
-      }
-      // 2) Respaldo local (sin backend, o backend sin datos todavía).
+      if (!operatividadBackendUrl) { setCargandoOperatividad(false); return; }
       try {
-        const guardado = localStorage.getItem('mepoy-operatividad');
-        if (guardado) {
-          const datos = JSON.parse(guardado);
-          const registros: OperatividadRecord[] = reinterpretarOperatividad((datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null })));
-          setOperatividadRecords(registros);
-          setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null, nombreArchivo: datos.nombreArchivo || '' });
-          {
-      const cuadranteACai = new Map<string, string>();
-      for (const r of records) {
-        if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
-      }
-      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch((err) => console.error('[Operatividad→Mapa] Falló guardando la capa de puntos:', err));
-    }
+        // Primero la fecha (respuesta pequeña): si no cambió, no se descarga nada.
+        const metaRemota = await consultarMetaRemota(operatividadBackendUrl, 'operatividad').catch(() => null);
+        if (cancelado) return;
+        const fechaRemota = metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion).getTime() : null;
+        const local = fechaCopiaOperatividad.current;
+        if (hayCopia && fechaRemota !== null && local !== null && fechaRemota <= local) return;
+        const csv = await descargarCsvRemoto(operatividadBackendUrl, 'operatividad');
+        if (cancelado) return;
+        const registros = parsearOperatividadDesdeCsv(csv);
+        if (registros.length > 0) {
+          const fecha = fechaRemota !== null ? new Date(fechaRemota) : new Date();
+          fechaCopiaOperatividad.current = fecha.getTime();
+          guardarOperatividadLocal(registros, fecha, 'Servidor central');
         }
-      } catch { /* si el navegador bloquea localStorage o el dato está corrupto, simplemente arranca vacío */ }
+      } catch { /* sin conexión: se queda la copia local, si la hay */ }
+      finally { if (!cancelado) setCargandoOperatividad(false); }
     })();
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -781,6 +782,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     operatividadRecords,
     filteredOperatividadRecords,
     operatividadMeta,
+    cargandoOperatividad,
     cargarArchivoOperatividad,
     descartarAvisoActualizacion,
   };

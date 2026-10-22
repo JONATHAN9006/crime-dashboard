@@ -52,7 +52,7 @@ function FiltroTendenciaBoton({ activo, color, icono, etiqueta, onClick }: {
 }
 
 export function ResumenEjecutivo() {
-  const { records, filteredRecords, recordsBase, filters, meta, operatividadRecords, periodos } = useData();
+  const { records, filteredRecords, recordsBase, filters, meta, operatividadRecords, periodos, cargandoOperatividad } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
@@ -395,7 +395,9 @@ export function ResumenEjecutivo() {
           {operatividadRecords.length > 0 ? (
             <TablaOperatividadAgrupada grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} mostrarAporte={verAporteOperatividad} />
           ) : (
-            <p className="py-8 text-center text-sm text-slate-400">Sin datos de Operatividad cargados todavía.</p>
+            <p className="flex items-center justify-center gap-2 py-8 text-center text-sm text-slate-400">
+              {cargandoOperatividad ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#116762]/30 border-t-[#116762]" /> Cargando operatividad…</> : 'Sin datos de Operatividad cargados todavía.'}
+            </p>
           )}
         </Card>
       </div>
