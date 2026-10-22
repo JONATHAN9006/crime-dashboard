@@ -767,13 +767,14 @@ export function MapaGeorreferenciacion() {
   }, [records]);
 
   const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
-  // Mapa de calor y Puntos se pueden activar juntos (al menos uno queda activo).
+  // Mapa de calor y Puntos: independientes (los dos, uno o ninguno).
   // La descarga dibuja exactamente lo que esté activo.
   const [verCalor, setVerCalor] = useState(true);
   const [verPuntos, setVerPuntos] = useState(false);
+  // Cada uno se prende o apaga por separado (se pueden tener los dos, uno o ninguno).
   function alternarModoVista(modo: 'calor' | 'puntos') {
-    if (modo === 'calor') { if (verCalor && !verPuntos) return; setVerCalor((v) => !v); }
-    else { if (verPuntos && !verCalor) return; setVerPuntos((v) => !v); }
+    if (modo === 'calor') setVerCalor((v) => !v);
+    else setVerPuntos((v) => !v);
   }
   const [coordenadaManual, setCoordenadaManual] = useState<{ lat: number; lon: number } | null>(null);
   const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
@@ -2667,7 +2668,7 @@ export function MapaGeorreferenciacion() {
                     <p className="mt-1 text-[10.5px] text-slate-400">Clic en el nombre = ver solo esa fuente · casilla = combinarla con otras.</p>
                     <div className="mt-2 space-y-1.5">
                       {([['calor', 'Mapa de calor', verCalor, <Flame key="i" size={15} />], ['puntos', 'Puntos de eventos', verPuntos, <MapPin key="i" size={15} />]] as const).map(([modo, texto, activo, icono]) => (
-                        <Interruptor key={modo} texto={texto} icono={icono} activo={activo} onChange={() => alternarModoVista(modo)} titulo={activo ? 'Debe quedar al menos uno activo' : `Mostrar también ${texto.toLowerCase()}`} />
+                        <Interruptor key={modo} texto={texto} icono={icono} activo={activo} onChange={() => alternarModoVista(modo)} titulo={activo ? `Ocultar ${texto.toLowerCase()}` : `Mostrar ${texto.toLowerCase()}`} />
                       ))}
                     </div>
                   </section>
