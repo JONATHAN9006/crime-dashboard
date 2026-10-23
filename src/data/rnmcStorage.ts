@@ -1,6 +1,6 @@
 import { getDb, STORE_RNMC } from './db';
 import type { RegistroComparendo } from './rnmcParser';
-import { obtenerCliente } from './supabaseApi';
+import { leerDatasetCompleto } from './supabaseApi';
 import type { RemotePushResult } from './remoteApi';
 
 // Guardado LOCAL (en este navegador) — sigue existiendo como caché rápida
@@ -37,19 +37,9 @@ function filaComparendoADistancia(datos: any): RegistroComparendo {
   return { ...datos, fecha: datos.fecha ? new Date(datos.fecha) : null } as RegistroComparendo;
 }
 
-export async function descargarComparendosSupabase(url: string, anonKey: string): Promise<RegistroComparendo[]> {
-  const supabase = obtenerCliente(url, anonKey);
-  const registros: RegistroComparendo[] = [];
-  let desde = 0;
-  for (;;) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', 'rnmc').order('id_identidad', { ascending: true }).range(desde, desde + TAMANO_PAGINA - 1);
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) break;
-    for (const fila of data) registros.push(filaComparendoADistancia((fila as any).datos));
-    if (data.length < TAMANO_PAGINA) break;
-    desde += TAMANO_PAGINA;
-  }
-  return registros;
+// Lectura por el servidor (datosConsulta), con el rol de la cuenta que ingresó.
+export async function descargarComparendosSupabase(_url: string, _anonKey: string): Promise<RegistroComparendo[]> {
+  return (await leerDatasetCompleto('rnmc')).map((f) => filaComparendoADistancia(f.datos));
 }
 
 export async function subirComparendosSupabase(functionUrl: string, token: string, registros: (RegistroComparendo & { __id: string })[], usuario: string): Promise<RemotePushResult> {

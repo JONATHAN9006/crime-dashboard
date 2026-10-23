@@ -1,35 +1,36 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { CrimeRecord } from '../types/crime';
 import type { DatasetRemoto, RemoteMeta, RemotePushResult } from './remoteApi';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
-import { tokenSesionActual } from '../cai/apiCai';
+import { tokenSesionActual } from '../cuentas/apiCuentas';
 import { recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
 import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 
-// ── Perfil piloto (/piloto) ────────────────────────────────────────────────
-// El piloto NUNCA lee la base directamente con la llave pública: pide los
-// datos a netlify/functions/datosPiloto con su token firmado, y el SERVIDOR
-// entrega solo lo de Popayán. Aquí se vuelve a filtrar (defensa en
-// profundidad) por si algo llegara distinto.
-const FUNCION_PILOTO = '/.netlify/functions/datosPiloto';
+// ── LECTURA: siempre por el servidor, nunca directo a la base ──────────────
+// La base ya no tiene lectura pública. Todas las lecturas (delitos, RNMC,
+// IRISP1, MACRI, capas, Plan Candado) pasan por netlify/functions/
+// datosConsulta, con el token de la cuenta que ingresó (administrador,
+// interno o piloto); el SERVIDOR decide qué puede leer cada una.
+const FUNCION_DATOS = '/.netlify/functions/datosConsulta';
 const esPiloto = () => obtenerModoAcceso() === 'piloto';
 
-export async function llamarFuentePiloto(cuerpo: Record<string, unknown>): Promise<any> {
+export async function llamarDatos(cuerpo: Record<string, unknown>): Promise<any> {
   const token = tokenSesionActual();
   if (!token) throw new Error('Sesión no válida.');
-  const r = await fetch(FUNCION_PILOTO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cuerpo, token }) });
+  const r = await fetch(FUNCION_DATOS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cuerpo, token }) });
   const texto = await r.text().catch(() => '');
   let j: any = null;
   try { j = JSON.parse(texto); } catch { /* respuesta no JSON (p. ej. función no publicada o respuesta demasiado grande) */ }
   if (!r.ok || !j || !j.ok) {
     // Diagnóstico en la consola (F12): estado HTTP y motivo, sin datos sensibles.
-    console.error(`[Piloto] ${String(cuerpo.accion)} → HTTP ${r.status}`, j ? (j.motivo || j.detalle || j.error) : texto.slice(0, 200));
+    console.error(`[Datos] ${String(cuerpo.accion)} ${String(cuerpo.dataset ?? '')} → HTTP ${r.status}`, j ? (j.motivo || j.detalle || j.error) : texto.slice(0, 200));
     throw new Error((j && j.error) || `Consulta no disponible (${r.status}).`);
   }
   return j;
 }
+/** Compatibilidad: así lo llama la sincronización de capas del piloto. */
+export const llamarFuentePiloto = llamarDatos;
 
-/** Progreso de la descarga del piloto (0–100) para la pantalla de carga. */
+/** Progreso de la descarga (0–100) para la pantalla de carga. */
 function avisarProgreso(pct: number) {
   try { window.dispatchEvent(new CustomEvent('mepoy-progreso-carga', { detail: Math.max(0, Math.min(100, Math.round(pct))) })); } catch { /* sin ventana */ }
 }
@@ -39,122 +40,79 @@ async function conReintentos<T>(fn: () => Promise<T>, intentos = 3): Promise<T> 
   for (let i = 0; i < intentos; i++) {
     try { return await fn(); } catch (e) {
       ultimo = e;
-      if (/Sesión no válida/.test(String((e as Error)?.message))) break;
+      if (/Sesión no válida|no autorizada/.test(String((e as Error)?.message))) break;
       await new Promise((r) => setTimeout(r, 800 * (i + 1)));
     }
   }
   throw ultimo;
 }
 
-// Descarga del enlace de consulta: el rango de llaves (id_identidad) se
-// reparte en VENTANAS que se piden en PARALELO (4 a la vez), cada una por
-// llave (keyset: cada consulta es igual de rápida, sin importar cuántos
-// registros haya) y con reintentos. Las llaves del dashboard son "R<número>-
-// <largo>", así que se parte por el primer dígito; la primera y la última
-// ventana quedan abiertas para cubrir cualquier otra forma de llave.
-const PARALELAS_PILOTO = 4;
+// Descarga por LLAVE (keyset): el rango de llaves (id_identidad) se reparte
+// en VENTANAS que se piden en PARALELO (4 a la vez), cada consulta igual de
+// rápida sin importar cuántos registros haya, y con reintentos. Las llaves
+// de delitos son "R<número>-<largo>", así que se parte por el primer dígito;
+// la primera y la última ventana quedan abiertas para cubrir cualquier otra
+// forma de llave (RNMC, IRISP1, MACRI…).
+const PARALELAS = 4;
 const CORTES_LLAVE = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'S'];
-async function descargarRegistrosPiloto(): Promise<CrimeRecord[]> {
-  const restringir = restriccionPopayanActiva();
-  const { total } = await conReintentos(() => llamarFuentePiloto({ accion: 'conteo' })) as { total: number };
-  ultimoConteoServidor = Number(total) || 0;
+async function descargarPorLlave<T>(dataset: string, campo: 'registros' | 'filas', total: number | null, progreso: boolean): Promise<T[]> {
   const ventanas: [string | null, string | null][] = [[null, CORTES_LLAVE[0]]];
   for (let i = 0; i < CORTES_LLAVE.length - 1; i++) ventanas.push([CORTES_LLAVE[i], CORTES_LLAVE[i + 1]]);
   ventanas.push([CORTES_LLAVE[CORTES_LLAVE.length - 1], null]);
-  const porVentana: CrimeRecord[][] = new Array(ventanas.length);
+  const porVentana: T[][] = new Array(ventanas.length);
   let recibidos = 0;
-  avisarProgreso(0);
   let siguienteIndice = 0;
   async function trabajador() {
     while (siguienteIndice < ventanas.length) {
       const i = siguienteIndice++;
       const [desdeClave, hastaClave] = ventanas[i];
-      const lote: CrimeRecord[] = [];
+      const lote: T[] = [];
       let despuesDe: string | null = null;
-      for (let vuelta = 0; vuelta < 1000; vuelta++) {
-        const cuerpo: Record<string, unknown> = { accion: 'registros', desdeClave, hastaClave, despuesDe };
-        const j = await conReintentos(() => llamarFuentePiloto(cuerpo)) as { registros: any[]; siguiente: string | null };
-        for (const d of j.registros || []) {
-          if (!restringir) lote.push(filaADistancia(d));
-          else if (registroEnPopayan(d)) lote.push(filaADistancia(recortarCoordenadasPiloto(d)));
-        }
-        recibidos += (j.registros || []).length;
-        if (ultimoConteoServidor) avisarProgreso(Math.min(99, (recibidos / ultimoConteoServidor) * 100));
+      for (let vuelta = 0; vuelta < 5000; vuelta++) {
+        const cuerpo: Record<string, unknown> = { accion: 'registros', dataset, desdeClave, hastaClave, despuesDe };
+        const j = await conReintentos(() => llamarDatos(cuerpo)) as Record<string, unknown> & { siguiente: string | null };
+        const items = (j[campo] as T[]) || [];
+        lote.push(...items);
+        recibidos += items.length;
+        if (progreso && total) avisarProgreso(Math.min(99, (recibidos / total) * 100));
         if (!j.siguiente) break;
         despuesDe = j.siguiente;
       }
       porVentana[i] = lote;
     }
   }
-  await Promise.all(Array.from({ length: PARALELAS_PILOTO }, trabajador));
-  avisarProgreso(100);
+  if (progreso) avisarProgreso(0);
+  await Promise.all(Array.from({ length: PARALELAS }, trabajador));
+  if (progreso) avisarProgreso(100);
   return porVentana.flat();
 }
 
-// Un solo cliente reutilizado — createClient no es caro, pero no hay
-// necesidad de crear uno nuevo en cada llamada.
-let clienteCache: { url: string; anonKey: string; cliente: SupabaseClient } | null = null;
-export function obtenerCliente(url: string, anonKey: string): SupabaseClient {
-  // El perfil piloto NUNCA consulta la base directamente (solo vía datosPiloto).
-  if (obtenerModoAcceso() === 'piloto') throw new Error('Consulta directa no autorizada para este perfil.');
-  if (clienteCache && clienteCache.url === url && clienteCache.anonKey === anonKey) return clienteCache.cliente;
-  const cliente = createClient(url, anonKey);
-  clienteCache = { url, anonKey, cliente };
-  return cliente;
+/** Dataset completo como filas {id_identidad, datos} (administrador e interno). */
+export async function leerDatasetCompleto(dataset: string): Promise<{ id_identidad: string; datos: any }[]> {
+  return descargarPorLlave<{ id_identidad: string; datos: any }>(dataset, 'filas', null, false);
 }
 
-// Cada fila de la tabla trae el registro COMPLETO en "datos" (ver
-// supabase/schema.sql) — se reconstruye el CrimeRecord tal cual el resto
-// del dashboard lo espera, incluida la fecha como objeto Date (en la base
-// se guarda como texto ISO, porque JSON no tiene un tipo de fecha propio).
+/** Filas puntuales: por sufijo de la llave (p. ej. "#meta") o por lista de llaves. */
+export async function leerFilasDataset(dataset: string, filtro: { sufijo?: string; ids?: string[] } = {}): Promise<{ id_identidad: string; datos: any }[]> {
+  if (filtro.ids) {
+    const salida: { id_identidad: string; datos: any }[] = [];
+    for (let i = 0; i < filtro.ids.length; i += 200) {
+      const j = await conReintentos(() => llamarDatos({ accion: 'filas', dataset, ids: filtro.ids!.slice(i, i + 200) }));
+      salida.push(...(j.filas || []));
+    }
+    return salida;
+  }
+  const j = await conReintentos(() => llamarDatos({ accion: 'filas', dataset, sufijo: filtro.sufijo }));
+  return j.filas || [];
+}
+
+// Cada fila trae el registro COMPLETO en "datos" (ver supabase/schema.sql);
+// se reconstruye el CrimeRecord con la fecha como objeto Date.
 function filaADistancia(datos: any): CrimeRecord {
   return {
     ...datos,
     fecha: datos.fecha ? new Date(datos.fecha) : null,
   } as CrimeRecord;
-}
-
-const TAMANO_PAGINA = 1000; // límite por defecto de PostgREST es 1000 filas por pedido
-
-export async function descargarRegistrosSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<CrimeRecord[]> {
-  if (esPiloto()) return dataset === 'delictividad' ? descargarRegistrosPiloto() : [];
-  const supabase = obtenerCliente(url, anonKey);
-  // BUG REAL (registros que "faltaban" en algunos equipos, ej. 2016 o
-  // homicidios que no cuadraban): se paginaba con .range() SIN ORDEN. Sin
-  // ORDER BY, PostgreSQL no garantiza el mismo orden entre una página y la
-  // siguiente (y menos si alguien está subiendo información), así que
-  // algunas filas salían repetidas y otras nunca llegaban. Ahora:
-  //  1) se ordena por la llave (id_identidad) — paginación estable;
-  //  2) se compara lo recibido contra el CONTEO EXACTO del servidor y, si
-  //     no coincide (alguien subió/borró justo en medio), se repite.
-  for (let intento = 1; intento <= 3; intento++) {
-    const { count: esperado, error: errorConteo } = await supabase
-      .from('crime_records').select('id_identidad', { count: 'exact', head: true }).eq('dataset', dataset);
-    if (errorConteo) throw new Error(errorConteo.message);
-    const porId = new Map<string, CrimeRecord>();
-    let filasRecibidas = 0;
-    let desde = 0;
-    for (;;) {
-      const { data, error } = await supabase
-        .from('crime_records')
-        .select('id_identidad, datos')
-        .eq('dataset', dataset)
-        .order('id_identidad', { ascending: true })
-        .range(desde, desde + TAMANO_PAGINA - 1);
-      if (error) throw new Error(error.message);
-      if (!data || data.length === 0) break;
-      for (const fila of data) porId.set((fila as any).id_identidad, filaADistancia((fila as any).datos));
-      filasRecibidas += data.length;
-      if (data.length < TAMANO_PAGINA) break;
-      desde += TAMANO_PAGINA;
-    }
-    if (dataset === 'delictividad') ultimoConteoServidor = esperado ?? porId.size;
-    if (esperado == null || porId.size === esperado) return Array.from(porId.values());
-    console.warn(`[Backend central] Descarga incompleta (intento ${intento}): ${porId.size} de ${esperado} registros (${filasRecibidas} filas recibidas). Se repite.`);
-    if (intento === 3) throw new Error(`La descarga quedó incompleta (${porId.size} de ${esperado} registros). Intenta «Sincronizar» de nuevo en un momento.`);
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-  return [];
 }
 
 /** Filas que tenía el servidor en la última descarga completa (para validar la copia local). */
@@ -163,36 +121,46 @@ export function conteoUltimaDescarga(): number | null {
   return ultimoConteoServidor;
 }
 
-/** Conteo exacto de filas en el servidor (petición liviana, sin datos). */
-export async function contarRegistrosSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<number | null> {
+// "url" y "anonKey" ya no se usan para leer (se conservan en la firma para
+// no cambiar a quienes llaman); la lectura va por el servidor.
+export async function descargarRegistrosSupabase(_url: string, _anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<CrimeRecord[]> {
   if (esPiloto()) {
-    if (dataset !== 'delictividad') return null;
-    const j = await llamarFuentePiloto({ accion: 'conteo' });
-    return Number(j.total) || 0;
+    // Piloto: registros livianos; si su territorio es solo Popayán, el
+    // servidor ya los recorta y aquí se vuelve a filtrar (segunda barrera).
+    if (dataset !== 'delictividad') return [];
+    const restringir = restriccionPopayanActiva();
+    const { total } = await conReintentos(() => llamarDatos({ accion: 'conteo', dataset })) as { total: number };
+    ultimoConteoServidor = Number(total) || 0;
+    const items = await descargarPorLlave<any>(dataset, 'registros', ultimoConteoServidor, true);
+    return items.flatMap((d) => (!restringir ? [filaADistancia(d)] : registroEnPopayan(d) ? [filaADistancia(recortarCoordenadasPiloto(d))] : []));
   }
-  const supabase = obtenerCliente(url, anonKey);
-  const { count, error } = await supabase.from('crime_records').select('id_identidad', { count: 'exact', head: true }).eq('dataset', dataset);
-  if (error) throw new Error(error.message);
-  return count ?? null;
+  // Administrador e interno: registros completos, verificados contra el
+  // CONTEO EXACTO del servidor (si alguien sube información justo en medio,
+  // se repite).
+  for (let intento = 1; intento <= 3; intento++) {
+    const { total } = await conReintentos(() => llamarDatos({ accion: 'conteo', dataset })) as { total: number };
+    const esperado = Number(total) || 0;
+    const filas = await descargarPorLlave<{ id_identidad: string; datos: any }>(dataset, 'filas', dataset === 'delictividad' ? esperado : null, dataset === 'delictividad');
+    const porId = new Map<string, CrimeRecord>();
+    for (const f of filas) porId.set(f.id_identidad, filaADistancia(f.datos));
+    if (dataset === 'delictividad') ultimoConteoServidor = esperado;
+    if (porId.size === esperado) return Array.from(porId.values());
+    console.warn(`[Backend central] Descarga incompleta (intento ${intento}): ${porId.size} de ${esperado} registros. Se repite.`);
+    if (intento === 3) throw new Error(`La descarga quedó incompleta (${porId.size} de ${esperado} registros). Intenta «Sincronizar» de nuevo en un momento.`);
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return [];
 }
 
-export async function consultarMetaSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<RemoteMeta> {
-  if (esPiloto()) {
-    const j = await llamarFuentePiloto({ accion: 'meta' });
-    return { ok: true, ultimaActualizacion: j.ultimaActualizacion ?? null, ultimoUsuario: null };
-  }
-  const supabase = obtenerCliente(url, anonKey);
-  const { data, error } = await supabase
-    .from('dataset_meta')
-    .select('ultima_actualizacion, ultimo_usuario')
-    .eq('dataset', dataset)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return {
-    ok: true,
-    ultimaActualizacion: data?.ultima_actualizacion ?? null,
-    ultimoUsuario: data?.ultimo_usuario ?? null,
-  };
+/** Conteo exacto de filas en el servidor (petición liviana, sin datos). */
+export async function contarRegistrosSupabase(_url: string, _anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<number | null> {
+  const j = await llamarDatos({ accion: 'conteo', dataset });
+  return Number(j.total) || 0;
+}
+
+export async function consultarMetaSupabase(_url: string, _anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<RemoteMeta> {
+  const j = await llamarDatos({ accion: 'meta', dataset });
+  return { ok: true, ultimaActualizacion: j.ultimaActualizacion ?? null, ultimoUsuario: j.ultimoUsuario ?? null };
 }
 
 // La ESCRITURA no pasa por el cliente de Supabase del navegador — pasa por

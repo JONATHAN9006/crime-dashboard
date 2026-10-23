@@ -1,6 +1,6 @@
 import { getDb, STORE_MACRI } from './db';
 import type { ObjetivoMacri } from './macriParser';
-import { obtenerCliente } from './supabaseApi';
+import { leerDatasetCompleto } from './supabaseApi';
 
 // Dos datasets separados en la MISMA tabla crime_records de Supabase:
 //
@@ -77,17 +77,9 @@ function revivirObjetivo(d: any): ObjetivoMacri {
   return { ...d, fechaFinal: d.fechaFinalLocal ? new Date(d.fechaFinalLocal) : null } as ObjetivoMacri;
 }
 
-async function descargarDataset(url: string, anonKey: string, dataset: string): Promise<any[]> {
-  const supabase = obtenerCliente(url, anonKey);
-  const filas: any[] = [];
-  for (let desde = 0; ; desde += 1000) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', dataset).order('id_identidad', { ascending: true }).range(desde, desde + 999);
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) break;
-    for (const f of data) filas.push((f as any).datos);
-    if (data.length < 1000) break;
-  }
-  return filas;
+// Lectura por el servidor (datosConsulta), con el rol de la cuenta que ingresó.
+async function descargarDataset(_url: string, _anonKey: string, dataset: string): Promise<any[]> {
+  return (await leerDatasetCompleto(dataset)).map((f) => f.datos);
 }
 
 export async function descargarMacriSupabase(url: string, anonKey: string) {

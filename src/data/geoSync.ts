@@ -1,6 +1,6 @@
 import { obtenerConfig } from '../config';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
-import { obtenerCliente } from './supabaseApi';
+import { leerFilasDataset } from './supabaseApi';
 import { cargarCapas, guardarCapas, type CapaGeografica } from './geoStorage';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { llamarFuentePiloto } from './supabaseApi';
@@ -112,10 +112,7 @@ async function fichasRemotas(): Promise<MetaCapaCompartida[]> {
   }
   const s = servidor();
   if (!s) return [];
-  const supabase = obtenerCliente(s.url, s.key);
-  const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', DATASET).like('id_identidad', '%#meta');
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((f: any) => f.datos as MetaCapaCompartida);
+  return (await leerFilasDataset(DATASET, { sufijo: '#meta' })).map((f) => f.datos as MetaCapaCompartida);
 }
 
 async function geojsonRemoto(meta: MetaCapaCompartida): Promise<unknown> {
@@ -123,16 +120,12 @@ async function geojsonRemoto(meta: MetaCapaCompartida): Promise<unknown> {
     const j = await llamarFuentePiloto({ accion: 'capa', capaId: meta.capaId });
     return j.geojson;
   }
-  const s = servidor()!;
-  const supabase = obtenerCliente(s.url, s.key);
   const ids = Array.from({ length: meta.partes }, (_, i) => `${meta.capaId}#p${i}`);
   const pedazos: string[] = new Array(meta.partes).fill('');
   // De a 2 partes por consulta, para no pedir respuestas enormes de golpe.
   for (let i = 0; i < ids.length; i += 2) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', DATASET).in('id_identidad', ids.slice(i, i + 2));
-    if (error) throw new Error(error.message);
-    for (const f of data ?? []) {
-      const d = (f as any).datos;
+    for (const f of await leerFilasDataset(DATASET, { ids: ids.slice(i, i + 2) })) {
+      const d = f.datos;
       pedazos[d.parte] = d.contenido;
     }
   }

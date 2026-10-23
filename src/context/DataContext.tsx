@@ -7,7 +7,7 @@ import { emptyFilterState } from '../types/crime';
 import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
 import { cargarDatosGuardados, guardarDatos, limpiarDatos, cargarCopiaConsulta, guardarCopiaConsulta } from '../data/storage';
-import { leerSesionGuardada } from '../cai/apiCai';
+import { leerSesionGuardada } from '../cuentas/apiCuentas';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo, detectarRepetidosPorContenido } from '../data/datasetOps';
 import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';

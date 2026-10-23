@@ -1,26 +1,25 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, MapPin, ShieldAlert } from 'lucide-react';
-import { obtenerModoAcceso } from '../utils/modoAcceso';
-import { ingresar, leerSesionGuardada, obtenerUbicacion, salirCai, verificarSesion, type SesionCai } from './apiCai';
+import { ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
 
-// Puerta de entrada del enlace /cai: nada del dashboard (ni los datos) se
-// carga hasta que el comandante ingresa con su usuario y contraseña desde
-// Popayán. Luego, cada 5 minutos (y al volver a la pestaña) se confirma con
-// el servidor que la sesión sigue siendo la única viva y que el equipo
-// sigue en Popayán; si no, se cierra.
+// Puerta de entrada de los enlaces /interno y /piloto: nada del dashboard
+// (ni los datos) se carga hasta ingresar con el usuario y la contraseña de la
+// cuenta del enlace, validados en el servidor (accesoCuentas). Luego, cada 5
+// minutos (y al volver a la pestaña) se confirma con el servidor que la
+// sesión sigue abierta y la cuenta activa; si no, se cierra.
+// El piloto, además, envía la ubicación del equipo (control complementario).
 
 const INTERVALO_VERIFICACION_MS = 5 * 60 * 1000;
-const CAIS = Array.from({ length: 10 }, (_, i) => ({ usuario: `cai${i + 1}`, nombre: `CAI ${i + 1}` }));
-const esPiloto = () => obtenerModoAcceso() === 'piloto';
+const esPiloto = () => rolDelEnlace() === 'piloto';
 
-interface ContextoCai { sesion: SesionCai; salir: () => void }
-const CaiContext = createContext<ContextoCai | null>(null);
-export const useSesionCai = () => useContext(CaiContext);
+interface ContextoCuenta { sesion: SesionCuenta; salir: () => void }
+const CuentaContext = createContext<ContextoCuenta | null>(null);
+export const useSesionCuenta = () => useContext(CuentaContext);
 
 type Estado =
   | { fase: 'verificando' }
   | { fase: 'login'; aviso?: string }
-  | { fase: 'dentro'; sesion: SesionCai };
+  | { fase: 'dentro'; sesion: SesionCuenta };
 
 const MENSAJE_UBICACION: Record<string, string> = {
   denegada: 'El navegador tiene bloqueada la ubicación para este sitio. Actívala (ícono del candado junto a la dirección → Ubicación → Permitir) y vuelve a intentar.',
@@ -28,20 +27,20 @@ const MENSAJE_UBICACION: Record<string, string> = {
   'no-disponible': 'Este equipo o navegador no entrega ubicación. Activa la ubicación del equipo (o usa el celular) y vuelve a intentar.',
 };
 
-export function PuertaCai({ children }: { children: ReactNode }) {
+export function PuertaCuenta({ children }: { children: ReactNode }) {
   const [estado, setEstado] = useState<Estado>(() => (leerSesionGuardada() ? { fase: 'verificando' } : { fase: 'login' }));
-  const sesionRef = useRef<SesionCai | null>(null);
+  const sesionRef = useRef<SesionCuenta | null>(null);
 
   const cerrarCon = useCallback((aviso?: string) => {
     sesionRef.current = null;
     setEstado({ fase: 'login', aviso });
   }, []);
 
-  const verificar = useCallback(async (s: SesionCai) => {
-    const ubic = await obtenerUbicacion(12000);
+  const verificar = useCallback(async (s: SesionCuenta) => {
+    const ubic = esPiloto() ? await obtenerUbicacion(12000) : null;
     const r = await verificarSesion(s, ubic);
     if (r.ok) return true;
-    if ((r as { sinConexion?: boolean }).sinConexion) return true; // sin internet un momento: no se cierra
+    if (r.sinConexion) return true; // sin internet un momento: no se cierra
     cerrarCon(r.error || 'La sesión se cerró.');
     return false;
   }, [cerrarCon]);
@@ -52,7 +51,7 @@ export function PuertaCai({ children }: { children: ReactNode }) {
     const s = leerSesionGuardada();
     if (!s) { setEstado({ fase: 'login' }); return; }
     verificar(s).then((ok) => {
-      if (ok) { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); }
+      if (ok) { sesionRef.current = leerSesionGuardada() ?? s; setEstado({ fase: 'dentro', sesion: sesionRef.current }); }
     });
   }, [estado.fase, verificar]);
 
@@ -76,18 +75,18 @@ export function PuertaCai({ children }: { children: ReactNode }) {
   const salir = useCallback(() => {
     const s = sesionRef.current;
     cerrarCon('Sesión cerrada.');
-    salirCai(s);
+    salirCuenta(s);
   }, [cerrarCon]);
 
   if (estado.fase === 'dentro') {
-    return <CaiContext.Provider value={{ sesion: estado.sesion, salir }}>{children}</CaiContext.Provider>;
+    return <CuentaContext.Provider value={{ sesion: estado.sesion, salir }}>{children}</CuentaContext.Provider>;
   }
   if (estado.fase === 'verificando') {
     return (
       <Fondo>
         <div className="flex flex-col items-center gap-3 py-6 text-[#10233f]">
           <Loader2 size={28} className="animate-spin text-[#116762]" />
-          <p className="text-sm font-semibold">Verificando acceso y ubicación…</p>
+          <p className="text-sm font-semibold">Verificando acceso…</p>
         </div>
       </Fondo>
     );
@@ -110,7 +109,7 @@ function Fondo({ children }: { children: ReactNode }) {
           </div>
           <div className="min-w-0">
             <p className="text-[17px] font-bold leading-tight text-[#10233f]">Análisis Delictivo</p>
-            <p className="text-[12.5px] text-slate-500">{esPiloto() ? 'MEPOY · Popayán — Consulta y visualización' : 'MEPOY · Popayán — Consulta comandantes de CAI'}</p>
+            <p className="text-[12.5px] text-slate-500">{esPiloto() ? 'MEPOY — Acceso piloto (consulta)' : 'MEPOY — Acceso interno'}</p>
           </div>
         </div>
         {children}
@@ -119,7 +118,7 @@ function Fondo({ children }: { children: ReactNode }) {
   );
 }
 
-function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s: SesionCai) => void }) {
+function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s: SesionCuenta) => void }) {
   const [usuario, setUsuario] = useState('');
   const [clave, setClave] = useState('');
   const [verClave, setVerClave] = useState(false);
@@ -128,24 +127,20 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!usuario || !clave) { setError(esPiloto() ? 'Escribe tu usuario y tu contraseña.' : 'Selecciona tu CAI y escribe la contraseña.'); return; }
+    if (!usuario || !clave) { setError('Escribe tu usuario y tu contraseña.'); return; }
     setError(null);
-    setPaso('ubicando');
-    const ubic = await obtenerUbicacion();
-    if ('error' in ubic && ubic.error === 'denegada') {
-      setPaso('listo');
-      setError(MENSAJE_UBICACION.denegada);
-      return;
+    let ubic: Ubicacion | null = null;
+    if (esPiloto()) {
+      setPaso('ubicando');
+      ubic = await obtenerUbicacion();
     }
     setPaso('validando');
-    const r = await ingresar(usuario, clave, ubic);
+    const r = await ingresar(usuario.trim(), clave, ubic);
     setPaso('listo');
-    if (r.ok && r.token) {
-      onIngreso(leerSesionGuardada() ?? { token: r.token, usuario: r.usuario!, nombre: r.nombre!, expira: r.expira! });
-      return;
-    }
+    const s = leerSesionGuardada();
+    if (r.ok && s) { onIngreso(s); return; }
     setClave('');
-    setError(r.requiereUbicacion && 'error' in ubic ? `${r.error} ${MENSAJE_UBICACION[ubic.error]}` : (r.error || 'No fue posible ingresar.'));
+    setError(r.requiereUbicacion && ubic && 'error' in ubic ? `${r.error} ${MENSAJE_UBICACION[ubic.error]}` : (r.error || 'No fue posible ingresar.'));
   }
 
   const ocupado = paso !== 'listo';
@@ -159,32 +154,17 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
         )}
         <label className="block">
           <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Usuario</span>
-          {esPiloto() ? (
-            // Enlace de consulta (estaciones y jefes): usuario escrito, sin
-            // lista visible de cuentas.
-            <input
-              type="text"
-              value={usuario}
-              onChange={(e) => setUsuario(e.target.value)}
-              disabled={ocupado}
-              placeholder="Tu usuario"
-              autoComplete="username"
-              autoCapitalize="none"
-              spellCheck={false}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
-            />
-          ) : (
-          <select
-              value={usuario}
-              onChange={(e) => setUsuario(e.target.value)}
-              disabled={ocupado}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
-              autoComplete="username"
-            >
-              <option value="">{esPiloto() ? 'Selecciona tu estación…' : 'Selecciona tu CAI…'}</option>
-              {CAIS.map((c) => <option key={c.usuario} value={c.usuario}>{c.nombre}</option>)}
-            </select>
-          )}
+          <input
+            type="text"
+            value={usuario}
+            onChange={(e) => setUsuario(e.target.value)}
+            disabled={ocupado}
+            placeholder="Tu usuario"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
+          />
         </label>
         <label className="block">
           <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Contraseña</span>
@@ -212,8 +192,8 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
           {paso === 'ubicando' ? 'Obteniendo ubicación…' : paso === 'validando' ? 'Validando…' : 'Ingresar'}
         </button>
         <div className="space-y-1.5 border-t border-slate-100 pt-3 text-[11.5px] leading-snug text-slate-500">
-          <p className="flex items-start gap-1.5"><MapPin size={13} className="mt-[1px] shrink-0 text-[#116762]" /> Se solicitará la ubicación del equipo: el acceso solo está habilitado dentro de Popayán.</p>
-          <p className="flex items-start gap-1.5"><LockKeyhole size={13} className="mt-[1px] shrink-0 text-[#116762]" /> Usuario personal e intransferible: si se abre en otro equipo, esta sesión se cierra. Solo consulta.</p>
+          {esPiloto() && <p className="flex items-start gap-1.5"><MapPin size={13} className="mt-[1px] shrink-0 text-[#116762]" /> Se solicitará la ubicación del equipo.</p>}
+          <p className="flex items-start gap-1.5"><LockKeyhole size={13} className="mt-[1px] shrink-0 text-[#116762]" /> {esPiloto() ? 'Solo consulta y visualización.' : 'Acceso interno autorizado.'} La cuenta la administra el administrador del sistema.</p>
         </div>
       </form>
     </Fondo>

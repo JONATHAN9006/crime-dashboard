@@ -1,3 +1,5 @@
+> **Actualizado en v206:** las cuentas por estación, jefes y CAI ya no existen. Las cuentas y los enlaces vigentes están en `docs/CUENTAS_Y_ENLACES.md`. Las restricciones territoriales del piloto descritas aquí siguen aplicando cuando la cuenta piloto tiene territorio «Solo Popayán».
+
 # S2IP · Prueba piloto `consulta_piloto` (enlace `/piloto`)
 
 Acceso para los comandantes de las **Estaciones Norte y Sur**, con consulta restringida a **Popayán, Cauca**.

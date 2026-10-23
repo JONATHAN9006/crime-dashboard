@@ -49,8 +49,10 @@ create table if not exists dataset_meta (
 alter table crime_records enable row level security;
 alter table dataset_meta enable row level security;
 
+-- SIN LECTURA PÚBLICA (desde v206): la llave pública no puede leer nada.
+-- Todas las lecturas pasan por netlify/functions/datosConsulta.ts, que
+-- verifica el rol de quien consulta (administrador, interno o piloto).
 drop policy if exists "Lectura pública registros" on crime_records;
-create policy "Lectura pública registros" on crime_records for select using (true);
-
 drop policy if exists "Lectura pública meta" on dataset_meta;
-create policy "Lectura pública meta" on dataset_meta for select using (true);
+revoke select on crime_records from anon, authenticated;
+revoke select on dataset_meta from anon, authenticated;

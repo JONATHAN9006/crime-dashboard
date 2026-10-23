@@ -80,7 +80,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
                 <RefreshCw size={14} className={sincronizando ? 'animate-spin' : ''} /> <span className="hidden sm:inline">Sincronizar</span>
               </button>
             )}
-            {modoAcceso !== 'cai' && modoAcceso !== 'piloto' && records.length > 0 && (
+            {modoAcceso !== 'piloto' && records.length > 0 && (
               <button
                 onClick={() => { if (accesoMicrogerencia) setMostrarMicrogerencia(true); }}
                 disabled={!accesoMicrogerencia}

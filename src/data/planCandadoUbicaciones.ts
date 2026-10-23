@@ -2,7 +2,7 @@ import { obtenerConfig } from '../config';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { pedirClaveSesion, revisarErrorDeClave, MENSAJE_SIN_CLAVE } from '../utils/claveSesion';
 import { esCoordenadaValida } from '../utils/geodesia';
-import { obtenerCliente } from './supabaseApi';
+import { leerFilasDataset } from './supabaseApi';
 import { COORDENADAS_OFICIALES_PLAN_CANDADO, type PuntoPlanCandado } from './planCandado2026';
 
 /** Coordenadas oficiales (archivo entregado por MEPOY), base sobre la que se aplican las correcciones. */
@@ -75,12 +75,10 @@ function guardarExtrasLocal(e: ExtrasPlanCandado) {
 /** Ubicaciones + puntos agregados + eliminados, desde el servidor (si hay). */
 export async function sincronizarPlanCandado(): Promise<{ ubicaciones: MapaUbicaciones; extras: ExtrasPlanCandado } | null> {
   // Plan Candado es solo del administrador: el perfil piloto ni lo consulta.
-  if (obtenerModoAcceso() === 'piloto') return null;
+  if (obtenerModoAcceso() !== null) return null; // Plan Candado: solo el administrador
   const s = servidor();
   if (!s) return null;
-  const supabase = obtenerCliente(s.url, s.key);
-  const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', DATASET);
-  if (error) throw new Error(error.message);
+  const data = await leerFilasDataset(DATASET);
   const m: MapaUbicaciones = ubicacionesOficiales();
   const extras: ExtrasPlanCandado = { puntos: [], eliminados: [] };
   for (const f of data ?? []) {
@@ -153,11 +151,10 @@ function guardarLocal(m: MapaUbicaciones) {
 
 /** Trae las coordenadas compartidas del servidor (si hay) y las guarda en este navegador. */
 export async function sincronizarUbicaciones(): Promise<MapaUbicaciones | null> {
+  if (obtenerModoAcceso() !== null) return null; // Plan Candado: solo el administrador
   const s = servidor();
   if (!s) return null;
-  const supabase = obtenerCliente(s.url, s.key);
-  const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', DATASET);
-  if (error) throw new Error(error.message);
+  const data = await leerFilasDataset(DATASET);
   const m: MapaUbicaciones = ubicacionesOficiales();
   for (const f of data ?? []) {
     const u = (f as { datos: unknown }).datos;

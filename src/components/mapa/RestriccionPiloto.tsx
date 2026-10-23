@@ -1,4 +1,4 @@
-// Restricción geográfica del perfil consulta_piloto (/piloto) en los mapas.
+// Restricción geográfica de la cuenta piloto (/piloto) en los mapas.
 //
 //  · <CompuertaGeograficaPiloto>: si el límite de Popayán no se puede validar,
 //    el mapa NO se abre: se muestra un aviso neutro y se registra el evento
@@ -6,7 +6,7 @@
 //  · <LimitarAPopayan />: dentro de un MapContainer, fija los límites de
 //    desplazamiento (maxBounds + viscosidad 1) y el zoom mínimo al ámbito de
 //    Popayán, y oscurece todo lo que queda fuera del límite municipal.
-//  · Para cualquier otro perfil (administrador, /interno, /jefe, /cai) no
+//  · Para cualquier otra cuenta (administrador, interno) o piloto con ámbito MEPOY, no
 //    hacen nada: el mapa se comporta exactamente como siempre.
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { GeoJSON as GeoJSONLayer, useMap } from 'react-leaflet';
@@ -14,7 +14,7 @@ import L from 'leaflet';
 import { MapPinOff } from 'lucide-react';
 import { restriccionPopayanActiva } from '../../utils/restriccionTerritorial';
 import { featurePopayan, limitesPopayan, territorioPilotoValido } from '../../utils/territorioPiloto';
-import { reportarEventoSeguridad } from '../../cai/apiCai';
+import { reportarEventoSeguridad } from '../../cuentas/apiCuentas';
 import { MUNICIPIOS_MEPOY } from '../../data/municipiosMepoy';
 
 /** Restricción a Popayán activa (enlace de consulta, usuarios de las Estaciones Norte/Sur). Los jefes ven todo MEPOY. */

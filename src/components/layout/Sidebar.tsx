@@ -8,9 +8,9 @@ import { esModoConsulta } from '../../utils/modoConsulta';
 import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { tieneAcceso } from '../../utils/permisos';
-import { useSesionCai } from '../../cai/PuertaCai';
+import { useSesionCuenta } from '../../cuentas/PuertaCuenta';
 import { useSesionAdmin } from '../../admin/PuertaAdmin';
-import { useContadorAccesosCai } from '../../pages/AccesosCai';
+import { useContadorCuentas } from '../../pages/AccesosCuentas';
 
 export type PaginaId =
   | 'resumen' | 'unidad' | 'operatividadUnidad' | 'rnmc' | 'irisp1' | 'macri' | 'ultimasSemanas'
@@ -68,7 +68,7 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloA
     soloCompleto: true,
     soloAdmin: true,
     items: [
-      { id: 'accesosCai', label: 'Accesos de consulta', icon: UserCheck },
+      { id: 'accesosCai', label: 'Cuentas de acceso', icon: UserCheck },
     ],
   },
 ];
@@ -132,14 +132,12 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
   const Icon = item.icon;
   const activeItem = activo === item.id;
   const modoAcceso = obtenerModoAcceso();
-  // Ruta raíz (modoAcceso === null): EXACTAMENTE el comportamiento de
-  // siempre, sin tocar nada. Solo en /jefe o /interno se consulta la
-  // configuración centralizada (dashboardAccess.ts) en su lugar.
-  // Enlace principal = ADMINISTRADOR (con usuario y contraseña): todo habilitado.
+  // Enlace principal = ADMINISTRADOR: todo habilitado. En /interno y /piloto
+  // se consulta la configuración centralizada (dashboardAccess.ts).
   const bloqueado = modoAcceso
-    ? !DASHBOARD_ACCESS[modoAcceso][item.id as keyof typeof DASHBOARD_ACCESS['jefe']]
+    ? !DASHBOARD_ACCESS[modoAcceso][item.id as keyof typeof DASHBOARD_ACCESS['interno']]
     : false;
-  const mensajeBloqueo = modoAcceso === 'jefe' ? 'Próximamente — en desarrollo.' : modoAcceso === 'cai' || modoAcceso === 'piloto' ? 'No habilitado para esta consulta.' : MENSAJE_BLOQUEADO;
+  const mensajeBloqueo = modoAcceso === 'piloto' ? 'No habilitado para esta consulta.' : MENSAJE_BLOQUEADO;
   return (
     <button
       onClick={() => { if (bloqueado) return; onCambiar(item.id); onCerrar(); }}
@@ -197,10 +195,10 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
   // contenedor con scroll — así siempre se sobrepone visible al sidebar.
   const [tooltipItem, setTooltipItem] = useState<{ texto: string; top: number; esBloqueo: boolean } | null>(null);
   const esAdmin = tieneAcceso('accesosCai') && !esModoConsulta();
-  const contadorCai = useContadorAccesosCai(esAdmin);
-  const sesionCai = useSesionCai();
+  const contadorCai = useContadorCuentas(esAdmin);
+  const sesionCuenta = useSesionCuenta();
   const sesionAdmin = useSesionAdmin();
-  const cerrarSesion = sesionCai?.salir ?? sesionAdmin?.salir;
+  const cerrarSesion = sesionCuenta?.salir ?? sesionAdmin?.salir;
 
   return (
     <>
@@ -314,7 +312,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.23 · v205" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.23 · v206" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -326,11 +324,11 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
               {sesionAdmin && <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">Administrador</p>}
               {obtenerModoAcceso() && (
                 <p className="text-[11px] font-bold uppercase tracking-wide text-[#5eead4]">
-                  {obtenerModoAcceso() === 'jefe' ? 'Vista ejecutiva' : obtenerModoAcceso() === 'cai' ? `Consulta · ${sesionCai?.sesion.nombre ?? 'CAI'}` : obtenerModoAcceso() === 'piloto' ? `Consulta · ${sesionCai?.sesion.nombre ?? ''}` : 'Vista interna'}
+                  {obtenerModoAcceso() === 'piloto' ? 'Cuenta piloto · consulta' : 'Cuenta interna'}
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.23 · v205</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.23 · v206</p>
             </div>
           )}
         </div>

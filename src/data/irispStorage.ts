@@ -1,6 +1,6 @@
 import { getDb, STORE_IRISP } from './db';
 import type { RegistroIrisp } from './irispParser';
-import { obtenerCliente } from './supabaseApi';
+import { leerDatasetCompleto } from './supabaseApi';
 import type { RemotePushResult } from './remoteApi';
 
 // Mismo esquema que RNMC: caché local en IndexedDB + copia compartida en
@@ -51,19 +51,9 @@ export function combinarPorAnio(existentes: RegistroIrisp[], nuevos: RegistroIri
 const TAMANO_PAGINA = 1000;
 const TAMANO_LOTE_SUBIDA = 500;
 
-export async function descargarIrispSupabase(url: string, anonKey: string): Promise<RegistroIrisp[]> {
-  const supabase = obtenerCliente(url, anonKey);
-  const registros: RegistroIrisp[] = [];
-  let desde = 0;
-  for (;;) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', 'irisp1').order('id_identidad', { ascending: true }).range(desde, desde + TAMANO_PAGINA - 1);
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) break;
-    for (const fila of data) registros.push(revivirFechas((fila as any).datos));
-    if (data.length < TAMANO_PAGINA) break;
-    desde += TAMANO_PAGINA;
-  }
-  return registros;
+// Lectura por el servidor (datosConsulta), con el rol de la cuenta que ingresó.
+export async function descargarIrispSupabase(_url: string, _anonKey: string): Promise<RegistroIrisp[]> {
+  return (await leerDatasetCompleto('irisp1')).map((f) => revivirFechas(f.datos));
 }
 
 export async function subirIrispSupabase(functionUrl: string, token: string, registros: RegistroIrisp[], aniosABorrar: number[], usuario: string): Promise<RemotePushResult> {

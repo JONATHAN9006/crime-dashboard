@@ -4,7 +4,7 @@ import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, ShieldAlert } from 'lucide-re
 // Puerta del ENLACE PRINCIPAL (administrador): nada del dashboard se carga
 // hasta ingresar con usuario y contraseña. La validación la hace el servidor
 // (netlify/functions/accesoAdmin.ts); aquí solo se guarda el token de sesión
-// firmado (12 horas). /interno, /jefe y /cai no pasan por aquí.
+// firmado (12 horas). /interno y /piloto tienen su propia puerta (PuertaCuenta).
 
 const FUNCION = '/.netlify/functions/accesoAdmin';
 const CLAVE = 'mepoy-admin-sesion';

@@ -19,11 +19,11 @@ import { TablaDatos } from './pages/TablaDatos';
 import { CalidadDatos } from './pages/CalidadDatos';
 import { ProductosEsperados } from './pages/ProductosEsperados';
 import { AgenteIAFlotante } from './components/analitica/AgenteIAFlotante';
-import { obtenerModoAcceso } from './utils/modoAcceso';
+import { obtenerModoAcceso, rutaValida } from './utils/modoAcceso';
 import { DASHBOARD_ACCESS } from './config/dashboardAccess';
-import { AccesosCai } from './pages/AccesosCai';
+import { AccesosCuentas } from './pages/AccesosCuentas';
 import { PlanCandado2026 } from './pages/PlanCandado2026';
-import { PuertaCai } from './cai/PuertaCai';
+import { PuertaCuenta } from './cuentas/PuertaCuenta';
 import { PuertaAdmin } from './admin/PuertaAdmin';
 import { tieneAcceso } from './utils/permisos';
 
@@ -49,7 +49,7 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
   tabla: TablaDatos,
   calidad: CalidadDatos,
   productos: ProductosEsperados,
-  accesosCai: AccesosCai,
+  accesosCai: AccesosCuentas,
   planCandado: PlanCandado2026,
 };
 
@@ -127,19 +127,10 @@ function Shell() {
   );
 }
 
-function EnlaceRetirado() {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-[radial-gradient(circle_at_top,#116762_0%,#0a3d39_45%,#10233f_100%)] px-4">
-      <div className="w-full max-w-[420px] rounded-2xl bg-white p-6 text-center shadow-2xl">
-        <img src="/assets/escudo-sidebar.png" alt="Escudo Policía Nacional" className="mx-auto mb-3 h-14 w-14 object-contain" draggable={false} />
-        <p className="text-[16px] font-bold text-[#10233f]">Este enlace ya no está disponible</p>
-        <p className="mt-1.5 text-[13px] text-slate-500">La consulta del dashboard se hace ahora por el enlace de consulta, con usuario y contraseña. Solicítalo al administrador.</p>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
+  // Cualquier ruta que no sea uno de los tres enlaces (p. ej. las antiguas
+  // /jefe o /cai) se lleva a "/" (ingreso del administrador).
+  if (!rutaValida()) window.history.replaceState(null, '', '/');
   const modoAcceso = obtenerModoAcceso();
   const accesoAnalistaIA = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].analistaIA;
   // Capas geográficas compartidas (shapefiles que cargaron otros equipos):
@@ -159,15 +150,9 @@ export default function App() {
       {accesoAnalistaIA && <AgenteIAFlotante />}
     </DataProvider>
   );
-  // Enlace de los comandantes de CAI: nada se carga (ni los datos) hasta
-  // que ingresan con su usuario y contraseña desde Popayán.
-  // Enlace principal (sin /interno, /jefe ni /cai): administrador, con
-  // usuario y contraseña validados en el servidor.
-  // /piloto (Estaciones Norte y Sur): mismo ingreso validado en el servidor,
-  // con perfil consulta_piloto.
-  // Enlaces retirados: /jefe y /cai. Los jefes y comandantes usan /piloto.
-  if (modoAcceso === 'jefe' || modoAcceso === 'cai') return <EnlaceRetirado />;
-  if (modoAcceso === 'piloto') return <PuertaCai>{app}</PuertaCai>;
-  if (modoAcceso === null) return <PuertaAdmin>{app}</PuertaAdmin>;
-  return app;
+  // TRES enlaces, cada uno con su propia pantalla de ingreso validada en el
+  // servidor: "/" administrador, "/interno" y "/piloto". Nada del dashboard
+  // (ni los datos) se carga antes de ingresar.
+  if (modoAcceso === 'interno' || modoAcceso === 'piloto') return <PuertaCuenta>{app}</PuertaCuenta>;
+  return <PuertaAdmin>{app}</PuertaAdmin>;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { restriccionPopayanActiva } from '../../utils/restriccionTerritorial';
-import { reportarEventoSeguridad } from '../../cai/apiCai';
+import { reportarEventoSeguridad } from '../../cuentas/apiCuentas';
 import { Pane, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import clsx from 'clsx';

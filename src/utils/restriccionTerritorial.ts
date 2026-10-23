@@ -1,5 +1,5 @@
 import { obtenerModoAcceso } from './modoAcceso';
-import { ambitoSesionActual } from '../cai/apiCai';
+import { ambitoSesionActual } from '../cuentas/apiCuentas';
 
 /**
  * ¿Aplica la restricción territorial a Popayán? Solo en el enlace de consulta

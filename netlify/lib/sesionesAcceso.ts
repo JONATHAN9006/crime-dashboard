@@ -1,70 +1,120 @@
-// Utilidades COMPARTIDAS de las sesiones con usuario y contraseña (/cai y
-// /piloto). Las usan netlify/functions/accesoCai.ts (ingreso) y
-// netlify/functions/datosPiloto.ts (datos del piloto). Esta carpeta no es una
-// función: esbuild la empaqueta dentro de cada función que la importa.
+// Utilidades COMPARTIDAS de autenticación del S2IP (las usan accesoAdmin,
+// accesoCuentas y datosConsulta). Esta carpeta no es una función: esbuild la
+// empaqueta dentro de cada función que la importa.
 //
-// El token va FIRMADO (HMAC-SHA256) con un secreto que solo existe en el
-// servidor: el navegador puede leerlo, pero no cambiar su perfil ("p") ni
-// su usuario sin que la firma deje de coincidir.
-import { createHmac, timingSafeEqual } from 'node:crypto';
+// TRES cuentas, TRES enlaces — nada más:
+//   · administrador → "/"        (token propio firmado por accesoAdmin)
+//   · interno       → "/interno" (sesión en sesiones_acceso)
+//   · piloto        → "/piloto"  (sesión en sesiones_acceso)
+// Las cuentas viven en la tabla cuentas_acceso, cuya llave primaria es el
+// ROL con una restricción que solo admite esos tres valores: la base no
+// permite crear una cuarta cuenta.
+//
+// Los tokens van FIRMADOS (HMAC-SHA256) con secretos que solo existen en el
+// servidor: el navegador puede leerlos, pero no cambiar su rol sin que la
+// firma deje de coincidir.
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type PerfilAcceso = 'cai' | 'consulta_piloto';
-export const PERFILES: PerfilAcceso[] = ['cai', 'consulta_piloto'];
-export const esPerfil = (p: unknown): p is PerfilAcceso => PERFILES.includes(p as PerfilAcceso);
+export type RolCuenta = 'administrador' | 'interno' | 'piloto';
+export type RolSesion = 'interno' | 'piloto';
+export const ROLES_SESION: RolSesion[] = ['interno', 'piloto'];
+export const esRolSesion = (r: unknown): r is RolSesion => ROLES_SESION.includes(r as RolSesion);
 
-const SECRETO = () => process.env.CAI_SECRETO || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+export type AmbitoConsulta = 'popayan' | 'mepoy';
+/** Ámbito territorial de la cuenta piloto. Ante cualquier duda, 'popayan' (lo más restrictivo). */
+export const leerAmbito = (v: unknown): AmbitoConsulta => (v === 'mepoy' ? 'mepoy' : 'popayan');
 
-export interface TokenAcceso { u: string; s: string; exp: number; p: PerfilAcceso }
+const iguales = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
 
-export function firmar(datos: TokenAcceso): string {
-  const cuerpo = Buffer.from(JSON.stringify(datos)).toString('base64url');
-  const firma = createHmac('sha256', SECRETO()).update(cuerpo).digest('base64url');
-  return `${cuerpo}.${firma}`;
+// ── Contraseñas (solo hash scrypt + sal; nunca la contraseña) ──────────────
+export function hashClave(clave: string): string {
+  const sal = randomBytes(16);
+  return `scrypt$${sal.toString('base64')}$${scryptSync(clave, sal, 64).toString('base64')}`;
+}
+export function verificarClave(clave: string, guardado: string | null | undefined): boolean {
+  if (!guardado) return false;
+  const [tipo, salB64, hB64] = guardado.split('$');
+  if (tipo !== 'scrypt' || !salB64 || !hB64) return false;
+  const esperado = Buffer.from(hB64, 'base64');
+  const h = scryptSync(clave, Buffer.from(salB64, 'base64'), esperado.length);
+  return h.length === esperado.length && timingSafeEqual(h, esperado);
 }
 
-export function leerToken(token: unknown): TokenAcceso | null {
-  const secreto = SECRETO();
+// ── Firma de tokens ────────────────────────────────────────────────────────
+function firmarCon(secreto: string, datos: Record<string, unknown>): string {
+  const cuerpo = Buffer.from(JSON.stringify(datos)).toString('base64url');
+  return `${cuerpo}.${createHmac('sha256', secreto).update(cuerpo).digest('base64url')}`;
+}
+function leerCon(secreto: string, token: unknown): Record<string, unknown> | null {
   if (!secreto || typeof token !== 'string' || !token.includes('.')) return null;
   const [cuerpo, firma] = token.split('.');
   if (!cuerpo || !firma) return null;
-  const esperada = createHmac('sha256', secreto).update(cuerpo).digest('base64url');
-  const a = Buffer.from(firma);
-  const b = Buffer.from(esperada);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  if (!iguales(firma, createHmac('sha256', secreto).update(cuerpo).digest('base64url'))) return null;
   try {
-    const datos = JSON.parse(Buffer.from(cuerpo, 'base64url').toString());
-    if (typeof datos.u !== 'string' || typeof datos.s !== 'string' || typeof datos.exp !== 'number') return null;
-    // Tokens emitidos antes de existir los perfiles: eran todos de CAI.
-    const p: PerfilAcceso = datos.p === undefined ? 'cai' : datos.p;
-    if (!esPerfil(p)) return null;
-    return { u: datos.u, s: datos.s, exp: datos.exp, p };
+    return JSON.parse(Buffer.from(cuerpo, 'base64url').toString());
   } catch {
     return null;
   }
 }
 
-export type AmbitoConsulta = 'popayan' | 'mepoy';
-/** Ámbito territorial del usuario: 'mepoy' (jefes, toda la jurisdicción) o 'popayan' (Estaciones Norte/Sur). Ante cualquier duda, 'popayan'. */
-export const leerAmbito = (v: unknown): AmbitoConsulta => (v === 'mepoy' ? 'mepoy' : 'popayan');
+// Administrador: mismo secreto de siempre (ADMIN_SECRETO o, si no existe, los anteriores).
+export const secretoAdmin = () => process.env.ADMIN_SECRETO || process.env.CAI_SECRETO || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.UPDATE_TOKEN || '';
+// Interno y piloto.
+const secretoSesion = () => process.env.CAI_SECRETO || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+export function firmarTokenAdmin(exp: number): string {
+  return firmarCon(secretoAdmin(), { rol: 'admin', exp });
+}
+/** ¿Token de administrador válido y vigente? */
+export function tokenAdminValido(token: unknown): boolean {
+  const d = leerCon(secretoAdmin(), token);
+  return !!d && d.rol === 'admin' && typeof d.exp === 'number' && d.exp > Date.now();
+}
+
+export interface TokenSesion { r: RolSesion; s: string; exp: number }
+export function firmarTokenSesion(datos: TokenSesion): string {
+  return firmarCon(secretoSesion(), datos as unknown as Record<string, unknown>);
+}
+export function leerTokenSesion(token: unknown): TokenSesion | null {
+  const d = leerCon(secretoSesion(), token);
+  if (!d || !esRolSesion(d.r) || typeof d.s !== 'string' || typeof d.exp !== 'number') return null;
+  return { r: d.r, s: d.s, exp: d.exp };
+}
 
 /**
- * Comprueba en la BASE (no solo en el token) que la sesión sigue viva, que
- * el usuario está activo y que su perfil es el esperado. Devuelve el motivo
- * del rechazo (o null si todo está en orden) y el ÁMBITO guardado en la base
- * —nunca el que diga el navegador—.
+ * Comprueba en la BASE (no solo en el token) que la sesión sigue viva y que
+ * la cuenta está activa. Devuelve el rol y el ámbito guardados en la base
+ * —nunca los que diga el navegador—, o el motivo del rechazo.
  */
-export async function validarSesion(db: SupabaseClient, t: TokenAcceso | null, perfilEsperado: PerfilAcceso): Promise<{ motivo: string | null; ambito: AmbitoConsulta }> {
-  const no = (motivo: string) => ({ motivo, ambito: 'popayan' as AmbitoConsulta });
+export async function validarSesion(db: SupabaseClient, t: TokenSesion | null, rolEsperado?: RolSesion): Promise<{ motivo: string | null; rol: RolSesion | null; ambito: AmbitoConsulta }> {
+  const no = (motivo: string) => ({ motivo, rol: null, ambito: 'popayan' as AmbitoConsulta });
   if (!t) return no('invalida');
   if (Date.now() > t.exp) return no('expirada');
-  if (t.p !== perfilEsperado) return no('perfil');
-  const [{ data: ses }, { data: u }] = await Promise.all([
-    db.from('cai_sesiones').select('sesion_id').eq('usuario', t.u).maybeSingle(),
-    db.from('cai_usuarios').select('*').eq('usuario', t.u).maybeSingle(),
+  if (rolEsperado && t.r !== rolEsperado) return no('rol');
+  const [{ data: ses }, { data: cuenta }] = await Promise.all([
+    db.from('sesiones_acceso').select('rol').eq('sesion_id', t.s).maybeSingle(),
+    db.from('cuentas_acceso').select('*').eq('rol', t.r).maybeSingle(),
   ]);
-  if (!u || !u.activo) return no('desactivado');
-  if ((u.perfil || 'cai') !== perfilEsperado) return no('perfil');
-  if (!ses || ses.sesion_id !== t.s) return no('otra-sesion');
-  return { motivo: null, ambito: leerAmbito(u.ambito) };
+  if (!cuenta || !cuenta.activo) return no('desactivado');
+  if (!ses || ses.rol !== t.r) return no('cerrada');
+  return { motivo: null, rol: t.r, ambito: leerAmbito(cuenta.ambito) };
+}
+
+/**
+ * Rol de quien hace una consulta de datos: administrador (token de
+ * accesoAdmin) o una sesión de interno/piloto validada en la base.
+ */
+export async function resolverRol(db: SupabaseClient, token: unknown): Promise<{ motivo: string | null; rol: RolCuenta | null; ambito: AmbitoConsulta }> {
+  if (tokenAdminValido(token)) return { motivo: null, rol: 'administrador', ambito: 'mepoy' };
+  return validarSesion(db, leerTokenSesion(token));
+}
+
+/** Registro en la bitácora (best-effort: un fallo aquí nunca bloquea el ingreso). */
+export async function registrarEvento(db: SupabaseClient, fila: { rol: RolCuenta | string; evento: string; detalle?: string | null; ip?: string; dispositivo?: string; distancia_km?: number | null }) {
+  try { await db.from('bitacora_acceso').insert(fila); } catch { /* sin bitácora */ }
 }
