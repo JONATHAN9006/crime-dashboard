@@ -266,7 +266,7 @@ export function PanelArchivoGeorreferenciado(estado: CapaArchivoGeorreferenciado
 }
 
 /** La capa que de verdad se dibuja en Leaflet — DEBE ir dentro de <MapContainer>. Pinta puntos (símbolo único o valores únicos, con su leyenda) o el mapa de calor según el estado del hook. */
-export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos, categoriasSimbologia, campoSimbologia, archivo, setColoresCategoria, setCategoriasOcultas }: Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos' | 'simbologiaPuntos' | 'categoriasSimbologia' | 'campoSimbologia' | 'archivo' | 'setColoresCategoria' | 'setCategoriasOcultas'>) {
+export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVisualizacion, coloresActivos, opacidad, estiloPuntos, simbologiaPuntos, categoriasSimbologia, campoSimbologia, archivo, setColoresCategoria, setCategoriasOcultas, leyendaEnMapa = true }: { leyendaEnMapa?: boolean } & Pick<CapaArchivoGeorreferenciadoState, 'registrosFiltrados' | 'modoVisualizacion' | 'coloresActivos' | 'opacidad' | 'estiloPuntos' | 'simbologiaPuntos' | 'categoriasSimbologia' | 'campoSimbologia' | 'archivo' | 'setColoresCategoria' | 'setCategoriasOcultas'>) {
   const map = useMap();
   const capaRef = useRef<L.Layer | null>(null);
   const leyendaRef = useRef<L.Control | null>(null);
@@ -303,7 +303,9 @@ export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVis
   // ahí mismo, y el nombre para ocultar/mostrar ese valor en el mapa.
   useEffect(() => {
     if (leyendaRef.current) { leyendaRef.current.remove(); leyendaRef.current = null; }
-    if (modoVisualizacion !== 'puntos' || !campoSimbologia || categoriasSimbologia.length === 0) return;
+    // leyendaEnMapa=false: quien usa la capa muestra las convenciones en su
+    // propia leyenda (Mapa / Georreferenciación), sin un recuadro aparte encima.
+    if (!leyendaEnMapa || modoVisualizacion !== 'puntos' || !campoSimbologia || categoriasSimbologia.length === 0) return;
     const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]!));
     const control = new L.Control({ position: 'bottomleft' });
     control.onAdd = () => {
@@ -334,7 +336,7 @@ export function CapaLeafletArchivoGeorreferenciado({ registrosFiltrados, modoVis
     };
     control.addTo(map);
     leyendaRef.current = control;
-  }, [map, modoVisualizacion, campoSimbologia, categoriasSimbologia, archivo, setColoresCategoria, setCategoriasOcultas]);
+  }, [map, leyendaEnMapa, modoVisualizacion, campoSimbologia, categoriasSimbologia, archivo, setColoresCategoria, setCategoriasOcultas]);
 
   useEffect(() => () => {
     if (capaRef.current) map.removeLayer(capaRef.current);

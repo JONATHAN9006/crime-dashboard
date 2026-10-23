@@ -17,8 +17,14 @@ export async function llamarFuentePiloto(cuerpo: Record<string, unknown>): Promi
   const token = tokenSesionActual();
   if (!token) throw new Error('Sesión no válida.');
   const r = await fetch(FUNCION_PILOTO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cuerpo, token }) });
-  const j = await r.json().catch(() => null);
-  if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || `Consulta no disponible (${r.status}).`);
+  const texto = await r.text().catch(() => '');
+  let j: any = null;
+  try { j = JSON.parse(texto); } catch { /* respuesta no JSON (p. ej. función no publicada o respuesta demasiado grande) */ }
+  if (!r.ok || !j || !j.ok) {
+    // Diagnóstico en la consola (F12): estado HTTP y motivo, sin datos sensibles.
+    console.error(`[Piloto] ${String(cuerpo.accion)} → HTTP ${r.status}`, j ? (j.motivo || j.detalle || j.error) : texto.slice(0, 200));
+    throw new Error((j && j.error) || `Consulta no disponible (${r.status}).`);
+  }
   return j;
 }
 

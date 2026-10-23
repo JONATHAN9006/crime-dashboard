@@ -2534,6 +2534,10 @@ function MapaGeorreferenciacionContenido() {
   const [pestanaPanel, setPestanaPanel] = useState<'capas' | 'apariencia'>('capas');
   const [pestanaApariencia, setPestanaApariencia] = useState<'calor' | 'puntos' | 'poligonos'>('calor');
   const [leyendaMapaAbierta, setLeyendaMapaAbierta] = useState(false);
+  // Al elegir un campo de simbología del archivo georreferenciado, la leyenda
+  // se abre sola para mostrar sus convenciones.
+  const hayConvencionesArchivo = capaArchivoGeorreferenciado.modoVisualizacion === 'puntos' && !!capaArchivoGeorreferenciado.campoSimbologia && capaArchivoGeorreferenciado.categoriasSimbologia.length > 0;
+  useEffect(() => { if (hayConvencionesArchivo) setLeyendaMapaAbierta(true); }, [hayConvencionesArchivo, capaArchivoGeorreferenciado.campoSimbologia]);
   const aniosMapa = useMemo(() => Array.from(new Set((meta?.aniosDisponibles ?? []).map(String))).sort(), [meta]);
   const elementosVisibles = capasVisiblesPoligono.reduce((a, c) => a + contarFeatures(c.geojson), 0);
   const tituloFuentes = (() => {
@@ -3407,6 +3411,7 @@ function MapaGeorreferenciacionContenido() {
               archivo={capaArchivoGeorreferenciado.archivo}
               setColoresCategoria={capaArchivoGeorreferenciado.setColoresCategoria}
               setCategoriasOcultas={capaArchivoGeorreferenciado.setCategoriasOcultas}
+              leyendaEnMapa={false}
             />
           </MapContainer>
 
@@ -3542,6 +3547,34 @@ function MapaGeorreferenciacionContenido() {
                             </div>
                           );
                         })}
+
+                  {/* Archivo georreferenciado (puntos por categoría): antes era un
+                      recuadro aparte que quedaba debajo de esta leyenda. */}
+                  {capaArchivoGeorreferenciado.modoVisualizacion === 'puntos' && capaArchivoGeorreferenciado.campoSimbologia && capaArchivoGeorreferenciado.categoriasSimbologia.length > 0 && (
+                    <div>
+                      <p className="font-semibold text-[#10233f]">{capaArchivoGeorreferenciado.campoSimbologia}</p>
+                      {capaArchivoGeorreferenciado.archivo && <p className="truncate text-[10px] text-slate-500" title={capaArchivoGeorreferenciado.archivo.name}>{capaArchivoGeorreferenciado.archivo.name}</p>}
+                      <div className="mt-1 space-y-0.5">
+                        {capaArchivoGeorreferenciado.categoriasSimbologia.map((c) => (
+                          <div key={c.valor} className={clsx('flex items-center gap-2 text-[11.5px] text-slate-600', !c.visible && 'opacity-45')}>
+                            <label title="Cambiar color" className="relative h-3.5 w-3.5 shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-white" style={{ backgroundColor: c.color, boxShadow: `0 0 0 1px ${c.color}` }}>
+                              <input type="color" value={c.color} onChange={(e) => { const v = e.target.value; capaArchivoGeorreferenciado.setColoresCategoria((prev) => ({ ...prev, [c.valor]: v })); }} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => capaArchivoGeorreferenciado.setCategoriasOcultas((prev) => (prev.includes(c.valor) ? prev.filter((v) => v !== c.valor) : [...prev, c.valor]))}
+                              title={`${c.visible ? 'Ocultar' : 'Mostrar'} «${c.valor}»`}
+                              className={clsx('min-w-0 flex-1 truncate text-left', !c.visible && 'line-through')}
+                            >
+                              {c.valor}
+                            </button>
+                            <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(c.casos)}</span>
+                          </div>
+                        ))}
+                        <p className="pt-0.5 text-[10px] text-slate-400">Clic en el color para cambiarlo · en el nombre para ocultarlo.</p>
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <p className="mb-1 font-semibold text-[#10233f]">Capas geográficas visibles</p>

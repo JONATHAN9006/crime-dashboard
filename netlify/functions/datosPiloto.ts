@@ -21,6 +21,25 @@ import { registroEnPopayan, restringirGeojsonAPopayan, territorioPilotoValido } 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const TAMANO_PAGINA = 1000;
+// Netlify corta las respuestas de más de 6 MB. Cada registro trae todas las
+// columnas originales del archivo (raw), así que una página de 1.000 filas
+// puede pasar ese límite: se responde por TAMAÑO (≈4 MB) y el navegador pide
+// la siguiente desde donde quedó.
+const MAX_BYTES_RESPUESTA = 4_000_000;
+
+/** Redondea coordenadas a 6 decimales (~0,1 m): mismas formas, mucho menos peso. */
+function redondearCoordenadas(g: unknown): unknown {
+  if (Array.isArray(g)) {
+    if (g.length >= 2 && typeof g[0] === 'number' && typeof g[1] === 'number') return g.map((v) => (typeof v === 'number' ? Math.round(v * 1e6) / 1e6 : v));
+    return g.map(redondearCoordenadas);
+  }
+  if (g && typeof g === 'object') {
+    const o: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(g as Record<string, unknown>)) o[k] = k === 'coordinates' || k === 'features' || k === 'geometry' || k === 'geometries' ? redondearCoordenadas(v) : v;
+    return o;
+  }
+  return g;
+}
 
 const resp = (cuerpo: Record<string, unknown>, statusCode = 200) => ({
   statusCode,
@@ -84,7 +103,13 @@ export const handler: Handler = async (event) => {
         if (d && Number.isInteger(d.parte) && d.parte >= 0 && d.parte < partes) pedazos[d.parte] = d.contenido;
       }
       if (pedazos.some((x) => !x)) return resp({ ok: false, error: 'Capa no disponible.' }, 404);
-      return resp({ ok: true, geojson: restringirGeojsonAPopayan(JSON.parse(pedazos.join(''))) });
+      const geojson = redondearCoordenadas(restringirGeojsonAPopayan(JSON.parse(pedazos.join(''))));
+      const cuerpo = JSON.stringify({ ok: true, geojson });
+      if (cuerpo.length > 5_800_000) {
+        console.error(`[datosPiloto] Capa ${capaId} demasiado grande aun recortada (${cuerpo.length} bytes)`);
+        return resp({ ok: false, error: 'Capa demasiado grande.' }, 413);
+      }
+      return { statusCode: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: cuerpo };
     }
 
     // accion === 'registros' — paginado y ORDENADO (estable aunque otros
@@ -98,17 +123,27 @@ export const handler: Handler = async (event) => {
       .range(desde, desde + TAMANO_PAGINA - 1);
     if (error) throw error;
     const filas = data || [];
-    const registros = filas
-      .map((f) => (f as { datos: Record<string, unknown> }).datos)
-      .filter((d) => registroEnPopayan(d as { lat?: unknown; lon?: unknown; estacion?: unknown }))
-      // Sin el lote de carga (quién/qué archivo subió cada registro): no lo necesita el piloto.
-      .map((d) => {
-        const { loteId: _a, loteArchivo: _b, loteFecha: _c, loteUsuario: _d, ...resto } = d as Record<string, unknown>;
-        return resto;
-      });
-    return resp({ ok: true, registros, siguiente: filas.length < TAMANO_PAGINA ? null : desde + TAMANO_PAGINA });
+    const registros: Record<string, unknown>[] = [];
+    let bytes = 0;
+    let consumidas = 0;
+    for (const f of filas) {
+      const d = (f as { datos: Record<string, unknown> }).datos;
+      if (registroEnPopayan(d as { lat?: unknown; lon?: unknown; estacion?: unknown })) {
+        // Sin el lote de carga (quién/qué archivo subió cada registro): no lo necesita el piloto.
+        const { loteId: _a, loteArchivo: _b, loteFecha: _c, loteUsuario: _d, ...resto } = d;
+        const tam = JSON.stringify(resto).length + 1;
+        if (bytes + tam > MAX_BYTES_RESPUESTA && registros.length > 0) break;
+        registros.push(resto);
+        bytes += tam;
+      }
+      consumidas++;
+    }
+    const finDeTabla = filas.length < TAMANO_PAGINA && consumidas === filas.length;
+    return resp({ ok: true, registros, siguiente: finDeTabla ? null : desde + consumidas });
   } catch (e) {
-    console.error('[datosPiloto]', e);
-    return resp({ ok: false, error: 'No fue posible consultar la información.' }, 500);
+    const msg = e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String((e as { message: unknown }).message) : String(e);
+    console.error('[datosPiloto]', accion, msg);
+    // «detalle» solo sirve para diagnosticar (consola del navegador, F12); no incluye llaves ni datos.
+    return resp({ ok: false, error: 'No fue posible consultar la información.', detalle: msg.slice(0, 200) }, 500);
   }
 };
