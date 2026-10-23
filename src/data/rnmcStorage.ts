@@ -42,7 +42,7 @@ export async function descargarComparendosSupabase(url: string, anonKey: string)
   const registros: RegistroComparendo[] = [];
   let desde = 0;
   for (;;) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', 'rnmc').range(desde, desde + TAMANO_PAGINA - 1);
+    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', 'rnmc').order('id_identidad', { ascending: true }).range(desde, desde + TAMANO_PAGINA - 1);
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) break;
     for (const fila of data) registros.push(filaComparendoADistancia((fila as any).datos));

@@ -97,19 +97,39 @@ export function estacionDePopayan(estacion: unknown): boolean {
   return /\bNORTE\b|\bSUR\b|E-NORTE|E-SUR/.test(e);
 }
 
+const tieneCoordenadas = (r: { lat?: unknown; lon?: unknown }) =>
+  r.lat !== null && r.lat !== undefined && r.lat !== '' && r.lon !== null && r.lon !== undefined && r.lon !== ''
+  && Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lon)) && !(Number(r.lat) === 0 && Number(r.lon) === 0);
+
 /**
- * Regla de los REGISTROS de delitos para el piloto:
- *  · Con coordenadas → deben caer dentro del límite de Popayán (y no ser
- *    de una estación de otro municipio).
- *  · Sin coordenadas → solo si son de la Estación Norte o Sur.
- * Cualquier duda → fuera (se deniega por defecto).
+ * Regla de los REGISTROS DE DELITOS para el piloto: se incluyen los de las
+ * Estaciones Norte y Sur (jurisdicción de Popayán) — EXACTAMENTE lo mismo que
+ * ve el administrador filtrando Estación = E-Norte + E-Sur, para que las
+ * cifras cuadren. Lo de Timbío, Sotará, Coconuco o sin estación, no.
+ * Las coordenadas que caigan fuera del límite de Popayán se QUITAN del
+ * registro (ver recortarCoordenadasPiloto): cuenta en las tablas, pero no
+ * se ubica en el mapa fuera del territorio autorizado.
  */
 export function registroEnPopayan(r: { lat?: unknown; lon?: unknown; estacion?: unknown } | null | undefined): boolean {
   if (!r || !territorioPilotoValido()) return false;
-  const tieneCoord = r.lat !== null && r.lat !== undefined && r.lat !== '' && r.lon !== null && r.lon !== undefined && r.lon !== ''
-    && Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lon)) && !(Number(r.lat) === 0 && Number(r.lon) === 0);
-  if (tieneCoord) return puntoEnPopayan(r.lat, r.lon) && !estacionForanea(r.estacion);
   return estacionDePopayan(r.estacion);
+}
+
+/** Copia del registro sin coordenadas si estas caen fuera de Popayán. */
+export function recortarCoordenadasPiloto<T extends { lat?: unknown; lon?: unknown }>(r: T): T {
+  if (!tieneCoordenadas(r) || puntoEnPopayan(r.lat, r.lon)) return r;
+  return { ...r, lat: null, lon: null };
+}
+
+/**
+ * OPERATIVIDAD (fuente aparte, con unidades que no siempre son estaciones):
+ * de las Estaciones Norte/Sur, o —si no es de otro municipio— con
+ * coordenadas dentro de Popayán.
+ */
+export function operatividadEnPopayan(r: { lat?: unknown; lon?: unknown; estacion?: unknown } | null | undefined): boolean {
+  if (!r || !territorioPilotoValido()) return false;
+  if (estacionDePopayan(r.estacion)) return true;
+  return !estacionForanea(r.estacion) && tieneCoordenadas(r) && puntoEnPopayan(r.lat, r.lon);
 }
 
 // ── Capas geográficas (GeoJSON) ────────────────────────────────────────────

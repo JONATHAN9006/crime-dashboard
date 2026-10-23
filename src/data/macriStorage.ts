@@ -81,7 +81,7 @@ async function descargarDataset(url: string, anonKey: string, dataset: string): 
   const supabase = obtenerCliente(url, anonKey);
   const filas: any[] = [];
   for (let desde = 0; ; desde += 1000) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', dataset).range(desde, desde + 999);
+    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', dataset).order('id_identidad', { ascending: true }).range(desde, desde + 999);
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) break;
     for (const f of data) filas.push((f as any).datos);

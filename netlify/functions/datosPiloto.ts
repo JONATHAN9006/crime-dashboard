@@ -16,7 +16,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { leerToken, validarSesion } from '../lib/sesionesAcceso';
-import { registroEnPopayan, restringirGeojsonAPopayan, territorioPilotoValido } from '../../src/utils/territorioPiloto';
+import { recortarCoordenadasPiloto, registroEnPopayan, restringirGeojsonAPopayan, territorioPilotoValido } from '../../src/utils/territorioPiloto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -130,7 +130,7 @@ export const handler: Handler = async (event) => {
       const d = (f as { datos: Record<string, unknown> }).datos;
       if (registroEnPopayan(d as { lat?: unknown; lon?: unknown; estacion?: unknown })) {
         // Sin el lote de carga (quién/qué archivo subió cada registro): no lo necesita el piloto.
-        const { loteId: _a, loteArchivo: _b, loteFecha: _c, loteUsuario: _d, ...resto } = d;
+        const { loteId: _a, loteArchivo: _b, loteFecha: _c, loteUsuario: _d, ...resto } = recortarCoordenadasPiloto(d);
         const tam = JSON.stringify(resto).length + 1;
         if (bytes + tam > MAX_BYTES_RESPUESTA && registros.length > 0) break;
         registros.push(resto);

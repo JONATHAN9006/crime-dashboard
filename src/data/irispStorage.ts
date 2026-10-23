@@ -56,7 +56,7 @@ export async function descargarIrispSupabase(url: string, anonKey: string): Prom
   const registros: RegistroIrisp[] = [];
   let desde = 0;
   for (;;) {
-    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', 'irisp1').range(desde, desde + TAMANO_PAGINA - 1);
+    const { data, error } = await supabase.from('crime_records').select('datos').eq('dataset', 'irisp1').order('id_identidad', { ascending: true }).range(desde, desde + TAMANO_PAGINA - 1);
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) break;
     for (const fila of data) registros.push(revivirFechas((fila as any).datos));

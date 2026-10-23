@@ -3,7 +3,7 @@ import type { CrimeRecord } from '../types/crime';
 import type { DatasetRemoto, RemoteMeta, RemotePushResult } from './remoteApi';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { tokenSesionActual } from '../cai/apiCai';
-import { registroEnPopayan } from '../utils/territorioPiloto';
+import { recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
 
 // ── Perfil piloto (/piloto) ────────────────────────────────────────────────
 // El piloto NUNCA lee la base directamente con la llave pública: pide los
@@ -33,7 +33,7 @@ async function descargarRegistrosPiloto(): Promise<CrimeRecord[]> {
   let desde: number | null = 0;
   for (let vuelta = 0; desde !== null && vuelta < 500; vuelta++) {
     const j: { registros: any[]; siguiente: number | null } = await llamarFuentePiloto({ accion: 'registros', desde });
-    for (const d of j.registros || []) if (registroEnPopayan(d)) registros.push(filaADistancia(d));
+    for (const d of j.registros || []) if (registroEnPopayan(d)) registros.push(filaADistancia(recortarCoordenadasPiloto(d)));
     desde = j.siguiente;
   }
   return registros;
@@ -67,26 +67,57 @@ const TAMANO_PAGINA = 1000; // límite por defecto de PostgREST es 1000 filas po
 export async function descargarRegistrosSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<CrimeRecord[]> {
   if (esPiloto()) return dataset === 'delictividad' ? descargarRegistrosPiloto() : [];
   const supabase = obtenerCliente(url, anonKey);
-  const registros: CrimeRecord[] = [];
-  let desde = 0;
-  // Se pide página por página (en vez de todo de una) porque PostgREST
-  // (la API que genera Supabase) nunca entrega más de 1000 filas por
-  // pedido, sin importar qué límite se pida — es el mismo espíritu que
-  // el "por pedazos" que ya se usaba con Apps Script, pero manejado por
-  // la librería en vez de código propio contando caracteres a mano.
-  for (;;) {
-    const { data, error } = await supabase
-      .from('crime_records')
-      .select('datos')
-      .eq('dataset', dataset)
-      .range(desde, desde + TAMANO_PAGINA - 1);
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) break;
-    for (const fila of data) registros.push(filaADistancia((fila as any).datos));
-    if (data.length < TAMANO_PAGINA) break;
-    desde += TAMANO_PAGINA;
+  // BUG REAL (registros que "faltaban" en algunos equipos, ej. 2016 o
+  // homicidios que no cuadraban): se paginaba con .range() SIN ORDEN. Sin
+  // ORDER BY, PostgreSQL no garantiza el mismo orden entre una página y la
+  // siguiente (y menos si alguien está subiendo información), así que
+  // algunas filas salían repetidas y otras nunca llegaban. Ahora:
+  //  1) se ordena por la llave (id_identidad) — paginación estable;
+  //  2) se compara lo recibido contra el CONTEO EXACTO del servidor y, si
+  //     no coincide (alguien subió/borró justo en medio), se repite.
+  for (let intento = 1; intento <= 3; intento++) {
+    const { count: esperado, error: errorConteo } = await supabase
+      .from('crime_records').select('id_identidad', { count: 'exact', head: true }).eq('dataset', dataset);
+    if (errorConteo) throw new Error(errorConteo.message);
+    const porId = new Map<string, CrimeRecord>();
+    let filasRecibidas = 0;
+    let desde = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from('crime_records')
+        .select('id_identidad, datos')
+        .eq('dataset', dataset)
+        .order('id_identidad', { ascending: true })
+        .range(desde, desde + TAMANO_PAGINA - 1);
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      for (const fila of data) porId.set((fila as any).id_identidad, filaADistancia((fila as any).datos));
+      filasRecibidas += data.length;
+      if (data.length < TAMANO_PAGINA) break;
+      desde += TAMANO_PAGINA;
+    }
+    if (dataset === 'delictividad') ultimoConteoServidor = esperado ?? porId.size;
+    if (esperado == null || porId.size === esperado) return Array.from(porId.values());
+    console.warn(`[Backend central] Descarga incompleta (intento ${intento}): ${porId.size} de ${esperado} registros (${filasRecibidas} filas recibidas). Se repite.`);
+    if (intento === 3) throw new Error(`La descarga quedó incompleta (${porId.size} de ${esperado} registros). Intenta «Sincronizar» de nuevo en un momento.`);
+    await new Promise((r) => setTimeout(r, 1500));
   }
-  return registros;
+  return [];
+}
+
+/** Filas que tenía el servidor en la última descarga completa (para validar la copia local). */
+let ultimoConteoServidor: number | null = null;
+export function conteoUltimaDescarga(): number | null {
+  return ultimoConteoServidor;
+}
+
+/** Conteo exacto de filas en el servidor (petición liviana, sin datos). */
+export async function contarRegistrosSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<number | null> {
+  if (esPiloto()) return null;
+  const supabase = obtenerCliente(url, anonKey);
+  const { count, error } = await supabase.from('crime_records').select('id_identidad', { count: 'exact', head: true }).eq('dataset', dataset);
+  if (error) throw new Error(error.message);
+  return count ?? null;
 }
 
 export async function consultarMetaSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<RemoteMeta> {

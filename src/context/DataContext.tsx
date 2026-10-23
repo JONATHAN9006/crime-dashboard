@@ -11,7 +11,7 @@ import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDes
 import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
-import { descargarRegistrosSupabase, consultarMetaSupabase, subirRegistrosSupabase, borrarRegistrosSupabase } from '../data/supabaseApi';
+import { descargarRegistrosSupabase, consultarMetaSupabase, contarRegistrosSupabase, conteoUltimaDescarga, subirRegistrosSupabase, borrarRegistrosSupabase } from '../data/supabaseApi';
 // Operatividad sigue en el backend de Apps Script/Drive de siempre — no se
 // migró a Supabase todavía (ver operatividadBackendUrl en config.ts).
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
@@ -32,6 +32,12 @@ const CLAVE_SELLO_REMOTO = 'mepoy-sello-delitos-remoto';
 // Perfil piloto (/piloto): nunca usa ni toca la copia local de este equipo.
 const ES_PILOTO = obtenerModoAcceso() === 'piloto';
 const leerSelloRemoto = (): string | null => { if (ES_PILOTO) return null; try { return localStorage.getItem(CLAVE_SELLO_REMOTO); } catch { return null; } };
+// Conteo de filas del servidor con el que se guardó la copia local: si el
+// sello coincide pero el conteo no, la copia quedó INCOMPLETA (bug de la
+// paginación sin orden) y se vuelve a descargar.
+const CLAVE_CONTEO_REMOTO = 'mepoy-conteo-delitos-remoto';
+const leerConteoRemoto = (): number | null => { if (ES_PILOTO) return null; try { const v = localStorage.getItem(CLAVE_CONTEO_REMOTO); return v ? Number(v) : null; } catch { return null; } };
+const guardarConteoRemoto = (v: number | null) => { if (ES_PILOTO) return; try { if (v != null) localStorage.setItem(CLAVE_CONTEO_REMOTO, String(v)); else localStorage.removeItem(CLAVE_CONTEO_REMOTO); } catch { /* sin almacenamiento */ } };
 const guardarSelloRemoto = (v: string | null) => { if (ES_PILOTO) return; try { if (v) localStorage.setItem(CLAVE_SELLO_REMOTO, v); else localStorage.removeItem(CLAVE_SELLO_REMOTO); } catch { /* sin almacenamiento */ } };
 
 const INTERVALO_SONDEO_MS = 90_000; // cada 90 segundos (antes 45) — con la
@@ -91,7 +97,7 @@ interface DataContextValue {
 
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
-import { registroEnPopayan } from '../utils/territorioPiloto';
+import { operatividadEnPopayan, recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
 
 const DataContext = createContext<DataContextValue | null>(null);
 
@@ -223,6 +229,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const fechaRef = metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion) : new Date();
       await persistirYActualizar(registrosRemotos, 'Delitos (Supabase, central)', columnasDetectadas, fechaRef, null);
       guardarSelloRemoto(metaRemota?.ultimaActualizacion ?? null);
+      guardarConteoRemoto(conteoUltimaDescarga());
       setRemoteStatus('conectado');
       setRemoteError(null);
       setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
@@ -256,11 +263,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         try {
           const sello = leerSelloRemoto();
           if (sello) {
-            const [metaRemota, guardado] = await Promise.all([
+            const [metaRemota, guardado, conteoServidor] = await Promise.all([
               consultarMetaSupabase(backendUrl, supabaseAnonKey),
               cargarDatosGuardados(),
+              contarRegistrosSupabase(backendUrl, supabaseAnonKey).catch(() => null),
             ]);
-            if (metaRemota?.ultimaActualizacion && metaRemota.ultimaActualizacion === sello && guardado && guardado.records.length > 0) {
+            // Además del sello, el CONTEO de filas debe coincidir con el de la
+            // copia: una copia incompleta (descargada antes de la corrección)
+            // se descarta y se baja todo de nuevo.
+            const conteoCopia = leerConteoRemoto();
+            const copiaCompleta = conteoServidor != null && conteoCopia != null && conteoCopia === conteoServidor;
+            if (copiaCompleta && metaRemota?.ultimaActualizacion && metaRemota.ultimaActualizacion === sello && guardado && guardado.records.length > 0) {
               if (cancelado) return;
               const registros = excluirDelitosOmitidos(guardado.records);
               const cols = registros.length ? Object.keys(registros[0].raw || {}) : [];
@@ -759,7 +772,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // tienen equivalente en este dataset (armas, modalidad, género, etc.).
   // Piloto: Operatividad limitada a las unidades / ubicaciones de Popayán.
   const operatividadVisibles = useMemo(
-    () => (ES_PILOTO ? operatividadRecords.filter((r) => registroEnPopayan(r)) : operatividadRecords),
+    () => (ES_PILOTO ? operatividadRecords.filter((r) => operatividadEnPopayan(r)).map((r) => recortarCoordenadasPiloto(r)) : operatividadRecords),
     [operatividadRecords],
   );
   const filteredOperatividadRecords = useMemo(() => {
