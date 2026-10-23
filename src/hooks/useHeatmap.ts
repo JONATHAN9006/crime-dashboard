@@ -13,6 +13,39 @@ export const FRANJAS_ORDEN = [
 
 const FRANJAS_ETIQUETA_CORTA = ['Madrugada', 'Mañana', 'Tarde', 'Noche'];
 
+// ── Escala de concentración (metodología documentada) ──────────────────────
+// ÍNDICE DE CONCENTRACIÓN = casos de la celda ÷ casos que tendría si el total
+// se repartiera parejo entre todas las celdas (total ÷ 168 por hora, total ÷
+// 28 por franja). 1,0× = lo esperado; 2,0× = el doble de lo esperado.
+//   cero        → 0 casos (se distingue de «sin dato»: los registros sin día
+//                 u hora no entran en ninguna celda y se informan aparte)
+//   baja        → menos de 0,75×
+//   media-baja  → 0,75× a 1,25×
+//   media       → 1,25× a 1,75×
+//   alta        → 1,75× a 2,5×
+//   crítica     → más de 2,5×
+// Como se mide contra el promedio del propio conjunto, un color significa lo
+// mismo con cualquier año, periodo o filtro (es comparable), y no depende de
+// cuántos casos haya en total.
+export type NivelCalor = 'cero' | 'baja' | 'media-baja' | 'media' | 'alta' | 'crítica';
+export const CORTES_INDICE: [number, number, number, number] = [0.75, 1.25, 1.75, 2.5];
+
+export function nivelPorIndice(indice: number, valor: number): NivelCalor {
+  if (valor <= 0) return 'cero';
+  if (indice < CORTES_INDICE[0]) return 'baja';
+  if (indice < CORTES_INDICE[1]) return 'media-baja';
+  if (indice < CORTES_INDICE[2]) return 'media';
+  if (indice < CORTES_INDICE[3]) return 'alta';
+  return 'crítica';
+}
+
+/** Nivel de cada valor de un conjunto (celdas o totales), según su índice de concentración. */
+export function calcularNiveles(valores: number[]): (v: number) => NivelCalor {
+  const total = valores.reduce((a, b) => a + b, 0);
+  const esperado = valores.length > 0 ? total / valores.length : 0;
+  return (v: number) => (esperado > 0 ? nivelPorIndice(v / esperado, v) : 'cero');
+}
+
 export interface CeldaHeatmap {
   diaIndex: number;
   dia: string; // identificador crudo (LUNES, MARTES...) para filtrar
@@ -22,8 +55,12 @@ export interface CeldaHeatmap {
   columnaLabel: string; // etiqueta visual corta
   valor: number;
   porcentaje: number;
-  nivel: 'sin datos' | 'baja' | 'media' | 'alta' | 'crítica';
+  /** Casos ÷ casos esperados si el total se repartiera parejo (1 = promedio). */
+  indice: number;
+  nivel: NivelCalor;
 }
+
+export interface MaximoHeatmap { label: string; valor: string; casos: number; /** Otras etiquetas con el mismo máximo (empates). */ empates: string[] }
 
 export interface HeatmapResumen {
   vista: VistaHeatmap;
@@ -37,30 +74,23 @@ export interface HeatmapResumen {
   totalGeneral: number;
   totalesFila: number[]; // total por día
   totalesColumna: number[]; // total por hora/franja
-  diaMax: { label: string; valor: string; casos: number } | null;
-  columnaMax: { label: string; valor: string; casos: number } | null;
+  diaMax: MaximoHeatmap | null;
+  columnaMax: MaximoHeatmap | null;
   celdaMax: CeldaHeatmap | null;
+  /** Cuántas celdas comparten el valor máximo (1 = sin empate). */
+  celdasEnMaximo: number;
   momentosCriticos: CeldaHeatmap[];
+  /** Registros que no entran en ninguna celda porque les falta el día o la hora/franja. */
+  sinDiaOHora: number;
+  /** Casos esperados por celda si el total se repartiera parejo. */
+  esperadoPorCelda: number;
 }
 
-// Escala de color/nivel dinámica: se basa en cuantiles de los valores reales
-// (distintos de cero) del conjunto filtrado actual, no en números fijos. Esto
-// evita que un solo valor extremo "aplaste" la escala y deja que los colores
-// reflejen la distribución real de los datos vigentes.
-export function calcularNiveles(valores: number[]): (v: number) => CeldaHeatmap['nivel'] {
-  const positivos = valores.filter((v) => v > 0).sort((a, b) => a - b);
-  if (positivos.length === 0) return () => 'sin datos';
-  const cuantil = (p: number) => positivos[Math.min(positivos.length - 1, Math.floor(p * (positivos.length - 1)))];
-  const q50 = cuantil(0.5);
-  const q80 = cuantil(0.8);
-  const q95 = cuantil(0.95);
-  return (v: number) => {
-    if (v <= 0) return 'sin datos';
-    if (v <= q50) return 'baja';
-    if (v <= q80) return 'media';
-    if (v <= q95) return 'alta';
-    return 'crítica';
-  };
+function maximoConEmpates(totales: number[], etiquetas: string[], valores: string[]): MaximoHeatmap | null {
+  const max = Math.max(0, ...totales);
+  if (max <= 0) return null;
+  const idx = totales.map((v, i) => (v === max ? i : -1)).filter((i) => i >= 0);
+  return { label: etiquetas[idx[0]], valor: valores[idx[0]], casos: max, empates: idx.slice(1).map((i) => etiquetas[i]) };
 }
 
 export function useHeatmap(records: CrimeRecord[], vista: VistaHeatmap): HeatmapResumen {
@@ -70,13 +100,14 @@ export function useHeatmap(records: CrimeRecord[], vista: VistaHeatmap): Heatmap
     const nCols = columnasValor.length;
 
     const matriz: number[][] = DIAS_ORDEN.map(() => new Array(nCols).fill(0));
+    let sinDiaOHora = 0;
 
     for (const r of records) {
-      if (r.diaSemanaIndex === null) continue;
+      if (r.diaSemanaIndex === null || r.diaSemanaIndex === undefined) { sinDiaOHora++; continue; }
       const colIndex = vista === 'hora'
-        ? (r.hora === null ? -1 : r.hora)
+        ? (r.hora === null || r.hora === undefined ? -1 : r.hora)
         : FRANJAS_ORDEN.indexOf(r.franjaHoraria);
-      if (colIndex < 0) continue;
+      if (colIndex < 0 || colIndex >= nCols) { sinDiaOHora++; continue; }
       matriz[r.diaSemanaIndex][colIndex] += 1;
     }
 
@@ -94,16 +125,15 @@ export function useHeatmap(records: CrimeRecord[], vista: VistaHeatmap): Heatmap
       }
     }
 
-    const todosLosValores: number[] = [];
-    matriz.forEach((fila) => fila.forEach((v) => todosLosValores.push(v)));
-    const nivelDe = calcularNiveles(todosLosValores);
-
+    const nCeldas = DIAS_ORDEN.length * nCols;
+    const esperadoPorCelda = totalGeneral / nCeldas;
     const diasLabel = DIAS_ORDEN.map((d) => d.charAt(0) + d.slice(1).toLowerCase());
 
     const celdas: CeldaHeatmap[] = [];
     for (let d = 0; d < DIAS_ORDEN.length; d++) {
       for (let c = 0; c < nCols; c++) {
         const valor = matriz[d][c];
+        const indice = esperadoPorCelda > 0 ? valor / esperadoPorCelda : 0;
         celdas.push({
           diaIndex: d,
           dia: DIAS_ORDEN[d],
@@ -113,15 +143,14 @@ export function useHeatmap(records: CrimeRecord[], vista: VistaHeatmap): Heatmap
           columnaLabel: columnasLabel[c],
           valor,
           porcentaje: totalGeneral ? (valor / totalGeneral) * 100 : 0,
-          nivel: nivelDe(valor),
+          indice,
+          nivel: nivelPorIndice(indice, valor),
         });
       }
     }
 
-    const diaMaxIdx = totalesFila.reduce((best, v, i) => (v > totalesFila[best] ? i : best), 0);
-    const columnaMaxIdx = totalesColumna.reduce((best, v, i) => (v > totalesColumna[best] ? i : best), 0);
     const celdaMax = celdas.reduce<CeldaHeatmap | null>((best, c) => (!best || c.valor > best.valor ? c : best), null);
-
+    const celdasEnMaximo = celdaMax && celdaMax.valor > 0 ? celdas.filter((c) => c.valor === celdaMax.valor).length : 0;
     const momentosCriticos = [...celdas].filter((c) => c.valor > 0).sort((a, b) => b.valor - a.valor).slice(0, 5);
 
     return {
@@ -136,10 +165,13 @@ export function useHeatmap(records: CrimeRecord[], vista: VistaHeatmap): Heatmap
       totalGeneral,
       totalesFila,
       totalesColumna,
-      diaMax: totalesFila[diaMaxIdx] > 0 ? { label: diasLabel[diaMaxIdx], valor: DIAS_ORDEN[diaMaxIdx], casos: totalesFila[diaMaxIdx] } : null,
-      columnaMax: totalesColumna[columnaMaxIdx] > 0 ? { label: columnasLabel[columnaMaxIdx], valor: columnasValor[columnaMaxIdx], casos: totalesColumna[columnaMaxIdx] } : null,
+      diaMax: maximoConEmpates(totalesFila, diasLabel, DIAS_ORDEN),
+      columnaMax: maximoConEmpates(totalesColumna, columnasLabel, columnasValor),
       celdaMax: celdaMax && celdaMax.valor > 0 ? celdaMax : null,
+      celdasEnMaximo,
       momentosCriticos,
+      sinDiaOHora,
+      esperadoPorCelda,
     };
   }, [records, vista]);
 }
