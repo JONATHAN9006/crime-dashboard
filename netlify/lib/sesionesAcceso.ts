@@ -44,21 +44,27 @@ export function leerToken(token: unknown): TokenAcceso | null {
   }
 }
 
+export type AmbitoConsulta = 'popayan' | 'mepoy';
+/** Ámbito territorial del usuario: 'mepoy' (jefes, toda la jurisdicción) o 'popayan' (Estaciones Norte/Sur). Ante cualquier duda, 'popayan'. */
+export const leerAmbito = (v: unknown): AmbitoConsulta => (v === 'mepoy' ? 'mepoy' : 'popayan');
+
 /**
  * Comprueba en la BASE (no solo en el token) que la sesión sigue viva, que
  * el usuario está activo y que su perfil es el esperado. Devuelve el motivo
- * del rechazo, o null si todo está en orden.
+ * del rechazo (o null si todo está en orden) y el ÁMBITO guardado en la base
+ * —nunca el que diga el navegador—.
  */
-export async function validarSesion(db: SupabaseClient, t: TokenAcceso | null, perfilEsperado: PerfilAcceso): Promise<string | null> {
-  if (!t) return 'invalida';
-  if (Date.now() > t.exp) return 'expirada';
-  if (t.p !== perfilEsperado) return 'perfil';
+export async function validarSesion(db: SupabaseClient, t: TokenAcceso | null, perfilEsperado: PerfilAcceso): Promise<{ motivo: string | null; ambito: AmbitoConsulta }> {
+  const no = (motivo: string) => ({ motivo, ambito: 'popayan' as AmbitoConsulta });
+  if (!t) return no('invalida');
+  if (Date.now() > t.exp) return no('expirada');
+  if (t.p !== perfilEsperado) return no('perfil');
   const [{ data: ses }, { data: u }] = await Promise.all([
     db.from('cai_sesiones').select('sesion_id').eq('usuario', t.u).maybeSingle(),
-    db.from('cai_usuarios').select('activo, perfil').eq('usuario', t.u).maybeSingle(),
+    db.from('cai_usuarios').select('*').eq('usuario', t.u).maybeSingle(),
   ]);
-  if (!u || !u.activo) return 'desactivado';
-  if ((u.perfil || 'cai') !== perfilEsperado) return 'perfil';
-  if (!ses || ses.sesion_id !== t.s) return 'otra-sesion';
-  return null;
+  if (!u || !u.activo) return no('desactivado');
+  if ((u.perfil || 'cai') !== perfilEsperado) return no('perfil');
+  if (!ses || ses.sesion_id !== t.s) return no('otra-sesion');
+  return { motivo: null, ambito: leerAmbito(u.ambito) };
 }

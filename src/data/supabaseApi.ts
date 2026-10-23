@@ -4,6 +4,7 @@ import type { DatasetRemoto, RemoteMeta, RemotePushResult } from './remoteApi';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { tokenSesionActual } from '../cai/apiCai';
 import { recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
+import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 
 // ── Perfil piloto (/piloto) ────────────────────────────────────────────────
 // El piloto NUNCA lee la base directamente con la llave pública: pide los
@@ -28,15 +29,60 @@ export async function llamarFuentePiloto(cuerpo: Record<string, unknown>): Promi
   return j;
 }
 
-async function descargarRegistrosPiloto(): Promise<CrimeRecord[]> {
-  const registros: CrimeRecord[] = [];
-  let desde: number | null = 0;
-  for (let vuelta = 0; desde !== null && vuelta < 500; vuelta++) {
-    const j: { registros: any[]; siguiente: number | null } = await llamarFuentePiloto({ accion: 'registros', desde });
-    for (const d of j.registros || []) if (registroEnPopayan(d)) registros.push(filaADistancia(recortarCoordenadasPiloto(d)));
-    desde = j.siguiente;
+/** Progreso de la descarga del piloto (0–100) para la pantalla de carga. */
+function avisarProgreso(pct: number) {
+  try { window.dispatchEvent(new CustomEvent('mepoy-progreso-carga', { detail: Math.max(0, Math.min(100, Math.round(pct))) })); } catch { /* sin ventana */ }
+}
+
+async function conReintentos<T>(fn: () => Promise<T>, intentos = 3): Promise<T> {
+  let ultimo: unknown;
+  for (let i = 0; i < intentos; i++) {
+    try { return await fn(); } catch (e) {
+      ultimo = e;
+      if (/Sesión no válida/.test(String((e as Error)?.message))) break;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
   }
-  return registros;
+  throw ultimo;
+}
+
+// Descarga del piloto: el total se reparte en VENTANAS de filas que se piden
+// en PARALELO (4 a la vez), cada una con reintentos. Mucho más rápido que
+// pedir una página detrás de otra.
+const PARALELAS_PILOTO = 4;
+async function descargarRegistrosPiloto(): Promise<CrimeRecord[]> {
+  const restringir = restriccionPopayanActiva();
+  const { total, ventana } = await conReintentos(() => llamarFuentePiloto({ accion: 'conteo' })) as { total: number; ventana: number };
+  ultimoConteoServidor = Number(total) || 0;
+  const tam = Math.max(100, Number(ventana) || 1000);
+  const ventanas = Array.from({ length: Math.ceil((Number(total) || 0) / tam) }, (_, i) => i * tam);
+  const porVentana: CrimeRecord[][] = new Array(ventanas.length);
+  let hechas = 0;
+  avisarProgreso(0);
+  let siguienteIndice = 0;
+  async function trabajador() {
+    while (siguienteIndice < ventanas.length) {
+      const i = siguienteIndice++;
+      const inicio = ventanas[i];
+      const hasta = inicio + tam;
+      const lote: CrimeRecord[] = [];
+      let desde: number | null = inicio;
+      for (let vuelta = 0; desde !== null && vuelta < 50; vuelta++) {
+        const d0: number = desde;
+        const j = await conReintentos(() => llamarFuentePiloto({ accion: 'registros', desde: d0, hasta })) as { registros: any[]; siguiente: number | null };
+        for (const d of j.registros || []) {
+          if (!restringir) lote.push(filaADistancia(d));
+          else if (registroEnPopayan(d)) lote.push(filaADistancia(recortarCoordenadasPiloto(d)));
+        }
+        desde = j.siguiente;
+      }
+      porVentana[i] = lote;
+      hechas++;
+      avisarProgreso((hechas / ventanas.length) * 100);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PARALELAS_PILOTO, ventanas.length) }, trabajador));
+  return porVentana.flat();
 }
 
 // Un solo cliente reutilizado — createClient no es caro, pero no hay
@@ -113,7 +159,11 @@ export function conteoUltimaDescarga(): number | null {
 
 /** Conteo exacto de filas en el servidor (petición liviana, sin datos). */
 export async function contarRegistrosSupabase(url: string, anonKey: string, dataset: DatasetRemoto = 'delictividad'): Promise<number | null> {
-  if (esPiloto()) return null;
+  if (esPiloto()) {
+    if (dataset !== 'delictividad') return null;
+    const j = await llamarFuentePiloto({ accion: 'conteo' });
+    return Number(j.total) || 0;
+  }
   const supabase = obtenerCliente(url, anonKey);
   const { count, error } = await supabase.from('crime_records').select('id_identidad', { count: 'exact', head: true }).eq('dataset', dataset);
   if (error) throw new Error(error.message);

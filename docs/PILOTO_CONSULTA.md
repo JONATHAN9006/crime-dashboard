@@ -123,3 +123,19 @@ Detalle de la prueba 9. Cada uno de estos intentos se rechaza:
 - un comodín en `capaId`;
 - texto libre en la bitácora;
 - una sesión reemplazada.
+
+## Cambios v204: un solo enlace de consulta
+
+- **Enlaces retirados:** `/jefe` y `/cai` muestran «Este enlace ya no está disponible». El servidor también rechaza los ingresos por `/cai`.
+- **Enlace de consulta:** `/piloto` sirve para estaciones y jefes. Cada usuario tiene un **ámbito**, guardado en la base:
+  - `popayan`: Estaciones Norte y Sur, con todo limitado a Popayán.
+  - `mepoy`: jefes, con toda la jurisdicción; mapa sin límites, todas las capas y estaciones.
+- **Ingreso:** el usuario se escribe; no hay una lista visible de cuentas.
+- **Copia local por usuario:**
+  - Al volver a abrir el dashboard solo se confirman la fecha y el conteo con el servidor; no se descarga todo otra vez.
+  - Si hay información nueva, se descarga.
+  - Al cerrar sesión, la copia se borra.
+- **Vista liviana en Supabase (`crime_records_ligero`):** la base entrega los registros sin las ~100 columnas originales, con mucho menos consumo de Egress. Si la vista no existe, la función usa la tabla completa.
+- **SQL:** `supabase/consulta_jefes.sql`.
+  - Agrega el ámbito y crea los usuarios `jefe1` a `jefe5`.
+  - Desactiva los usuarios CAI y crea la vista liviana.

@@ -3,6 +3,7 @@ import { esCoordenadaValida } from '../utils/geodesia';
 import { getDb, STORE_PUNTOS } from './db';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { puntoEnPopayan } from '../utils/territorioPiloto';
+import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 
 // Perfil piloto (/piloto): las capas de puntos viven SOLO en memoria y
 // únicamente con los puntos que caen dentro del límite de Popayán.
@@ -251,7 +252,7 @@ export function dependenciasIrispEquivalentes(estacionesDelDashboard: string[], 
 // --- Persistencia (IndexedDB) ---------------------------------------------
 
 export async function guardarCapasPuntos(capas: CapaPuntos[]) {
-  if (esPiloto()) { capasPuntosPiloto = restringirCapasPuntosAPopayan(capas); return; }
+  if (esPiloto()) { capasPuntosPiloto = restriccionPopayanActiva() ? restringirCapasPuntosAPopayan(capas) : capas; return; }
   const db = await getDb();
   await db.put(STORE_PUNTOS, capas, 'capas');
 }

@@ -1,6 +1,7 @@
 // Cliente del backend de acceso de los CAI (netlify/functions/accesoCai.ts).
 const FUNCION = '/.netlify/functions/accesoCai';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { borrarCopiasConsulta } from '../data/storage';
 
 // Cada enlace guarda su PROPIA sesión: entrar por /piloto no reutiliza una
 // sesión de /cai (ni al revés). El perfil real lo valida el servidor.
@@ -8,7 +9,8 @@ const perfilDelEnlace = () => (obtenerModoAcceso() === 'piloto' ? 'consulta_pilo
 const claveSesion = () => (perfilDelEnlace() === 'consulta_piloto' ? 'mepoy-piloto-sesion' : 'mepoy-cai-sesion');
 const CLAVE_ADMIN = 'mepoy-admin-cai';
 
-export interface SesionCai { token: string; usuario: string; nombre: string; expira: number }
+export type AmbitoConsulta = 'popayan' | 'mepoy';
+export interface SesionCai { token: string; usuario: string; nombre: string; expira: number; ambito?: AmbitoConsulta }
 export type ErrorUbicacion = 'denegada' | 'tiempo' | 'no-disponible';
 export type Ubicacion = { lat: number; lon: number; precision: number } | { error: ErrorUbicacion };
 
@@ -51,22 +53,35 @@ function guardarSesion(s: SesionCai | null) {
 }
 
 export async function ingresar(usuario: string, clave: string, ubic: Ubicacion) {
-  const r = await llamar<{ token?: string; usuario?: string; nombre?: string; expira?: number; requiereUbicacion?: boolean }>({
+  const r = await llamar<{ token?: string; usuario?: string; nombre?: string; expira?: number; ambito?: AmbitoConsulta; requiereUbicacion?: boolean }>({
     accion: 'login', perfil: perfilDelEnlace(), usuario, clave, ...datosUbicacion(ubic), dispositivo: navigator.userAgent,
   });
-  if (r.ok && r.token) guardarSesion({ token: r.token, usuario: r.usuario!, nombre: r.nombre!, expira: r.expira! });
+  if (r.ok && r.token) guardarSesion({ token: r.token, usuario: r.usuario!, nombre: r.nombre!, expira: r.expira!, ambito: r.ambito === 'mepoy' ? 'mepoy' : 'popayan' });
   return r;
 }
 
 export async function verificarSesion(s: SesionCai, ubic: Ubicacion) {
-  const r = await llamar<{ motivo?: string; sinConexion?: boolean }>({ accion: 'verificar', perfil: perfilDelEnlace(), token: s.token, ...datosUbicacion(ubic), dispositivo: navigator.userAgent });
+  const r = await llamar<{ motivo?: string; sinConexion?: boolean; ambito?: AmbitoConsulta }>({ accion: 'verificar', perfil: perfilDelEnlace(), token: s.token, ...datosUbicacion(ubic), dispositivo: navigator.userAgent });
   if (!r.ok && !r.sinConexion) guardarSesion(null);
+  // El servidor confirma el ámbito en cada verificación (si el administrador lo cambió, se actualiza).
+  if (r.ok && r.ambito) { const actual = leerSesionGuardada(); if (actual && actual.token === s.token && actual.ambito !== r.ambito) guardarSesion({ ...actual, ambito: r.ambito }); }
   return r;
 }
 
 export async function salirCai(s: SesionCai | null) {
   guardarSesion(null);
+  // Al cerrar sesión no queda copia de la información en el equipo.
+  await borrarCopiasConsulta();
   if (s) await llamar({ accion: 'salir', token: s.token, dispositivo: navigator.userAgent });
+}
+
+/**
+ * Ámbito de la sesión de consulta. Solo decide qué RESTRICCIONES visuales
+ * aplica el navegador; los datos ya llegan recortados por el servidor según
+ * el ámbito guardado en la base (cambiarlo aquí no da acceso a nada más).
+ */
+export function ambitoSesionActual(): AmbitoConsulta {
+  return leerSesionGuardada()?.ambito === 'mepoy' ? 'mepoy' : 'popayan';
 }
 
 /** Token de la sesión del piloto (para netlify/functions/datosPiloto). */
@@ -82,7 +97,7 @@ export function reportarEventoSeguridad(codigo: 'geo_denegado' | 'geo_fuera') {
 }
 
 // ── Administrador ────────────────────────────────────────────────────────
-export interface UsuarioCai { usuario: string; nombre: string; perfil?: 'cai' | 'consulta_piloto'; activo: boolean; tieneClave: boolean; enLinea: boolean; sesionInicio: string | null; ultimaActividad: string | null }
+export interface UsuarioCai { usuario: string; nombre: string; perfil?: 'cai' | 'consulta_piloto'; ambito?: AmbitoConsulta; activo: boolean; tieneClave: boolean; enLinea: boolean; sesionInicio: string | null; ultimaActividad: string | null }
 export interface AccesoCai { id: number; usuario: string; fecha: string; evento: string; detalle: string | null; distancia_km: number | null; precision_m: number | null; dispositivo: string | null; ip: string | null }
 export interface ResumenAccesos { usuarios: UsuarioCai[]; accesos: AccesoCai[]; radioKm: number; exigeUbicacion: boolean }
 

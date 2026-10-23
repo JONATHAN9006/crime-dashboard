@@ -12,12 +12,13 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { GeoJSON as GeoJSONLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { MapPinOff } from 'lucide-react';
-import { obtenerModoAcceso } from '../../utils/modoAcceso';
+import { restriccionPopayanActiva } from '../../utils/restriccionTerritorial';
 import { featurePopayan, limitesPopayan, territorioPilotoValido } from '../../utils/territorioPiloto';
 import { reportarEventoSeguridad } from '../../cai/apiCai';
 import { MUNICIPIOS_MEPOY } from '../../data/municipiosMepoy';
 
-export const esPerfilPilotoActual = () => obtenerModoAcceso() === 'piloto';
+/** Restricción a Popayán activa (enlace de consulta, usuarios de las Estaciones Norte/Sur). Los jefes ven todo MEPOY. */
+export const esPerfilPilotoActual = () => restriccionPopayanActiva();
 
 /** Margen alrededor del límite municipal para no cortar el borde en pantalla. */
 const MARGEN_GRADOS = 0.02;

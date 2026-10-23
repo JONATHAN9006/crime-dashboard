@@ -11,11 +11,6 @@ import { ingresar, leerSesionGuardada, obtenerUbicacion, salirCai, verificarSesi
 
 const INTERVALO_VERIFICACION_MS = 5 * 60 * 1000;
 const CAIS = Array.from({ length: 10 }, (_, i) => ({ usuario: `cai${i + 1}`, nombre: `CAI ${i + 1}` }));
-// Prueba piloto (/piloto, perfil consulta_piloto).
-const ESTACIONES_PILOTO = [
-  { usuario: 'estacionnorte', nombre: 'Estación Norte' },
-  { usuario: 'estacionsur', nombre: 'Estación Sur' },
-];
 const esPiloto = () => obtenerModoAcceso() === 'piloto';
 
 interface ContextoCai { sesion: SesionCai; salir: () => void }
@@ -115,7 +110,7 @@ function Fondo({ children }: { children: ReactNode }) {
           </div>
           <div className="min-w-0">
             <p className="text-[17px] font-bold leading-tight text-[#10233f]">Análisis Delictivo</p>
-            <p className="text-[12.5px] text-slate-500">{esPiloto() ? 'MEPOY · Popayán — Consulta Estaciones Norte y Sur' : 'MEPOY · Popayán — Consulta comandantes de CAI'}</p>
+            <p className="text-[12.5px] text-slate-500">{esPiloto() ? 'MEPOY · Popayán — Consulta y visualización' : 'MEPOY · Popayán — Consulta comandantes de CAI'}</p>
           </div>
         </div>
         {children}
@@ -133,7 +128,7 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!usuario || !clave) { setError(esPiloto() ? 'Selecciona tu estación y escribe la contraseña.' : 'Selecciona tu CAI y escribe la contraseña.'); return; }
+    if (!usuario || !clave) { setError(esPiloto() ? 'Escribe tu usuario y tu contraseña.' : 'Selecciona tu CAI y escribe la contraseña.'); return; }
     setError(null);
     setPaso('ubicando');
     const ubic = await obtenerUbicacion();
@@ -146,7 +141,7 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
     const r = await ingresar(usuario, clave, ubic);
     setPaso('listo');
     if (r.ok && r.token) {
-      onIngreso({ token: r.token, usuario: r.usuario!, nombre: r.nombre!, expira: r.expira! });
+      onIngreso(leerSesionGuardada() ?? { token: r.token, usuario: r.usuario!, nombre: r.nombre!, expira: r.expira! });
       return;
     }
     setClave('');
@@ -164,16 +159,32 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
         )}
         <label className="block">
           <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Usuario</span>
+          {esPiloto() ? (
+            // Enlace de consulta (estaciones y jefes): usuario escrito, sin
+            // lista visible de cuentas.
+            <input
+              type="text"
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
+              disabled={ocupado}
+              placeholder="Tu usuario"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
+            />
+          ) : (
           <select
-            value={usuario}
-            onChange={(e) => setUsuario(e.target.value)}
-            disabled={ocupado}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
-            autoComplete="username"
-          >
-            <option value="">{esPiloto() ? 'Selecciona tu estación…' : 'Selecciona tu CAI…'}</option>
-            {(esPiloto() ? ESTACIONES_PILOTO : CAIS).map((c) => <option key={c.usuario} value={c.usuario}>{c.nombre}</option>)}
-          </select>
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
+              disabled={ocupado}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
+              autoComplete="username"
+            >
+              <option value="">{esPiloto() ? 'Selecciona tu estación…' : 'Selecciona tu CAI…'}</option>
+              {CAIS.map((c) => <option key={c.usuario} value={c.usuario}>{c.nombre}</option>)}
+            </select>
+          )}
         </label>
         <label className="block">
           <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Contraseña</span>

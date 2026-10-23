@@ -90,3 +90,38 @@ export async function limpiarDatos() {
   await tx.objectStore(STORE_META).delete('info');
   await tx.done;
 }
+
+// ── Copia del enlace de CONSULTA (/piloto) ────────────────────────────────
+// Separada por usuario y ámbito (nunca se mezcla con la del administrador ni
+// con la de otro usuario). Con ella, abrir el dashboard otra vez no vuelve a
+// descargar todo: solo se confirma con el servidor que nada cambió. Se borra
+// al cerrar sesión.
+interface CopiaConsulta { records: any[]; sello: string | null; conteo: number | null; version: number }
+const claveCopia = (usuario: string, ambito: string) => `consulta:${usuario}:${ambito}`;
+
+export async function guardarCopiaConsulta(usuario: string, ambito: string, records: CrimeRecord[], sello: string | null, conteo: number | null) {
+  try {
+    const db = await getDb();
+    const copia: CopiaConsulta = { records: serialize(records), sello, conteo, version: VERSION_TRANSFORMACION };
+    await db.put(STORE_RECORDS, copia, claveCopia(usuario, ambito));
+  } catch { /* sin espacio: la próxima vez simplemente se descarga */ }
+}
+
+export async function cargarCopiaConsulta(usuario: string, ambito: string): Promise<{ records: CrimeRecord[]; sello: string | null; conteo: number | null } | null> {
+  try {
+    const db = await getDb();
+    const c = (await db.get(STORE_RECORDS, claveCopia(usuario, ambito))) as CopiaConsulta | undefined;
+    if (!c || c.version !== VERSION_TRANSFORMACION || !Array.isArray(c.records)) return null;
+    return { records: deserialize(c.records), sello: c.sello, conteo: c.conteo };
+  } catch {
+    return null;
+  }
+}
+
+export async function borrarCopiasConsulta() {
+  try {
+    const db = await getDb();
+    const claves = await db.getAllKeys(STORE_RECORDS);
+    for (const k of claves) if (String(k).startsWith('consulta:')) await db.delete(STORE_RECORDS, k);
+  } catch { /* nada que borrar */ }
+}

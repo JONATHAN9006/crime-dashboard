@@ -1,6 +1,7 @@
 import { getDb, STORE_GEO } from './db';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { restringirGeojsonAPopayan } from '../utils/territorioPiloto';
+import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 
 // Perfil piloto (/piloto): las capas viven SOLO en memoria (nada se guarda
 // en el equipo) y al leerlas se entregan ya recortadas a Popayán.
@@ -39,7 +40,7 @@ export interface CapaGeografica {
 }
 
 export async function guardarCapas(capas: CapaGeografica[]) {
-  if (esPiloto()) { capasPiloto = restringirCapasAPopayan(capas); return; }
+  if (esPiloto()) { capasPiloto = restriccionPopayanActiva() ? restringirCapasAPopayan(capas) : capas; return; }
   const db = await getDb();
   await db.put(STORE_GEO, { capas, fecha: new Date().toISOString() }, 'capas');
 }

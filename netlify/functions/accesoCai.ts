@@ -20,7 +20,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { esPerfil, firmar, leerToken, type PerfilAcceso } from '../lib/sesionesAcceso';
+import { esPerfil, firmar, leerAmbito, leerToken, type PerfilAcceso } from '../lib/sesionesAcceso';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -140,7 +140,7 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   const distancia = ubic ? distanciaKm(ubic.lat, ubic.lon) : null;
   const base = { usuario: usuario || '(vacío)', lat: ubic?.lat ?? null, lon: ubic?.lon ?? null, precision_m: ubic?.precision ?? null, distancia_km: distancia, dispositivo, ip };
 
-  const { data: u, error } = await db.from('cai_usuarios').select('usuario, nombre, clave_hash, activo, perfil').eq('usuario', usuario).maybeSingle();
+  const { data: u, error } = await db.from('cai_usuarios').select('*').eq('usuario', usuario).maybeSingle();
   if (error) throw error;
   if (!u) {
     await registrar(db, { ...base, evento: 'fallido', detalle: 'Usuario no existe' });
@@ -160,6 +160,11 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   // /piloto o al revés): mismo mensaje que una contraseña errada, para no
   // revelar qué usuarios existen en cada perfil.
   const perfil = perfilPedido(c);
+  // El enlace /cai fue retirado: solo /piloto (consulta) sigue activo.
+  if (perfil === 'cai') {
+    await registrar(db, { ...base, evento: 'rechazado', detalle: 'Enlace /cai retirado' });
+    return resp({ ok: false, error: 'Este enlace ya no está disponible. Solicita el enlace de consulta al administrador.' });
+  }
   if ((u.perfil || 'cai') !== perfil) {
     await registrar(db, { ...base, evento: 'rechazado', detalle: `Perfil no autorizado para este enlace (${perfil})` });
     return resp({ ok: false, error: 'Usuario o contraseña incorrectos.' });
@@ -197,17 +202,17 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   if (e2) throw e2;
   await registrar(db, { ...base, evento: 'ingreso', detalle: reemplaza ? 'Cerró una sesión que seguía abierta en otro equipo' : null });
   const exp = Date.now() + DURACION_SESION_MS;
-  return resp({ ok: true, token: firmar({ u: usuario, s: sesionId, exp, p: perfil }), usuario, nombre: u.nombre || usuario.toUpperCase(), perfil, expira: exp });
+  return resp({ ok: true, token: firmar({ u: usuario, s: sesionId, exp, p: perfil }), usuario, nombre: u.nombre || usuario.toUpperCase(), perfil, ambito: leerAmbito(u.ambito), expira: exp });
 }
 
 async function verificar(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: string) {
   const t = leerToken(c.token);
   if (!t) return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida. Vuelve a ingresar.' });
   if (Date.now() > t.exp) return resp({ ok: false, motivo: 'expirada', error: 'La sesión expiró. Vuelve a ingresar.' });
-  if (t.p !== perfilPedido(c)) return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida para este enlace. Vuelve a ingresar.' });
+  if (t.p !== perfilPedido(c) || t.p === 'cai') return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida para este enlace. Vuelve a ingresar.' });
   const [{ data: ses }, { data: u }] = await Promise.all([
     db.from('cai_sesiones').select('sesion_id').eq('usuario', t.u).maybeSingle(),
-    db.from('cai_usuarios').select('activo, perfil').eq('usuario', t.u).maybeSingle(),
+    db.from('cai_usuarios').select('*').eq('usuario', t.u).maybeSingle(),
   ]);
   if (u && (u.perfil || 'cai') !== t.p) return resp({ ok: false, motivo: 'invalida', error: 'Sesión no válida para este enlace. Vuelve a ingresar.' });
   if (!u || !u.activo) return resp({ ok: false, motivo: 'desactivado', error: 'Este usuario fue desactivado por el administrador.' });
@@ -236,7 +241,7 @@ async function verificar(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo:
     ultima_actividad: new Date().toISOString(),
     ...(ubic ? { lat: ubic.lat, lon: ubic.lon } : {}),
   }).eq('usuario', t.u);
-  return resp({ ok: true });
+  return resp({ ok: true, ambito: leerAmbito(u?.ambito) });
 }
 
 async function salir(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: string) {
@@ -297,7 +302,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
   const dias = Math.min(Math.max(Number(c.dias) || 30, 1), 365);
   const desde = new Date(Date.now() - dias * 86400000).toISOString();
   const [{ data: usuarios, error: e1 }, { data: sesiones, error: e2 }, { data: accesos, error: e3 }] = await Promise.all([
-    db.from('cai_usuarios').select('usuario, nombre, activo, clave_hash, actualizado, perfil').order('usuario'),
+    db.from('cai_usuarios').select('*').order('usuario'),
     db.from('cai_sesiones').select('usuario, inicio, ultima_actividad, dispositivo'),
     db.from('cai_accesos').select('id, usuario, fecha, evento, detalle, distancia_km, precision_m, dispositivo, ip').gte('fecha', desde).order('fecha', { ascending: false }).limit(2000),
   ]);
@@ -315,6 +320,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
         usuario: u.usuario,
         nombre: u.nombre,
         perfil: u.perfil || 'cai',
+        ambito: leerAmbito(u.ambito),
         activo: u.activo,
         tieneClave: !!u.clave_hash,
         enLinea: !!s && ahora - new Date(s.ultima_actividad).getTime() < EN_LINEA_MS,

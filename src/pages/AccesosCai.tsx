@@ -306,7 +306,7 @@ function FilaUsuario({ u, info, clave, recargar }: { u: UsuarioCai; info?: { ult
   const boton = 'flex items-center gap-1 rounded-md border px-2 py-1 text-[11.5px] font-semibold disabled:opacity-50';
   return (
     <tr className="border-b border-slate-100 align-top last:border-0">
-      <td className="py-2 pr-2 font-bold text-[#10233f]">{u.nombre || nombreCai(u.usuario)}<p className="text-[10.5px] font-normal text-slate-400">usuario: {u.usuario}{u.perfil === 'consulta_piloto' && <span className="ml-1 rounded bg-[#e3f2ef] px-1 font-semibold text-[#0f5f57]">Piloto · /piloto</span>}</p></td>
+      <td className="py-2 pr-2 font-bold text-[#10233f]">{u.nombre || nombreCai(u.usuario)}<p className="text-[10.5px] font-normal text-slate-400">usuario: {u.usuario}{u.perfil === 'consulta_piloto' && <span className="ml-1 rounded bg-[#e3f2ef] px-1 font-semibold text-[#0f5f57]">/piloto · {u.ambito === 'mepoy' ? 'Todo MEPOY' : 'Solo Popayán'}</span>}{u.perfil !== 'consulta_piloto' && <span className="ml-1 rounded bg-slate-100 px-1 font-semibold text-slate-500">/cai retirado</span>}</p></td>
       <td className="py-2 pr-2"><span className={clsx('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-semibold', estado.clase)}>{estado.icono}{estado.texto}</span></td>
       <td className="whitespace-nowrap py-2 pr-2 tabular-nums text-slate-700">{info?.ultimo ? fFechaHora(info.ultimo) : '—'}</td>
       <td className="py-2 pr-2 text-center font-bold tabular-nums text-[#10233f]">{info?.ingresos ?? 0}</td>

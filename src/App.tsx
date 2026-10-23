@@ -67,6 +67,26 @@ const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc',
 // Plan Candado tiene su propia barra compacta (Estación y CAI son los del filtro principal).
 const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['irisp1', 'macri', 'accesosCai', 'planCandado'];
 
+// Pantalla de carga; en el enlace piloto muestra el avance de la descarga.
+function CargandoInformacion() {
+  const [pct, setPct] = useState<number | null>(null);
+  useEffect(() => {
+    const f = (e: Event) => setPct((e as CustomEvent<number>).detail);
+    window.addEventListener('mepoy-progreso-carga', f);
+    return () => window.removeEventListener('mepoy-progreso-carga', f);
+  }, []);
+  return (
+    <div className="flex h-64 flex-col items-center justify-center gap-2 text-sm text-slate-400">
+      <span>Cargando información{pct !== null ? ` · ${pct} %` : '...'}</span>
+      {pct !== null && (
+        <span className="h-1.5 w-56 overflow-hidden rounded-full bg-slate-200">
+          <span className="block h-full rounded-full bg-[#116762] transition-all" style={{ width: `${pct}%` }} />
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Shell() {
   const [pagina, setPagina] = useState<PaginaId>('resumen');
   const [menuAbierto, setMenuAbierto] = useState(false);
@@ -83,7 +103,7 @@ function Shell() {
         <Header onAbrirMenu={() => setMenuAbierto(true)} />
         <main className="flex-1 overflow-y-auto px-4 py-5 lg:px-6">
           {loading && (
-            <div className="flex h-64 items-center justify-center text-sm text-slate-400">Cargando información...</div>
+            <CargandoInformacion />
           )}
           {!loading && loadError && records.length === 0 && requiereDatos && (
             <div className="mx-auto max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-5 text-center text-sm text-amber-800">
@@ -102,6 +122,18 @@ function Shell() {
             </div>
           )}
         </main>
+      </div>
+    </div>
+  );
+}
+
+function EnlaceRetirado() {
+  return (
+    <div className="flex min-h-[100dvh] items-center justify-center bg-[radial-gradient(circle_at_top,#116762_0%,#0a3d39_45%,#10233f_100%)] px-4">
+      <div className="w-full max-w-[420px] rounded-2xl bg-white p-6 text-center shadow-2xl">
+        <img src="/assets/escudo-sidebar.png" alt="Escudo Policía Nacional" className="mx-auto mb-3 h-14 w-14 object-contain" draggable={false} />
+        <p className="text-[16px] font-bold text-[#10233f]">Este enlace ya no está disponible</p>
+        <p className="mt-1.5 text-[13px] text-slate-500">La consulta del dashboard se hace ahora por el enlace de consulta, con usuario y contraseña. Solicítalo al administrador.</p>
       </div>
     </div>
   );
@@ -133,7 +165,9 @@ export default function App() {
   // usuario y contraseña validados en el servidor.
   // /piloto (Estaciones Norte y Sur): mismo ingreso validado en el servidor,
   // con perfil consulta_piloto.
-  if (modoAcceso === 'cai' || modoAcceso === 'piloto') return <PuertaCai>{app}</PuertaCai>;
+  // Enlaces retirados: /jefe y /cai. Los jefes y comandantes usan /piloto.
+  if (modoAcceso === 'jefe' || modoAcceso === 'cai') return <EnlaceRetirado />;
+  if (modoAcceso === 'piloto') return <PuertaCai>{app}</PuertaCai>;
   if (modoAcceso === null) return <PuertaAdmin>{app}</PuertaAdmin>;
   return app;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { obtenerModoAcceso } from '../../utils/modoAcceso';
+import { restriccionPopayanActiva } from '../../utils/restriccionTerritorial';
 import { reportarEventoSeguridad } from '../../cai/apiCai';
 import { Pane, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -191,7 +191,7 @@ export function IrATerritorio({ capas, obtenerMapa }: { capas: CapaConGeo[]; obt
     return () => document.removeEventListener('mousedown', fuera);
   }, [abierto]);
   // Perfil piloto: solo Popayán; cualquier otro destino se rechaza y queda registrado.
-  const piloto = obtenerModoAcceso() === 'piloto';
+  const piloto = restriccionPopayanActiva();
   const territorios = piloto ? TERRITORIOS.filter((t) => t.id === 'popayan') : TERRITORIOS;
   function ir(t: TerritorioNavegable) {
     setAbierto(false);

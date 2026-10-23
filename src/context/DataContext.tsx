@@ -6,7 +6,8 @@ import { serializarOperatividadCsv } from '../data/operatividadSerializer';
 import { emptyFilterState } from '../types/crime';
 import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
 import { parseArchivo } from '../data/xlsxParser';
-import { cargarDatosGuardados, guardarDatos, limpiarDatos } from '../data/storage';
+import { cargarDatosGuardados, guardarDatos, limpiarDatos, cargarCopiaConsulta, guardarCopiaConsulta } from '../data/storage';
+import { leerSesionGuardada } from '../cai/apiCai';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo, detectarRepetidosPorContenido } from '../data/datasetOps';
 import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
@@ -97,6 +98,7 @@ interface DataContextValue {
 
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 import { operatividadEnPopayan, recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -230,6 +232,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       await persistirYActualizar(registrosRemotos, 'Delitos (Supabase, central)', columnasDetectadas, fechaRef, null);
       guardarSelloRemoto(metaRemota?.ultimaActualizacion ?? null);
       guardarConteoRemoto(conteoUltimaDescarga());
+      // Enlace de consulta: copia propia del usuario (se valida con sello + conteo al volver a abrir).
+      if (ES_PILOTO) {
+        const ses = leerSesionGuardada();
+        if (ses) guardarCopiaConsulta(ses.usuario, ses.ambito ?? 'popayan', registrosRemotos, metaRemota?.ultimaActualizacion ?? null, conteoUltimaDescarga());
+      }
       setRemoteStatus('conectado');
       setRemoteError(null);
       setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
@@ -257,6 +264,34 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     let cancelado = false;
     (async () => {
       setLoading(true);
+
+      // Enlace de consulta (/piloto): si la copia de ESTE usuario coincide con
+      // el servidor (fecha de actualización + conteo), se muestra al instante
+      // sin descargar nada más.
+      if (ES_PILOTO && backendUrl) {
+        try {
+          const ses = leerSesionGuardada();
+          if (ses) {
+            const [copia, metaRemota, conteoServidor] = await Promise.all([
+              cargarCopiaConsulta(ses.usuario, ses.ambito ?? 'popayan'),
+              consultarMetaSupabase(backendUrl, supabaseAnonKey),
+              contarRegistrosSupabase(backendUrl, supabaseAnonKey),
+            ]);
+            if (copia && copia.records.length > 0 && metaRemota?.ultimaActualizacion && copia.sello === metaRemota.ultimaActualizacion && copia.conteo != null && copia.conteo === conteoServidor) {
+              if (cancelado) return;
+              const cols = Object.keys(copia.records[0].raw || {});
+              await persistirYActualizar(copia.records, 'Delitos (consulta)', cols, new Date(metaRemota.ultimaActualizacion), null);
+              setRemoteMeta({ ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: null });
+              ultimaCargaRef.current = metaRemota.ultimaActualizacion;
+              setRemoteStatus('conectado');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // cualquier duda → descarga completa
+        }
+      }
 
       if (backendUrl) {
         // Copia local al día con el servidor → se usa sin descargar de nuevo.
@@ -617,7 +652,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const registrosVisibles = useMemo(
     // Piloto: además, solo lo de Popayán (el servidor ya lo entrega así;
     // esto es una segunda barrera en el navegador).
-    () => records.filter((r) => !DELITOS_EXCLUIDOS_GLOBAL.has(r.delito) && (!ES_PILOTO || registroEnPopayan(r))),
+    () => { const soloPopayan = restriccionPopayanActiva(); return records.filter((r) => !DELITOS_EXCLUIDOS_GLOBAL.has(r.delito) && (!soloPopayan || registroEnPopayan(r))); },
     [records],
   );
 
@@ -772,7 +807,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // tienen equivalente en este dataset (armas, modalidad, género, etc.).
   // Piloto: Operatividad limitada a las unidades / ubicaciones de Popayán.
   const operatividadVisibles = useMemo(
-    () => (ES_PILOTO ? operatividadRecords.filter((r) => operatividadEnPopayan(r)).map((r) => recortarCoordenadasPiloto(r)) : operatividadRecords),
+    () => (restriccionPopayanActiva() ? operatividadRecords.filter((r) => operatividadEnPopayan(r)).map((r) => recortarCoordenadasPiloto(r)) : operatividadRecords),
     [operatividadRecords],
   );
   const filteredOperatividadRecords = useMemo(() => {
