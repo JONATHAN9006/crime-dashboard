@@ -46,42 +46,48 @@ async function conReintentos<T>(fn: () => Promise<T>, intentos = 3): Promise<T> 
   throw ultimo;
 }
 
-// Descarga del piloto: el total se reparte en VENTANAS de filas que se piden
-// en PARALELO (4 a la vez), cada una con reintentos. Mucho más rápido que
-// pedir una página detrás de otra.
+// Descarga del enlace de consulta: el rango de llaves (id_identidad) se
+// reparte en VENTANAS que se piden en PARALELO (4 a la vez), cada una por
+// llave (keyset: cada consulta es igual de rápida, sin importar cuántos
+// registros haya) y con reintentos. Las llaves del dashboard son "R<número>-
+// <largo>", así que se parte por el primer dígito; la primera y la última
+// ventana quedan abiertas para cubrir cualquier otra forma de llave.
 const PARALELAS_PILOTO = 4;
+const CORTES_LLAVE = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'S'];
 async function descargarRegistrosPiloto(): Promise<CrimeRecord[]> {
   const restringir = restriccionPopayanActiva();
-  const { total, ventana } = await conReintentos(() => llamarFuentePiloto({ accion: 'conteo' })) as { total: number; ventana: number };
+  const { total } = await conReintentos(() => llamarFuentePiloto({ accion: 'conteo' })) as { total: number };
   ultimoConteoServidor = Number(total) || 0;
-  const tam = Math.max(100, Number(ventana) || 1000);
-  const ventanas = Array.from({ length: Math.ceil((Number(total) || 0) / tam) }, (_, i) => i * tam);
+  const ventanas: [string | null, string | null][] = [[null, CORTES_LLAVE[0]]];
+  for (let i = 0; i < CORTES_LLAVE.length - 1; i++) ventanas.push([CORTES_LLAVE[i], CORTES_LLAVE[i + 1]]);
+  ventanas.push([CORTES_LLAVE[CORTES_LLAVE.length - 1], null]);
   const porVentana: CrimeRecord[][] = new Array(ventanas.length);
-  let hechas = 0;
+  let recibidos = 0;
   avisarProgreso(0);
   let siguienteIndice = 0;
   async function trabajador() {
     while (siguienteIndice < ventanas.length) {
       const i = siguienteIndice++;
-      const inicio = ventanas[i];
-      const hasta = inicio + tam;
+      const [desdeClave, hastaClave] = ventanas[i];
       const lote: CrimeRecord[] = [];
-      let desde: number | null = inicio;
-      for (let vuelta = 0; desde !== null && vuelta < 50; vuelta++) {
-        const d0: number = desde;
-        const j = await conReintentos(() => llamarFuentePiloto({ accion: 'registros', desde: d0, hasta })) as { registros: any[]; siguiente: number | null };
+      let despuesDe: string | null = null;
+      for (let vuelta = 0; vuelta < 1000; vuelta++) {
+        const cuerpo: Record<string, unknown> = { accion: 'registros', desdeClave, hastaClave, despuesDe };
+        const j = await conReintentos(() => llamarFuentePiloto(cuerpo)) as { registros: any[]; siguiente: string | null };
         for (const d of j.registros || []) {
           if (!restringir) lote.push(filaADistancia(d));
           else if (registroEnPopayan(d)) lote.push(filaADistancia(recortarCoordenadasPiloto(d)));
         }
-        desde = j.siguiente;
+        recibidos += (j.registros || []).length;
+        if (ultimoConteoServidor) avisarProgreso(Math.min(99, (recibidos / ultimoConteoServidor) * 100));
+        if (!j.siguiente) break;
+        despuesDe = j.siguiente;
       }
       porVentana[i] = lote;
-      hechas++;
-      avisarProgreso((hechas / ventanas.length) * 100);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(PARALELAS_PILOTO, ventanas.length) }, trabajador));
+  await Promise.all(Array.from({ length: PARALELAS_PILOTO }, trabajador));
+  avisarProgreso(100);
   return porVentana.flat();
 }
 

@@ -124,36 +124,43 @@ export const handler: Handler = async (event) => {
       return { statusCode: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: cuerpo };
     }
 
-    // accion === 'registros' — paginado y ORDENADO (estable aunque otros
-    // usuarios estén subiendo información al mismo tiempo).
-    // «hasta» (opcional): fin EXCLUSIVO de la ventana que pidió el navegador;
-    // así varias ventanas se descargan en paralelo sin pisarse.
-    const desde = Math.max(0, Math.floor(Number(c.desde) || 0));
-    const hastaPedido = Number(c.hasta);
-    const limite = Number.isFinite(hastaPedido) && hastaPedido > desde ? Math.min(desde + TAMANO_PAGINA, Math.floor(hastaPedido)) : desde + TAMANO_PAGINA;
-    const tamano = limite - desde;
+    // accion === 'registros' — paginación por LLAVE (keyset), no por posición.
+    // Con .range(desde) la base tenía que recorrer (y armar) TODAS las filas
+    // anteriores a «desde»: las primeras páginas eran rápidas, pero las
+    // últimas tardaban tanto que la función se cortaba (la carga quedaba en
+    // ~36 % y fallaba). Ahora cada consulta salta directo con el índice de la
+    // llave (id_identidad):
+    //  · desdeClave (incluida) / hastaClave (excluida): la ventana que pide el
+    //    navegador (varias ventanas van en paralelo sin pisarse);
+    //  · despuesDe: última llave ya recibida dentro de la ventana.
+    const texto = (v: unknown) => (typeof v === 'string' && v.length > 0 && v.length < 200 ? v : null);
+    const desdeClave = texto(c.desdeClave);
+    const hastaClave = texto(c.hastaClave);
+    const despuesDe = texto(c.despuesDe);
     // Vista LIVIANA (supabase/consulta_jefes.sql): la base entrega cada
     // registro sin las ~100 columnas originales, así sale mucho menos
     // información de Supabase (cuida los 5 GB del mes). Si la vista aún no
     // existe, se usa la tabla completa y se aligera aquí.
-    const pedir = (tabla: string) => db
-      .from(tabla)
-      .select('datos')
-      .eq('dataset', 'delictividad')
-      .order('id_identidad', { ascending: true })
-      .range(desde, limite - 1);
+    const pedir = (tabla: string) => {
+      let q = db.from(tabla).select('id_identidad, datos').eq('dataset', 'delictividad');
+      if (desdeClave) q = q.gte('id_identidad', desdeClave);
+      if (despuesDe) q = q.gt('id_identidad', despuesDe);
+      if (hastaClave) q = q.lt('id_identidad', hastaClave);
+      return q.order('id_identidad', { ascending: true }).limit(TAMANO_PAGINA);
+    };
     let { data, error } = await pedir('crime_records_ligero');
     if (error && /crime_records_ligero|does not exist|schema cache|not find/i.test(error.message || '')) ({ data, error } = await pedir('crime_records'));
     if (error) throw error;
-    const filas = data || [];
+    const filas = (data || []) as { id_identidad: string; datos: Record<string, unknown> }[];
     const registros: Record<string, unknown>[] = [];
     let bytes = 0;
+    let ultimaClave: string | null = null;
     let consumidas = 0;
     for (const f of filas) {
-      const d = (f as { datos: Record<string, unknown> }).datos;
+      const d = f.datos;
       if (!soloPopayan || registroEnPopayan(d as { lat?: unknown; lon?: unknown; estacion?: unknown })) {
-        // Sin el lote de carga (quién/qué archivo subió cada registro): no lo necesita el piloto.
-        // y con solo las columnas originales que usa la identidad (mucho más liviano).
+        // Sin el lote de carga (quién/qué archivo subió cada registro) y con
+        // solo las columnas originales que usa la identidad (mucho más liviano).
         const { loteId: _a, loteArchivo: _b, loteFecha: _c, loteUsuario: _d, raw, ...sinRaw } = soloPopayan ? recortarCoordenadasPiloto(d) : d;
         const resto = { ...sinRaw, raw: rawMinimo(raw) };
         const tam = JSON.stringify(resto).length + 1;
@@ -161,10 +168,11 @@ export const handler: Handler = async (event) => {
         registros.push(resto);
         bytes += tam;
       }
+      ultimaClave = f.id_identidad;
       consumidas++;
     }
-    const finDeVentana = consumidas === filas.length && (filas.length < tamano || (Number.isFinite(hastaPedido) && limite >= hastaPedido));
-    return resp({ ok: true, registros, siguiente: finDeVentana ? null : desde + consumidas });
+    const hayMas = consumidas < filas.length || filas.length === TAMANO_PAGINA;
+    return resp({ ok: true, registros, siguiente: hayMas ? ultimaClave : null });
   } catch (e) {
     const msg = e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String((e as { message: unknown }).message) : String(e);
     console.error('[datosPiloto]', accion, msg);
