@@ -172,11 +172,13 @@ export function dibujarFlechasBarrios(
   aPixel: (lat: number, lon: number) => { x: number; y: number },
   anchoLienzo: number,
   altoLienzo: number,
+  /** Escala fija (encuadre de pantalla): rótulos del mismo tamaño relativo que en el mapa. */
+  escalaFija?: number,
 ) {
   const visibles = flechas.map((f) => ({ f, p: aPixel(f.lat, f.lon) })).filter(({ p }) => p.x >= 0 && p.x <= anchoLienzo && p.y >= 0 && p.y <= altoLienzo);
   if (visibles.length === 0) return;
   const dirs = direccionesHaciaAfuera(visibles.map(({ f }) => f));
-  const escala = anchoLienzo / 1200;
+  const escala = escalaFija ?? anchoLienzo / 1200;
   const largo = Math.max(60, 95 * escala);
   const tamFuente = Math.max(11, Math.round(15 * escala));
   const grosor = Math.max(2.5, 3.5 * escala);

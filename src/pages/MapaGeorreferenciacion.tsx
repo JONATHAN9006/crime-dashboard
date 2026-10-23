@@ -2092,10 +2092,13 @@ function MapaGeorreferenciacionContenido() {
       // se ve actualmente en el mapa — si Norte y Sur son lo que tienes en
       // pantalla al descargar, son los que se incluyen; los territorios
       // lejanos que no estás viendo en ese momento quedan afuera.
-      const margenRecorte = Math.max(norte - sur, este - oeste) * 0.25;
-      const dentroDeVistaRecorte = (an: [number, number][]) => an.some(
-        ([lon, lat]) => lon >= oeste - margenRecorte && lon <= este + margenRecorte && lat >= sur - margenRecorte && lat <= norte + margenRecorte,
-      );
+      // Se conservan solo los anillos que tocan el rectángulo de la pantalla
+      // (sin margen extra): la imagen sale con el MISMO encuadre que se ve.
+      const dentroDeVistaRecorte = (an: [number, number][]) => {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const [lon, lat] of an) { if (lon < x0) x0 = lon; if (lon > x1) x1 = lon; if (lat < y0) y0 = lat; if (lat > y1) y1 = lat; }
+        return x1 >= oeste && x0 <= este && y1 >= sur && y0 <= norte;
+      };
       const anillosCapasParaRecorte = capas
         .filter((c) => c.visible)
         .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)))
@@ -2161,9 +2164,11 @@ function MapaGeorreferenciacionContenido() {
         tamanoFuenteBase: 8,
         // Fondo transparente fuera de la jurisdicción (como siempre), salvo que se pida el mapa completo.
         fondoCompleto: !opcionesDescarga.fondoTransparente,
-        // Plan Candado: los pines que se ven en pantalla entran completos
-        // con sus etiquetas, aunque queden fuera del contorno.
-        ampliarParaMarcadores: 'todos',
+        // Mismo encuadre de la pantalla: barrios, rótulos y escala quedan
+        // donde el usuario los ve (antes se ampliaba al contorno completo
+        // de las capas y los rótulos quedaban amontonados).
+        vistaFija: { sur, norte, oeste, este },
+        anchoLienzo: Math.round(Math.min(2600, Math.max(1200, (mapaRef.current.getSize().x || 1200) * 1.8))),
       }, bounds));
     } catch (err) {
       console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);

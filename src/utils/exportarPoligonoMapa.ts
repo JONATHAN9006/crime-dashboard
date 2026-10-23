@@ -104,6 +104,10 @@ export interface OpcionesPoligonoAislado {
   // recibidos (descarga general: los que se ven en pantalla). Por defecto
   // solo los que caen dentro del área (descarga de un CAI o zona).
   ampliarParaMarcadores?: 'todos' | 'dentro';
+  // Encuadre fijo (descarga general): la imagen toma EXACTAMENTE el
+  // rectángulo que se ve en pantalla — mismo encuadre, misma proporción y
+  // los rótulos en el mismo lugar —, sin margen ni ampliaciones.
+  vistaFija?: { sur: number; norte: number; oeste: number; este: number };
   // false = sin mapa de calor (en pantalla solo se ven los puntos). Por defecto true.
   mostrarCalor?: boolean;
   // Modo «Puntos» activo en pantalla: cada punto con su color y tamaño.
@@ -117,7 +121,8 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], mostrarCalor = true, puntosMarcados = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen = 0.08, aspectoObjetivo } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], mostrarCalor = true, puntosMarcados = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen: margenPedido = 0.08, aspectoObjetivo, vistaFija } = opciones;
+  const margen = vistaFija ? 0 : margenPedido;
 
   const anillos = extraerAnillos(feature);
   if (anillos.length === 0) throw new Error('El polígono seleccionado no tiene geometría válida para exportar.');
@@ -128,9 +133,15 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   let minLat = minDe(todosLosPuntosAnillo.map((p) => p[1]));
   let maxLat = maxDe(todosLosPuntosAnillo.map((p) => p[1]));
 
+  if (vistaFija) {
+    minLon = vistaFija.oeste; maxLon = vistaFija.este;
+    minLat = vistaFija.sur; maxLat = vistaFija.norte;
+  }
+
   // Etiquetas y pines del Plan Candado: el recorte se amplía para que entren
   // COMPLETOS (caja incluida), medidos con el tamaño que tienen en pantalla.
-  if (escalaPantalla && marcadores.length > 0) {
+  // Con encuadre fijo no se amplía: ya son los que se ven en pantalla.
+  if (escalaPantalla && marcadores.length > 0 && !vistaFija) {
     const medidor = document.createElement('canvas').getContext('2d');
     const { pxPorGradoLon: pxLon, pxPorGradoLat: pxLat } = escalaPantalla;
     const incluir = (lon: number, lat: number) => {
@@ -601,7 +612,9 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
   // 6) Flechas a los barrios más afectados — al final, encima de todo,
   //    con la MISMA proyección (lonAX/latAY) que el calor y los polígonos.
   if (flechas.length > 0) {
-    dibujarFlechasBarrios(ctx, flechas, (lat, lon) => ({ x: lonAX(lon), y: latAY(lat) }), canvas.width, canvas.height);
+    // Encuadre de pantalla: 11.5 px en pantalla × (px del lienzo / px de pantalla).
+    const escalaFija = vistaFija && escalaPantalla ? ((lonAX(1) - lonAX(0)) / escalaPantalla.pxPorGradoLon) * (11.5 / 15) : undefined;
+    dibujarFlechasBarrios(ctx, flechas, (lat, lon) => ({ x: lonAX(lon), y: latAY(lat) }), canvas.width, canvas.height, escalaFija);
   }
 
   return canvas;
