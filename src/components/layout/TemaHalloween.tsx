@@ -1,48 +1,26 @@
-import { useEffect, useState } from 'react';
+import { temporadaActiva, useTemporada } from '../../config/temporadas';
 
 // ──────────────────────────────────────────────────────────────────────────
 // TEMA DE TEMPORADA — Halloween en el menú lateral.
 //
-// Se activa SOLO del 15 al 31 de octubre (hora de Colombia) y se apaga
-// solo el 1 de noviembre a las 00:00, sin publicar nada: el navegador
-// revisa la fecha cada 5 minutos (un dashboard que quede abierto de un día
-// para otro también cambia). Aplica igual para administrador, interno y
-// piloto. Es solo decoración: no toca menús, permisos ni datos, y queda
-// detrás del texto (no recibe clics).
-//
-// Para revisarlo en otra fecha: agregar ?tema=halloween (o ?tema=normal)
-// a la dirección.
+// Las fechas viven en src/config/temporadas.ts (1 al 31 de octubre, hora de
+// Colombia). El 1 de noviembre a las 00:00 vuelve a normal sola: el
+// navegador revisa la fecha cada minuto. Aplica igual para administrador,
+// interno y piloto. Es solo decoración: no toca menús, permisos ni datos,
+// y queda detrás del texto (no recibe clics).
 // ──────────────────────────────────────────────────────────────────────────
 
-const DIA_INICIO = 15; // de octubre
-
-function fechaBogota(): { mes: number; dia: number } {
-  const partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', month: 'numeric', day: 'numeric' }).formatToParts(new Date());
-  return { mes: Number(partes.find((p) => p.type === 'month')?.value), dia: Number(partes.find((p) => p.type === 'day')?.value) };
-}
-
-export function esTemporadaHalloween(): boolean {
-  try {
-    const forzado = new URLSearchParams(window.location.search).get('tema');
-    if (forzado === 'halloween') return true;
-    if (forzado === 'normal') return false;
-  } catch { /* sin ventana */ }
-  const { mes, dia } = fechaBogota();
-  return mes === 10 && dia >= DIA_INICIO && dia <= 31;
+export function esTemporadaHalloween(fecha?: Date): boolean {
+  return temporadaActiva(fecha) === 'halloween';
 }
 
 export function useTemporadaHalloween(): boolean {
-  const [activo, setActivo] = useState(esTemporadaHalloween);
-  useEffect(() => {
-    const id = window.setInterval(() => setActivo(esTemporadaHalloween()), 5 * 60 * 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  return activo;
+  return useTemporada() === 'halloween';
 }
 
-const OSCURO = '#06201d';
+export const OSCURO = '#06201d';
 
-function Murcielago({ ancho = 30, className = '', style }: { ancho?: number; className?: string; style?: React.CSSProperties }) {
+export function Murcielago({ ancho = 30, className = '', style }: { ancho?: number; className?: string; style?: React.CSSProperties }) {
   return (
     <svg viewBox="0 0 44 18" width={ancho} height={(ancho * 18) / 44} className={className} style={style} aria-hidden>
       <path fill={OSCURO} d="M22 6c1-2 2-3 2.5-4l.6 2 1.2-1.6.3 2.4C28 3 31 1.5 34 2c3 .5 6 3 10 7-3-1-5.5-.6-7 1.4-1.5-1.3-3.6-1.4-5 .4-1.3-1-3-1-4.3.6-.9 1.3-2 2.6-3.7 3.6-1.7-1-2.8-2.3-3.7-3.6-1.3-1.6-3-1.6-4.3-.6-1.4-1.8-3.5-1.7-5-.4C9.5 8.4 7 8 4 9c4-4 7-6.5 10-7 3-.5 6 1 7.4 2.8l.3-2.4L19 4l.6-2c.5 1 1.5 2 2.4 4Z" />
@@ -50,7 +28,7 @@ function Murcielago({ ancho = 30, className = '', style }: { ancho?: number; cla
   );
 }
 
-function Calabaza({ ancho = 46, className = '', resplandor = true }: { ancho?: number; className?: string; resplandor?: boolean }) {
+export function Calabaza({ ancho = 46, className = '', resplandor = true }: { ancho?: number; className?: string; resplandor?: boolean }) {
   return (
     <svg viewBox="0 0 64 60" width={ancho} height={(ancho * 60) / 64} className={className} aria-hidden style={resplandor ? { filter: 'drop-shadow(0 0 10px rgba(251,146,60,0.55))' } : undefined}>
       <path d="M31 12c-1-5 1-9 5-11l2 2c-3 2-4 5-3 9z" fill="#3f6212" />
@@ -78,7 +56,7 @@ function Fantasma({ ancho = 70 }: { ancho?: number }) {
   );
 }
 
-function Telarana() {
+export function Telarana() {
   const radios = [0, 18, 36, 54, 72, 90];
   const arcos = [18, 34, 52, 72, 94];
   const a = (g: number, r: number) => [r * Math.cos((g * Math.PI) / 180), r * Math.sin((g * Math.PI) / 180)];
@@ -192,7 +170,7 @@ export function DecoracionHalloween({ colapsado }: { colapsado: boolean }) {
       <div className="absolute right-12 top-[33%] hw-flotar" style={{ animationDuration: '6s' }}><Arana /></div>
       <div className="absolute -right-3 bottom-[22%] opacity-90"><ArbolSeco /></div>
       <div className="absolute -right-2 top-[50%] opacity-60 hw-flotar"><Fantasma ancho={44} /></div>
-      <div className="absolute bottom-[29%] right-2 opacity-90"><Calabaza ancho={42} /></div>
+      <div className="absolute bottom-[13%] right-[118px] opacity-90"><Calabaza ancho={34} /></div>
       <div className="absolute -right-2 bottom-[14%] opacity-85"><Tumbas /></div>
       <Murcielago ancho={36} className="absolute bottom-[15%] right-12 hw-aleteo" style={{ animationDelay: '.6s' }} />
       <Murcielago ancho={26} className="absolute bottom-[12%] right-2 hw-aleteo" style={{ animationDelay: '1.6s' }} />

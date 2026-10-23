@@ -10,6 +10,7 @@ import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { tieneAcceso } from '../../utils/permisos';
 import { useSesionCuenta } from '../../cuentas/PuertaCuenta';
 import { CalabazaItemActivo, DecoracionHalloween, useTemporadaHalloween } from './TemaHalloween';
+import { SombreroBruja } from '../temporada/DecoracionTemporada';
 import { useSesionAdmin } from '../../admin/PuertaAdmin';
 import { useContadorCuentas } from '../../pages/AccesosCuentas';
 
@@ -158,6 +159,8 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
         'relative flex w-full items-center rounded-lg text-left text-[14px] font-semibold tracking-[-0.01em] transition-colors',
         halloween && '[text-shadow:0_1px_3px_rgba(0,0,0,0.75)]',
         colapsado ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5',
+        // La calabaza del ítem activo (temporada) reserva su espacio a la derecha para no tapar el texto.
+        halloween && activeItem && !bloqueado && !colapsado && !insignia && 'pr-11',
         bloqueado
           ? 'cursor-not-allowed text-white/35'
           : activeItem
@@ -170,10 +173,13 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
       <Icon size={colapsado ? 21 : 19} strokeWidth={1.9} className="shrink-0" />
       {!colapsado && <span className="leading-tight">{item.label}</span>}
       {halloween && activeItem && !bloqueado && !colapsado && !insignia && <CalabazaItemActivo />}
+      {/* Sombrero de bruja (temporada): a la derecha, antes de la insignia;
+          no en el ítem activo (lleva la calabaza), ni colapsado, ni bloqueado. */}
+      {halloween && !colapsado && !bloqueado && !activeItem && <SombreroBruja className="ml-auto" />}
       {insignia && (
         <span
           title={insignia.titulo}
-          className={clsx('rounded-full bg-[#5eead4] font-bold tabular-nums text-[#0a3d39]', colapsado ? 'absolute right-1 top-1 px-1 text-[9px]' : 'ml-auto px-1.5 py-[1px] text-[10.5px]')}
+          className={clsx('rounded-full bg-[#5eead4] font-bold tabular-nums text-[#0a3d39]', colapsado ? 'absolute right-1 top-1 px-1 text-[9px]' : clsx('px-1.5 py-[1px] text-[10.5px]', halloween && !bloqueado && !activeItem ? 'max-md:ml-auto md:ml-0' : 'ml-auto'))}
         >
           {insignia.texto}
         </span>
@@ -321,7 +327,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.23 · v210" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.23 · v211" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -337,7 +343,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.23 · v210</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.23 · v211</p>
             </div>
           )}
         </div>

@@ -1,9 +1,12 @@
+import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
 import { useMemo, useState } from 'react';
 import { maxDe } from '../utils/mathSeguro';
 import { useData } from '../context/DataContext';
 import {
   Bike, Boxes, Building2, Car, ChartPie, ClipboardList, Clock, Crosshair, FileBadge, Gavel, Globe, House,
   Layers, Leaf, MapPin, Package, PackageCheck, Scale, Shapes, Tags, TrendingUp, UserCheck, type LucideIcon,
+  Target,
 } from 'lucide-react';
 import { formatDecimal, formatNumero } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
@@ -61,6 +64,7 @@ function conAporte<T extends { casos: number }>(lista: T[]) {
 // Atención ya traducidos al mismo vocabulario del filtro general).
 export function OperatividadUnidad() {
   const { filteredOperatividadRecords, operatividadMeta, filters } = useData();
+  const temporada = useTemporada();
   const [topBarrio, setTopBarrio] = useState<ValorTop>(5);
   const [topDelito, setTopDelito] = useState<ValorTop>(10);
   const [topZona, setTopZona] = useState<ValorTop>(10);
@@ -217,11 +221,13 @@ export function OperatividadUnidad() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Operatividad por Unidad"
-        subtitle="Capturas, incautaciones y recuperaciones — mismos filtros generales del dashboard, cruzados con el Delito asociado."
-        metric={periodo}
-      />
+      {temporada
+        ? <BannerTemporada temporada={temporada} modulo="operatividad" titulo="Operatividad por Unidad" subtitulo="Capturas, incautaciones y recuperaciones — mismos filtros generales del dashboard, cruzados con el Delito asociado." metrica={periodo} icono={<Target size={22} />} />
+        : <PageHeader
+            title="Operatividad por Unidad"
+            subtitle="Capturas, incautaciones y recuperaciones — mismos filtros generales del dashboard, cruzados con el Delito asociado."
+            metric={periodo}
+          />}
 
       {!operatividadMeta && (
         <Card>
@@ -251,6 +257,7 @@ export function OperatividadUnidad() {
           {/* FILA 1 — Resumen ejecutivo · Distribución · Evolución */}
           <div className={GRILLA}>
             <Card
+              adorno={temporada ? <TelaranaEsquina /> : undefined}
               title="Resumen general"
               subtitle="Totales de operatividad con los filtros actuales"
               descargable="resumen-operatividad"

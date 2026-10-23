@@ -1,3 +1,5 @@
+import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
 import { useMemo, useState } from 'react';
 import type React from 'react';
 import { CalendarDays, CalendarRange, BarChart3, Diamond, ArrowUp, Shield, Crosshair, MapPinned, Plus, Building2, Clock, Home } from 'lucide-react';
@@ -19,6 +21,7 @@ type Modo = 'ultimas4' | 'semanas' | 'mes';
 
 export function UltimasSemanas() {
   const { filteredRecords, filters } = useData();
+  const temporada = useTemporada();
   const [modo, setModo] = useState<Modo>('ultimas4');
   const [semanasElegidas, setSemanasElegidas] = useState<string[]>([]); // "anio-semana"
   const [mesElegido, setMesElegido] = useState<string | null>(null);
@@ -221,6 +224,18 @@ export function UltimasSemanas() {
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-[#f7f9fc] p-5">
         {/* Encabezado */}
+        {temporada ? (
+          <div className="mb-4">
+            <BannerTemporada
+              temporada={temporada}
+              modulo="semanas"
+              titulo="Comportamiento de los delitos"
+              subtitulo={`${tituloVentana} (sobre los datos filtrados)`}
+              icono={<CalendarDays size={22} />}
+              acciones={<div className="flex flex-col items-end gap-2">{botonesModo}{controlesModo}</div>}
+            />
+          </div>
+        ) : (
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <IconoBarras size={40} />
@@ -231,6 +246,7 @@ export function UltimasSemanas() {
           </div>
           <div className="flex flex-col items-end gap-2">{botonesModo}{controlesModo}</div>
         </div>
+        )}
 
         {sinDatos ? (
           <EmptyState mensaje={modo === 'semanas' ? 'Selecciona al menos una semana en la lista de arriba para ver el análisis.' : 'No hay suficientes datos con fecha para este análisis.'} />
@@ -282,7 +298,7 @@ export function UltimasSemanas() {
 
         {/* Seis tarjetas */}
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-          <Card title="Armas más empleadas" descargable="armas-mas-empleadas" icono={iconoVerde(Crosshair)} claseTitulo={tituloTarjeta}>{lista('Arma', r.armasTop)}</Card>
+          <Card adorno={temporada ? <TelaranaEsquina /> : undefined} title="Armas más empleadas" descargable="armas-mas-empleadas" icono={iconoVerde(Crosshair)} claseTitulo={tituloTarjeta}>{lista('Arma', r.armasTop)}</Card>
           <Card title="Cuadrantes con mayor afectación" descargable="cuadrantes-mayor-afectacion" icono={iconoVerde(MapPinned)} claseTitulo={tituloTarjeta}>{lista('Cuadrante', r.cuadrantesTop)}</Card>
           <Card title="Causa de lesión" descargable="causa-lesion-semanas" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#16a37f]"><Plus size={16} strokeWidth={3.5} className="text-white" /></span>} claseTitulo={tituloTarjeta}>{lista('Causa', r.causaLesionTop)}</Card>
           <Card title="Clase de sitio" descargable="clase-sitio-semanas" icono={iconoVerde(Building2)} claseTitulo={tituloTarjeta}>{lista('Clase de sitio', r.claseSitioTop)}</Card>

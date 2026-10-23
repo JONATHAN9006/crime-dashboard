@@ -5,7 +5,7 @@ import { ImageDown, Loader2 } from 'lucide-react';
 import { exportarHtmlComoImagen } from '../../utils/exportarImagen';
 import { useRegistrarEnPdf } from '../../context/RegistroPdfContext';
 
-export function Card({ children, className, title, subtitle, actions, descargable, icono, claseTitulo }: {
+export function Card({ children, className, title, subtitle, actions, descargable, icono, claseTitulo, adorno }: {
   children: React.ReactNode;
   className?: string;
   title?: string;
@@ -18,6 +18,9 @@ export function Card({ children, className, title, subtitle, actions, descargabl
   icono?: React.ReactNode;
   // Clases opcionales para el título (por defecto text-sm font-semibold).
   claseTitulo?: string;
+  // Adorno decorativo de temporada (p. ej. telaraña de esquina). Va fuera
+  // del contenido exportable y no recibe clics.
+  adorno?: React.ReactNode;
 }) {
   // Ref SOLO sobre el contenido (children) — nunca incluye el subtítulo ni
   // los botones de acción, así la imagen exportada trae exclusivamente el
@@ -54,7 +57,8 @@ export function Card({ children, className, title, subtitle, actions, descargabl
   }
 
   return (
-    <div className={clsx('rounded-xl border border-slate-200 bg-white p-4 shadow-sm', className)}>
+    <div className={clsx('rounded-xl border border-slate-200 bg-white p-4 shadow-sm', adorno ? 'relative' : null, className)}>
+      {adorno}
       {(title || actions || descargable) && (
         <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
           <div className={clsx('min-w-0 flex-[1_1_12rem]', icono && 'flex items-center gap-2')}>

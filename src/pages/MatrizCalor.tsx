@@ -1,3 +1,5 @@
+import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CalendarDays, Clock, FileText, Target, BarChart3, X, Maximize2, Minimize2, MousePointer2, Filter, Moon, Sun, SearchCheck, Flame,
@@ -526,6 +528,7 @@ function MomentosCriticos({ data, vista, onElegir }: { data: HeatmapResumen; vis
 // ── Página ────────────────────────────────────────────────────────────────
 export function MatrizCalor() {
   const { records, filteredRecords, filters, setFilters, meta, drillDown } = useData();
+  const temporada = useTemporada();
   const [vista, setVista] = useState<VistaHeatmap>('hora');
   const [ampliada, setAmpliada] = useState(false);
   // Celdas seleccionadas: clic = una celda; Ctrl/⌘/Mayús + clic = agregar o quitar.
@@ -615,9 +618,30 @@ export function MatrizCalor() {
     </Card>
   );
 
+  const controlesEncabezado = (
+    <div className="flex flex-wrap items-center gap-2">
+    <SelectorPeriodo anios={anios} anioVigente={anioVigente} />
+    {filtroActivoPorClic && (
+      <button type="button" onClick={quitarFiltroCelda} className="flex items-center gap-1.5 rounded-lg border border-[#10233f]/30 bg-[#10233f]/5 px-3 py-1.5 text-xs font-semibold text-[#10233f] hover:bg-[#10233f]/10">
+        <X size={13} /> Quitar filtro de día/hora aplicado
+      </button>
+    )}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {/* Encabezado */}
+      {temporada ? (
+        <BannerTemporada
+          temporada={temporada}
+          modulo="matriz"
+          titulo="Matriz de Calor"
+          subtitulo={`Día de la semana × ${esHora ? 'hora' : 'franja horaria'} · identifica los momentos críticos según los casos filtrados.`}
+          icono={<CalendarDays size={22} />}
+          acciones={controlesEncabezado}
+        />
+      ) : (
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <IconoCuadro fondo="bg-[#116762]"><CalendarDays size={24} className="text-white" /></IconoCuadro>
@@ -626,15 +650,9 @@ export function MatrizCalor() {
             <p className="text-[13.5px] text-slate-500">Día de la semana × {esHora ? 'hora' : 'franja horaria'} · identifica los momentos críticos según los casos filtrados.</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-        <SelectorPeriodo anios={anios} anioVigente={anioVigente} />
-        {filtroActivoPorClic && (
-          <button type="button" onClick={quitarFiltroCelda} className="flex items-center gap-1.5 rounded-lg border border-[#10233f]/30 bg-[#10233f]/5 px-3 py-1.5 text-xs font-semibold text-[#10233f] hover:bg-[#10233f]/10">
-            <X size={13} /> Quitar filtro de día/hora aplicado
-          </button>
-        )}
-        </div>
+        {controlesEncabezado}
       </div>
+      )}
 
       {/* Indicadores */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -647,7 +665,7 @@ export function MatrizCalor() {
       {/* Matriz + detalle */}
       <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0">{tarjetaMatriz}</div>
-        <Card title="Detalle de selección" descargable="detalle-seleccion-matriz" icono={<MousePointer2 size={22} className="text-[#137a6f]" />} claseTitulo="text-[15px] font-bold text-[#10233f]">
+        <Card adorno={temporada ? <TelaranaEsquina /> : undefined} title="Detalle de selección" descargable="detalle-seleccion-matriz" icono={<MousePointer2 size={22} className="text-[#137a6f]" />} claseTitulo="text-[15px] font-bold text-[#10233f]">
           <DetalleSeleccion
             celdas={celdasSel}
             vista={vista}

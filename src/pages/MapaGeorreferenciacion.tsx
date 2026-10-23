@@ -1,3 +1,5 @@
+import { BannerTemporada } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents, ScaleControl, Marker, Rectangle } from 'react-leaflet';
 import shp from 'shpjs';
@@ -2610,10 +2612,58 @@ function MapaGeorreferenciacionContenido() {
     setOpacidades({ calor: 88, poligono: 100, etiquetas: 100 });
   };
   const altoMapa = 'clamp(560px, calc(100vh - 210px), 980px)';
+  const temporada = useTemporada();
+  const controlesEncabezado = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Periodo aplicado al mapa">
+        <CalendarDays size={18} className="text-[#116762]" />
+        <div className="leading-tight">
+          <p className="text-[10.5px] text-slate-500">Vigencia del mapa</p>
+          <p className="max-w-[220px] truncate text-[13px] font-bold text-[#10233f]" title={textoVigencia}>{textoVigencia}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Registros filtrados de las fuentes cargadas · de ellos, los que tienen coordenadas y se dibujan en el mapa">
+        <Database size={18} className="text-[#116762]" />
+        <div className="leading-tight">
+          <p className="text-[10.5px] text-slate-500">Registros filtrados · en el mapa</p>
+          <p className="text-[13px] font-bold text-[#10233f]">{formatNumero(kpisFuentes.total)} <span className="font-semibold text-slate-400">·</span> <span className="text-[#116762]">{formatNumero(totalEnMapa)}</span></p>
+        </div>
+      </div>
+      <div className="hidden items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 2xl:flex" title="Última actualización de los datos">
+        <Clock size={18} className="text-[#116762]" />
+        <div className="leading-tight">
+          <p className="text-[10.5px] text-slate-500">Actualización</p>
+          <p className="text-[13px] font-bold text-[#10233f]">{textoUltimaActualizacion}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => recargarCapasDelMapa()}
+        disabled={actualizandoMapa}
+        title="Vuelve a leer las capas guardadas y las compartidas por los demás equipos"
+        className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[#116762] px-4 text-[13px] font-bold text-white shadow-sm hover:bg-[#0f5f57] disabled:opacity-60"
+      >
+        <RefreshCw size={15} className={clsx(actualizandoMapa && 'animate-spin')} /> {actualizandoMapa ? 'Actualizando…' : 'Actualizar mapa'}
+      </button>
+      <button type="button" onClick={() => setPantallaCompleta((v) => !v)} title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'} aria-label="Pantalla completa" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#10233f] hover:bg-slate-50">
+        {pantallaCompleta ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+      </button>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
       {/* ── A. ENCABEZADO COMPACTO ── */}
+      {temporada ? (
+        <BannerTemporada
+          temporada={temporada}
+          modulo="mapa"
+          titulo="Mapa / Georreferenciación"
+          subtitulo="Visualiza, analiza y compara la distribución territorial de los eventos"
+          icono={<MapIcon size={21} />}
+          acciones={controlesEncabezado}
+        />
+      ) : (
       <header className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-[0_1px_2px_rgba(16,35,63,0.05)]">
         <div className="flex min-w-[260px] flex-1 items-center gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#116762] to-[#0b4a46] text-white shadow-sm"><MapIcon size={21} /></span>
@@ -2622,42 +2672,9 @@ function MapaGeorreferenciacionContenido() {
             <p className="text-[12.5px] text-slate-500">Visualiza, analiza y compara la distribución territorial de los eventos</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Periodo aplicado al mapa">
-            <CalendarDays size={18} className="text-[#116762]" />
-            <div className="leading-tight">
-              <p className="text-[10.5px] text-slate-500">Vigencia del mapa</p>
-              <p className="max-w-[220px] truncate text-[13px] font-bold text-[#10233f]" title={textoVigencia}>{textoVigencia}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Registros filtrados de las fuentes cargadas · de ellos, los que tienen coordenadas y se dibujan en el mapa">
-            <Database size={18} className="text-[#116762]" />
-            <div className="leading-tight">
-              <p className="text-[10.5px] text-slate-500">Registros filtrados · en el mapa</p>
-              <p className="text-[13px] font-bold text-[#10233f]">{formatNumero(kpisFuentes.total)} <span className="font-semibold text-slate-400">·</span> <span className="text-[#116762]">{formatNumero(totalEnMapa)}</span></p>
-            </div>
-          </div>
-          <div className="hidden items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 2xl:flex" title="Última actualización de los datos">
-            <Clock size={18} className="text-[#116762]" />
-            <div className="leading-tight">
-              <p className="text-[10.5px] text-slate-500">Actualización</p>
-              <p className="text-[13px] font-bold text-[#10233f]">{textoUltimaActualizacion}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => recargarCapasDelMapa()}
-            disabled={actualizandoMapa}
-            title="Vuelve a leer las capas guardadas y las compartidas por los demás equipos"
-            className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[#116762] px-4 text-[13px] font-bold text-white shadow-sm hover:bg-[#0f5f57] disabled:opacity-60"
-          >
-            <RefreshCw size={15} className={clsx(actualizandoMapa && 'animate-spin')} /> {actualizandoMapa ? 'Actualizando…' : 'Actualizar mapa'}
-          </button>
-          <button type="button" onClick={() => setPantallaCompleta((v) => !v)} title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'} aria-label="Pantalla completa" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#10233f] hover:bg-slate-50">
-            {pantallaCompleta ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-          </button>
-        </div>
+        {controlesEncabezado}
       </header>
+      )}
 
       {(chipsFiltros.length > 0 || limiteVigenciaActual) && (
         <p className="flex flex-wrap items-center gap-1.5 px-1 text-[11.5px] text-slate-500">

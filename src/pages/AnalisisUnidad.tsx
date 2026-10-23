@@ -1,3 +1,5 @@
+import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
 import { contarOperatividad } from '../utils/operatividadConteo';
 import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
@@ -57,6 +59,7 @@ function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor:
 
 export function AnalisisUnidad() {
   const { records, filteredRecords, recordsBase, filters, meta, drillDown, filteredOperatividadRecords, periodos } = useData();
+  const temporada = useTemporada();
   const modoAcceso = obtenerModoAcceso();
   const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
   const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
@@ -306,13 +309,15 @@ export function AnalisisUnidad() {
   return (
     <ProveedorRegistroPdf>
       <div className="space-y-4">
-        <PageHeader title="Análisis por Unidad" />
+        {temporada
+          ? <BannerTemporada temporada={temporada} modulo="delictividad" titulo="Análisis por Unidad" icono={<Building2 size={22} />} />
+          : <PageHeader title="Análisis por Unidad" />}
 
         {ventana.disponible && (
           <>
             {/* ── FILA 1: Resumen general | Proyección | Casos por estación (+ meta del 5 %) ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)_minmax(0,1fr)]">
-              <Card className="h-full" title="Resumen general" descargable="resumen-general-unidad" icono={ico(BarChart3)} claseTitulo={T}>
+              <Card adorno={temporada ? <TelaranaEsquina /> : undefined} className="h-full" title="Resumen general" descargable="resumen-general-unidad" icono={ico(BarChart3)} claseTitulo={T}>
 <ResumenDelictividadVisual
                   anioActual={ventana.anioActual}
                   anioAnterior={ventana.anioAnterior}
