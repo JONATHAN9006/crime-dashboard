@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { esCoordenadaValida } from '../utils/geodesia';
 import { getDb, STORE_PUNTOS } from './db';
+import { dentroDeMepoy } from '../utils/jurisdiccionMepoy';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { puntoEnPopayan } from '../utils/territorioPiloto';
 import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
@@ -46,6 +47,8 @@ export interface CapaPuntos {
   colEstadoExistencia: string | null;
   colDependencia: string | null;
   puntos: PuntoGeo[];
+  /** Registros con coordenadas FUERA de la jurisdicción MEPOY (no se dibujan; se avisan en el mapa). */
+  fueraDeJurisdiccion?: { lat: number; lon: number; detalle: string }[];
   visible: boolean;
   filtroEstado: string[];
   filtroEstadoExistencia: string[];
@@ -184,7 +187,8 @@ export function construirPuntos(
     const lat = parseCoordenada(fila[colLat]);
     const lon = parseCoordenada(fila[colLon]);
     if (lat === null || lon === null) continue;
-    if (lat < -4.5 || lat > 13.5 || lon < -82 || lon > -66.5) continue;
+    // Fuera de la jurisdicción MEPOY = coordenada errada (no se dibuja).
+    if (!dentroDeMepoy(lat, lon)) continue;
     const delitoCrudo = colDelito ? String(fila[colDelito] ?? '') : '';
     const dependenciaCruda = colDependencia ? String(fila[colDependencia] ?? '') : '';
     puntos.push({
@@ -343,7 +347,7 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
   // pasándole "undefined" a Leaflet, lo que rompía el mapa por completo al
   // entrar (bug real, ya corregido).
   const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
-  const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  const conCoordenadas = records.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon) && dentroDeMepoy(r.lat, r.lon));
   if (conCoordenadas.length === 0) return;
 
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
@@ -396,20 +400,23 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
 // en Mapa/Georreferenciación en cuanto ese archivo trae Latitud/Longitud,
 // sin necesidad de cargarla aparte con "Cargar capa".
 export async function sincronizarCapaOperatividadDesdeRecords(records: {
-  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; cuadrante: string; fecha: Date | null; categoria: string;
+  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; cuadrante: string; fecha: Date | null; categoria: string; barrioHecho?: string;
 }[], cuadranteACai?: Map<string, string>): Promise<void> {
   // Coordenada utilizable: numérica, finita, distinta de (0,0) y dentro de
   // Colombia (el mismo recuadro que usa construirPuntos para las demás
   // capas). Cada registro válido es UN punto: no se agrupa ni se duplica.
-  const conCoordenadas = records.filter((r) => esCoordenadaValida(r.lat, r.lon)
-    && (r.lat as number) >= -4.5 && (r.lat as number) <= 13.5 && (r.lon as number) >= -82 && (r.lon as number) <= -66.5);
+  // Solo dentro de la jurisdicción MEPOY: una coordenada fuera (p. ej. en el
+  // océano por un error de digitación) no se dibuja; se avisa en la consola.
+  const conCoordenadas = records.filter((r) => esCoordenadaValida(r.lat, r.lon) && dentroDeMepoy(r.lat, r.lon));
+  const fuera = records.filter((r) => esCoordenadaValida(r.lat, r.lon) && !dentroDeMepoy(r.lat, r.lon));
+  if (fuera.length) console.warn(`[Operatividad→Mapa] ${fuera.length} registro(s) con coordenadas FUERA de MEPOY (no se dibujan):`, fuera.slice(0, 20).map((r) => ({ lat: r.lat, lon: r.lon, fecha: r.fecha, categoria: r.categoria, estacion: r.estacion })));
   console.info(`[Operatividad→Mapa] ${conCoordenadas.length} de ${records.length} registro(s) tienen Latitud/Longitud válidas. Estaciones encontradas: ${JSON.stringify([...new Set(conCoordenadas.map((r) => r.estacion))])}`);
   if (conCoordenadas.length === 0) return;
 
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
     lat: r.lat as number,
     lon: r.lon as number,
-    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria, CUADRANTE: r.cuadrante },
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria, CUADRANTE: r.cuadrante, BARRIO: r.barrioHecho ?? '' },
     delitoCorto: r.delitoAsociado,
     estacionCorta: r.estacion,
     // CAI inferido cruzando el cuadrante con Delictividad (Operatividad no
@@ -428,7 +435,8 @@ export async function sincronizarCapaOperatividadDesdeRecords(records: {
       archivoNombre: 'Actualizar información (automático)',
       cargadoPor: previa?.cargadoPor ?? 'Sistema',
       fechaCarga: new Date().toISOString(),
-      columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD', 'CUADRANTE'],
+      columnas: ['DELITO', 'ESTACION', 'FECHA_HECHO', 'OPERATIVIDAD', 'CUADRANTE', 'BARRIO'],
+      fueraDeJurisdiccion: fuera.slice(0, 200).map((r) => ({ lat: r.lat as number, lon: r.lon as number, detalle: [r.fecha ? new Date(r.fecha).toLocaleDateString('es-CO') : '', r.categoria, r.delitoAsociado, r.estacion, r.barrioHecho].filter(Boolean).join(' · ') })),
       colLat: 'lat',
       colLon: 'lon',
       colDelito: 'DELITO',
@@ -456,7 +464,7 @@ export async function sincronizarCapaRnmcDesdeComparendos(registros: {
   lat: number | null; lon: number | null; fecha: Date | null; articuloNumeral: string; comuna: string; zonaAtencionHechos: string; barrio: string;
 }[]): Promise<void> {
   const tieneCoordenadaValida = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
-  const conCoordenadas = registros.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon));
+  const conCoordenadas = registros.filter((r) => tieneCoordenadaValida(r.lat) && tieneCoordenadaValida(r.lon) && dentroDeMepoy(r.lat, r.lon));
   console.info(`[RNMC→Mapa] ${conCoordenadas.length} de ${registros.length} comparendo(s) tienen Latitud/Longitud válidas.`);
   if (conCoordenadas.length === 0) return;
 

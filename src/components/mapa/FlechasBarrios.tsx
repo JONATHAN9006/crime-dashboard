@@ -37,20 +37,25 @@ export function posicionesEfectivasRotulo(flechas: FlechaBarrio[], mapa: L.Map, 
   });
 }
 
-function htmlRotulo(f: FlechaBarrio): string {
+/** Estilo de los rótulos por fuente (Delitos rojo, Operatividad ámbar, IRISP1 azul, RNMC magenta). */
+export interface EstiloFlecha { color: string; texto: string; unidad: [string, string]; etiqueta?: string }
+export const ESTILO_DELITOS: EstiloFlecha = { color: '#b91c1c', texto: '#7f1d1d', unidad: ['caso', 'casos'] };
+
+function htmlRotulo(f: FlechaBarrio, e: EstiloFlecha): string {
   const texto = `${f.rango}. ${f.barrio}`.replace(/</g, '&lt;');
-  const casos = `${f.casos.toLocaleString('es-CO')} caso${f.casos === 1 ? '' : 's'}`;
-  return `<div title="Arrastra para reubicar" style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;background:#ffffff;border:2px solid #b91c1c;border-radius:6px;padding:2px 7px;box-shadow:0 2px 6px rgba(0,0,0,.25);font:700 11.5px/1.25 system-ui,Arial,sans-serif;color:#7f1d1d;text-align:center;cursor:grab;user-select:none">${texto}<br><span style="font-weight:600;color:#475569;font-size:10.5px">${casos}</span></div>`;
+  const casos = `${f.casos.toLocaleString('es-CO')} ${f.casos === 1 ? e.unidad[0] : e.unidad[1]}`;
+  const etiqueta = e.etiqueta ? ` · <span style="color:${e.color}">${e.etiqueta}</span>` : '';
+  return `<div title="Arrastra para reubicar" style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;background:#ffffff;border:2px solid ${e.color};border-radius:6px;padding:2px 7px;box-shadow:0 2px 6px rgba(0,0,0,.25);font:700 11.5px/1.25 system-ui,Arial,sans-serif;color:${e.texto};text-align:center;cursor:grab;user-select:none">${texto}<br><span style="font-weight:600;color:#475569;font-size:10.5px">${casos}${etiqueta}</span></div>`;
 }
 
-function htmlCabeza(angulo: number): string {
+function htmlCabeza(angulo: number, color = '#b91c1c'): string {
   // (Ojo: un <svg> de 0×0 NO se dibuja en Chrome aunque tenga overflow
   // visible — por eso mide 1×1.) Triángulo con la punta en (0,0), apuntando hacia la derecha; se rota
   // al ángulo de la línea rótulo → barrio.
-  return `<svg width="1" height="1" style="position:absolute;left:0;top:0;overflow:visible;pointer-events:none"><g transform="rotate(${angulo.toFixed(1)})"><polygon points="0,0 ${-CABEZA},${-CABEZA * 0.55} ${-CABEZA},${CABEZA * 0.55}" fill="#b91c1c" stroke="#ffffff" stroke-width="1.5"/></g></svg>`;
+  return `<svg width="1" height="1" style="position:absolute;left:0;top:0;overflow:visible;pointer-events:none"><g transform="rotate(${angulo.toFixed(1)})"><polygon points="0,0 ${-CABEZA},${-CABEZA * 0.55} ${-CABEZA},${CABEZA * 0.55}" fill="${color}" stroke="#ffffff" stroke-width="1.5"/></g></svg>`;
 }
 
-function FlechaArrastrable({ f, onMover }: { f: FlechaBarrio & { rotuloLat: number; rotuloLon: number }; onMover: (pos: { lat: number; lon: number }) => void }) {
+function FlechaArrastrable({ f, onMover, estilo }: { f: FlechaBarrio & { rotuloLat: number; rotuloLon: number }; onMover: (pos: { lat: number; lon: number }) => void; estilo: EstiloFlecha }) {
   const mapa = useMap();
   // Posición en vivo mientras se arrastra (la flecha sigue al rótulo).
   const [enVivo, setEnVivo] = useState<{ lat: number; lon: number } | null>(null);
@@ -63,14 +68,14 @@ function FlechaArrastrable({ f, onMover }: { f: FlechaBarrio & { rotuloLat: numb
   const base = mapa.layerPointToLatLng([pPunta.x - (dx / dist) * CABEZA, pPunta.y - (dy / dist) * CABEZA]);
   const angulo = (Math.atan2(dy, dx) * 180) / Math.PI;
 
-  const iconoRotulo = useMemo(() => L.divIcon({ className: 'flecha-barrio', html: htmlRotulo(f), iconSize: [0, 0], iconAnchor: [0, 0] }), [f.rango, f.barrio, f.casos]); // eslint-disable-line react-hooks/exhaustive-deps
-  const iconoCabeza = L.divIcon({ className: 'flecha-barrio', html: htmlCabeza(angulo), iconSize: [0, 0], iconAnchor: [0, 0] });
+  const iconoRotulo = useMemo(() => L.divIcon({ className: 'flecha-barrio', html: htmlRotulo(f, estilo), iconSize: [0, 0], iconAnchor: [0, 0] }), [f.rango, f.barrio, f.casos, estilo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const iconoCabeza = L.divIcon({ className: 'flecha-barrio', html: htmlCabeza(angulo, estilo.color), iconSize: [0, 0], iconAnchor: [0, 0] });
   const linea: [number, number][] = [[rotulo.lat, rotulo.lon], [base.lat, base.lng]];
 
   return (
     <>
       <Polyline positions={linea} pathOptions={{ color: '#ffffff', weight: 6, opacity: 1, lineCap: 'round' }} interactive={false} />
-      <Polyline positions={linea} pathOptions={{ color: '#b91c1c', weight: 3.5, opacity: 1, lineCap: 'round' }} interactive={false} />
+      <Polyline positions={linea} pathOptions={{ color: estilo.color, weight: 3.5, opacity: 1, lineCap: 'round' }} interactive={false} />
       <Marker position={[f.lat, f.lon]} icon={iconoCabeza} interactive={false} keyboard={false} zIndexOffset={900} />
       <Marker
         position={[rotulo.lat, rotulo.lon]}
@@ -87,8 +92,10 @@ function FlechaArrastrable({ f, onMover }: { f: FlechaBarrio & { rotuloLat: numb
   );
 }
 
-export function FlechasBarrios({ flechas, posiciones, onMover }: {
+export function FlechasBarrios({ flechas, posiciones, onMover, estilo = ESTILO_DELITOS }: {
   flechas: FlechaBarrio[];
+  /** Color y unidad del rótulo (por defecto, Delitos en rojo). */
+  estilo?: EstiloFlecha;
   posiciones: PosicionesRotulo;
   onMover: (clave: string, pos: { lat: number; lon: number }) => void;
 }) {
@@ -101,7 +108,7 @@ export function FlechasBarrios({ flechas, posiciones, onMover }: {
   return (
     <>
       {conPosicion.map((f) => (
-        <FlechaArrastrable key={claveRotulo(f)} f={f} onMover={(pos) => onMover(claveRotulo(f), pos)} />
+        <FlechaArrastrable key={claveRotulo(f)} f={f} estilo={estilo} onMover={(pos) => onMover(claveRotulo(f), pos)} />
       ))}
     </>
   );

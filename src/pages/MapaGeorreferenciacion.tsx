@@ -24,7 +24,7 @@ import {
   IconoCaja, TarjetaTerritorial,
   SelectorColorRapido, ControlTamanoPuntos,
 } from '../components/mapa/PanelesMapa';
-import { FlechasBarrios, posicionesEfectivasRotulo, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
+import { FlechasBarrios, posicionesEfectivasRotulo, type EstiloFlecha, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
 import { calcularTopBarrios, normalizarNombre, esBarrioReal } from '../utils/barriosAfectados';
 import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
 import { exportarPoligonoAislado, generarDataUrlPoligonoAislado, type PuntoMarcadoExport } from '../utils/exportarPoligonoMapa';
@@ -53,6 +53,7 @@ import { CompuertaGeograficaPiloto, LimitarAPopayan, esPerfilPilotoActual } from
 import { restringirCapasAPopayan } from '../data/geoStorage';
 import { restringirCapasPuntosAPopayan } from '../data/puntosStorage';
 import { puntoEnPopayan } from '../utils/territorioPiloto';
+import { dentroDeMepoy } from '../utils/jurisdiccionMepoy';
 // La vista 3D (MapLibre GL) solo se descarga cuando alguien la abre.
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
@@ -1057,7 +1058,24 @@ function MapaGeorreferenciacionContenido() {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [capasPuntosFuente, setCapasPuntos] = useState<CapaPuntos[]>([]);
-  const capasPuntos = useMemo(() => (esPiloto ? restringirCapasPuntosAPopayan(capasPuntosFuente) : capasPuntosFuente), [esPiloto, capasPuntosFuente]);
+  // Puntos con coordenadas FUERA de la jurisdicción MEPOY (errores de
+  // digitación, p. ej. en el océano) no se dibujan, aunque ya estuvieran
+  // guardados en el equipo; se avisan en el mapa para poder corregirlos.
+  const { capasPuntos, puntosFueraMepoy } = useMemo(() => {
+    const fuera: { capa: string; lat: number; lon: number; detalle: string }[] = [];
+    const limpias = capasPuntosFuente.map((c) => {
+      const dentro = c.puntos.filter((p) => {
+        if (dentroDeMepoy(p.lat, p.lon)) return true;
+        const f = p.fila ?? {};
+        const fecha = f.FECHA_HECHO ? new Date(f.FECHA_HECHO).toLocaleDateString('es-CO') : '';
+        fuera.push({ capa: c.nombre, lat: p.lat, lon: p.lon, detalle: [fecha, f.OPERATIVIDAD, p.delitoCorto, p.estacionCorta].filter(Boolean).join(' · ') });
+        return false;
+      });
+      for (const x of c.fueraDeJurisdiccion ?? []) fuera.push({ capa: c.nombre, ...x });
+      return dentro.length === c.puntos.length ? c : { ...c, puntos: dentro };
+    });
+    return { capasPuntos: esPiloto ? restringirCapasPuntosAPopayan(limpias) : limpias, puntosFueraMepoy: fuera };
+  }, [esPiloto, capasPuntosFuente]);
   // Zona seleccionada (clic sobre un polígono de una capa cargada) — para
   // recortar el mapa de calor a solo esa zona y poder descargarla aparte.
   const [zonaSeleccionada, setZonaSeleccionada] = useState<{ capaId: string; feature: any; nombre: string } | null>(null);
@@ -1340,7 +1358,7 @@ function MapaGeorreferenciacionContenido() {
   // siempre — así el calor nunca «desaparece» al sumar barrios.
   const puntosDelitosDesdeRegistros = useMemo(
     (): CapaPuntos['puntos'] => registrosSinFiltroBarrio
-      .filter((r) => esCoordenadaValida(r.lat, r.lon) && (!esPiloto || puntoEnPopayan(r.lat, r.lon)))
+      .filter((r) => esCoordenadaValida(r.lat, r.lon) && dentroDeMepoy(r.lat, r.lon) && (!esPiloto || puntoEnPopayan(r.lat, r.lon)))
       .map((r) => ({
         lat: r.lat as number,
         lon: r.lon as number,
@@ -2209,6 +2227,29 @@ function MapaGeorreferenciacionContenido() {
     () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'operatividad' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
     [capasPuntosProcesadas],
   );
+  // ── Barrios con más registros de Operatividad, IRISP1 y RNMC ─────────────
+  // Mismos rótulos con flecha que los barrios de Delitos (misma cantidad 3/5
+  // y misma lógica), cada fuente con su propio color de contorno. Se calculan
+  // con los MISMOS puntos que se dibujan (ya filtrados).
+  const barrioDePunto = (p: { fila?: Record<string, any> }) => String(p.fila?.BARRIO ?? p.fila?.BARRIO_HECHOS ?? p.fila?.Barrio ?? p.fila?.BARRIO_HECHO ?? '');
+  const flechasDeFuente = (puntos: { lat: number; lon: number; fila?: Record<string, any> }[]) =>
+    cantidadFlechasBarrio === 0 || puntos.length === 0 ? [] : calcularTopBarrios(
+      puntos.map((p) => ({ barrioHecho: barrioDePunto(p), lat: p.lat, lon: p.lon, cantidad: 1 })),
+      cantidadFlechasBarrio,
+      { poligonosBarrio, dentroDe: zonaActiva?.feature },
+    );
+  const [posicionesRotuloFuente, setPosicionesRotuloFuente] = useState<Record<string, PosicionesRotulo>>({});
+  const flechasOperatividad = useMemo(() => (mostrarCalorOperatividad ? flechasDeFuente(puntosOperatividadParaMostrar) : []), // eslint-disable-line react-hooks/exhaustive-deps
+    [mostrarCalorOperatividad, puntosOperatividadParaMostrar, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre]);
+  const flechasIrisp1 = useMemo(() => (mostrarCalorIrisp1 ? flechasDeFuente(puntosIrisp1ParaMostrar) : []), // eslint-disable-line react-hooks/exhaustive-deps
+    [mostrarCalorIrisp1, puntosIrisp1ParaMostrar, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre]);
+  const flechasRnmc = useMemo(() => (mostrarCalorRnmc ? flechasDeFuente(puntosRnmcParaMostrar) : []), // eslint-disable-line react-hooks/exhaustive-deps
+    [mostrarCalorRnmc, puntosRnmcParaMostrar, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre]);
+  const FLECHAS_FUENTES: { clave: string; flechas: typeof flechasOperatividad; estilo: EstiloFlecha }[] = [
+    { clave: 'operatividad', flechas: flechasOperatividad, estilo: { color: '#d97706', texto: '#78350f', unidad: ['registro', 'registros'], etiqueta: 'Operatividad' } },
+    { clave: 'irisp1', flechas: flechasIrisp1, estilo: { color: '#2563eb', texto: '#1e3a8a', unidad: ['información', 'informaciones'], etiqueta: 'IRISP1' } },
+    { clave: 'rnmc', flechas: flechasRnmc, estilo: { color: '#db2777', texto: '#831843', unidad: ['comparendo', 'comparendos'], etiqueta: 'RNMC' } },
+  ];
   const puntosMacriParaMostrar = useMemo(
     () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'macri' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
     [capasPuntosProcesadas],
@@ -3189,6 +3230,16 @@ function MapaGeorreferenciacionContenido() {
                 onMover={(clave, pos) => setPosicionesRotulo((prev) => ({ ...prev, [clave]: pos }))}
               />
             )}
+            {/* Barrios con más Operatividad / IRISP1 / RNMC: mismo rótulo, otro color. */}
+            {FLECHAS_FUENTES.filter((x) => x.flechas.length > 0).map((x) => (
+              <FlechasBarrios
+                key={x.clave}
+                flechas={x.flechas}
+                estilo={x.estilo}
+                posiciones={posicionesRotuloFuente[x.clave] ?? {}}
+                onMover={(clave, pos) => setPosicionesRotuloFuente((prev) => ({ ...prev, [x.clave]: { ...(prev[x.clave] ?? {}), [clave]: pos } }))}
+              />
+            ))}
 
             {/* Mapa de calor de IRISP1: misma cuadrícula compacta, con su
                 propia escala de 5 clases (azul → morado), completamente
@@ -3198,7 +3249,7 @@ function MapaGeorreferenciacionContenido() {
             {mostrarCalorIrisp1 && verCalor && (
               <KernelHeatmapLayer
                 puntos={puntosIrisp1ParaMostrar}
-                colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']}
+                colores={paletaCalorDelitos}
                 opacidad={opacidades.calor / 100}
               />
             )}
@@ -3210,7 +3261,7 @@ function MapaGeorreferenciacionContenido() {
             {mostrarCalorRnmc && verCalor && (
               <KernelHeatmapLayer
                 puntos={puntosRnmcParaMostrar}
-                colores={['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843']}
+                colores={paletaCalorDelitos}
                 opacidad={opacidades.calor / 100}
               />
             )}
@@ -3447,6 +3498,14 @@ function MapaGeorreferenciacionContenido() {
               <div className="absolute bottom-3 right-3 z-[1000] flex flex-col items-end gap-2">
                 {!esPiloto && <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />}
                 <div className="flex flex-wrap justify-end gap-1.5">
+                  {puntosFueraMepoy.length > 0 && (
+                    <span
+                      className="flex cursor-help items-center gap-1.5 rounded-lg bg-amber-500/95 px-2.5 py-1.5 text-[11.5px] font-semibold text-white shadow"
+                      title={`Coordenadas fuera de la jurisdicción MEPOY (probable error de digitación). No se dibujan; sí cuentan en las tablas:\n${puntosFueraMepoy.slice(0, 15).map((p) => `• ${p.capa}: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.detalle ? ` — ${p.detalle}` : ''}`).join('\n')}${puntosFueraMepoy.length > 15 ? `\n… y ${puntosFueraMepoy.length - 15} más` : ''}`}
+                    >
+                      ⚠ {formatNumero(puntosFueraMepoy.length)} {puntosFueraMepoy.length === 1 ? 'punto' : 'puntos'} fuera de MEPOY sin dibujar
+                    </span>
+                  )}
                   <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><MapIcon size={13} /> Zonas visibles: <b>{formatNumero(elementosVisibles)}</b></span>
                   <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><ChartColumn size={13} /> Casos mostrados: <b>{formatNumero(totalEnMapa)}</b></span>
                 </div>
@@ -3467,12 +3526,12 @@ function MapaGeorreferenciacionContenido() {
                       <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
                     </div>
                   )}
-                  {verCalor && mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1" colores={['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87']} />}
+                  {verCalor && mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1 (densidad Kernel)" colores={paletaCalorDelitos.filter((c): c is string => c !== null)} />}
                   {verCalor && mostrarCalorOperatividad && (
                     <LeyendaDensidadKernel titulo="Densidad de operatividad" colores={paletaCalorDelitos} resultado={kernelOperatividad} eventos={puntosOperatividadParaMostrar.length} consultando={consultarOperatividad} onConsultar={() => setConsultarOperatividad((v) => !v)} />
                   )}
                   {verCalor && mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
-                  {verCalor && mostrarCalorRnmc && <LeyendaGradiente titulo="RNMC" colores={['#fbcfe8', '#f472b6', '#ec4899', '#be185d', '#831843']} />}
+                  {verCalor && mostrarCalorRnmc && <LeyendaGradiente titulo="RNMC (densidad Kernel)" colores={paletaCalorDelitos.filter((c): c is string => c !== null)} />}
                   {modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1 && (
                     <p className="flex items-center gap-1.5 text-slate-600"><span className="h-3 w-3 rounded-full" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} /> Correspondencia espacial IRISP1 vs Delitos</p>
                   )}

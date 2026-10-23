@@ -704,6 +704,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   //    versión MÁS NUEVA; solo en ese caso se descarga completa. Sigue
   //    esperando a que termine la carga de Delictividad (Apps Script no
   //    tolera dos descargas simultáneas), pero ya no bloquea la pantalla.
+  // La capa «Operatividad» del mapa se rearma una vez por sesión también
+  // cuando los datos vienen de la copia local (no solo al descargar): así
+  // toma siempre las reglas vigentes (barrio de cada registro y puntos solo
+  // dentro de la jurisdicción MEPOY).
+  const capaOperatividadSincronizada = useRef(false);
+  useEffect(() => {
+    if (ES_PILOTO || capaOperatividadSincronizada.current || operatividadRecords.length === 0 || records.length === 0) return;
+    capaOperatividadSincronizada.current = true;
+    const cuadranteACai = new Map<string, string>();
+    for (const r of records) {
+      if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
+    }
+    sincronizarCapaOperatividadDesdeRecords(operatividadRecords, cuadranteACai).catch((err) => console.error('[Operatividad→Mapa] Falló rearmando la capa:', err));
+  }, [operatividadRecords, records]);
+
   const [cargandoOperatividad, setCargandoOperatividad] = useState(true);
   const fechaCopiaOperatividad = useRef<number | null>(null);
   useEffect(() => {
