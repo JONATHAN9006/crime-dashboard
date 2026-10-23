@@ -65,9 +65,7 @@ const PAGINAS_SIN_DATOS: PaginaId[] = ['mapa', 'tasaCosec', 'productos', 'rnmc',
 // El mapa YA usa el filtro principal (una sola fuente de verdad): lo que se
 // filtra aquí —delito, modalidad, estación, fechas…— se ve también en el mapa.
 // Plan Candado tiene su propia barra compacta (Estación y CAI son los del filtro principal).
-// La Matriz de Calor tiene su propia barra (Periodo, Delito, Estación, Zona de
-// atención) que escribe en los MISMOS filtros globales: no se duplica.
-const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['irisp1', 'macri', 'accesosCai', 'planCandado', 'matrizCalor'];
+const PAGINAS_SIN_FILTRO_GENERAL: PaginaId[] = ['irisp1', 'macri', 'accesosCai', 'planCandado'];
 
 // Pantalla de carga; en el enlace piloto muestra el avance de la descarga.
 function CargandoInformacion() {

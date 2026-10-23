@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CalendarDays, Clock, FileText, Target, BarChart3, X, Maximize2, Minimize2, MousePointer2, Filter, Moon, Sun, SearchCheck, Flame,
-  Info, Building2, MapPin, ShieldAlert, History, Siren, Eraser, SlidersHorizontal, ArrowUp, ArrowDown, Minus, Percent, Gauge,
+  Info, Building2, MapPin, ShieldAlert, History, Siren, ArrowUp, ArrowDown, Minus, Percent, Gauge, ChevronDown, Check,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useData } from '../context/DataContext';
-import { useHeatmap, calcularNiveles, CORTES_INDICE, type VistaHeatmap, type CeldaHeatmap, type HeatmapResumen, type NivelCalor } from '../hooks/useHeatmap';
-import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
+import { useHeatmap, calcularNiveles, type VistaHeatmap, type CeldaHeatmap, type HeatmapResumen, type NivelCalor } from '../hooks/useHeatmap';
+import type { CrimeRecord, FilterState } from '../types/crime';
 import { Card } from '../components/ui/Card';
-import { MultiSelect } from '../components/filters/MultiSelect';
 import { formatDecimal, formatNumero } from '../utils/aggregations';
 import { maxDe } from '../utils/mathSeguro';
 
@@ -29,25 +28,24 @@ import { maxDe } from '../utils/mathSeguro';
 
 const AZUL = '#10233f';
 const PETROLEO = '#116762';
+// La misma escala de siempre: baja verde, media amarilla, alta naranja, crítica roja.
 export const COLOR_NIVEL: Record<NivelCalor, string> = {
   cero: '#f1f5f9',
-  baja: '#d3efdc',
-  'media-baja': '#9fdec4',
-  media: '#fbe28a',
-  alta: '#f7ae66',
-  'crítica': '#e5484d',
+  baja: '#bfe9cf',
+  media: '#fbe27a',
+  alta: '#f8b061',
+  'crítica': '#ec4a4f',
 };
 const TEXTO_NIVEL: Record<NivelCalor, string> = {
-  cero: '#94a3b8', baja: AZUL, 'media-baja': AZUL, media: AZUL, alta: AZUL, 'crítica': '#ffffff',
+  cero: '#94a3b8', baja: AZUL, media: AZUL, alta: AZUL, 'crítica': '#ffffff',
 };
-const NIVELES: { nivel: NivelCalor; titulo: string; regla: string }[] = [
-  { nivel: 'baja', titulo: 'Baja', regla: `menos de ${formatDecimal(CORTES_INDICE[0], 2)}×` },
-  { nivel: 'media-baja', titulo: 'Media baja', regla: `${formatDecimal(CORTES_INDICE[0], 2)}× a ${formatDecimal(CORTES_INDICE[1], 2)}×` },
-  { nivel: 'media', titulo: 'Media', regla: `${formatDecimal(CORTES_INDICE[1], 2)}× a ${formatDecimal(CORTES_INDICE[2], 2)}×` },
-  { nivel: 'alta', titulo: 'Alta', regla: `${formatDecimal(CORTES_INDICE[2], 2)}× a ${formatDecimal(CORTES_INDICE[3], 1)}×` },
-  { nivel: 'crítica', titulo: 'Crítica', regla: `más de ${formatDecimal(CORTES_INDICE[3], 1)}×` },
+const NIVELES: { nivel: NivelCalor; titulo: string; color: string; regla: string }[] = [
+  { nivel: 'baja', titulo: 'Concentración baja', color: '#1fa47a', regla: 'hasta el percentil 50' },
+  { nivel: 'media', titulo: 'Concentración media', color: '#f6cf3a', regla: 'percentil 50 a 80' },
+  { nivel: 'alta', titulo: 'Concentración alta', color: '#f59a3c', regla: 'percentil 80 a 95' },
+  { nivel: 'crítica', titulo: 'Concentración crítica', color: '#e5383b', regla: 'el 5 % más alto' },
 ];
-const NOMBRE_NIVEL: Record<NivelCalor, string> = { cero: 'Sin casos', baja: 'Baja', 'media-baja': 'Media baja', media: 'Media', alta: 'Alta', 'crítica': 'Crítica' };
+const NOMBRE_NIVEL: Record<NivelCalor, string> = { cero: 'Sin casos', baja: 'Baja', media: 'Media', alta: 'Alta', 'crítica': 'Crítica' };
 const RANGO_FRANJA = ['00:00 – 05:59', '06:00 – 11:59', '12:00 – 17:59', '18:00 – 23:59'];
 
 const pct = (n: number, total: number) => (total > 0 ? (n / total) * 100 : 0);
@@ -131,7 +129,7 @@ export function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda, comp
                       type="button"
                       onClick={(e) => onCelda(celda, e)}
                       aria-pressed={sel}
-                      title={`${diaLabel} · ${etiquetaColumna(data.vista, celda.columnaLabel)} — ${formatNumero(celda.valor)} casos (${formatDecimal(celda.porcentaje, 1)} % del total) · concentración ${NOMBRE_NIVEL[celda.nivel].toLowerCase()} (${formatDecimal(celda.indice, 2)}× el promedio)`}
+                      title={`${diaLabel} · ${etiquetaColumna(data.vista, celda.columnaLabel)} — ${formatNumero(celda.valor)} casos (${formatDecimal(celda.porcentaje, 1)} % del total) · concentración ${NOMBRE_NIVEL[celda.nivel].toLowerCase()}`}
                       className={`flex w-full items-center justify-center rounded-md font-bold tabular-nums transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#116762] ${esHora ? (compacta ? 'h-8 text-[10px]' : 'h-8 text-[12.5px]') : 'h-10 text-[15px]'}`}
                       style={{
                         backgroundColor: COLOR_NIVEL[celda.nivel],
@@ -191,36 +189,34 @@ export function Leyenda({ titulo, data, compacta = false }: { titulo?: string; d
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
       <p className="mb-2 text-[13px] font-bold" style={{ color: AZUL }}>{titulo ?? 'Niveles de concentración (casos por celda)'}</p>
-      <div className={clsx('grid gap-x-5 gap-y-2', compacta ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6')}>
+      <div className={clsx('grid gap-x-6 gap-y-2.5', compacta ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-5')}>
         {NIVELES.map((n) => {
           const r = resumen.get(n.nivel);
           return (
-            <div key={n.nivel} className="flex items-start gap-2">
-              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-md" style={{ backgroundColor: COLOR_NIVEL[n.nivel], boxShadow: 'inset 0 0 0 1px rgba(16,35,63,0.08)' }} />
+            <div key={n.nivel} className="flex items-start gap-2.5">
+              <span className="mt-0.5 h-5 w-5 shrink-0 rounded" style={{ backgroundColor: n.color }} />
               <span className="min-w-0 leading-tight">
                 <span className="block text-[12.5px] font-bold" style={{ color: AZUL }}>{n.titulo}</span>
                 {data && r ? (
-                  <span className="block text-[11px] text-slate-600">{r.min === r.max ? formatNumero(r.min) : `${formatNumero(r.min)} – ${formatNumero(r.max)}`} casos · {formatDecimal(pct(r.casos, total), 1)} %</span>
-                ) : data ? <span className="block text-[11px] text-slate-400">Sin celdas</span> : null}
-                <span className="block text-[10.5px] text-slate-400">{n.regla} el promedio</span>
+                  <span className="block text-[11.5px] text-slate-600">{r.min === r.max ? formatNumero(r.min) : `${formatNumero(r.min)} a ${formatNumero(r.max)}`} casos por celda · <b style={{ color: AZUL }}>{formatDecimal(pct(r.casos, total), 1)} %</b> de los casos</span>
+                ) : data ? <span className="block text-[11.5px] text-slate-400">Sin celdas</span> : null}
+                <span className="block text-[10.5px] text-slate-400">{data && r ? `${r.celdas} celdas · ` : ''}{n.regla}</span>
               </span>
             </div>
           );
         })}
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold" style={{ backgroundColor: COLOR_NIVEL.cero, color: TEXTO_NIVEL.cero, boxShadow: 'inset 0 0 0 1px rgba(16,35,63,0.08)' }}>0</span>
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold" style={{ backgroundColor: COLOR_NIVEL.cero, color: TEXTO_NIVEL.cero, boxShadow: 'inset 0 0 0 1px rgba(16,35,63,0.1)' }}>0</span>
           <span className="leading-tight">
             <span className="block text-[12.5px] font-bold" style={{ color: AZUL }}>Sin casos</span>
-            <span className="block text-[11px] text-slate-500">{data ? `${celdasCero} ${celdasCero === 1 ? 'celda' : 'celdas'} en cero` : 'Celda en cero'}</span>
+            <span className="block text-[11.5px] text-slate-500">{data ? `${celdasCero} ${celdasCero === 1 ? 'celda' : 'celdas'} en cero` : 'Celda en cero'}</span>
           </span>
         </div>
       </div>
       <p className="mt-2.5 flex items-start gap-1.5 border-t border-slate-200 pt-2 text-[11px] leading-snug text-slate-500">
         <Info size={14} className="mt-[1px] shrink-0" />
         <span>
-          <b>Metodología:</b> cada celda se compara con los casos que tendría si el total se repartiera parejo entre todas las celdas
-          {data && data.esperadoPorCelda > 0 ? <> (aquí, <b>{formatDecimal(data.esperadoPorCelda, 1)}</b> casos por celda)</> : null}. 1× = el promedio; 2× = el doble.
-          Así un color significa lo mismo en cualquier año, periodo o filtro. Un nivel alto indica dónde se concentran los casos, no su causa.
+          Los niveles representan concentración relativa dentro del periodo seleccionado: se ordenan las celdas con casos y se cortan en los percentiles 50, 80 y 95. El % indica qué parte del total de casos cae en las celdas de ese nivel. Se recalcula con los filtros.
           {data && data.sinDiaOHora > 0 && <> <b className="text-amber-700">{formatNumero(data.sinDiaOHora)} registros sin día u hora</b> no se incluyen en la matriz (sin dato, distinto de cero casos).</>}
         </span>
       </p>
@@ -228,83 +224,74 @@ export function Leyenda({ titulo, data, compacta = false }: { titulo?: string; d
   );
 }
 
-// ── Barra de filtros (escribe en los filtros GLOBALES) ─────────────────────
-const CAMPOS_PROPIOS: (keyof FilterState)[] = ['anio', 'delito', 'estacion', 'cuadrante', 'diaSemana', 'horaExacta', 'franjaHoraria'];
-const NOMBRE_FILTRO: Partial<Record<keyof FilterState, string>> = {
-  cai: 'CAI', barrioHecho: 'Barrio', zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio',
-  causaLesion: 'Causa', grupoEdad: 'Grupo de edad', turno: 'Turno', diaMes: 'Día del mes', mes: 'Mes', fechaInicial: 'Fecha', fechaFinal: 'Fecha', categoriaOperatividad: 'Operatividad',
-};
-
-function BarraFiltros({ anios, anioVigente, opciones }: { anios: string[]; anioVigente: string | null; opciones: { delito: string[]; estacion: string[]; cuadrante: string[] } }) {
-  const { filters, setFilters, periodos, setPeriodos } = useData();
-  const sel = filters.anio;
+// ── Periodo: desplegable con Histórico y varios años ─────────────────────
+// Escribe en el MISMO filtro global de Año (el del panel de filtros): no es
+// un segundo sistema. Sin años elegidos = vigencia más reciente (como siempre).
+function SelectorPeriodo({ anios, anioVigente }: { anios: string[]; anioVigente: string | null }) {
+  const { filters, setFilters } = useData();
+  const [abierto, setAbierto] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!abierto) return;
+    const fuera = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setAbierto(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAbierto(false); };
+    document.addEventListener('mousedown', fuera);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fuera); document.removeEventListener('keydown', esc); };
+  }, [abierto]);
+  const sel = filters.anio.filter((a) => anios.includes(a));
   const historico = anios.length > 0 && anios.every((a) => sel.includes(a));
-  const otros = Array.from(new Set(
-    (Object.keys(filters) as (keyof FilterState)[])
-      .filter((k) => !CAMPOS_PROPIOS.includes(k) && (Array.isArray(filters[k]) ? (filters[k] as string[]).length > 0 : !!filters[k]))
-      .map((k) => NOMBRE_FILTRO[k] ?? k),
-  ));
-  if (periodos.length > 0) otros.push(`Multifecha (${periodos.length})`);
-  const propiosActivos = CAMPOS_PROPIOS.some((k) => (filters[k] as string[]).length > 0);
-
-  const alternarAnio = (a: string) => setFilters((p) => {
-    const actual = historico ? [] : p.anio;
-    const siguiente = actual.includes(a) ? actual.filter((x) => x !== a) : [...actual, a];
-    return { ...p, anio: siguiente.sort() };
-  });
-  const limpiar = () => setFilters((p) => ({ ...p, ...Object.fromEntries(CAMPOS_PROPIOS.map((k) => [k, emptyFilterState[k]])) }));
-  const quitarOtros = () => {
-    setFilters((p) => ({ ...emptyFilterState, ...Object.fromEntries(CAMPOS_PROPIOS.map((k) => [k, p[k]])) }));
-    setPeriodos([]);
+  const ordenados = [...sel].sort((a, b) => Number(b) - Number(a));
+  const texto = historico
+    ? `Histórico (${anios[anios.length - 1]}–${anios[0]})`
+    : sel.length === 0 ? `${anioVigente ?? '—'} · vigencia actual`
+    : sel.length <= 3 ? ordenados.join(', ') : `${sel.length} años (${ordenados[ordenados.length - 1]}–${ordenados[0]})`;
+  const fijar = (lista: string[]) => setFilters((p) => ({ ...p, anio: [...lista].sort() }));
+  const alternar = (a: string) => {
+    const base = sel.length === 0 && anioVigente ? [anioVigente] : sel;
+    fijar(base.includes(a) ? base.filter((x) => x !== a) : [...base, a]);
   };
-
+  const marcado = (a: string) => historico || sel.includes(a) || (sel.length === 0 && a === anioVigente);
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-0">
-          <p className="mb-1 flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-wide text-slate-500"><CalendarDays size={13} /> Periodo</p>
-          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Periodo">
-            <button
-              type="button"
-              onClick={() => setFilters((p) => ({ ...p, anio: historico ? [] : [...anios] }))}
-              aria-pressed={historico}
-              title="Todos los años cargados"
-              className={clsx('flex items-center gap-1 rounded-lg px-3 py-1.5 text-[12.5px] font-bold transition', historico ? 'bg-[#10233f] text-white shadow-sm' : 'text-slate-600 hover:bg-white')}
-            >
-              <History size={13} /> Histórico
-            </button>
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        aria-haspopup="listbox"
+        className={clsx('flex h-10 min-w-[230px] items-center gap-2 rounded-lg border bg-white px-3 text-left text-[13px] font-semibold transition-colors', sel.length > 0 ? 'border-[#116762] text-[#0b4a46]' : 'border-slate-300 text-[#10233f] hover:border-[#116762]/60')}
+      >
+        {historico ? <History size={16} className="shrink-0 text-[#116762]" /> : <CalendarDays size={16} className="shrink-0 text-[#116762]" />}
+        <span className="min-w-0 flex-1 truncate"><span className="font-normal text-slate-500">Periodo: </span>{texto}</span>
+        <ChevronDown size={16} className={clsx('shrink-0 transition', abierto && 'rotate-180')} />
+      </button>
+      {abierto && (
+        <div className="absolute right-0 top-full z-30 mt-1 w-[280px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl" role="listbox" aria-multiselectable="true">
+          <button
+            type="button"
+            onClick={() => fijar(historico ? [] : anios)}
+            className={clsx('flex w-full items-center gap-2.5 border-b border-slate-100 px-3 py-2.5 text-left text-[13px] font-bold hover:bg-slate-50', historico ? 'bg-[#e3f2ef] text-[#0b4a46]' : 'text-[#10233f]')}
+          >
+            <span className={clsx('flex h-4 w-4 items-center justify-center rounded border', historico ? 'border-[#116762] bg-[#116762] text-white' : 'border-slate-300')}>{historico && <Check size={12} strokeWidth={3} />}</span>
+            <History size={15} className="text-[#116762]" /> Histórico <span className="ml-auto text-[11px] font-normal text-slate-500">todos los años</span>
+          </button>
+          <div className="max-h-[300px] overflow-y-auto py-1 [scrollbar-width:thin]">
             {anios.map((a) => {
-              const activo = !historico && (sel.includes(a) || (sel.length === 0 && a === anioVigente));
-              const porDefecto = sel.length === 0 && a === anioVigente;
+              const m = marcado(a);
               return (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => alternarAnio(a)}
-                  aria-pressed={activo}
-                  title={porDefecto ? 'Vigencia más reciente (predeterminada). Clic en otros años para compararlos.' : 'Clic para agregar o quitar este año (varios años = comparación)'}
-                  className={clsx('rounded-lg px-2.5 py-1.5 text-[12.5px] font-bold tabular-nums transition', activo ? (porDefecto ? 'bg-white text-[#10233f] ring-1 ring-[#10233f]' : 'bg-[#10233f] text-white shadow-sm') : 'text-slate-600 hover:bg-white')}
-                >
-                  {a}
+                <button key={a} type="button" role="option" aria-selected={m} onClick={() => alternar(a)} className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] tabular-nums text-[#10233f] hover:bg-slate-50">
+                  <span className={clsx('flex h-4 w-4 items-center justify-center rounded border', m ? 'border-[#116762] bg-[#116762] text-white' : 'border-slate-300')}>{m && <Check size={12} strokeWidth={3} />}</span>
+                  <span className={m ? 'font-bold' : ''}>{a}</span>
+                  {a === anioVigente && <span className="ml-auto text-[11px] text-slate-400">vigencia actual</span>}
                 </button>
               );
             })}
           </div>
+          <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-[11.5px]">
+            <span className="text-slate-500">Varios años = comparación</span>
+            <button type="button" onClick={() => { fijar([]); setAbierto(false); }} disabled={sel.length === 0} className="font-semibold text-[#116762] hover:underline disabled:text-slate-300 disabled:no-underline">Vigencia actual</button>
+          </div>
         </div>
-        <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-3" style={{ minWidth: 'min(100%, 520px)' }}>
-          <MultiSelect institucional icono={<ShieldAlert size={18} />} tonoIcono="bg-amber-50 text-amber-700" label="Delito" options={opciones.delito} selected={filters.delito} onChange={(v) => setFilters((p) => ({ ...p, delito: v }))} />
-          <MultiSelect institucional icono={<Building2 size={18} />} tonoIcono="bg-sky-50 text-sky-700" label="Estación" options={opciones.estacion} selected={filters.estacion} onChange={(v) => setFilters((p) => ({ ...p, estacion: v }))} />
-          <MultiSelect institucional icono={<MapPin size={18} />} tonoIcono="bg-sky-50 text-sky-700" label="Zona de atención" options={opciones.cuadrante} selected={filters.cuadrante} onChange={(v) => setFilters((p) => ({ ...p, cuadrante: v }))} />
-        </div>
-        <button type="button" onClick={limpiar} disabled={!propiosActivos} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[12.5px] font-semibold text-[#10233f] hover:bg-slate-50 disabled:opacity-50">
-          <Eraser size={14} /> Limpiar filtros
-        </button>
-      </div>
-      {otros.length > 0 && (
-        <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[11.5px] text-slate-500">
-          <SlidersHorizontal size={13} className="text-[#116762]" /> También aplican filtros de otros módulos: <b className="text-[#10233f]">{otros.join(', ')}</b>
-          <button type="button" onClick={quitarOtros} className="ml-1 rounded-md border border-slate-200 px-1.5 py-0.5 font-semibold text-[#116762] hover:bg-slate-50">Quitarlos</button>
-        </p>
       )}
     </div>
   );
@@ -379,7 +366,7 @@ function DetalleSeleccion({ celdas, vista, records, data, hayDelito, esPredeterm
             [<Clock size={14} key="h" />, vista === 'hora' ? 'Hora' : 'Franja', vista === 'hora' ? etiquetaColumna(vista, una.columnaLabel) : `${una.columnaLabel} (${RANGO_FRANJA[una.columnaIndex]})`],
             [<FileText size={14} key="c" />, 'Casos', formatNumero(una.valor)],
             [<Percent size={14} key="p" />, 'Porcentaje', `${formatDecimal(una.porcentaje, 1)} % del total`],
-            [<Gauge size={14} key="n" />, 'Concentración', `${NOMBRE_NIVEL[una.nivel]} · ${formatDecimal(una.indice, 2)}× el promedio`],
+            [<Gauge size={14} key="n" />, 'Concentración', NOMBRE_NIVEL[una.nivel]],
             [<Flame size={14} key="r" />, 'Posición', posicion ? `#${posicion} de ${data.celdas.length}` : '—'],
           ].map(([icono, k, v]) => (
             <div key={k as string} className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5 last:border-0">
@@ -558,11 +545,6 @@ export function MatrizCalor() {
     return { recordsParaMatriz: conFecha.filter((r) => r.fecha!.getFullYear() === anioRef), anioVigente: String(anioRef) };
   }, [filteredRecords, hayFiltroTemporal, meta?.fechaMaxParametro, anios]);
 
-  const opciones = useMemo(() => {
-    const unicos = (g: (r: CrimeRecord) => string) => Array.from(new Set(records.map(g).filter((v) => v && !NO_VALIDO.test(v)))).sort((a, b) => a.localeCompare(b, 'es'));
-    return { delito: unicos((r) => r.delito), estacion: unicos((r) => r.estacion), cuadrante: unicos((r) => r.cuadrante) };
-  }, [records]);
-
   const data = useHeatmap(recordsParaMatriz, vista);
   const esHora = vista === 'hora';
 
@@ -644,14 +626,15 @@ export function MatrizCalor() {
             <p className="text-[13.5px] text-slate-500">Día de la semana × {esHora ? 'hora' : 'franja horaria'} · identifica los momentos críticos según los casos filtrados.</p>
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <SelectorPeriodo anios={anios} anioVigente={anioVigente} />
         {filtroActivoPorClic && (
           <button type="button" onClick={quitarFiltroCelda} className="flex items-center gap-1.5 rounded-lg border border-[#10233f]/30 bg-[#10233f]/5 px-3 py-1.5 text-xs font-semibold text-[#10233f] hover:bg-[#10233f]/10">
             <X size={13} /> Quitar filtro de día/hora aplicado
           </button>
         )}
+        </div>
       </div>
-
-      <BarraFiltros anios={anios} anioVigente={anioVigente} opciones={opciones} />
 
       {/* Indicadores */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
