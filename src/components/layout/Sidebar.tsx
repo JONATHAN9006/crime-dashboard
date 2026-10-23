@@ -9,6 +9,7 @@ import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { tieneAcceso } from '../../utils/permisos';
 import { useSesionCuenta } from '../../cuentas/PuertaCuenta';
+import { CalabazaItemActivo, DecoracionHalloween, useTemporadaHalloween } from './TemaHalloween';
 import { useSesionAdmin } from '../../admin/PuertaAdmin';
 import { useContadorCuentas } from '../../pages/AccesosCuentas';
 
@@ -119,7 +120,8 @@ function TooltipLateral({ texto, posicion = 'lateral' }: { texto: string; posici
   );
 }
 
-function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSalir, insignia }: {
+function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSalir, insignia, halloween = false }: {
+  halloween?: boolean;
   insignia?: { texto: string; titulo: string } | null;
   item: ItemMenu;
   activo: PaginaId;
@@ -154,6 +156,7 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
       aria-disabled={bloqueado}
       className={clsx(
         'relative flex w-full items-center rounded-lg text-left text-[14px] font-semibold tracking-[-0.01em] transition-colors',
+        halloween && '[text-shadow:0_1px_3px_rgba(0,0,0,0.75)]',
         colapsado ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5',
         bloqueado
           ? 'cursor-not-allowed text-white/35'
@@ -166,6 +169,7 @@ function ItemBoton({ item, activo, onCambiar, onCerrar, colapsado, onHover, onSa
       {activeItem && !bloqueado && <span className="absolute inset-y-1 left-0 w-1 rounded-r-full bg-[#5eead4]" />}
       <Icon size={colapsado ? 21 : 19} strokeWidth={1.9} className="shrink-0" />
       {!colapsado && <span className="leading-tight">{item.label}</span>}
+      {halloween && activeItem && !bloqueado && !colapsado && !insignia && <CalabazaItemActivo />}
       {insignia && (
         <span
           title={insignia.titulo}
@@ -199,6 +203,8 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
   const sesionCuenta = useSesionCuenta();
   const sesionAdmin = useSesionAdmin();
   const cerrarSesion = sesionCuenta?.salir ?? sesionAdmin?.salir;
+  // Tema de temporada (solo del 15 al 31 de octubre; el 1 de noviembre vuelve solo al normal).
+  const halloween = useTemporadaHalloween();
 
   return (
     <>
@@ -213,13 +219,15 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
           se reacomoda en el espacio que queda). */}
       <aside
         className={clsx(
-          'fixed inset-y-0 left-0 z-40 flex shrink-0 transform flex-col bg-[#0a3d39] transition-[width,transform] duration-300 ease-in-out md:relative md:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex shrink-0 transform flex-col transition-[width,transform] duration-300 ease-in-out md:relative md:translate-x-0',
+          halloween ? 'bg-[linear-gradient(180deg,#0a3d39_0%,#08332f_55%,#062925_100%)]' : 'bg-[#0a3d39]',
           colapsado ? 'w-[68px]' : 'w-[260px]',
           abierto ? 'translate-x-0' : '-translate-x-full',
         )}
       >
+        {halloween && <DecoracionHalloween colapsado={colapsado} />}
         {/* ── Encabezado institucional: escudo, nombre del sistema, dependencia y botón contraer ── */}
-        <div className={clsx('flex shrink-0 items-center border-b border-white/10', colapsado ? 'justify-center px-2 py-4' : 'gap-3 px-4 py-4')}>
+        <div className={clsx('relative z-10 flex shrink-0 items-center border-b border-white/10', colapsado ? 'justify-center px-2 py-4' : 'gap-3 px-4 py-4')}>
           <div className="group relative shrink-0">
             {/* Escudo recortado sobre fondo transparente y a mayor resolución
                 (escudo-sidebar.png): ocupa todo el círculo blanco, sin el
@@ -258,7 +266,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
         )}
 
         {/* ── Secciones del menú ── */}
-        <nav className={clsx('flex-1 overflow-y-auto py-3', colapsado ? 'px-2' : 'px-3')}>
+        <nav className={clsx('relative z-10 flex-1 overflow-y-auto py-3', colapsado ? 'px-2' : 'px-3')}>
           {GRUPOS.filter((g) => (!g.soloCompleto || !esModoConsulta()) && (!g.soloAdmin || esAdmin))
             // Perfil piloto (/piloto): solo los módulos autorizados; los demás
             // DESAPARECEN (no se muestran atenuados) y una sección sin
@@ -284,6 +292,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                     colapsado={colapsado}
                     onHover={(texto, top, esBloqueo) => setTooltipItem({ texto, top, esBloqueo })}
                     onSalir={() => setTooltipItem(null)}
+                    halloween={halloween}
                     insignia={item.id === 'accesosCai' && contadorCai ? { texto: String(contadorCai.hoy), titulo: `${contadorCai.hoy} ingreso(s) hoy · ${contadorCai.enLinea} en línea ahora` } : null}
                   />
                 ))}
@@ -307,12 +316,12 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
         )}
 
         {/* ── Pie institucional ── */}
-        <div className={clsx('shrink-0 border-t border-white/10', colapsado ? 'flex justify-center px-2 py-3' : 'flex items-center gap-3 px-4 py-3')}>
+        <div className={clsx('relative z-10 shrink-0 border-t border-white/10', colapsado ? 'flex justify-center px-2 py-3' : 'flex items-center gap-3 px-4 py-3')}>
           <div className="group relative shrink-0">
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.23 · v209" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.23 · v210" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -328,7 +337,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.23 · v209</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.23 · v210</p>
             </div>
           )}
         </div>
@@ -337,7 +346,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             type="button"
             onClick={cerrarSesion}
             title="Cerrar sesión"
-            className={clsx('mb-3 flex shrink-0 items-center justify-center gap-2 rounded-lg border border-white/20 py-2 text-[12.5px] font-semibold text-white/90 hover:bg-white/10', colapsado ? 'mx-2' : 'mx-4')}
+            className={clsx('relative z-10 mb-3 flex shrink-0 items-center justify-center gap-2 rounded-lg border border-white/20 bg-[#0a3d39]/60 py-2 text-[12.5px] font-semibold text-white/90 hover:bg-white/10', colapsado ? 'mx-2' : 'mx-4')}
           >
             <LogOut size={15} /> {!colapsado && 'Cerrar sesión'}
           </button>
