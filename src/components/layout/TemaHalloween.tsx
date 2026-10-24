@@ -170,7 +170,7 @@ export function DecoracionHalloween({ colapsado }: { colapsado: boolean }) {
       <div className="absolute right-12 top-[33%] hw-flotar" style={{ animationDuration: '6s' }}><Arana /></div>
       <div className="absolute -right-3 bottom-[22%] opacity-90"><ArbolSeco /></div>
       <div className="absolute -right-2 top-[50%] opacity-60 hw-flotar"><Fantasma ancho={44} /></div>
-      <div className="absolute bottom-[13%] right-[118px] opacity-90"><Calabaza ancho={34} /></div>
+      <div className="absolute bottom-[13%] right-[118px] opacity-90 [@media(min-height:781px)]:hidden"><Calabaza ancho={34} /></div>
       <div className="absolute -right-2 bottom-[14%] opacity-85"><Tumbas /></div>
       <Murcielago ancho={36} className="absolute bottom-[15%] right-12 hw-aleteo" style={{ animationDelay: '.6s' }} />
       <Murcielago ancho={26} className="absolute bottom-[12%] right-2 hw-aleteo" style={{ animationDelay: '1.6s' }} />

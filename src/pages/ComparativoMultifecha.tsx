@@ -251,7 +251,8 @@ export function ComparativoMultifecha() {
               </label>
             </div>
           </div>
-          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[1.15fr_1fr]">
+          {/* Matriz con la misma visualización del panel principal (ancho completo) y, debajo, el mapa. */}
+          <div className="grid grid-cols-1 items-stretch gap-4">
             <Card
               className="h-full"
               title={vistaMatriz === 'hora' ? 'Matriz de calor por día y hora' : 'Matriz de calor por día y franja horaria'}
@@ -260,16 +261,16 @@ export function ComparativoMultifecha() {
               icono={ico(Clock)}
               claseTitulo={T}
               actions={
-                <div className="flex overflow-hidden rounded-full border border-slate-200 bg-slate-50 p-0.5">
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Vista">
                   {(['hora', 'franja'] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setVistaMatriz(v)} aria-pressed={vistaMatriz === v} className={clsx('rounded-full px-2.5 py-0.5 text-[11px] font-semibold', vistaMatriz === v ? 'bg-[#116762] text-white' : 'text-slate-600 hover:bg-white')}>{v === 'hora' ? 'Por hora' : 'Por franja'}</button>
+                    <button key={v} type="button" onClick={() => setVistaMatriz(v)} aria-pressed={vistaMatriz === v} className={clsx('rounded-md px-2.5 py-1 text-[12px] font-bold transition', vistaMatriz === v ? 'bg-[#10233f] text-white' : 'text-slate-600 hover:bg-white')}>{v === 'hora' ? 'Por hora' : 'Por franja horaria'}</button>
                   ))}
                 </div>
               }
             >
               <div className="space-y-3">
-                <TablaMatriz data={datosMatriz} seleccion={datosMatriz.celdaMax} onCelda={filtrarCelda} compacta />
-                <Leyenda data={datosMatriz} compacta />
+                <TablaMatriz data={datosMatriz} seleccion={null} onCelda={filtrarCelda} />
+                <Leyenda data={datosMatriz} />
               </div>
             </Card>
             <Card className="h-full" title="Mapa de calor por delitos" subtitle={`${vigVista ? `Vigencia ${vigVista.etiqueta}` : 'Todas las vigencias'} · densidad Kernel (radio 200 m)${vigVista && escalaComun ? ' · escala común' : ''}`} descargable="multifecha-mapa" icono={ico(IconoMapa)} claseTitulo={T}>

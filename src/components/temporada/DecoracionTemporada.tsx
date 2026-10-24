@@ -1,5 +1,5 @@
 import React from 'react';
-import '@fontsource/great-vibes/400.css';
+import '@fontsource/kaushan-script/400.css';
 import { useTemporada, type TemporadaId } from '../../config/temporadas';
 import { Calabaza, Murcielago } from '../layout/TemaHalloween';
 
@@ -12,25 +12,24 @@ import { Calabaza, Murcielago } from '../layout/TemaHalloween';
 
 export type ModuloTemporada = 'delictividad' | 'operatividad' | 'semanas' | 'matriz' | 'mapa';
 
-// Cada frase en dos líneas (como el diseño de referencia): la segunda va
-// desplazada a la derecha. El texto es el mismo de la especificación.
+// Cada frase en dos líneas, como el diseño de referencia: la primera en
+// blanco y la segunda en naranja dorado.
 export const FRASES_TEMPORADA: Record<TemporadaId, Record<ModuloTemporada, [string, string]>> = {
   halloween: {
-    delictividad: ['Detrás de cada dato,', 'una oportunidad para prevenir.'],
-    operatividad: ['Una respuesta oportuna', 'hace la diferencia.'],
-    semanas: ['Descubre los patrones', 'antes de que te sorprendan.'],
-    matriz: ['Identifica los momentos críticos,', 'ilumina las decisiones.'],
-    mapa: ['Cada punto cuenta.', 'Cada territorio importa.'],
+    delictividad: ['Que la prevención', 'ilumine nuestro territorio'],
+    operatividad: ['Disciplina hoy,', 'territorios más seguros'],
+    semanas: ['Pequeñas acciones,', 'grandes resultados'],
+    matriz: ['La prevención también', 'es parte de la solución'],
+    mapa: ['Territorios más seguros,', 'comunidades más fuertes'],
   },
 };
 
-// Caligrafía elegante para la frase (Great Vibes, incluida en el proyecto:
-// no depende de internet y el navegador solo la descarga cuando se usa,
-// es decir, durante la temporada).
-const FUENTE_FRASE = '"Great Vibes", "Segoe Script", "Lucida Handwriting", "Apple Chancery", cursive';
+// Letra de pincel para la frase (Kaushan Script, incluida en el proyecto:
+// no depende de internet y solo se descarga cuando se usa).
+const FUENTE_FRASE = '"Kaushan Script", "Segoe Script", "Brush Script MT", cursive';
 
 const NARANJA = '#fb923c';
-const SILUETA = '#061a19';
+const SILUETA = '#06161c';
 
 const decorativo = { 'aria-hidden': true, 'data-ocultar-en-descarga': '1' } as const;
 
@@ -40,53 +39,111 @@ const ESTILOS = `
   @media (prefers-reduced-motion: reduce) { .tp-aleteo { animation: none } }
 `;
 
-/** Castillo genérico en silueta. */
-function Castillo({ className = '' }: { className?: string }) {
+/** Árbol seco en silueta. */
+function ArbolSeco({ className = '', espejo = false }: { className?: string; espejo?: boolean }) {
   return (
-    <svg viewBox="0 0 220 120" className={className} preserveAspectRatio="xMaxYMax meet">
+    <svg viewBox="0 0 90 140" className={className} style={espejo ? { transform: 'scaleX(-1)' } : undefined} preserveAspectRatio="xMidYMax meet">
+      <path fill={SILUETA} d="M42 140c1-24-2-44-1-62-8-6-16-14-22-26l4-2c5 9 11 16 18 21 0-10-3-20-9-30l4-2c7 10 9 21 9 32 5-12 13-21 24-28l3 4c-12 7-20 17-23 30 8-5 17-7 26-6v5c-11-1-20 3-26 10-1 20 3 40 1 56z" />
+      <path fill={SILUETA} d="M27 44C20 38 12 35 3 35v-4c10 0 19 4 26 10zM58 26c2-8 7-15 15-19l2 4c-7 3-11 9-13 16zM47 20c-2-7-1-13 2-19l4 2c-3 5-4 10-2 16z" />
+    </svg>
+  );
+}
+
+/** Pueblo en silueta (casas con ventanas encendidas, iglesia y cerca). */
+function Pueblo({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 320 110" className={className} preserveAspectRatio="xMinYMax meet">
       <g fill={SILUETA}>
-        <path d="M0 120c30-14 60-20 95-16s80 2 125-6v22z" />
-        <rect x="70" y="58" width="90" height="62" />
-        <rect x="58" y="40" width="22" height="80" /><path d="M54 42h30L69 10z" />
-        <rect x="104" y="28" width="22" height="92" /><path d="M100 30h30L115 0z" />
-        <rect x="148" y="48" width="20" height="72" /><path d="M144 50h28L158 22z" />
-        <rect x="178" y="70" width="16" height="50" /><path d="M175 72h22l-11-20z" />
-        <path d="M30 120V86l-8-14 4-1-8-12h22l-8 12 4 1-8 14v34z" opacity="0.9" />
+        <path d="M0 110V92c30-8 70-10 110-6s90 4 130-4 60-6 80-2v30z" />
+        <rect x="30" y="66" width="34" height="30" /><path d="M26 68h42L47 48z" />
+        <rect x="70" y="58" width="26" height="38" /><path d="M66 60h34L83 40z" />
+        <rect x="104" y="44" width="14" height="52" /><path d="M101 46h20l-10-26z" /><rect x="110" y="12" width="2" height="10" /><rect x="107" y="15" width="8" height="2" />
+        <rect x="118" y="62" width="40" height="34" /><path d="M114 64h48L138 46z" />
+        <rect x="166" y="70" width="30" height="26" /><path d="M162 72h38L181 56z" />
+        <rect x="204" y="64" width="22" height="32" /><path d="M200 66h30L215 50z" />
       </g>
-      <g fill="#fcd34d" opacity="0.75">
-        <rect x="112" y="46" width="5" height="9" rx="2.5" /><rect x="64" y="60" width="4" height="8" rx="2" />
-        <rect x="154" y="66" width="4" height="8" rx="2" /><rect x="90" y="80" width="5" height="9" rx="2.5" />
+      <g fill="#fbbf24" opacity=".85">
+        <rect x="36" y="74" width="5" height="7" rx="1" /><rect x="52" y="74" width="5" height="7" rx="1" />
+        <rect x="80" y="66" width="5" height="7" rx="1" /><rect x="109" y="56" width="4" height="8" rx="2" />
+        <rect x="126" y="70" width="6" height="8" rx="1" /><rect x="144" y="70" width="6" height="8" rx="1" />
+        <rect x="176" y="78" width="5" height="6" rx="1" /><rect x="212" y="72" width="5" height="7" rx="1" />
+      </g>
+      <g stroke={SILUETA} strokeWidth="2.2"><path d="M232 98v-14M244 98v-14M256 98v-14M268 98v-14M228 89h44" /></g>
+    </svg>
+  );
+}
+
+/** Casa embrujada en una colina (derecha). */
+function CasaEmbrujada({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 200 130" className={className} preserveAspectRatio="xMaxYMax meet">
+      <g fill={SILUETA}>
+        <path d="M0 130c40-18 90-26 200-24v24z" />
+        <rect x="70" y="54" width="70" height="62" /><path d="M64 56h82l-41-30z" />
+        <rect x="128" y="30" width="18" height="40" /><path d="M124 32h26l-13-26z" />
+        <rect x="78" y="36" width="14" height="26" /><path d="M75 38h20l-10-16z" />
+      </g>
+      <g fill="#fbbf24" opacity=".9">
+        <rect x="82" y="70" width="8" height="10" rx="1" /><rect x="104" y="70" width="8" height="10" rx="1" /><rect x="133" y="44" width="6" height="9" rx="3" /><rect x="96" y="92" width="10" height="24" rx="5" opacity=".7" />
       </g>
     </svg>
   );
 }
 
-/** Escena de noche detrás del banner: luna grande, castillo, murciélagos, colinas y calabaza. */
-function EscenaNocturna() {
-  const estrellas = [[6, 18], [14, 70], [24, 12], [33, 36], [45, 16], [52, 62], [61, 22], [70, 10], [78, 54], [88, 20]];
+/** Silueta de policía (banner de Operatividad). */
+function Policia({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 120 150" className={className} preserveAspectRatio="xMaxYMax meet">
+      <g fill="#0a1a22">
+        <path d="M20 150c2-34 14-52 40-58 26 6 38 24 40 58z" />
+        <rect x="50" y="78" width="20" height="18" />
+        <ellipse cx="60" cy="62" rx="20" ry="24" />
+        <path d="M34 46c0-18 52-22 54 0l-2 6H36z" />
+        <path d="M30 52q30 10 62 0l2 5q-33 13-66 0z" fill="#03080b" />
+      </g>
+      <path d="M58 30l4-2 4 2v4c0 2-2 3-4 4-2-1-4-2-4-4z" fill="#d4a017" />
+      <path d="M36 150c2-26 10-40 24-46 14 6 22 20 24 46" fill="none" stroke="#2dd4bf" strokeWidth="1.4" opacity=".35" />
+      <text x="60" y="128" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="800" fontSize="11" fill="#e2e8f0" letterSpacing=".5">POLICÍA</text>
+    </svg>
+  );
+}
+
+/** Escena de noche del banner, inspirada en el diseño de referencia. */
+function EscenaNocturna({ modulo }: { modulo: ModuloTemporada }) {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl" {...decorativo}>
       <style>{ESTILOS}</style>
-      {estrellas.map(([x, y], i) => (
-        <span key={i} className="absolute h-[2px] w-[2px] rounded-full bg-white/45" style={{ left: `${x}%`, top: `${y}%` }} />
-      ))}
-      {/* Resplandor cálido y luna llena */}
-      <div className="absolute -top-16 right-[2%] h-72 w-72 rounded-full max-md:hidden" style={{ background: 'radial-gradient(circle, rgba(251,146,60,0.30), transparent 62%)' }} />
-      <div className="absolute right-[6%] top-1/2 h-[104px] w-[104px] -translate-y-[58%] rounded-full max-md:right-3 max-md:top-3 max-md:h-12 max-md:w-12 max-md:translate-y-0"
-        style={{ background: 'radial-gradient(circle at 42% 38%, #fff1d6 0%, #fdc77a 45%, #f59e0b 80%, #d97706 100%)', boxShadow: '0 0 40px 10px rgba(251,191,36,0.28)' }} />
-      {/* Castillo y árbol en silueta (derecha) */}
-      <Castillo className="absolute bottom-0 right-[9%] h-[92px] w-[170px] opacity-95 max-md:hidden" />
-      {/* Colinas */}
-      <svg className="absolute inset-x-0 bottom-0 h-9 w-full" viewBox="0 0 400 36" preserveAspectRatio="none">
-        <path d="M0 36V22c40-10 70-12 110-5s70 7 110-3 90-14 180 3v19z" fill={SILUETA} opacity="0.55" />
+      {/* Cielo con resplandor naranja alrededor de la luna */}
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(circle at 68.5% 36%, rgba(251,146,60,0.55) 0%, rgba(234,88,12,0.25) 16%, transparent 38%)' }} />
+      {/* Luna llena */}
+      <div className="absolute left-[64%] top-[6px] h-[100px] w-[100px] rounded-full max-md:left-auto max-md:right-4 max-md:top-2 max-md:h-14 max-md:w-14"
+        style={{ background: 'radial-gradient(circle at 40% 36%, #ffe2b0 0%, #fdba74 38%, #f97316 78%, #c2410c 100%)', boxShadow: '0 0 50px 16px rgba(251,146,60,0.35)' }}>
+        <span className="absolute left-[28%] top-[44%] h-3 w-4 rounded-full bg-[#ea580c]/35" />
+        <span className="absolute left-[58%] top-[60%] h-4 w-5 rounded-full bg-[#ea580c]/30" />
+        <span className="absolute left-[52%] top-[26%] h-2 w-2 rounded-full bg-[#ea580c]/30" />
+      </div>
+      {/* Murciélagos */}
+      <Murcielago ancho={38} className="absolute left-[60%] top-[38%] tp-aleteo max-md:hidden" />
+      <Murcielago ancho={30} className="absolute left-[76%] top-[10%] tp-aleteo" style={{ animationDelay: '.6s' }} />
+      <Murcielago ancho={24} className="absolute left-[82%] top-[40%] tp-aleteo max-md:hidden" style={{ animationDelay: '1.2s' }} />
+      <Murcielago ancho={20} className="absolute left-[56%] top-[12%] tp-aleteo max-md:hidden" style={{ animationDelay: '1.8s' }} />
+      <Murcielago ancho={18} className="absolute left-[90%] top-[18%] tp-aleteo max-md:hidden" style={{ animationDelay: '.3s' }} />
+      {/* Pueblo y árbol a la izquierda */}
+      <ArbolSeco className="absolute bottom-0 left-0 h-[120px] w-[78px] opacity-95" />
+      <Pueblo className="absolute bottom-0 left-[4%] h-[64px] w-[200px] opacity-90 max-md:hidden" />
+      {/* Derecha: casa embrujada o policía (Operatividad) y árbol */}
+      {modulo === 'operatividad'
+        ? <Policia className="absolute bottom-0 right-[7%] h-[140px] w-[112px] max-md:hidden" />
+        : <CasaEmbrujada className="absolute bottom-0 right-[5%] h-[112px] w-[176px] max-md:hidden" />}
+      <ArbolSeco espejo className="absolute bottom-0 right-0 h-[132px] w-[84px] opacity-95 max-md:hidden" />
+      {/* Suelo y neblina */}
+      <svg className="absolute inset-x-0 bottom-0 h-8 w-full" viewBox="0 0 400 32" preserveAspectRatio="none">
+        <path d="M0 32V20c40-8 80-10 120-4s80 6 120-2 100-10 160 2v16z" fill={SILUETA} />
       </svg>
-      {/* Murciélagos alrededor de la luna */}
-      <Murcielago ancho={30} className="absolute right-[19%] top-3 tp-aleteo opacity-90 max-md:hidden" />
-      <Murcielago ancho={22} className="absolute right-[3%] top-4 tp-aleteo opacity-85" style={{ animationDelay: '.7s' }} />
-      <Murcielago ancho={18} className="absolute right-[15%] top-[56%] tp-aleteo opacity-80 max-md:hidden" style={{ animationDelay: '1.3s' }} />
-      <Murcielago ancho={16} className="absolute left-[44%] top-[14%] tp-aleteo opacity-60 max-md:hidden" style={{ animationDelay: '1.9s' }} />
-      {/* Calabaza en la esquina inferior derecha */}
-      <div className="absolute bottom-1 right-2 max-md:hidden"><Calabaza ancho={50} /></div>
+      <div className="absolute inset-x-0 bottom-0 h-10" style={{ background: 'linear-gradient(to top, rgba(148,163,184,0.10), transparent)' }} />
+      {/* Calabazas */}
+      <div className="absolute bottom-0.5 right-2"><Calabaza ancho={58} /></div>
+      <div className="absolute bottom-0 right-[60px] max-md:hidden"><Calabaza ancho={36} /></div>
       {/* Acento naranja inferior */}
       <div className="absolute inset-x-0 bottom-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${NARANJA}, rgba(251,146,60,0.35) 60%, transparent)` }} />
     </div>
@@ -94,11 +151,11 @@ function EscenaNocturna() {
 }
 
 /**
- * Encabezado de temporada para un módulo, con la estructura del diseño de
- * referencia: a la izquierda el ícono, el nombre y el subtítulo originales;
- * en el centro-derecha la frase en caligrafía, en dos líneas; a la derecha
- * la luna, el castillo y la calabaza. Los controles del módulo van debajo,
- * sobre fondo claro, igual que siempre.
+ * Encabezado de temporada de un módulo, con la composición del diseño de
+ * referencia: arriba a la izquierda el ícono, el nombre y el subtítulo
+ * originales; en el centro-derecha la frase de pincel en dos líneas (blanco
+ * y naranja) junto a la luna; pueblo, árboles, murciélagos y calabazas en
+ * silueta. Los controles del módulo van debajo, sobre fondo claro.
  */
 export function BannerTemporada({ temporada, modulo, titulo, subtitulo, icono, acciones, metrica }: {
   temporada: TemporadaId;
@@ -110,32 +167,33 @@ export function BannerTemporada({ temporada, modulo, titulo, subtitulo, icono, a
   metrica?: string;
 }) {
   const [linea1, linea2] = FRASES_TEMPORADA[temporada][modulo];
+  const sombra = '0 2px 0 rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.75)';
   return (
     <section data-banner-temporada={modulo} className="space-y-2">
       <div
-        className="relative overflow-hidden rounded-2xl text-white shadow-[0_2px_12px_rgba(16,35,63,0.22)]"
-        style={{ background: 'linear-gradient(110deg, #0b3a37 0%, #0f5f57 38%, #0d3b4a 68%, #10233f 100%)' }}
+        className="relative overflow-hidden rounded-2xl text-white shadow-[0_2px_12px_rgba(16,35,63,0.25)]"
+        style={{ background: 'linear-gradient(115deg, #0c2f36 0%, #0f3a44 30%, #13263f 62%, #1a1f3a 100%)' }}
       >
-        <EscenaNocturna />
-        <div className="relative z-10 grid min-h-[128px] grid-cols-1 items-center gap-x-6 gap-y-2 px-5 py-4 md:min-h-[150px] md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:pr-[22%] lg:pr-[20%]">
-          <div className="flex min-w-0 items-center gap-3 max-md:pr-14">
+        <EscenaNocturna modulo={modulo} />
+        <div className="relative z-10 grid min-h-[140px] grid-cols-1 gap-x-4 gap-y-2 px-5 pb-6 pt-4 md:min-h-[158px] md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] md:pr-[150px]">
+          <div className="flex min-w-0 items-start gap-3 max-md:pr-16">
             {icono && (
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-white" style={{ boxShadow: `0 0 0 2px ${NARANJA}` }}>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#159089] text-white shadow-md ring-2 ring-white/30">
                 {icono}
               </span>
             )}
-            <div className="min-w-0">
-              <h1 className="text-[22px] font-extrabold leading-tight tracking-tight sm:text-[26px]">{titulo}</h1>
-              {subtitulo && <p className="mt-0.5 text-[12.5px] leading-snug text-white/75">{subtitulo}</p>}
+            <div className="min-w-0 pt-0.5">
+              <h1 className="text-[22px] font-extrabold leading-tight tracking-tight sm:text-[25px]" style={{ textShadow: '0 2px 6px rgba(0,0,0,0.6)' }}>{titulo}</h1>
+              {subtitulo && <p className="mt-0.5 max-w-[46ch] text-[12.5px] leading-snug text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>{subtitulo}</p>}
             </div>
           </div>
           <p
             data-frase={`${linea1} ${linea2}`}
-            className="min-w-0 text-[26px] leading-[1.05] sm:text-[32px] xl:text-[38px]"
-            style={{ fontFamily: FUENTE_FRASE, color: '#fbd38d', textShadow: '0 2px 8px rgba(0,0,0,0.55), 0 0 18px rgba(251,146,60,0.25)' }}
+            className="min-w-0 self-end text-[26px] leading-[1.12] sm:text-[31px] xl:text-[36px] md:pl-[6%]"
+            style={{ fontFamily: FUENTE_FRASE }}
           >
-            <span className="block">{linea1}</span>
-            <span className="block pl-[12%]">{linea2}</span>
+            <span className="block text-white" style={{ textShadow: sombra }}>{linea1}</span>
+            <span className="block pl-[8%] text-[#f9a825]" style={{ textShadow: sombra }}>{linea2}</span>
           </p>
         </div>
       </div>

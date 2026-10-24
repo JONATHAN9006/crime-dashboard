@@ -22,6 +22,8 @@ import type { CrimeRecord } from '../../types/crime';
 // Satélite / Híbrido. Solo dibuja: los registros llegan ya filtrados.
 
 const PALETA = ['#22c55e', '#a3e635', '#facc15', '#f97316', '#dc2626'];
+// Color del contorno de cada shapefile (no se usan rojos/verdes del calor).
+const COLORES_CAPAS = ['#38bdf8', '#a78bfa', '#f472b6', '#fbbf24', '#2dd4bf', '#fb923c', '#e2e8f0', '#818cf8'];
 const CENTRO_POPAYAN: [number, number] = [2.4448, -76.6147];
 type Base = 'mapa' | 'satelite' | 'hibrido';
 type Feature = { type: 'Feature'; geometry: { type: string; coordinates: unknown }; properties?: Record<string, unknown> };
@@ -121,16 +123,30 @@ function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsM
   const [top, setTop] = useState<0 | 3 | 5 | 10>(5);
   const [posiciones, setPosiciones] = useState<PosicionesRotulo>({});
   const [senalEncuadre, setSenalEncuadre] = useState(0);
+  // Capas (shapefiles) que el usuario apagó en este mapa. Al abrir, todas
+  // las capas de la nube se muestran; cada una se puede apagar aquí.
+  const [ocultas, setOcultas] = useState<Set<string>>(() => new Set());
+  const capaVisible = (c: CapaGeografica) => !ocultas.has(c.id);
+  const alternarCapa = (c: CapaGeografica) => setOcultas((prev) => {
+    const n = new Set(prev);
+    if (n.has(c.id)) n.delete(c.id); else n.add(c.id);
+    return n;
+  });
 
   useEffect(() => {
     let cancelado = false;
     (async () => {
+      // Primero la copia local (rápido) y luego SIEMPRE las capas de la nube:
+      // así aparecen todos los shapefiles compartidos aunque este equipo no
+      // los tuviera guardados.
       try {
         const locales = await cargarCapas();
-        if (!cancelado && locales?.length) { setCapas(locales); return; }
+        if (!cancelado && locales?.length) setCapas(locales);
+      } catch { /* sin copia local */ }
+      try {
         const remotas = await sincronizarCapasDesdeServidor();
         if (!cancelado && remotas?.length) setCapas(remotas);
-      } catch { /* sin capas: solo mapa base y municipios */ }
+      } catch { /* sin conexión: queda lo local */ }
     })();
     return () => { cancelado = true; };
   }, []);
@@ -143,8 +159,9 @@ function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsM
     const poligonos = new Map<string, unknown>();
     const vistos = new Set<string>();
     for (const c of capas.filter(esCapaBarrios)) {
+      const dibujar = !ocultas.has(c.id);
       for (const f of featuresDe(c.geojson)) {
-        bf.push(f);
+        if (dibujar) bf.push(f);
         const nombre = nombreBarrio(c, f);
         const clave = normalizarNombre(nombre);
         if (!nombre || vistos.has(clave)) continue;
@@ -155,7 +172,8 @@ function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsM
       }
     }
     return { estaciones: est, barriosFeatures: bf, barriosEtiquetas: etiquetas, poligonosBarrio: poligonos };
-  }, [capas]);
+  }, [capas, ocultas]);
+  const otrasCapas = useMemo(() => capas.filter((c) => !esCapaBarrios(c)), [capas]);
 
   const municipios = useMemo(() => {
     const m = municipiosVisibles().features.map((f) => ({ nombre: f.properties.municipio as string, pos: centroDe(f as unknown as Feature) })).filter((x): x is { nombre: string; pos: [number, number] } => x.pos != null);
@@ -179,6 +197,16 @@ function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsM
         {barriosFeatures.length > 0 && (
           <GeoJSONLayer key={`bar-${base}-${barriosFeatures.length}`} data={{ type: 'FeatureCollection', features: barriosFeatures } as never} interactive={false} style={{ color: trazo, weight: 0.8, opacity: satelital ? 0.55 : 0.5, fillOpacity: 0 }} />
         )}
+        {/* Demás shapefiles de la nube (comunas, CAI, cuadrantes, zonas…), cada uno con su color. */}
+        {otrasCapas.map((c, i) => capaVisible(c) && (
+          <GeoJSONLayer
+            key={`capa-${c.id}-${base}`}
+            data={c.geojson as never}
+            interactive={false}
+            style={{ color: COLORES_CAPAS[i % COLORES_CAPAS.length], weight: 1.8, opacity: 0.9, fillOpacity: 0 }}
+            pointToLayer={(_f, latlng) => L.circleMarker(latlng, { radius: 4, color: '#ffffff', weight: 1, fillColor: COLORES_CAPAS[i % COLORES_CAPAS.length], fillOpacity: 0.95 })}
+          />
+        ))}
         {estaciones.length > 0 && (
           <GeoJSONLayer key={`est-${base}-${estaciones.length}`} data={{ type: 'FeatureCollection', features: estaciones } as never} interactive={false} style={{ color: satelital ? '#ffffff' : '#10233f', weight: 2.4, opacity: 0.95, fillOpacity: 0 }} />
         )}
@@ -189,10 +217,28 @@ function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsM
       </MapContainer>
 
       {/* Controles (estilo panel blanco, esquina superior derecha) */}
-      <div className="absolute right-2 top-2 z-[500] w-[150px] space-y-1 rounded-lg bg-white/95 p-2 text-[11.5px] text-[#10233f] shadow-lg">
+      <div className="absolute right-2 top-2 z-[500] w-[178px] space-y-1 rounded-lg bg-white/95 p-2 text-[11.5px] text-[#10233f] shadow-lg">
         {([['mapa', 'Mapa'], ['satelite', 'Satélite'], ['hibrido', 'Híbrido']] as const).map(([v, t]) => (
           <label key={v} className="flex cursor-pointer items-center gap-1.5"><input type="radio" name="base-mf" className="accent-[#116762]" checked={base === v} onChange={() => setBase(v)} /> {t}</label>
         ))}
+        {capas.length > 0 && (
+          <>
+            <div className="my-1 border-t border-slate-200" />
+            <p className="font-semibold text-slate-500">Capas ({capas.length})</p>
+            <div className="max-h-[132px] space-y-0.5 overflow-y-auto pr-0.5">
+              {capas.map((c) => {
+                const i = otrasCapas.indexOf(c);
+                return (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-1.5" title={c.nombre}>
+                    <input type="checkbox" className="accent-[#116762]" checked={capaVisible(c)} onChange={() => alternarCapa(c)} />
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-sm border" style={{ borderColor: i >= 0 ? COLORES_CAPAS[i % COLORES_CAPAS.length] : '#334155', background: i >= 0 ? 'transparent' : '#e2e8f0' }} />
+                    <span className="truncate">{c.nombre}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
         <div className="my-1 border-t border-slate-200" />
         <label className="flex cursor-pointer items-center gap-1.5" title="Los nombres aparecen al acercar el mapa"><input type="checkbox" className="accent-[#116762]" checked={nombresBarrios} onChange={(e) => setNombresBarrios(e.target.checked)} /> Nombres de barrios</label>
         <div>
@@ -219,7 +265,7 @@ function MapaCalorMultifechaContenido({ registros, maxFijo, alto = 380 }: PropsM
         <Crosshair size={15} />
       </button>
       <span className="pointer-events-none absolute bottom-2 left-2 z-[500] rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
-        {puntos.length.toLocaleString('es-CO')} de {registros.length.toLocaleString('es-CO')} casos con coordenadas{barriosFeatures.length === 0 ? ' · sin capa de barrios cargada' : ''}
+        {puntos.length.toLocaleString('es-CO')} de {registros.length.toLocaleString('es-CO')} casos con coordenadas{!capas.some(esCapaBarrios) ? ' · sin capa de barrios cargada' : ''}
       </span>
     </div>
   );
