@@ -205,17 +205,17 @@ function TarjetaCuenta({ c, recargar, exigeUbicacion, radioKm, onVer }: { c: Cue
 
   const estadoClave = c.tieneClave
     ? { texto: 'Asignada', clase: 'bg-emerald-50 text-emerald-700' }
-    : esAdmin ? { texto: 'La de Netlify', clase: 'bg-slate-100 text-slate-600' } : { texto: 'Sin asignar', clase: 'bg-amber-50 text-amber-800' };
+    : esAdmin ? { texto: 'La de Netlify', clase: 'bg-slate-100 text-slate-600' } : { texto: 'Acceso directo', clase: 'bg-amber-50 text-amber-800' };
 
   const TEXTO_CONFIRMAR: Record<Exclude<Confirmacion, null>, string> = {
-    quitar: esAdmin ? '¿Quitar la contraseña del panel? El administrador volverá a ingresar con la contraseña configurada en Netlify.' : `¿Quitar la contraseña de «${NOMBRE_ROL[c.rol]}»? Nadie podrá ingresar por ${c.enlace} hasta que se asigne o genere una nueva, y se cerrarán sus sesiones.`,
+    quitar: esAdmin ? '¿Quitar la contraseña del panel? El administrador volverá a ingresar con la contraseña configurada en Netlify.' : `¿Quitar la contraseña de «${NOMBRE_ROL[c.rol]}»? El enlace ${c.enlace} quedará con acceso directo: cualquiera que lo abra entra sin usuario ni contraseña. Cuando generes o asignes una, vuelve a pedirse.`,
     generar: esAdmin ? '¿Generar una contraseña nueva para el administrador? Reemplaza la actual; guárdala antes de cerrar sesión.' : `¿Generar una contraseña nueva para «${NOMBRE_ROL[c.rol]}»? La anterior dejará de servir y se cerrarán sus sesiones.`,
     revocar: `¿Revocar las sesiones abiertas de «${NOMBRE_ROL[c.rol]}»? Tendrán que volver a ingresar; la contraseña no cambia.`,
     desactivar: `¿Desactivar la cuenta «${NOMBRE_ROL[c.rol]}»? Nadie podrá ingresar por ${c.enlace} hasta que la actives de nuevo.`,
   };
   function ejecutar(tipo: Exclude<Confirmacion, null>) {
     setConfirmar(null);
-    if (tipo === 'quitar') accion(() => adminQuitarClave(c.rol), esAdmin ? 'Contraseña del panel quitada: vuelve a la de Netlify.' : 'Contraseña quitada. La cuenta no puede ingresar hasta que tenga una nueva.');
+    if (tipo === 'quitar') accion(() => adminQuitarClave(c.rol), esAdmin ? 'Contraseña del panel quitada: vuelve a la de Netlify.' : 'Contraseña quitada: el enlace entra de forma directa, sin usuario ni contraseña.');
     else if (tipo === 'generar') accion(async () => { const r = await adminGenerarClave(c.rol); if (r.ok && r.clave) { setGenerada(r.clave); setCopiadaClave(false); } return r; }, 'Contraseña nueva generada.');
     else if (tipo === 'revocar') accion(() => adminCerrarSesiones(c.rol as 'interno' | 'piloto'), 'Sesiones revocadas.');
     else accion(() => adminCambiarEstado(c.rol as 'interno' | 'piloto', false), 'Cuenta desactivada.');
@@ -309,12 +309,12 @@ function TarjetaCuenta({ c, recargar, exigeUbicacion, radioKm, onVer }: { c: Cue
             <button type="button" disabled={ocupado || !c.existe} onClick={() => abrir('generar')} title="El sistema crea una contraseña segura y te la muestra una sola vez" className={clsx(btn, 'border-[#116762] bg-[#116762] text-white hover:bg-[#0f5f57]')}>
               <Sparkles size={14} /> Generar contraseña
             </button>
-            <button type="button" disabled={ocupado || !c.existe || !c.tieneClave} onClick={() => abrir('quitar')} title={esAdmin ? 'Quita la contraseña puesta en el panel; vuelve a la de Netlify' : 'Deja la cuenta sin contraseña (no podrá ingresar)'} className={clsx(btn, 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50')}>
+            <button type="button" disabled={ocupado || !c.existe || !c.tieneClave} onClick={() => abrir('quitar')} title={esAdmin ? 'Quita la contraseña puesta en el panel; vuelve a la de Netlify' : 'El enlace queda con acceso directo, sin usuario ni contraseña'} className={clsx(btn, 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50')}>
               <Eraser size={14} /> Quitar contraseña
             </button>
           </div>
         )}
-        <p className="mt-1.5 text-[11px] text-slate-400">Cambiar: escribes una nueva. Generar: el sistema crea una segura y la muestra una sola vez.</p>
+        <p className="mt-1.5 text-[11px] text-slate-400">Cambiar: escribes una nueva. Generar: el sistema crea una segura y la muestra una sola vez. {esAdmin ? 'Quitar: vuelve a la contraseña de Netlify.' : 'Quitar: acceso directo por el enlace, sin usuario ni contraseña.'}</p>
       </div>
 
       {/* Control de acceso */}

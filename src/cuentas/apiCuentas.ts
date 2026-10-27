@@ -59,6 +59,14 @@ function guardarSesion(s: SesionCuenta | null) {
   try { if (s) localStorage.setItem(claveSesion(), JSON.stringify(s)); else localStorage.removeItem(claveSesion()); } catch { /* sin almacenamiento */ }
 }
 
+/** ¿El enlace actual tiene acceso directo (cuenta sin contraseña)? */
+export async function consultarEnlace(): Promise<{ ok: boolean; abierto: boolean }> {
+  const rol = rolDelEnlace();
+  if (!rol) return { ok: false, abierto: false };
+  const r = await llamar<{ abierto?: boolean }>({ accion: 'enlace', rol });
+  return { ok: !!r.ok, abierto: !!r.abierto };
+}
+
 export async function ingresar(usuario: string, clave: string, ubic: Ubicacion | null) {
   const rol = rolDelEnlace();
   const r = await llamar<{ token?: string; usuario?: string; nombre?: string; expira?: number; ambito?: AmbitoConsulta; requiereUbicacion?: boolean }>({

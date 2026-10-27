@@ -86,6 +86,7 @@ export const handler: Handler = async (event) => {
   try {
     switch (c.accion) {
       case 'login': return await login(db, c, ip, dispositivo);
+      case 'enlace': return await enlace(db, c);
       case 'verificar': return await verificar(db, c, ip, dispositivo);
       case 'salir': return await salir(db, c, ip, dispositivo);
       case 'evento': return await evento(db, c, ip, dispositivo);
@@ -128,8 +129,11 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
 
   const { data: cuenta, error } = await db.from('cuentas_acceso').select('*').eq('rol', rol).maybeSingle();
   if (error) throw error;
+  // Cuenta SIN contraseña (el administrador la quitó): acceso directo, sin
+  // usuario ni contraseña. En cuanto se asigne o genere una, vuelve a pedirse.
+  const directo = !!cuenta && !cuenta.clave_hash;
   const usuarioOk = !!cuenta && normalizar(c.usuario) === normalizar(cuenta.usuario);
-  if (!cuenta || !usuarioOk || !verificarClave(String(c.clave ?? ''), cuenta.clave_hash)) {
+  if (!cuenta || (!directo && (!usuarioOk || !verificarClave(String(c.clave ?? ''), cuenta.clave_hash)))) {
     await registrarEvento(db, { ...base, evento: 'fallido', detalle: !cuenta?.clave_hash ? 'La cuenta no tiene contraseña asignada' : 'Usuario o contraseña incorrectos' });
     await new Promise((r) => setTimeout(r, 700));
     return resp({ ok: false, error: 'Usuario o contraseña incorrectos.' });
@@ -154,9 +158,17 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   const ahora = new Date().toISOString();
   const { error: e2 } = await db.from('sesiones_acceso').insert({ sesion_id: sesionId, rol, inicio: ahora, ultima_actividad: ahora, dispositivo, ip });
   if (e2) throw e2;
-  await registrarEvento(db, { ...base, evento: 'ingreso', detalle: null });
+  await registrarEvento(db, { ...base, evento: 'ingreso', detalle: directo ? 'Ingreso directo (cuenta sin contraseña)' : null });
   const exp = Date.now() + DURACION_SESION_MS;
   return resp({ ok: true, token: firmarTokenSesion({ r: rol, s: sesionId, exp }), usuario: cuenta.usuario, nombre: cuenta.nombre || cuenta.usuario, rol, ambito: leerAmbito(cuenta.ambito), expira: exp, requiereUbicacion: rol === 'piloto' && EXIGIR_UBICACION_PILOTO });
+}
+
+/** ¿El enlace tiene acceso directo? (cuenta activa y sin contraseña). No revela nada más. */
+async function enlace(db: SupabaseClient, c: Cuerpo) {
+  if (!esRolSesion(c.rol)) return resp({ ok: false, error: 'Enlace no válido.' }, 400);
+  const { data: cuenta, error } = await db.from('cuentas_acceso').select('activo, clave_hash').eq('rol', c.rol).maybeSingle();
+  if (error) throw error;
+  return resp({ ok: true, abierto: !!cuenta && !!cuenta.activo && !cuenta.clave_hash });
 }
 
 async function verificar(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: string) {
@@ -226,7 +238,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
     if (error) throw error;
     if (!data || data.length === 0) return resp({ ok: false, error: 'Esa cuenta no existe.' });
     if (rol !== 'administrador') await db.from('sesiones_acceso').delete().eq('rol', rol);
-    await registrarEvento(db, { rol, evento: 'admin', detalle: rol === 'administrador' ? 'Se quitó la contraseña del panel (vuelve a la de Netlify)' : 'El administrador quitó la contraseña' });
+    await registrarEvento(db, { rol, evento: 'admin', detalle: rol === 'administrador' ? 'Se quitó la contraseña del panel (vuelve a la de Netlify)' : 'El administrador quitó la contraseña (acceso directo sin usuario ni contraseña)' });
     return resp({ ok: true });
   }
   // Generar una contraseña nueva y segura en el servidor. Solo se guarda su

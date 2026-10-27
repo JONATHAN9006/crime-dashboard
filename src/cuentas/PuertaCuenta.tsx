@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, MapPin, ShieldAlert } from 'lucide-react';
-import { ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
+import { consultarEnlace, ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
 
 // Puerta de entrada de los enlaces /interno y /piloto: nada del dashboard
 // (ni los datos) se carga hasta ingresar con el usuario y la contraseña de la
@@ -18,7 +18,8 @@ export const useSesionCuenta = () => useContext(CuentaContext);
 
 type Estado =
   | { fase: 'verificando' }
-  | { fase: 'login'; aviso?: string }
+  | { fase: 'consultando'; aviso?: string; automatico: boolean }
+  | { fase: 'login'; aviso?: string; abierto?: boolean }
   | { fase: 'dentro'; sesion: SesionCuenta };
 
 const MENSAJE_UBICACION: Record<string, string> = {
@@ -28,13 +29,37 @@ const MENSAJE_UBICACION: Record<string, string> = {
 };
 
 export function PuertaCuenta({ children }: { children: ReactNode }) {
-  const [estado, setEstado] = useState<Estado>(() => (leerSesionGuardada() ? { fase: 'verificando' } : { fase: 'login' }));
+  // Sin sesión guardada se consulta si el enlace tiene acceso directo (cuenta
+  // sin contraseña): en ese caso se entra sin formulario. Si tiene
+  // contraseña, se muestra el formulario de usuario y contraseña.
+  const [estado, setEstado] = useState<Estado>(() => (leerSesionGuardada() ? { fase: 'verificando' } : { fase: 'consultando', automatico: true }));
   const sesionRef = useRef<SesionCuenta | null>(null);
 
   const cerrarCon = useCallback((aviso?: string) => {
     sesionRef.current = null;
-    setEstado({ fase: 'login', aviso });
+    setEstado({ fase: 'consultando', aviso, automatico: false });
   }, []);
+
+  // ¿Acceso directo? Al abrir el enlace entra solo; después de cerrar sesión
+  // muestra el botón «Ingresar» (sin usuario ni contraseña).
+  useEffect(() => {
+    if (estado.fase !== 'consultando') return;
+    const { aviso, automatico } = estado;
+    let vivo = true;
+    (async () => {
+      const r = await consultarEnlace();
+      if (!vivo) return;
+      if (!r.abierto) { setEstado({ fase: 'login', aviso }); return; }
+      if (!automatico) { setEstado({ fase: 'login', aviso, abierto: true }); return; }
+      const ubic = esPiloto() ? await obtenerUbicacion() : null;
+      const ing = await ingresar('', '', ubic);
+      if (!vivo) return;
+      const s = leerSesionGuardada();
+      if (ing.ok && s) { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); return; }
+      setEstado({ fase: 'login', abierto: true, aviso: ing.requiereUbicacion && ubic && 'error' in ubic ? `${ing.error} ${MENSAJE_UBICACION[ubic.error]}` : ing.error });
+    })();
+    return () => { vivo = false; };
+  }, [estado]);
 
   const verificar = useCallback(async (s: SesionCuenta) => {
     const ubic = esPiloto() ? await obtenerUbicacion(12000) : null;
@@ -49,7 +74,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (estado.fase !== 'verificando') return;
     const s = leerSesionGuardada();
-    if (!s) { setEstado({ fase: 'login' }); return; }
+    if (!s) { setEstado({ fase: 'consultando', automatico: true }); return; }
     verificar(s).then((ok) => {
       if (ok) { sesionRef.current = leerSesionGuardada() ?? s; setEstado({ fase: 'dentro', sesion: sesionRef.current }); }
     });
@@ -81,7 +106,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
   if (estado.fase === 'dentro') {
     return <CuentaContext.Provider value={{ sesion: estado.sesion, salir }}>{children}</CuentaContext.Provider>;
   }
-  if (estado.fase === 'verificando') {
+  if (estado.fase === 'verificando' || estado.fase === 'consultando') {
     return (
       <Fondo>
         <div className="flex flex-col items-center gap-3 py-6 text-[#10233f]">
@@ -94,6 +119,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
   return (
     <FormularioIngreso
       aviso={estado.aviso}
+      abierto={!!estado.abierto}
       onIngreso={(s) => { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); }}
     />
   );
@@ -118,7 +144,7 @@ function Fondo({ children }: { children: ReactNode }) {
   );
 }
 
-function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s: SesionCuenta) => void }) {
+function FormularioIngreso({ aviso, abierto, onIngreso }: { aviso?: string; abierto: boolean; onIngreso: (s: SesionCuenta) => void }) {
   const [usuario, setUsuario] = useState('');
   const [clave, setClave] = useState('');
   const [verClave, setVerClave] = useState(false);
@@ -127,7 +153,7 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!usuario || !clave) { setError('Escribe tu usuario y tu contraseña.'); return; }
+    if (!abierto && (!usuario || !clave)) { setError('Escribe tu usuario y tu contraseña.'); return; }
     setError(null);
     let ubic: Ubicacion | null = null;
     if (esPiloto()) {
@@ -135,7 +161,7 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
       ubic = await obtenerUbicacion();
     }
     setPaso('validando');
-    const r = await ingresar(usuario.trim(), clave, ubic);
+    const r = await ingresar(abierto ? '' : usuario.trim(), abierto ? '' : clave, ubic);
     setPaso('listo');
     const s = leerSesionGuardada();
     if (r.ok && s) { onIngreso(s); return; }
@@ -152,6 +178,9 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
             <ShieldAlert size={15} className="mt-[1px] shrink-0" /> {aviso}
           </p>
         )}
+        {abierto ? (
+          <p className="rounded-lg border border-[#cfe8e2] bg-[#eef8f5] p-2.5 text-[12.5px] text-[#0b4a46]">Este enlace tiene acceso directo: no necesita usuario ni contraseña.</p>
+        ) : (<>
         <label className="block">
           <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Usuario</span>
           <input
@@ -182,6 +211,7 @@ function FormularioIngreso({ aviso, onIngreso }: { aviso?: string; onIngreso: (s
             </button>
           </div>
         </label>
+        </>)}
         {error && <p className="rounded-lg bg-rose-50 p-2.5 text-[12.5px] text-rose-700">{error}</p>}
         <button
           type="submit"
