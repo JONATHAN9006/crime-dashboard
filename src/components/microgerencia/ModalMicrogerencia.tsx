@@ -1,0 +1,518 @@
+import { agruparCircunstancia, cuentaComoOperatividad } from '../../utils/operatividadConteo';
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react';
+import type { NodoMicrogerencia } from '../../data/microgerencia';
+import { useMicrogerencia } from '../../hooks/useMicrogerencia';
+import { generarImagenMapaGeneral, generarImagenMapaDistrito, generarImagenMapaEstacion, generarImagenMapaCai, generarImagenMapaGeneralPorTipo, generarImagenesParaNodosOperatividad, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
+import { generarPdfMicrogerencia, dibujarSeccionResumenSimple, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
+import { cargarComparendos } from '../../data/rnmcStorage';
+import { useData } from '../../context/DataContext';
+import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
+import { formatNumero, formatDecimal } from '../../utils/aggregations';
+
+function formatearPct(n: number | null): string {
+  if (n === null) return 'N/A';
+  return `${n >= 0 ? '+' : ''}${formatDecimal(n, 1)}%`;
+}
+
+// Indicador junto a "Aporte %": cuánto y en qué porcentaje cambiaría el
+// cierre proyectado de este nodo frente al total real del año anterior —
+// en rojo si va en AUMENTO (dif positivo), en verde si va en REDUCCIÓN
+// (dif negativo). Se calcula a partir de "difConAnioAnterior", ya obtenido
+// en useMicrogerencia.ts — no es un valor nuevo, solo se muestra aquí
+// también, justo al lado del aporte.
+function IndicadorTendenciaProyectada({ nodo }: { nodo: NodoMicrogerencia }) {
+  const dif = Math.round(nodo.difConAnioAnterior);
+  const pct = nodo.total2025 > 0 ? (dif / nodo.total2025) * 100 : null;
+  const enAumento = dif > 0;
+  const color = dif === 0 ? 'text-slate-400' : enAumento ? 'text-rose-600' : 'text-emerald-600';
+  return (
+    <span className={`ml-1 inline-flex items-center gap-0.5 text-xs font-semibold ${color}`}>
+      (Total proyectado: {formatNumero(Math.round(nodo.terminaAnio))} · {dif >= 0 ? '+' : ''}{formatNumero(dif)} casos{pct !== null && `, ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`})
+    </span>
+  );
+}
+
+function MetricasNodo({ nodo, destacado }: { nodo: NodoMicrogerencia; destacado: boolean }) {
+  const Icono = nodo.dif > 0 ? TrendingUp : nodo.dif < 0 ? TrendingDown : Minus;
+  const color = nodo.dif > 0 ? 'text-rose-600' : nodo.dif < 0 ? 'text-emerald-600' : 'text-slate-400';
+  return (
+    <div className={`grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4 ${destacado ? '' : 'text-slate-500'}`}>
+      <div><span className="block text-slate-400">Total 2025</span>{formatNumero(nodo.total2025)}</div>
+      <div><span className="block text-slate-400">2025 (a la fecha)</span>{formatNumero(nodo.fecha2025)}</div>
+      <div><span className="block text-slate-400">2026 (a la fecha)</span><strong>{formatNumero(nodo.fecha2026)}</strong></div>
+      <div className={color}><span className="block text-slate-400">DIF</span><span className="inline-flex items-center gap-0.5"><Icono size={10} />{nodo.dif >= 0 ? '+' : ''}{formatNumero(nodo.dif)}</span></div>
+      <div className={color}><span className="block text-slate-400">%</span>{formatearPct(nodo.pct)}</div>
+      <div className="sm:col-span-2">
+        <span className="block text-slate-400">Aporte % <span className="text-slate-300">(proyección vs. 2025)</span></span>
+        <span className="inline-flex flex-wrap items-baseline gap-1">
+          {formatDecimal(nodo.aportePct, 1)}%
+          <span className="text-xs font-normal text-slate-400">({formatNumero(nodo.fecha2026)} casos)</span>
+          <IndicadorTendenciaProyectada nodo={nodo} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TablaTrimestres({ nodo }: { nodo: NodoMicrogerencia }) {
+  return (
+    <div className="rounded-lg bg-sky-50 p-2">
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-sky-600">Trimestres</p>
+      <table className="w-full text-sm">
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Trimestre</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
+        <tbody>
+          {nodo.trimestres.map((t, i) => (
+            <tr key={t.etiqueta} className={i % 2 === 0 ? 'bg-sky-100/60' : 'bg-sky-50'}>
+              <td className="py-1 pl-1 text-slate-600">{t.etiqueta}</td>
+              <td className="py-1 text-right text-slate-500">{formatNumero(t.anio2025)}</td>
+              <td className="py-1 text-right font-semibold text-slate-700">{formatNumero(t.anio2026)}</td>
+              <td className={`py-1 pr-1 text-right ${t.dif > 0 ? 'text-rose-600' : t.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{t.dif >= 0 ? '+' : ''}{formatNumero(t.dif)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Distribución por mes — en UNA sola lista de los 12 meses (no partida en
+// columnas). "2025" es el mes CERRADO completo (por eso octubre-diciembre
+// ya muestran su valor real, aunque el resto del dashboard use el corte "a
+// la fecha" para otros comparativos) — "2026" sigue siendo lo que haya
+// hasta hoy, automáticamente.
+function TablaMeses({ nodo }: { nodo: NodoMicrogerencia }) {
+  return (
+    <div className="rounded-lg bg-amber-50 p-2">
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-600">Distribución por mes</p>
+      <table className="w-full text-sm">
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Mes</th><th className="text-right font-medium">2025</th><th className="text-right font-medium">2026</th><th className="text-right font-medium">Dif</th></tr></thead>
+        <tbody>
+          {nodo.meses.map((m, i) => (
+            <tr key={m.etiqueta} className={i % 2 === 0 ? 'bg-amber-100/60' : 'bg-amber-50'}>
+              <td className="py-1 pl-1 text-slate-600">{m.etiqueta}</td>
+              <td className="py-1 text-right text-slate-500">{formatNumero(m.anio2025)}</td>
+              <td className="py-1 text-right font-semibold text-slate-700">{formatNumero(m.anio2026)}</td>
+              <td className={`py-1 pr-1 text-right ${m.dif > 0 ? 'text-rose-600' : m.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{m.dif >= 0 ? '+' : ''}{formatNumero(m.dif)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TablaDelitos({ nodo }: { nodo: NodoMicrogerencia }) {
+  if (nodo.delitos.length === 0) return null;
+  return (
+    <div className="rounded-lg bg-violet-50 p-2 pr-4 sm:col-span-2">
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-violet-600">Delitos ({nodo.delitos.length})</p>
+      <table className="w-full text-sm">
+        <thead><tr className="text-slate-400"><th className="text-left font-medium">Delito</th><th className="pr-2 text-right font-medium">Total 2025</th><th className="pr-2 text-right font-medium">2025 (a la fecha)</th><th className="pr-2 text-right font-medium">2026</th><th className="pr-2 text-right font-medium">Dif</th><th className="text-right font-medium">%</th></tr></thead>
+        <tbody>
+          {nodo.delitos.map((d, i) => (
+            <tr key={d.nombre} className={i % 2 === 0 ? 'bg-violet-100/60' : 'bg-violet-50'}>
+              <td className="py-1 pl-1 text-slate-600">{d.nombre}</td>
+              <td className="py-1 pr-2 text-right font-semibold text-violet-700">{formatNumero(d.total2025)}</td>
+              <td className="py-1 pr-2 text-right text-slate-500">{formatNumero(d.fecha2025)}</td>
+              <td className="py-1 pr-2 text-right font-semibold text-slate-700">{formatNumero(d.fecha2026)}</td>
+              <td className={`py-1 pr-2 text-right ${d.dif > 0 ? 'text-rose-600' : d.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{d.dif >= 0 ? '+' : ''}{formatNumero(d.dif)}</td>
+              <td className={`py-1 text-right ${d.dif > 0 ? 'text-rose-600' : d.dif < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{formatearPct(d.pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSeleccion, sufijoDelito }: {
+  nodo: NodoMicrogerencia;
+  profundidad: number;
+  ruta: string;
+  seleccionados: Map<string, NodoMicrogerencia>;
+  onAlternarSeleccion: (ruta: string, nodo: NodoMicrogerencia) => void;
+  sufijoDelito: string | null;
+}) {
+  const [expandido, setExpandido] = useState(profundidad <= 1);
+  const esNivelSuperior = profundidad === 0;
+  const estaSeleccionado = seleccionados.has(ruta);
+
+  return (
+    <div style={{ marginLeft: profundidad * 14 }} className="mb-2">
+      <div className={`rounded-lg border p-2.5 ${estaSeleccionado ? 'border-brand-green ring-1 ring-brand-green' : esNivelSuperior ? 'border-emerald-200 bg-emerald-50' : profundidad === 1 ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-white'}`}>
+        <div className="mb-1.5 flex items-center gap-2">
+          <button type="button" onClick={() => onAlternarSeleccion(ruta, nodo)} className="shrink-0 text-brand-green" title="Incluir en el PDF">
+            {estaSeleccionado ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-300" />}
+          </button>
+          <button type="button" onClick={() => setExpandido((v) => !v)} className="flex flex-1 items-center gap-1 text-left">
+            {expandido ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
+            <span className={`font-bold ${esNivelSuperior ? 'text-brand-navy' : 'text-slate-700'}`}>
+              {nodo.nombre}{sufijoDelito && <span className="font-semibold text-brand-green"> — {sufijoDelito}</span>}
+            </span>
+          </button>
+        </div>
+        <MetricasNodo nodo={nodo} destacado={esNivelSuperior} />
+        {expandido && (
+          <div className="mt-2.5 grid grid-cols-1 gap-3 border-t border-slate-200 pt-2.5 sm:grid-cols-2">
+            <TablaTrimestres nodo={nodo} />
+            <TablaMeses nodo={nodo} />
+            <TablaDelitos nodo={nodo} />
+          </div>
+        )}
+      </div>
+      {nodo.hijos.map((hijo) => (
+        <NodoCompleto key={hijo.nombre} nodo={hijo} profundidad={profundidad + 1} ruta={`${ruta}>${hijo.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={onAlternarSeleccion} sufijoDelito={sufijoDelito} />
+      ))}
+    </div>
+  );
+}
+
+type Vista = 'general' | 'distrito1' | 'distrito2' | 'delitos';
+
+function CheckboxVista({ etiqueta, activo, onClick }: { etiqueta: string; activo: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={activo}
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${activo ? 'border-brand-green bg-brand-green text-white' : 'border-slate-300 text-slate-500 hover:border-brand-green/50 hover:text-brand-green'}`}
+    >
+      <span className={`flex h-3 w-3 items-center justify-center rounded-sm border ${activo ? 'border-white bg-white' : 'border-slate-400'}`}>
+        {activo && <span className="h-1.5 w-1.5 rounded-[1px] bg-brand-green" />}
+      </span>
+      {etiqueta}
+    </button>
+  );
+}
+
+function aplanarArbol(nodo: NodoMicrogerencia, ruta: string): [string, NodoMicrogerencia][] {
+  const propio: [string, NodoMicrogerencia][] = [[ruta, nodo]];
+  return nodo.hijos.reduce((acc, hijo) => [...acc, ...aplanarArbol(hijo, `${ruta}>${hijo.nombre}`)], propio);
+}
+
+const TITULOS_VISTA: Record<Vista, string> = {
+  general: 'MEPOY General — Consolidado',
+  distrito1: 'Distrito Uno',
+  distrito2: 'Distrito Dos',
+  delitos: 'Comparativo por Delito',
+};
+
+export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCerrar: () => void; fuentesAdicionales?: FuenteMicrogerencia[] }) {
+  const datos = useMicrogerencia();
+  const [vista, setVista] = useState<Vista>('general');
+  const [seleccionados, setSeleccionados] = useState<Map<string, NodoMicrogerencia>>(new Map());
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  // Antes se llamaban DESPUÉS del "if (!datos) return" de abajo: si el modal
+  // se abría antes de que cargaran los datos, React cambiaba el número de
+  // hooks entre renders y la pantalla se caía.
+  const datosOperatividad = useMicrogerenciaOperatividad();
+  const { filteredOperatividadRecords } = useData();
+
+  if (!datos) {
+    return createPortal(
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+          <p className="text-sm text-slate-600">No hay datos suficientes todavía para calcular la Microgerencia — carga primero la información desde "Actualizar información".</p>
+          <button type="button" onClick={onCerrar} className="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-400">Cerrar</button>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  function alternarSeleccion(ruta: string, nodo: NodoMicrogerencia) {
+    setSeleccionados((prev) => {
+      const nuevo = new Map(prev);
+      if (nuevo.has(ruta)) nuevo.delete(ruta); else nuevo.set(ruta, nodo);
+      return nuevo;
+    });
+  }
+
+  const raizVistaActual = vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : vista === 'distrito2' ? datos.distrito2 : null;
+
+  // Genera el mapa real (calles + mapa de calor) para "MEPOY General"
+  // (todo Popayán), las estaciones (ej. "E-Norte") y, a pedido explícito,
+  // también cada CAI — antes se omitía a propósito por rendimiento
+  // (podían ser 10+ mapas más por PDF); ahora si el usuario lo pide, se
+  // genera igual, solo tarda un poco más en construirse.
+  async function generarImagenesParaNodos(nodos: NodoMicrogerencia[], delitoFiltrado: string | null): Promise<Map<string, string>> {
+    const mapa = new Map<string, string>();
+    // Mismo periodo ("año actual a la fecha") que usan todos los demás
+    // números de esta Microgerencia — antes el mapa de calor no recibía
+    // ninguna fecha y siempre usaba TODO el histórico, sin importar la
+    // vigencia que se estuviera mostrando.
+    const { actualInicio, actualFin } = datos!;
+    for (const nodo of nodos) {
+      if (nodo.nombre === 'MEPOY General — Consolidado') {
+        const img = await generarImagenMapaGeneral(delitoFiltrado, actualInicio, actualFin);
+        if (img) mapa.set(nodo.nombre, img);
+      } else if (nodo.nombre === 'Distrito Uno' || nodo.nombre === 'Distrito Dos') {
+        // Distrito Uno = Estación Norte + Sur; Distrito Dos = Timbío +
+        // Coconuco + Sotará — antes estos nodos no tenían ninguna lógica
+        // de mapa y salían siempre sin imagen.
+        const img = await generarImagenMapaDistrito(nodo.nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitoFiltrado, actualInicio, actualFin);
+        if (img) mapa.set(nodo.nombre, img);
+      } else if (esNombreDeEstacion(nodo.nombre)) {
+        const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
+        if (img) mapa.set(nodo.nombre, img);
+      } else if (esNombreDeCai(nodo.nombre)) {
+        const img = await generarImagenMapaCai(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
+        if (img) mapa.set(nodo.nombre, img);
+      }
+    }
+    return mapa;
+  }
+
+  // Secciones extra (Operatividad, RNMC) — una página resumen por fuente
+  // seleccionada en el paso anterior (SelectorFuentesMicrogerencia), cada
+  // una con sus propios totales, un par de rankings y su propio mapa
+  // general. Delictividad NO pasa por aquí — sigue su camino de siempre,
+  // con todo el árbol Distrito/Estación/CAI.
+  // Traduce el NOMBRE de un nodo de Delictividad al nodo EQUIVALENTE de
+  // Operatividad — a pedido explícito: si en Delictividad se elige
+  // "Distrito Uno" (o una Estación o un CAI puntual), Operatividad debe
+  // traer SOLO eso, no el árbol completo siempre. El nivel de CAI se
+  // resuelve cruzando el cuadrante de Operatividad con el CAI de
+  // Delictividad (ver useMicrogerenciaOperatividad.ts) — Operatividad no
+  // trae CAI como columna propia.
+  function nodoOperatividadEquivalente(nombreDelictividad: string): NodoMicrogerencia | null {
+    if (!datosOperatividad) return null;
+    if (nombreDelictividad === 'MEPOY General — Consolidado') return datosOperatividad.general;
+    if (nombreDelictividad === 'Distrito Uno') return datosOperatividad.distrito1;
+    if (nombreDelictividad === 'Distrito Dos') return datosOperatividad.distrito2;
+    const todasLasEstaciones = [...datosOperatividad.distrito1.hijos, ...datosOperatividad.distrito2.hijos];
+    const porEstacion = todasLasEstaciones.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
+    if (porEstacion) return porEstacion;
+    // Nivel de CAI — cruzado con Delictividad (ver useMicrogerenciaOperatividad.ts).
+    for (const estacion of todasLasEstaciones) {
+      const cai = estacion.hijos.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
+      if (cai) return cai;
+    }
+    return null;
+  }
+
+  // (datosOperatividad y filteredOperatividadRecords se leen arriba, antes
+  // del return temprano: los hooks deben llamarse siempre en el mismo orden.)
+
+  // Detalle propio de Operatividad que NO cabe en la tarjeta estándar de
+  // dibujarTarjetaNodo (pensada para delito/estación) — a pedido
+  // explícito: circunstancia de captura, clase/tipo de bien, marca,
+  // ciudad, país, permiso de arma, turno, zona y situación jurídica. Va
+  // como una página aparte, después del árbol Distrito/Estación.
+  function construirPaginaDetalleOperatividad(): SeccionExtraMicrogerencia | null {
+    if (!fuentesAdicionales.includes('operatividad') || filteredOperatividadRecords.length === 0) return null;
+    const rank = (campo: (r: typeof filteredOperatividadRecords[number]) => string) => {
+      const m = new Map<string, number>();
+      for (const r of filteredOperatividadRecords) {
+        if (!cuentaComoOperatividad(r)) continue; // conteo oficial; la droga va por cantidad
+        const v = campo(r);
+        if (v) m.set(v, (m.get(v) || 0) + 1);
+      }
+      return Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
+    };
+    const rankings = [
+      { titulo: 'Circunstancia de captura', filas: rank((r) => agruparCircunstancia(r.circunstanciaCaptura)) },
+      { titulo: 'Clase de bien', filas: rank((r) => r.claseBien) },
+      { titulo: 'Tipo de bien', filas: rank((r) => r.tipoBien) },
+      { titulo: 'Marca', filas: rank((r) => r.marca) },
+      { titulo: 'Ciudad', filas: rank((r) => r.ciudad) },
+      { titulo: 'País (persona)', filas: rank((r) => r.paisPersona) },
+      { titulo: 'Permiso de arma', filas: rank((r) => r.permisoArma) },
+      { titulo: 'Turno', filas: rank((r) => r.turno) },
+      { titulo: 'Zona', filas: rank((r) => r.zona) },
+      { titulo: 'Situación jurídica', filas: rank((r) => r.situacionJuridica) },
+    ].filter((r) => r.filas.length > 0);
+    if (rankings.length === 0) return null;
+    return {
+      alturaPagina: 80 + rankings.length * 42,
+      dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
+        titulo: 'Operatividad — Detalle',
+        subtitulo: `${filteredOperatividadRecords.length.toLocaleString('es-CO')} registro(s) — circunstancia, bienes, ubicación y situación jurídica`,
+        estadisticas: [],
+        rankings,
+      }),
+    };
+  }
+
+  // Operatividad — MISMA lógica de componentes que Delictividad: se arma
+  // el mismo tipo de árbol (general + Distrito Uno/Dos + sus estaciones,
+  // cada uno con su Top 10 de categorías, trimestres, meses y mapa propio
+  // — ver useMicrogerenciaOperatividad.ts) y se dibuja con la MISMA
+  // función de tarjeta (dibujarTarjetaNodo), así que sale con el mismo
+  // tamaño de hoja y el mismo diseño, sin ninguna lógica aparte.
+  async function construirGrupoOperatividad(nombresDelictividadSeleccionados: string[]): Promise<{ nodos: NodoMicrogerencia[]; imagenes: Map<string, string> } | null> {
+    if (!fuentesAdicionales.includes('operatividad') || !datosOperatividad) return null;
+    const nodos = nombresDelictividadSeleccionados
+      .map((nombre) => nodoOperatividadEquivalente(nombre))
+      .filter((n): n is NodoMicrogerencia => n !== null);
+    // Sin equivalentes (ej. todo lo elegido era a nivel de CAI, o no había
+    // Distrito/Estación/General en la selección) — no se agrega nada de
+    // Operatividad en vez de, por defecto, mandar el árbol completo.
+    if (nodos.length === 0) return null;
+    const imagenes = await generarImagenesParaNodosOperatividad(nodos, datosOperatividad.actualInicio, datosOperatividad.actualFin);
+    return { nodos, imagenes };
+  }
+
+  async function construirSeccionesExtra(): Promise<SeccionExtraMicrogerencia[]> {
+    const secciones: SeccionExtraMicrogerencia[] = [];
+    const detalleOperatividad = construirPaginaDetalleOperatividad();
+    if (detalleOperatividad) secciones.push(detalleOperatividad);
+
+    if (fuentesAdicionales.includes('rnmc')) {
+      const guardado = await cargarComparendos();
+      const registros = guardado?.registros ?? [];
+      if (registros.length > 0) {
+        const porComportamiento = new Map<string, number>();
+        const porComuna = new Map<string, number>();
+        const porZona = new Map<string, number>();
+        for (const r of registros) {
+          if (r.articuloNumeral) porComportamiento.set(r.articuloNumeral, (porComportamiento.get(r.articuloNumeral) || 0) + 1);
+          if (r.comuna) porComuna.set(r.comuna, (porComuna.get(r.comuna) || 0) + 1);
+          if (r.zonaAtencionHechos) porZona.set(r.zonaAtencionHechos, (porZona.get(r.zonaAtencionHechos) || 0) + 1);
+        }
+        const rank = (m: Map<string, number>) => Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
+        const imagenMapa = await generarImagenMapaGeneralPorTipo('rnmc', ['#fbcfe8', '#f472b6', '#ec4899', '#831843']);
+        secciones.push({
+          alturaPagina: 190,
+          dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
+            titulo: 'RNMC — Registro Nacional de Medidas Correctivas',
+            subtitulo: `${registros.length.toLocaleString('es-CO')} comparendo(s)`,
+            estadisticas: [
+              { valor: String(registros.length), etiqueta: 'Comparendos' },
+              { valor: String(porComuna.size), etiqueta: 'Comunas' },
+              { valor: String(porZona.size), etiqueta: 'Zonas de atención' },
+            ],
+            rankings: [
+              { titulo: 'Comportamientos más registrados', filas: rank(porComportamiento) },
+              { titulo: 'Comunas con más comparendos', filas: rank(porComuna) },
+            ],
+            imagenMapa,
+          }),
+        });
+      }
+    }
+
+    return secciones;
+  }
+
+  async function descargarPdf() {
+    if (!datos) return;
+    setGenerandoPdf(true);
+    try {
+      const seccionesExtra = await construirSeccionesExtra();
+      if (seleccionados.size > 0) {
+        const nodosSeleccionados = Array.from(seleccionados.values());
+        const imagenes = await generarImagenesParaNodos(nodosSeleccionados, datos.delitoFiltrado);
+        const grupoOperatividad = await construirGrupoOperatividad(nodosSeleccionados.map((n) => n.nombre));
+        const nodosFinales = grupoOperatividad ? [...nodosSeleccionados, ...grupoOperatividad.nodos] : nodosSeleccionados;
+        const imagenesFinales = grupoOperatividad ? new Map([...imagenes, ...grupoOperatividad.imagenes]) : imagenes;
+        await generarPdfMicrogerencia(nodosFinales, `Selección personalizada (${seleccionados.size} elemento${seleccionados.size === 1 ? '' : 's'})`, imagenesFinales, seccionesExtra);
+      } else if (vista === 'delitos') {
+        // La vista "por delito" no tiene un Distrito/Estación/General
+        // puntual que traducir — Operatividad no se agrega aquí (no hay
+        // con qué emparejarlo de forma honesta).
+        await generarPdfMicrogerencia(datos.delitos, TITULOS_VISTA.delitos, undefined, seccionesExtra);
+      } else if (raizVistaActual) {
+        const imagenes = await generarImagenesParaNodos([raizVistaActual], datos.delitoFiltrado);
+        const grupoOperatividad = await construirGrupoOperatividad([raizVistaActual.nombre]);
+        const nodosFinales = grupoOperatividad ? [raizVistaActual, ...grupoOperatividad.nodos] : [raizVistaActual];
+        const imagenesFinales = grupoOperatividad ? new Map([...imagenes, ...grupoOperatividad.imagenes]) : imagenes;
+        await generarPdfMicrogerencia(nodosFinales, TITULOS_VISTA[vista], imagenesFinales, seccionesExtra);
+      }
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-brand-green px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/95 p-1">
+              <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full object-cover" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">Microgerencia y Proyección Delictiva MEPOY</h2>
+              <p className="text-xs text-emerald-50">{datos.periodo} · Días hasta la fecha: {datos.diasHastaLaFecha}</p>
+            </div>
+          </div>
+          <button type="button" onClick={onCerrar} className="rounded-lg p-1.5 text-emerald-50 hover:bg-white/10 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3">
+          <CheckboxVista etiqueta="MEPOY General" activo={vista === 'general'} onClick={() => setVista('general')} />
+          <CheckboxVista etiqueta="Distrito Uno" activo={vista === 'distrito1'} onClick={() => setVista('distrito1')} />
+          <CheckboxVista etiqueta="Distrito Dos" activo={vista === 'distrito2'} onClick={() => setVista('distrito2')} />
+          <CheckboxVista etiqueta="Delitos" activo={vista === 'delitos'} onClick={() => setVista('delitos')} />
+        </div>
+
+        <div className="flex-1 overflow-auto px-5 py-4">
+          <p className="mb-3 text-xs text-slate-400">
+            Calculado en vivo a partir de la misma información cargada en el dashboard, respetando el filtro de Delito activo — independiente del resto de los filtros de la barra lateral. Marca el <CheckSquare size={11} className="inline text-brand-green" /> de cualquier fila para elegir exactamente qué incluir en el PDF (puedes combinar filas de distintas pestañas).
+          </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              const raiz = vista === 'delitos' ? null : raizVistaActual;
+              if (vista === 'delitos') {
+                setSeleccionados(new Map(datos.delitos.map((d) => [`Delitos>${d.nombre}`, d])));
+              } else if (raiz) {
+                setSeleccionados(new Map(aplanarArbol(raiz, raiz.nombre)));
+              }
+            }}
+            className="mb-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-brand-green hover:text-brand-green"
+          >
+            <CheckSquare size={13} />
+            Seleccionar todo en esta pestaña
+          </button>
+
+          {vista !== 'delitos' && raizVistaActual && (
+            <NodoCompleto nodo={raizVistaActual} profundidad={0} ruta={raizVistaActual.nombre} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={datos.delitoFiltrado} />
+          )}
+
+          {vista === 'delitos' && (
+            <div>
+              {datos.delitos.map((d) => (
+                <NodoCompleto key={d.nombre} nodo={{ ...d, hijos: [] }} profundidad={0} ruta={`Delitos>${d.nombre}`} seleccionados={seleccionados} onAlternarSeleccion={alternarSeleccion} sufijoDelito={null} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
+          <p className="text-xs text-slate-400">
+            {seleccionados.size > 0 ? `${seleccionados.size} elemento(s) seleccionado(s) para el PDF` : `Sin selección — el PDF incluirá "${TITULOS_VISTA[vista]}" completo`}
+          </p>
+          <div className="flex items-center gap-2">
+            {seleccionados.size > 0 && (
+              <button type="button" onClick={() => setSeleccionados(new Map())} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-500 hover:border-slate-400">
+                Limpiar selección
+              </button>
+            )}
+            <button type="button" onClick={onCerrar} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-400">
+              Cerrar
+            </button>
+            <button
+              type="button"
+              onClick={descargarPdf}
+              disabled={generandoPdf}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-green/90 disabled:opacity-60"
+            >
+              <Download size={15} />
+              {generandoPdf ? 'Generando...' : 'Descargar PDF'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}

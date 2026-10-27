@@ -1,0 +1,883 @@
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { CrimeRecord, DatasetMeta, FilterState, PeriodoAnalisis, UpdateMode, UpdateSummary } from '../types/crime';
+import type { OperatividadRecord } from '../types/operatividad';
+import { parsearOperatividad, parsearOperatividadDesdeCsv, reinterpretarOperatividad } from '../data/operatividadParser';
+import { serializarOperatividadCsv } from '../data/operatividadSerializer';
+import { emptyFilterState } from '../types/crime';
+import { parseCsvText, renormalizarCamposParametrizados } from '../data/csvParser';
+import { parseArchivo } from '../data/xlsxParser';
+import { cargarDatosGuardados, guardarDatos, limpiarDatos, cargarCopiaConsulta, guardarCopiaConsulta } from '../data/storage';
+import { leerSesionGuardada } from '../cuentas/apiCuentas';
+import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo, detectarRepetidosPorContenido } from '../data/datasetOps';
+import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
+import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
+import { obtenerConfig } from '../config';
+import { descargarRegistrosSupabase, consultarMetaSupabase, contarRegistrosSupabase, conteoUltimaDescarga, subirRegistrosSupabase, borrarRegistrosSupabase } from '../data/supabaseApi';
+// Operatividad sigue en el backend de Apps Script/Drive de siempre — no se
+// migró a Supabase todavía (ver operatividadBackendUrl en config.ts).
+import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
+import { serializarCsv } from '../data/csvSerializer';
+import { sincronizarCapaDelitosDesdeRecords } from '../data/puntosStorage';
+import { MAPA_DELITO } from '../data/db2Mapeos';
+
+export type RemoteStatus = 'sin-configurar' | 'conectando' | 'conectado' | 'error';
+
+// Sello de la copia local: si la copia guardada en este navegador vino del
+// servidor central y el servidor NO ha cambiado desde entonces (misma
+// "última actualización"), al abrir el dashboard se usa esa copia en vez de
+// volver a descargar toda la base. Mismos registros exactos — solo evita
+// descargas repetidas (clave para que muchas personas, ej. los 10
+// comandantes de CAI, abran el dashboard a cada rato sin agotar el plan del
+// servidor). Cualquier otra escritura local borra el sello.
+const CLAVE_SELLO_REMOTO = 'mepoy-sello-delitos-remoto';
+// Perfil piloto (/piloto): nunca usa ni toca la copia local de este equipo.
+const ES_PILOTO = obtenerModoAcceso() === 'piloto';
+const leerSelloRemoto = (): string | null => { if (ES_PILOTO) return null; try { return localStorage.getItem(CLAVE_SELLO_REMOTO); } catch { return null; } };
+// Conteo de filas del servidor con el que se guardó la copia local: si el
+// sello coincide pero el conteo no, la copia quedó INCOMPLETA (bug de la
+// paginación sin orden) y se vuelve a descargar.
+const CLAVE_CONTEO_REMOTO = 'mepoy-conteo-delitos-remoto';
+const leerConteoRemoto = (): number | null => { if (ES_PILOTO) return null; try { const v = localStorage.getItem(CLAVE_CONTEO_REMOTO); return v ? Number(v) : null; } catch { return null; } };
+const guardarConteoRemoto = (v: number | null) => { if (ES_PILOTO) return; try { if (v != null) localStorage.setItem(CLAVE_CONTEO_REMOTO, String(v)); else localStorage.removeItem(CLAVE_CONTEO_REMOTO); } catch { /* sin almacenamiento */ } };
+const guardarSelloRemoto = (v: string | null) => { if (ES_PILOTO) return; try { if (v) localStorage.setItem(CLAVE_SELLO_REMOTO, v); else localStorage.removeItem(CLAVE_SELLO_REMOTO); } catch { /* sin almacenamiento */ } };
+
+const INTERVALO_SONDEO_MS = 90_000; // cada 90 segundos (antes 45) — con la
+// base ya en ~24 MB, cada sondeo puede implicar varias peticiones seguidas
+// al backend (ver descargarCsvRemoto); espaciarlas reduce cuántas veces al
+// día se puede topar con una demora puntual de Google, sin perder la idea
+// de "se actualiza solo, sin recargar la página".
+
+// Delitos excluidos de TODO el dashboard (conteos, filtros, tablas, gráficos,
+// mapas) — porque no se miden / reportan oficialmente, a pedido explícito, o
+// porque generan duplicación con otro delito ya existente en la fuente de
+// datos. No se modifica ni se elimina el registro original en ningún lado
+// (ni en el backend, ni en la caché local): solo se excluyen de lo que la
+// aplicación muestra y cuenta. Lista canónica en utils/delitosExcluidos.ts —
+// no mantener una copia propia aquí (ya se desincronizó dos veces).
+const DELITOS_EXCLUIDOS_GLOBAL = new Set(DELITOS_EXCLUIDOS_CANONICOS);
+
+interface DataContextValue {
+  records: CrimeRecord[];
+  filteredRecords: CrimeRecord[];
+  meta: DatasetMeta | null;
+  filters: FilterState;
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
+  clearFilters: () => void;
+  periodos: PeriodoAnalisis[];
+  setPeriodos: React.Dispatch<React.SetStateAction<PeriodoAnalisis[]>>;
+  drillDown: (campo: keyof FilterState, valor: string) => void;
+  loading: boolean;
+  loadError: string | null;
+  cargarArchivo: (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => Promise<(UpdateSummary & { sincronizado?: boolean; errorSincronizacion?: string; requiereConfirmacion?: boolean; totalFilasActual?: number; totalFilasNuevo?: number; requiereConfirmacionAnio?: boolean; aniosAReemplazar?: number[]; registrosAEliminar?: number; registrosDelArchivo?: number; requiereConfirmacionRepetidos?: boolean; coincidenciasRepetidas?: number; aniosRepetidos?: number[] }) | { error: string }>;
+  // Eliminar información de Delictividad (años completos, un rango de
+  // fechas, o todo lo que entró con una carga puntual) — local y servidor.
+  // Todos los registros guardados, SIN el filtro de delitos excluidos (los
+  // usa "Eliminar información" para contar exactamente lo que se borra).
+  registrosCompletos: CrimeRecord[];
+  eliminarRegistros: (criterio: CriterioEliminacion, token?: string, usuario?: string) => Promise<{ eliminados: number; sincronizado: boolean; error?: string }>;
+  limpiarTodo: () => Promise<void>;
+  lastColumns: string[];
+  backendUrl: string;
+  remoteStatus: RemoteStatus;
+  remoteError: string | null;
+  remoteMeta: { ultimaActualizacion: string | null; ultimoUsuario: string | null } | null;
+  sincronizar: () => Promise<void>;
+  recordsBase: CrimeRecord[];
+  actualizacionDisponible: boolean; // true brevemente justo después de una sincronización automática (para mostrar un aviso tipo "toast")
+  descartarAvisoActualizacion: () => void;
+  // Dataset de OPERATIVIDAD — separado del de delictividad, con su propia
+  // carga, pero filtrado con los MISMOS filtros generales cuando el campo
+  // tiene equivalente.
+  operatividadRecords: OperatividadRecord[];
+  filteredOperatividadRecords: OperatividadRecord[];
+  operatividadMeta: { totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null;
+  /** true mientras la operatividad aún no ha llegado (ni de la copia local ni del servidor). */
+  cargandoOperatividad: boolean;
+  cargarArchivoOperatividad: (file: File, token?: string, usuario?: string, modo?: 'reemplazar' | 'agregar' | 'reemplazarAnio') => Promise<{ registros: number } | { error: string }>;
+}
+
+import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
+import { operatividadEnPopayan, recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
+
+const DataContext = createContext<DataContextValue | null>(null);
+
+export type CriterioEliminacion =
+  | { tipo: 'anios'; anios: number[] }
+  | { tipo: 'rango'; desde: string; hasta: string }
+  | { tipo: 'lote'; loteId: string };
+
+export function DataProvider({ children }: { children: React.ReactNode }) {
+  const [records, setRecords] = useState<CrimeRecord[]>([]);
+  const [meta, setMeta] = useState<DatasetMeta | null>(null);
+  const [filters, setFilters] = useState<FilterState>(emptyFilterState);
+  const [periodos, setPeriodos] = useState<PeriodoAnalisis[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastColumns, setLastColumns] = useState<string[]>([]);
+  const [remoteStatus, setRemoteStatus] = useState<RemoteStatus>('sin-configurar');
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [remoteMeta, setRemoteMeta] = useState<{ ultimaActualizacion: string | null; ultimoUsuario: string | null } | null>(null);
+  const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
+  const ultimaCargaRef = useRef<string | null>(null);
+
+  // "backendUrl" es la URL del proyecto de Supabase (ver src/config.ts —
+  // se conserva el nombre para no tener que tocar Header.tsx/UpdateDataModal.tsx,
+  // que solo lo usan como "¿hay servidor central configurado?").
+  const { backendUrl, supabaseAnonKey, operatividadBackendUrl } = obtenerConfig();
+  // Ruta de la función de Netlify que hace las escrituras (ver
+  // netlify/functions/subirRegistros.ts) — siempre la misma, relativa al
+  // propio sitio (mismo origen, sin necesidad de configurarla aparte).
+  const FUNCION_SUBIR_REGISTROS = '/.netlify/functions/subirRegistros';
+
+  // Re-normaliza el delito de CUALQUIER registro (nuevo o ya guardado)
+  // contra la misma tabla de traducción de siempre — no solo al parsear un
+  // archivo nuevo. Sin esto, un registro que ya estaba guardado con un
+  // nombre crudo (ej. "HOMICIDIOS EN AT" en vez de "Homicidio en AT") se
+  // quedaba así para siempre, aunque la tabla ya tuviera la traducción
+  // correcta — y al no coincidir con el nombre exacto que usa la lista de
+  // exclusión, se colaba como si fuera un delito distinto y sin excluir.
+  // Es idempotente: un delito que ya viene en forma corta ("Homicidio") no
+  // coincide con ninguna clave de la tabla (crudas, en mayúsculas) y se
+  // deja tal cual.
+  function renormalizarDelitos(records: CrimeRecord[]): CrimeRecord[] {
+    return records.map((r) => {
+      const canonico = MAPA_DELITO[r.delito.toUpperCase()];
+      if (canonico) return canonico !== r.delito ? { ...r, delito: canonico } : r;
+      // Respaldo por palabra clave para hurto a bancos / entidades
+      // financieras, con cualquier otra redacción (ej. "ARTÍCULO 239.
+      // HURTO A BANCOS", "Hurto Entidades Financieras"): se suma siempre a
+      // la misma categoría en vez de quedar como un delito aparte.
+      const sinTildes = r.delito.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (/HURTO/.test(sinTildes) && /BANC|FINANCIER/.test(sinTildes)) {
+        return r.delito !== 'Hurto E. Financieras' ? { ...r, delito: 'Hurto E. Financieras' } : r;
+      }
+      // Sin traducción en la tabla: si quedó en mayúsculas de corrido
+      // (ej. "ACOSO SEXUAL"), se le da formato de Título para que no se
+      // vea gritando al lado de los que sí están bien formateados.
+      if (r.delito !== 'NO REPORTADO' && r.delito === r.delito.toUpperCase()) {
+        const formateado = r.delito.toLowerCase().replace(/(^|\s)([a-záéíóúñ])/g, (_, sep: string, letra: string) => sep + letra.toUpperCase());
+        return formateado !== r.delito ? { ...r, delito: formateado } : r;
+      }
+      return r;
+    });
+  }
+
+  const persistirYActualizar = useCallback(
+    async (nuevosRegistrosCrudos: CrimeRecord[], archivo: string, columnas: string[], fechaRef?: Date, fechaMaxParametro?: Date | null) => {
+      guardarSelloRemoto(null);
+      const conDelitosCorregidos = renormalizarCamposParametrizados(renormalizarDelitos(nuevosRegistrosCrudos));
+      const sinExcluidos = excluirDelitosOmitidos(conDelitosCorregidos);
+      // El CAI se completa por Cuadrante ANTES de guardar — así, tanto
+      // "records" como la capa "Delitos" del mapa (que se sincroniza justo
+      // debajo) ya ven el CAI derivado, sin depender de que cada pantalla
+      // haga su propia reparación por su cuenta.
+      const conCaiDerivado = derivarCaiDesdeCuadrante(sinExcluidos);
+      // Limpieza de duplicados reales que ya hubieran quedado guardados por
+      // el bug de identidad (ver datasetOps.ts) — se aplica SIEMPRE, no
+      // solo al subir un archivo nuevo, para que la corrección tome efecto
+      // de inmediato con lo que ya está guardado, sin depender de que se
+      // vuelva a subir nada.
+      const { registros: nuevosRegistros, eliminados: duplicadosLimpiados } = eliminarDuplicadosPorIdentidadCruda(conCaiDerivado);
+      if (duplicadosLimpiados > 0) {
+        console.info(`[persistirYActualizar] Se fusionaron ${duplicadosLimpiados} registro(s) duplicado(s) detectado(s) con la identidad corregida.`);
+      }
+      setRecords(nuevosRegistros);
+      const ahora = fechaRef ?? new Date();
+      setMeta(construirMeta(nuevosRegistros, archivo, ahora, columnas, fechaMaxParametro ?? null));
+      setLastColumns(columnas);
+      await guardarDatos(nuevosRegistros, archivo, fechaMaxParametro ?? null);
+      // IMPORTANTE: se sincroniza con los registros YA filtrados
+      // (nuevosRegistros), nunca con los crudos — si se usaran los crudos,
+      // la capa "Delitos" del mapa terminaría incluyendo delitos que en
+      // todo el resto del dashboard están excluidos a propósito (ej.
+      // "H. Celular"), y el total del mapa no cuadraría con el de
+      // "Delictividad por Unidad" (bug real: pasó exactamente esto).
+      try { await sincronizarCapaDelitosDesdeRecords(nuevosRegistros); } catch { /* si falla, el mapa simplemente sigue con lo que ya tenía */ }
+    },
+    [],
+  );
+
+  const descargaEnCursoRef = useRef(false);
+  const cargarDesdeBackend = useCallback(async (): Promise<boolean> => {
+    if (!backendUrl) return false;
+    // Con una base grande, la descarga completa (varios pedazos seguidos)
+    // puede tardar más de un minuto — más que el intervalo del sondeo
+    // automático. Sin este seguro, el sondeo podía arrancar una SEGUNDA
+    // descarga completa mientras la primera todavía estaba en curso: las
+    // dos compitiendo por la misma conexión, pisándose entre sí, daban
+    // exactamente el síntoma de "conecta y se desconecta a cada rato" que
+    // se venía reportando — no era un error real del servidor.
+    if (descargaEnCursoRef.current) return false;
+    descargaEnCursoRef.current = true;
+    setRemoteStatus('conectando');
+    try {
+      const [registrosRemotos, metaRemota] = await Promise.all([
+        descargarRegistrosSupabase(backendUrl, supabaseAnonKey),
+        consultarMetaSupabase(backendUrl, supabaseAnonKey).catch(() => null),
+      ]);
+      if (!registrosRemotos || registrosRemotos.length === 0) {
+        // El backend existe pero aún no tiene datos cargados; no es un error.
+        setRemoteStatus('conectado');
+        setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
+        return false;
+      }
+      // A diferencia del CSV (que traía las columnas crudas y había que
+      // volver a interpretar), cada fila de Supabase YA es un CrimeRecord
+      // completo y procesado (así se guardó al subirlo) — no hace falta
+      // volver a parsear nada aquí, ni validar columnas requeridas.
+      const columnasDetectadas = registrosRemotos[0] ? Object.keys(registrosRemotos[0].raw || {}) : [];
+      const fechaRef = metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion) : new Date();
+      await persistirYActualizar(registrosRemotos, 'Delitos (Supabase, central)', columnasDetectadas, fechaRef, null);
+      guardarSelloRemoto(metaRemota?.ultimaActualizacion ?? null);
+      guardarConteoRemoto(conteoUltimaDescarga());
+      // Enlace de consulta: copia propia del usuario (se valida con sello + conteo al volver a abrir).
+      if (ES_PILOTO) {
+        const ses = leerSesionGuardada();
+        if (ses) guardarCopiaConsulta(ses.usuario, ses.ambito ?? 'popayan', registrosRemotos, metaRemota?.ultimaActualizacion ?? null, conteoUltimaDescarga());
+      }
+      setRemoteStatus('conectado');
+      setRemoteError(null);
+      setRemoteMeta(metaRemota ? { ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario } : null);
+      ultimaCargaRef.current = metaRemota?.ultimaActualizacion ?? null;
+      setActualizacionDisponible(false);
+      return true;
+    } catch (e) {
+      // Antes este error se perdía por completo — el banner solo decía
+      // "no fue posible conectar", sin forma de saber SI era un problema
+      // de red, un error del backend, o un CORS bloqueado. Ahora queda en
+      // la consola con el mensaje real, para poder diagnosticar sin tener
+      // que adivinar (F12 → Console, buscar "[Backend central]").
+      console.error('[Backend central] Falló la descarga:', e);
+      setRemoteStatus('error');
+      setRemoteError('No fue posible conectar con el backend central. Se muestran los últimos datos disponibles en este navegador.');
+      return false;
+    } finally {
+      descargaEnCursoRef.current = false;
+    }
+  }, [backendUrl, supabaseAnonKey, persistirYActualizar]);
+
+  // Carga inicial: si hay backend configurado, intenta traer de ahí primero.
+  // Si no hay backend o falla, usa lo guardado localmente; si tampoco hay nada, usa el archivo por defecto.
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      setLoading(true);
+
+      // Enlace de consulta (/piloto): si la copia de ESTE usuario coincide con
+      // el servidor (fecha de actualización + conteo), se muestra al instante
+      // sin descargar nada más.
+      if (ES_PILOTO && backendUrl) {
+        try {
+          const ses = leerSesionGuardada();
+          if (ses) {
+            const [copia, metaRemota, conteoServidor] = await Promise.all([
+              cargarCopiaConsulta(ses.usuario, ses.ambito ?? 'popayan'),
+              consultarMetaSupabase(backendUrl, supabaseAnonKey),
+              contarRegistrosSupabase(backendUrl, supabaseAnonKey),
+            ]);
+            if (copia && copia.records.length > 0 && metaRemota?.ultimaActualizacion && copia.sello === metaRemota.ultimaActualizacion && copia.conteo != null && copia.conteo === conteoServidor) {
+              if (cancelado) return;
+              const cols = Object.keys(copia.records[0].raw || {});
+              await persistirYActualizar(copia.records, 'Delitos (consulta)', cols, new Date(metaRemota.ultimaActualizacion), null);
+              setRemoteMeta({ ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: null });
+              ultimaCargaRef.current = metaRemota.ultimaActualizacion;
+              setRemoteStatus('conectado');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // cualquier duda → descarga completa
+        }
+      }
+
+      if (backendUrl) {
+        // Copia local al día con el servidor → se usa sin descargar de nuevo.
+        try {
+          const sello = leerSelloRemoto();
+          if (sello) {
+            const [metaRemota, guardado, conteoServidor] = await Promise.all([
+              consultarMetaSupabase(backendUrl, supabaseAnonKey),
+              cargarDatosGuardados(),
+              contarRegistrosSupabase(backendUrl, supabaseAnonKey).catch(() => null),
+            ]);
+            // Además del sello, el CONTEO de filas debe coincidir con el de la
+            // copia: una copia incompleta (descargada antes de la corrección)
+            // se descarta y se baja todo de nuevo.
+            const conteoCopia = leerConteoRemoto();
+            const copiaCompleta = conteoServidor != null && conteoCopia != null && conteoCopia === conteoServidor;
+            if (copiaCompleta && metaRemota?.ultimaActualizacion && metaRemota.ultimaActualizacion === sello && guardado && guardado.records.length > 0) {
+              if (cancelado) return;
+              const registros = excluirDelitosOmitidos(guardado.records);
+              const cols = registros.length ? Object.keys(registros[0].raw || {}) : [];
+              setRecords(registros);
+              setLastColumns(cols);
+              setMeta(construirMeta(registros, 'Delitos (Supabase, central)', new Date(sello), cols, null));
+              setRemoteMeta({ ultimaActualizacion: metaRemota.ultimaActualizacion, ultimoUsuario: metaRemota.ultimoUsuario });
+              ultimaCargaRef.current = metaRemota.ultimaActualizacion;
+              setRemoteStatus('conectado');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // cualquier duda → descarga completa, como siempre
+        }
+        const ok = await cargarDesdeBackend();
+        if (ok) {
+          if (!cancelado) setLoading(false);
+          return;
+        }
+      }
+
+      // Piloto: SOLO la fuente autorizada del servidor. Sin copia local ni
+      // archivo por defecto (que no están restringidos a Popayán).
+      if (ES_PILOTO) {
+        if (!cancelado) {
+          setLoadError('La información no está disponible en este momento. Intenta de nuevo más tarde.');
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const guardado = await cargarDatosGuardados();
+        if (guardado && guardado.records.length > 0) {
+          if (cancelado) return;
+          const registrosFiltrados = excluirDelitosOmitidos(guardado.records);
+          setRecords(registrosFiltrados);
+          const cols = registrosFiltrados.length ? Object.keys(registrosFiltrados[0].raw) : [];
+          setLastColumns(cols);
+          setMeta(construirMeta(
+            registrosFiltrados, guardado.meta.nombreArchivo, new Date(guardado.meta.ultimaActualizacion), cols,
+            guardado.meta.fechaMaxParametro ? new Date(guardado.meta.fechaMaxParametro) : null,
+          ));
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // sigue con carga por defecto
+      }
+
+      try {
+        const resp = await fetch('/Base_de_Datos_General.csv');
+        if (!resp.ok) throw new Error('No se encontró el archivo de datos por defecto.');
+        const text = await resp.text();
+        const parsed = parseCsvText(text);
+        if (cancelado) return;
+        if (parsed.columnasFaltantes.length > 0) {
+          setLoadError(`El archivo no puede ser procesado porque faltan las columnas requeridas: ${parsed.columnasFaltantes.join(', ')}.`);
+          setLoading(false);
+          return;
+        }
+        await persistirYActualizar(parsed.registros, 'Base_de_Datos_General.csv', parsed.columnasDetectadas, undefined, parsed.fechaMaxParametro);
+      } catch (e) {
+        if (!cancelado) setLoadError('No fue posible cargar datos iniciales. Utiliza "Actualizar información" para cargar un archivo.');
+      } finally {
+        if (!cancelado) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sondeo periódico en segundo plano: si alguien más actualizó el servidor
+  // central, se trae la información nueva automáticamente (sin que nadie
+  // tenga que hacer clic en nada) y solo se muestra un aviso breve que
+  // desaparece solo — pensado para alguien que ya tiene el dashboard abierto
+  // (ej. el jefe en una reunión) y no debería tener que estar pendiente.
+  useEffect(() => {
+    if (!backendUrl) return;
+    const intervalo = setInterval(async () => {
+      try {
+        const metaRemota = await consultarMetaSupabase(backendUrl, supabaseAnonKey);
+        if (metaRemota.ultimaActualizacion && metaRemota.ultimaActualizacion !== ultimaCargaRef.current) {
+          const ok = await cargarDesdeBackend();
+          if (ok) {
+            setActualizacionDisponible(true);
+            setTimeout(() => setActualizacionDisponible(false), 6000);
+          }
+        }
+      } catch {
+        // Fallo de red puntual: no interrumpir al usuario, se reintentará en el siguiente ciclo.
+      }
+    }, INTERVALO_SONDEO_MS);
+    return () => clearInterval(intervalo);
+  }, [backendUrl, supabaseAnonKey, cargarDesdeBackend]);
+
+  const cargarArchivo = useCallback(
+    async (file: File, modo: UpdateMode, token?: string, usuario?: string, forzar?: boolean) => {
+      try {
+        const parsed = await parseArchivo(file);
+        if (parsed.columnasFaltantes.length > 0) {
+          return { error: `El archivo no puede ser procesado porque faltan las columnas requeridas: ${parsed.columnasFaltantes.join(', ')}.` };
+        }
+        const columnasNuevas = calcularColumnasNuevas(lastColumns, parsed.columnasDetectadas);
+
+        // Cada carga queda "marcada" con su propio lote (archivo, fecha,
+        // usuario) — así, si se sube algo por error, se puede deshacer esa
+        // carga puntual desde "Eliminar información". Los registros que ya
+        // existían conservan su lote original (la fusión mantiene el ya
+        // guardado), así que deshacer una carga solo quita lo que esa carga
+        // AGREGÓ.
+        const lote = { loteId: `L${Date.now().toString(36)}`, loteArchivo: file.name, loteFecha: new Date().toISOString(), loteUsuario: usuario || 'No identificado' };
+        parsed.registros = parsed.registros.map((r) => ({ ...r, ...lote }));
+
+        // Aviso de información REPETIDA (ej. subir dos veces Delitos 2023):
+        // si una buena parte de lo que el archivo trae como "nuevo" ya
+        // existe con el mismo contenido (fecha, hora, delito, barrio, edad,
+        // género), se para y se pregunta antes de sumar — ver
+        // detectarRepetidosPorContenido en datasetOps.ts.
+        if (modo === 'agregar' && records.length > 0 && !forzar) {
+          const rep = detectarRepetidosPorContenido(records, renormalizarCamposParametrizados(renormalizarDelitos(parsed.registros)));
+          if (rep.coincidencias >= 20 && rep.coincidencias >= rep.nuevosSinIdentidad * 0.3) {
+            return { requiereConfirmacionRepetidos: true, coincidenciasRepetidas: rep.coincidencias, aniosRepetidos: rep.anios, registrosDelArchivo: parsed.registros.length } as any;
+          }
+        }
+
+        let registrosFinales: CrimeRecord[];
+        let registrosParaSincronizar: CrimeRecord[];
+        let resumen: UpdateSummary;
+
+        if (modo === 'reemplazar' || records.length === 0) {
+          registrosFinales = parsed.registros;
+          registrosParaSincronizar = parsed.registros;
+          resumen = {
+            nuevos: parsed.registros.length,
+            duplicados: 0,
+            incorporados: parsed.registros.length,
+            totalFinal: parsed.registros.length,
+            columnasNuevas,
+            columnasFaltantes: [],
+          };
+        } else if (modo === 'reemplazarAnio') {
+          const reemplazo = reemplazarAniosDelArchivo(records, parsed.registros);
+          // Confirmación explícita ANTES de borrar nada — a pedido
+          // explícito, tras un caso real donde este modo terminó borrando
+          // años que no debía. En vez de solo confiar en el cálculo, se le
+          // muestra al usuario EXACTAMENTE qué años detectó el archivo y
+          // cuántos registros ya guardados se van a eliminar, para que lo
+          // vea y decida ANTES de que pase — no después.
+          if (!forzar) {
+            return {
+              requiereConfirmacionAnio: true,
+              aniosAReemplazar: reemplazo.aniosReemplazados,
+              registrosAEliminar: reemplazo.registrosAnterioresEliminados,
+              registrosDelArchivo: parsed.registros.length,
+            } as any;
+          }
+          registrosFinales = reemplazo.registros;
+          // Se sincroniza TODO lo que quedó de esos años (no solo lo
+          // "nuevo") — el servidor central también debe reflejar que esos
+          // registros viejos ya no existen, no solo agregar los actuales.
+          registrosParaSincronizar = reemplazo.registros.filter((r) => r.anio != null && reemplazo.aniosReemplazados.includes(r.anio));
+          resumen = {
+            nuevos: parsed.registros.length,
+            duplicados: 0,
+            incorporados: parsed.registros.length,
+            totalFinal: registrosFinales.length,
+            columnasNuevas,
+            columnasFaltantes: [],
+            aniosReemplazados: reemplazo.aniosReemplazados,
+            registrosAnterioresEliminados: reemplazo.registrosAnterioresEliminados,
+          };
+        } else {
+          const fusion = fusionarRegistros(records, parsed.registros, columnasNuevas, []);
+          registrosFinales = fusion.registros;
+          registrosParaSincronizar = fusion.registrosParaSincronizar;
+          resumen = fusion.resumen;
+        }
+
+        // Diagnóstico de la transformación DB2 (si el archivo cargado era una
+        // descarga cruda del aplicativo): filas con errores y valores nuevos
+        // detectados que no existían en la tabla de correspondencia.
+        resumen.formatoDetectado = parsed.formatoDetectado;
+        resumen.filasConErroresDB2 = parsed.filasConErroresDB2;
+        resumen.valoresNuevosDB2 = parsed.valoresNuevosDB2;
+
+        // El parámetro oficial de corte ("a la fecha") solo viaja en archivos
+        // DB2; un archivo sin esa columna (ej. una carga histórica antigua)
+        // NO debe borrar el valor ya conocido de una carga DB2 anterior —
+        // por eso se conserva el de `meta` si el archivo recién subido no
+        // trae uno propio, en vez de sobrescribirlo siempre con el del
+        // último archivo (que en modo "agregar" puede no ser el más
+        // completo de los dos).
+        //
+        // PERO: ese valor heredado solo tiene sentido mientras siga siendo
+        // MÁS RECIENTE que la fecha real de los datos ya cargados — si no,
+        // significa que se subió información más nueva sin su propio
+        // parámetro DB2, y seguir usando el corte viejo dejaría la "fecha
+        // de corte" apuntando a un pasado que ya quedó atrás (confirmado:
+        // quedaba pegada en una carga de hace días aunque se subiera
+        // información más reciente). En ese caso se descarta — el
+        // indicador de vigencia cae solo a calcular el corte desde el dato
+        // más reciente real (ver useVentanaComparativa).
+        const fechaMasRecienteCargada = registrosFinales.reduce<number>((max, r) => (r.fecha && r.fecha.getTime() > max ? r.fecha.getTime() : max), 0);
+        const metaHeredadoVigente = meta?.fechaMaxParametro && new Date(meta.fechaMaxParametro).getTime() >= fechaMasRecienteCargada ? meta.fechaMaxParametro : null;
+        const fechaMaxParametroFinal = parsed.fechaMaxParametro ?? metaHeredadoVigente ?? null;
+
+        const columnasFinal = Array.from(new Set([...lastColumns, ...parsed.columnasDetectadas]));
+        await persistirYActualizar(registrosFinales, file.name, columnasFinal, undefined, fechaMaxParametroFinal);
+
+        // Si hay backend configurado, sube solo los registros NUEVOS o
+        // MODIFICADOS de esta fusión (ver registrosParaSincronizar en
+        // fusionarRegistros) — a diferencia del CSV completo que se subía
+        // antes a Google Drive, aquí cada registro se guarda por separado
+        // (upsert por su propio id), así que nunca hace falta reenviar el
+        // dataset entero para agregar unos pocos registros nuevos.
+        if (backendUrl) {
+          if (!token) {
+            return { ...resumen, sincronizado: false, errorSincronizacion: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
+          }
+          try {
+            const res = await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, registrosParaSincronizar, usuario || 'No identificado', undefined, forzar, resumen.aniosReemplazados);
+            if (!res.ok) {
+              // Nota: con Supabase (upsert por registro individual) ya no
+              // existe la carrera de "quién sube de último pisa todo el
+              // archivo" que sí existía con el CSV en Drive — esta rama
+              // queda por compatibilidad de tipos, pero el backend nuevo
+              // normalmente no la produce.
+              if (res.requiereConfirmacion) {
+                return {
+                  ...resumen,
+                  sincronizado: false,
+                  errorSincronizacion: res.error || 'El servidor central tiene una versión con más registros que la tuya.',
+                  requiereConfirmacion: true,
+                  totalFilasActual: res.totalFilasActual,
+                  totalFilasNuevo: res.totalFilasNuevo,
+                };
+              }
+              return { ...resumen, sincronizado: false, errorSincronizacion: res.error || 'El servidor central rechazó la actualización.' };
+            }
+            await consultarMetaSupabase(backendUrl, supabaseAnonKey).then((m) => {
+              setRemoteMeta({ ultimaActualizacion: m.ultimaActualizacion, ultimoUsuario: m.ultimoUsuario });
+              ultimaCargaRef.current = m.ultimaActualizacion;
+            }).catch(() => {});
+            setRemoteStatus('conectado');
+            setActualizacionDisponible(false);
+            return { ...resumen, sincronizado: true };
+          } catch (e) {
+            return { ...resumen, sincronizado: false, errorSincronizacion: 'No fue posible conectar con el servidor central para sincronizar.' };
+          }
+        }
+
+        return resumen;
+      } catch (e) {
+        return { error: 'Ocurrió un error al procesar el archivo. Verifica que sea un CSV válido.' };
+      }
+    },
+    [records, lastColumns, persistirYActualizar, backendUrl, meta],
+  );
+
+  const eliminarRegistros = useCallback(
+    async (criterio: CriterioEliminacion, token?: string, usuario?: string): Promise<{ eliminados: number; sincronizado: boolean; error?: string }> => {
+      const coincide = (r: CrimeRecord): boolean => {
+        if (criterio.tipo === 'anios') return r.anio != null && criterio.anios.includes(r.anio);
+        if (criterio.tipo === 'lote') return r.loteId === criterio.loteId;
+        if (!r.fecha) return false;
+        const desde = new Date(`${criterio.desde}T00:00:00`);
+        const hasta = new Date(`${criterio.hasta}T23:59:59`);
+        return r.fecha >= desde && r.fecha <= hasta;
+      };
+      const aEliminar = records.filter(coincide);
+      if (aEliminar.length === 0) return { eliminados: 0, sincronizado: true };
+      if (backendUrl && !token) return { eliminados: 0, sincronizado: false, error: 'Falta la clave de actualización — no se eliminó nada.' };
+      // Primero el servidor central: si falla, no se borra nada en este
+      // navegador (para no quedar desincronizados con lo que ven los demás).
+      if (backendUrl && token) {
+        try {
+          await borrarRegistrosSupabase(
+            FUNCION_SUBIR_REGISTROS, token, usuario || 'No identificado',
+            criterio.tipo === 'anios' ? { aniosABorrar: criterio.anios } : { idsABorrar: aEliminar.map((r) => r.__id) },
+          );
+        } catch (e) {
+          return { eliminados: 0, sincronizado: false, error: `No se pudo eliminar en el servidor central: ${e instanceof Error ? e.message : 'error desconocido'}. No se borró nada.` };
+        }
+      }
+      const ids = new Set(aEliminar.map((r) => r.__id));
+      const restantes = records.filter((r) => !ids.has(r.__id));
+      await persistirYActualizar(restantes, meta?.nombreArchivo ?? 'Datos', lastColumns, undefined, meta?.fechaMaxParametro ?? null);
+      if (backendUrl) {
+        await consultarMetaSupabase(backendUrl, supabaseAnonKey).then((m) => {
+          setRemoteMeta({ ultimaActualizacion: m.ultimaActualizacion, ultimoUsuario: m.ultimoUsuario });
+          ultimaCargaRef.current = m.ultimaActualizacion;
+        }).catch(() => {});
+      }
+      return { eliminados: aEliminar.length, sincronizado: !!backendUrl };
+    },
+    [records, backendUrl, persistirYActualizar, meta, lastColumns],
+  );
+
+  const limpiarTodo = useCallback(async () => {
+    guardarSelloRemoto(null);
+    await limpiarDatos();
+    setRecords([]);
+    setMeta(null);
+    setLastColumns([]);
+    setFilters(emptyFilterState);
+  }, []);
+
+  const clearFilters = useCallback(() => setFilters(emptyFilterState), []);
+
+  // Clic en una barra/fila = filtrar por ese valor; un SEGUNDO clic sobre
+  // el mismo valor lo quita y la información vuelve a mostrarse completa
+  // (comportamiento de interruptor, igual en todos los componentes).
+  const drillDown = useCallback((campo: keyof FilterState, valor: string) => {
+    setFilters((prev) => {
+      const actual = prev[campo];
+      if (Array.isArray(actual) && actual.includes(valor)) {
+        return { ...prev, [campo]: actual.filter((v) => v !== valor) };
+      }
+      return { ...prev, [campo]: [valor] };
+    });
+  }, []);
+
+  const sincronizar = useCallback(async () => {
+    await cargarDesdeBackend();
+  }, [cargarDesdeBackend]);
+
+  const descartarAvisoActualizacion = useCallback(() => setActualizacionDisponible(false), []);
+
+  // Delitos excluidos de TODO el dashboard (conteos, filtros, tablas,
+  // gráficos, mapas) — a pedido, porque generan duplicación con otro delito
+  // ya existente. Se filtran aquí, en el punto donde "records" se expone al
+  // resto de la aplicación, para que ningún componente vuelva a mostrarlos
+  // ni aparezcan como opción en ningún filtro — pero el estado interno
+  // "records" (usado para sincronizar/subir al backend) NUNCA se modifica,
+  // así que la fuente de datos original permanece intacta.
+  const registrosVisibles = useMemo(
+    // Piloto: además, solo lo de Popayán (el servidor ya lo entrega así;
+    // esto es una segunda barrera en el navegador).
+    () => { const soloPopayan = restriccionPopayanActiva(); return records.filter((r) => !DELITOS_EXCLUIDOS_GLOBAL.has(r.delito) && (!soloPopayan || registroEnPopayan(r))); },
+    [records],
+  );
+
+  // Cuando no hay periodos de análisis activos, esto es EXACTAMENTE
+  // aplicarFiltros(registrosVisibles, filters) de siempre — el modo de una
+  // sola fecha no cambia en nada (ver aplicarFiltrosConPeriodos).
+  const filteredRecords = useMemo(() => aplicarFiltrosConPeriodos(registrosVisibles, filters, periodos), [registrosVisibles, filters, periodos]);
+
+  // Filtrado por todos los criterios EXCEPTO año/mes/fecha: sirve de base para
+  // los comparativos homólogos (año actual vs. año anterior), que necesitan
+  // definir su propia ventana de fechas independientemente del filtro de fecha
+  // literal aplicado al resto del dashboard.
+  const recordsBase = useMemo(
+    () => aplicarFiltros(registrosVisibles, { ...filters, anio: [], mes: [], fechaInicial: null, fechaFinal: null }),
+    [registrosVisibles, filters],
+  );
+
+  // ── Dataset de OPERATIVIDAD ──────────────────────────────────────────
+  // Mismo patrón que Delictividad: si hay backend configurado, se
+  // sincroniza con el servidor central (todos ven la misma actualización);
+  // si no, se guarda solo en este navegador (localStorage) como respaldo.
+  const [operatividadRecords, setOperatividadRecords] = useState<OperatividadRecord[]>([]);
+  const [operatividadMeta, setOperatividadMeta] = useState<{ totalRegistros: number; ultimaActualizacion: Date | null; nombreArchivo: string } | null>(null);
+
+  function guardarOperatividadLocal(registros: OperatividadRecord[], ultimaActualizacion: Date, nombreArchivo: string) {
+    setOperatividadRecords(registros);
+    setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion, nombreArchivo });
+    if (ES_PILOTO) return; // piloto: solo en memoria, sin copia en el equipo ni capas guardadas
+    try {
+      localStorage.setItem('mepoy-operatividad', JSON.stringify({ registros, ultimaActualizacion, nombreArchivo }));
+    } catch { /* si no cabe en localStorage, se queda solo en memoria para esta sesión */ }
+    // Se llama aquí (el único lugar que comparten la carga inicial —al
+    // entrar— y una subida nueva) para que la capa "Operatividad" del mapa
+    // se actualice sola siempre que este dataset cambie, sin un paso
+    // aparte — igual que Delitos.
+    {
+      const cuadranteACai = new Map<string, string>();
+      for (const r of records) {
+        if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
+      }
+      sincronizarCapaOperatividadDesdeRecords(registros, cuadranteACai).catch((err) => console.error('[Operatividad→Mapa] Falló guardando la capa de puntos:', err));
+    }
+  }
+
+  // ── Carga de OPERATIVIDAD, en dos pasos ────────────────────────────────
+  // 1) De inmediato: la copia guardada en este navegador (si existe) se
+  //    muestra al instante, sin esperar a nada — la tabla aparece de una vez.
+  // 2) En segundo plano: se consulta si el servidor central tiene una
+  //    versión MÁS NUEVA; solo en ese caso se descarga completa. Sigue
+  //    esperando a que termine la carga de Delictividad (Apps Script no
+  //    tolera dos descargas simultáneas), pero ya no bloquea la pantalla.
+  // La capa «Operatividad» del mapa se rearma una vez por sesión también
+  // cuando los datos vienen de la copia local (no solo al descargar): así
+  // toma siempre las reglas vigentes (barrio de cada registro y puntos solo
+  // dentro de la jurisdicción MEPOY).
+  const capaOperatividadSincronizada = useRef(false);
+  useEffect(() => {
+    if (ES_PILOTO || capaOperatividadSincronizada.current || operatividadRecords.length === 0 || records.length === 0) return;
+    capaOperatividadSincronizada.current = true;
+    const cuadranteACai = new Map<string, string>();
+    for (const r of records) {
+      if (r.cuadrante && r.cuadrante !== 'No Reportado' && r.cai && r.cai !== 'No Reportado' && !cuadranteACai.has(r.cuadrante)) cuadranteACai.set(r.cuadrante, r.cai);
+    }
+    sincronizarCapaOperatividadDesdeRecords(operatividadRecords, cuadranteACai).catch((err) => console.error('[Operatividad→Mapa] Falló rearmando la capa:', err));
+  }, [operatividadRecords, records]);
+
+  const [cargandoOperatividad, setCargandoOperatividad] = useState(true);
+  const fechaCopiaOperatividad = useRef<number | null>(null);
+  useEffect(() => {
+    if (ES_PILOTO) return; // piloto: no lee la copia local (puede ser de otro perfil)
+    try {
+      const guardado = localStorage.getItem('mepoy-operatividad');
+      if (guardado) {
+        const datos = JSON.parse(guardado);
+        const registros: OperatividadRecord[] = reinterpretarOperatividad((datos.registros || []).map((r: any) => ({ ...r, fecha: r.fecha ? new Date(r.fecha) : null })));
+        if (registros.length > 0) {
+          const fecha = datos.ultimaActualizacion ? new Date(datos.ultimaActualizacion) : null;
+          fechaCopiaOperatividad.current = fecha ? fecha.getTime() : null;
+          setOperatividadRecords(registros);
+          setOperatividadMeta({ totalRegistros: registros.length, ultimaActualizacion: fecha, nombreArchivo: datos.nombreArchivo || '' });
+          setCargandoOperatividad(false);
+        }
+      }
+    } catch { /* copia local corrupta o bloqueada: se espera la del servidor */ }
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    let cancelado = false;
+    (async () => {
+      const hayCopia = fechaCopiaOperatividad.current !== null || operatividadRecords.length > 0;
+      // La pausa de seguridad solo hace falta si no hay nada que mostrar mientras tanto… y ni así: se acorta.
+      if (!hayCopia) await new Promise((r) => setTimeout(r, 300));
+      if (cancelado) return;
+      if (!operatividadBackendUrl) { setCargandoOperatividad(false); return; }
+      try {
+        // Primero la fecha (respuesta pequeña): si no cambió, no se descarga nada.
+        const metaRemota = await consultarMetaRemota(operatividadBackendUrl, 'operatividad').catch(() => null);
+        if (cancelado) return;
+        const fechaRemota = metaRemota?.ultimaActualizacion ? new Date(metaRemota.ultimaActualizacion).getTime() : null;
+        const local = fechaCopiaOperatividad.current;
+        if (hayCopia && fechaRemota !== null && local !== null && fechaRemota <= local) return;
+        const csv = await descargarCsvRemoto(operatividadBackendUrl, 'operatividad');
+        if (cancelado) return;
+        const registros = parsearOperatividadDesdeCsv(csv);
+        if (registros.length > 0) {
+          const fecha = fechaRemota !== null ? new Date(fechaRemota) : new Date();
+          fechaCopiaOperatividad.current = fecha.getTime();
+          guardarOperatividadLocal(registros, fecha, 'Servidor central');
+        }
+      } catch { /* sin conexión: se queda la copia local, si la hay */ }
+      finally { if (!cancelado) setCargandoOperatividad(false); }
+    })();
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operatividadBackendUrl, loading]);
+
+  const cargarArchivoOperatividad = useCallback(async (file: File, token?: string, usuario?: string, modo: 'reemplazar' | 'agregar' | 'reemplazarAnio' = 'reemplazar'): Promise<{ registros: number } | { error: string }> => {
+    try {
+      const { registros: nuevos } = await parsearOperatividad(file);
+      if (nuevos.length === 0) return { error: 'No se encontraron registros válidos en el archivo (¿tiene las columnas OPERATIVIDAD y DELITO_ASOCIADO?).' };
+
+      let registros: OperatividadRecord[];
+      if (modo === 'agregar') {
+        // "Agregar" — para subir el archivo del año anterior (2025) SIN
+        // borrar el año en curso ya cargado. Deduplicado simple por __id.
+        registros = [...operatividadRecords.filter((r) => !nuevos.some((n) => n.__id === r.__id)), ...nuevos];
+      } else if (modo === 'reemplazarAnio') {
+        // "Actualizar año completo" — misma idea que Delictividad (ver
+        // reemplazarAniosDelArchivo en datasetOps.ts), pero para
+        // Operatividad: reemplaza SOLO el/los año(s) que trae el archivo
+        // (normalmente 2026), dejando 2025 intacto — sin esto, cada vez
+        // que se sube la matriz del año en curso habría que elegir entre
+        // perder 2025 (Reemplazar) o arriesgarse a duplicar 2026
+        // (Agregar, si el archivo se resube completo).
+        const aniosDelArchivo = new Set(nuevos.map((r) => r.anio).filter((a): a is number => a != null));
+        registros = [...operatividadRecords.filter((r) => r.anio == null || !aniosDelArchivo.has(r.anio)), ...nuevos];
+      } else {
+        registros = nuevos;
+      }
+
+      const ahora = new Date();
+
+      if (operatividadBackendUrl) {
+        if (!token) return { error: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
+        try {
+          const csv = serializarOperatividadCsv(registros);
+          const res = await subirCsvRemoto(operatividadBackendUrl, token, csv, usuario || 'No identificado', 'operatividad');
+          if (!res.ok) return { error: res.error || 'El servidor central rechazó la actualización de Operatividad.' };
+        } catch {
+          return { error: 'No fue posible conectar con el servidor central para sincronizar Operatividad.' };
+        }
+        guardarOperatividadLocal(registros, ahora, 'Servidor central');
+      } else {
+        guardarOperatividadLocal(registros, ahora, file.name);
+      }
+
+      return { registros: nuevos.length };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'No fue posible leer el archivo de Operatividad.' };
+    }
+  }, [operatividadBackendUrl, operatividadRecords]);
+
+  // Se filtra con los MISMOS filtros generales del dashboard, usando el
+  // campo equivalente de cada uno (Delito ↔ delitoAsociado, Estación,
+  // Cuadrante, Barrio, Año, Mes, rango de fecha) — nunca los filtros que no
+  // tienen equivalente en este dataset (armas, modalidad, género, etc.).
+  // Piloto: Operatividad limitada a las unidades / ubicaciones de Popayán.
+  const operatividadVisibles = useMemo(
+    () => (restriccionPopayanActiva() ? operatividadRecords.filter((r) => operatividadEnPopayan(r)).map((r) => recortarCoordenadasPiloto(r)) : operatividadRecords),
+    [operatividadRecords],
+  );
+  const filteredOperatividadRecords = useMemo(() => {
+    return operatividadVisibles.filter((r) => {
+      if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
+      if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
+      if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
+      if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;
+      if (filters.zona.length > 0 && !filters.zona.includes(r.zona)) return false;
+      if (filters.anio.length > 0 && (r.anio === null || !filters.anio.includes(String(r.anio)))) return false;
+      if (filters.mes.length > 0 && (r.mes === null || !filters.mes.includes(String(r.mes)))) return false;
+      if (filters.fechaInicial && (!r.fecha || r.fecha < new Date(filters.fechaInicial))) return false;
+      if (filters.fechaFinal && (!r.fecha || r.fecha > new Date(filters.fechaFinal + 'T23:59:59'))) return false;
+      return true;
+    });
+  }, [operatividadVisibles, filters]);
+
+  const value: DataContextValue = {
+    records: registrosVisibles,
+    filteredRecords,
+    meta,
+    filters,
+    setFilters,
+    clearFilters,
+    periodos,
+    setPeriodos,
+    drillDown,
+    loading,
+    loadError,
+    cargarArchivo,
+    registrosCompletos: records,
+    eliminarRegistros,
+    limpiarTodo,
+    lastColumns,
+    backendUrl,
+    remoteStatus,
+    remoteError,
+    remoteMeta,
+    sincronizar,
+    recordsBase,
+    actualizacionDisponible,
+    operatividadRecords: operatividadVisibles,
+    filteredOperatividadRecords,
+    operatividadMeta,
+    cargandoOperatividad,
+    cargarArchivoOperatividad,
+    descartarAvisoActualizacion,
+  };
+
+  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+}
+
+export function useData() {
+  const ctx = useContext(DataContext);
+  if (!ctx) throw new Error('useData debe usarse dentro de DataProvider');
+  return ctx;
+}

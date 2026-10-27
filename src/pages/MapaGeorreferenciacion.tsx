@@ -1,0 +1,4046 @@
+import { BannerTemporada } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer, CircleMarker, Popup, Tooltip, useMap, useMapEvents, ScaleControl, Marker, Rectangle } from 'react-leaflet';
+import shp from 'shpjs';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import {
+  AlertCircle, FileUp, Layers, MapPin, Trash2, Eye, EyeOff, Palette, Info, X, User, Maximize2, Minimize2, Download, Cloud,
+  Map as MapIcon, CalendarDays, Database, Clock, RefreshCw, LocateFixed, FolderOpen, ListChecks, Home, RotateCcw,
+  SlidersHorizontal, ChevronDown, ChevronRight, ShieldAlert, Shield, ClipboardList, Target, FileText, Crosshair,
+  Scale, Sparkles, ChartColumn, Landmark, Search, ChevronsLeft, ChevronsRight, MoreHorizontal, Settings2, Globe2, Filter, Flame, Building2, MapPinned, Navigation2,
+} from 'lucide-react';
+import clsx from 'clsx';
+import { Card } from '../components/ui/Card';
+import { guardarCapas, cargarCapas, limpiarCapas, type CapaGeografica } from '../data/geoStorage';
+import { sincronizarCapasDesdeServidor, subirCapaCompartida, subirFichaCapa, borrarCapaCompartida, hayServidorParaCapas } from '../data/geoSync';
+import {
+  guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
+} from '../data/puntosStorage';
+import { KernelHeatmapLayer } from '../components/mapa/KernelHeatmapLayer';
+import { ConsultaDensidadKernel } from '../components/mapa/ConsultaDensidadKernel';
+import type { ResultadoKernel } from '../utils/kernelDensity';
+import { esCoordenadaValida } from '../utils/geodesia';
+import {
+  IconoCaja, TarjetaTerritorial,
+  SelectorColorRapido, ControlTamanoPuntos,
+} from '../components/mapa/PanelesMapa';
+import { FlechasBarrios, posicionesEfectivasRotulo, type EstiloFlecha, type PosicionesRotulo } from '../components/mapa/FlechasBarrios';
+import { calcularTopBarrios, normalizarNombre, esBarrioReal } from '../utils/barriosAfectados';
+import { puntoEnFeatureGeoJSON } from '../utils/puntoEnPoligono';
+import { exportarPoligonoAislado, generarDataUrlPoligonoAislado, type PuntoMarcadoExport } from '../utils/exportarPoligonoMapa';
+import { maxDe } from '../utils/mathSeguro';
+import { mapearCuadrante } from '../data/db2Transform';
+import { MAPA_ESTACION } from '../data/db2Mapeos';
+import { construirGrillaComparativa } from '../data/mapaCalorAnalisis';
+import { CargaCapaPuntosModal } from '../components/mapa/CargaCapaPuntosModal';
+import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
+import { useCapaArchivoGeorreferenciado } from '../hooks/useCapaArchivoGeorreferenciado';
+import { PanelArchivoGeorreferenciado, CapaLeafletArchivoGeorreferenciado } from '../components/mapa/CapaArchivoGeorreferenciado';
+import { ZoomSliderControl } from '../components/mapa/ZoomSliderControl';
+import { CapaPronosticoIA } from '../components/mapa/CapaPronosticoIA';
+import type { Horizonte } from '../utils/analisisPredictivo';
+import { useData } from '../context/DataContext';
+import { DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
+import { agruparPor, formatNumero } from '../utils/aggregations';
+import { emptyFilterState, type CrimeRecord, type FilterState } from '../types/crime';
+import { aplicarFiltros } from '../utils/filters';
+import { esSoloConsulta, tieneAcceso, puedeDescargar } from '../utils/permisos';
+import { usePlanCandado, marcadoresParaExportar, filasLeyendaPlanCandado } from '../components/mapa/PlanCandado';
+import { IrATerritorio } from '../components/mapa/RelieveTerreno';
+import { agregarCasosPorAnio, aniosDePeriodos } from '../utils/casosPorAnio';
+import { calcularKernelDensidad } from '../utils/kernelDensity';
+import { CompuertaGeograficaPiloto, LimitarAPopayan, esPerfilPilotoActual } from '../components/mapa/RestriccionPiloto';
+import { restringirCapasAPopayan } from '../data/geoStorage';
+import { restringirCapasPuntosAPopayan } from '../data/puntosStorage';
+import { puntoEnPopayan } from '../utils/territorioPiloto';
+import { dentroDeMepoy } from '../utils/jurisdiccionMepoy';
+// La vista 3D (MapLibre GL) solo se descarga cuando alguien la abre.
+
+// Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+const CENTRO_DEFECTO: [number, number] = [2.4448, -76.6147];
+
+const DIMENSIONES: { valor: 'estacion' | 'cuadrante' | 'barrioHecho'; etiqueta: string; getter: (r: CrimeRecord) => string }[] = [
+  { valor: 'estacion', etiqueta: 'Estación', getter: (r) => r.estacion },
+  { valor: 'cuadrante', etiqueta: 'Cuadrante', getter: (r) => r.cuadrante },
+  { valor: 'barrioHecho', etiqueta: 'Barrio', getter: (r) => r.barrioHecho },
+];
+
+function contarFeatures(geojson: any): number {
+  if (!geojson) return 0;
+  if (Array.isArray(geojson)) return geojson.reduce((acc, g) => acc + (g.features?.length || 0), 0);
+  return geojson.features?.length || 0;
+}
+
+function extraerFeatures(geojson: any): any[] {
+  return Array.isArray(geojson) ? geojson.flatMap((g) => g.features || []) : geojson?.features || [];
+}
+
+// Todos los anillos (contornos) de polígono de un feature — o de VARIOS, si
+// "feature" en realidad es una FeatureCollection (la selección "Filtro
+// activo (N zonas)" combina así varios polígonos en una sola unidad). Cada
+// anillo es un array de [lon, lat] — el formato crudo de GeoJSON, todavía
+// sin proyectar a píxeles.
+function extraerAnillosDeFeature(feature: any): [number, number][][] {
+  const anillos: [number, number][][] = [];
+  function procesarGeometria(geom: any) {
+    if (!geom) return;
+    if (geom.type === 'Polygon') {
+      for (const anillo of geom.coordinates) anillos.push(anillo);
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poligono of geom.coordinates) for (const anillo of poligono) anillos.push(anillo);
+    }
+  }
+  if (feature?.type === 'FeatureCollection') {
+    for (const f of feature.features || []) procesarGeometria(f.geometry);
+  } else {
+    procesarGeometria(feature?.geometry);
+  }
+  return anillos;
+}
+
+// Detecta automáticamente las propiedades disponibles en los features de una
+// capa, para que el usuario pueda elegir con cuál unir los datos filtrados
+// (sin tener que adivinar el nombre exacto del campo).
+function propiedadesDisponibles(geojson: any): string[] {
+  const feats = Array.isArray(geojson) ? geojson.flatMap((g) => g.features || []) : geojson?.features || [];
+  const props = new Set<string>();
+  for (const f of feats.slice(0, 20)) {
+    Object.keys(f.properties || {}).forEach((k) => props.add(k));
+  }
+  return Array.from(props);
+}
+
+function normalizar(v: unknown): string {
+  return String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// El nombre de un mismo CAI puede llegar con pequeñas variaciones entre el
+// archivo histórico (2003-2023) y las descargas DB2 (2025-2026) — dobles
+// espacios, mayúsculas/minúsculas distintas, o un cero a la izquierda
+// ("CAI 04" vs "CAI 4") — y sin esto cada variante aparecía como un CAI
+// "distinto" en Configuración visual, duplicando lo que en realidad es el
+// mismo CAI. Cuando el nombre sigue el patrón "CAI <número>" se reescribe
+// siempre igual ("CAI 4"); cualquier otro nombre (poco común, pero posible)
+// se deja tal cual, solo con espacios limpios.
+function formatoCaiCanonico(v: string): string {
+  const limpio = v.trim().replace(/\s+/g, ' ');
+  const m = limpio.match(/^CAI\s*-?\s*0*(\d+)$/i);
+  return m ? `CAI ${m[1]}` : limpio;
+}
+
+// Detecta SOLO, sin que el usuario tenga que configurar nada, cuál columna
+// del shapefile es la que trae el nombre del CAI/Estación/Cuadrante — mira
+// cada columna de una muestra de polígonos y cuenta cuántos de sus valores
+// ya existen en los datos cargados (ej. "E-Norte", "CAI 5"). La columna con
+// más coincidencias gana. Si el shapefile no trae ninguna columna
+// reconocible, devuelve null.
+function detectarCampoUnion(geojson: any, valoresConocidos: Set<string>): string | null {
+  const features = extraerFeatures(geojson).slice(0, 300);
+  if (features.length === 0 || valoresConocidos.size === 0) return null;
+  const aciertosPorCampo = new Map<string, number>();
+  for (const f of features) {
+    for (const [clave, valor] of Object.entries(f?.properties ?? {})) {
+      if (typeof valor !== 'string' && typeof valor !== 'number') continue;
+      if (valoresConocidos.has(normalizar(valor))) {
+        aciertosPorCampo.set(clave, (aciertosPorCampo.get(clave) ?? 0) + 1);
+      }
+    }
+  }
+  let mejorCampo: string | null = null;
+  let mejorConteo = 0;
+  for (const [campo, conteo] of aciertosPorCampo) {
+    if (conteo > mejorConteo) {
+      mejorCampo = campo;
+      mejorConteo = conteo;
+    }
+  }
+  return mejorCampo;
+}
+
+// Paleta multicolor por delito — para la vista normal/exploratoria de cada
+// capa (sin comparar), donde cada tipo de delito debe distinguirse con su
+// propio color, tal como semaforiza el resto del dashboard.
+const PALETA_DELITOS = [
+  '#dc2626', '#116762', '#7c3aed', '#f2a340', '#0891b2',
+  '#be123c', '#4338ca', '#059669', '#c2410c', '#9333ea',
+  '#65a30d', '#0369a1', '#475569', '#ea580c', '#0d9488',
+];
+
+// El desplazamiento por fuente (offset) es lo que evita que, al filtrar UN
+// solo delito, IRISP1 y Delitos terminen con el mismo color: ambos usarían
+// la posición 0 de la lista si se calculara solo por índice del delito. Con
+// el desplazamiento, IRISP1 siempre cae en la mitad opuesta de la paleta
+// respecto a Delitos, para ese mismo delito — sin afectar el modo
+// "Comparar" (que usa su propio esquema azul/rojo fijo, definido más abajo).
+function colorPorDelito(valor: string, ordenDelitos: string[], tipo: TipoCapaPuntos): string {
+  const idx = ordenDelitos.indexOf(valor);
+  const offset = tipo === 'irisp1' ? Math.floor(PALETA_DELITOS.length / 2) : 0;
+  return PALETA_DELITOS[((idx >= 0 ? idx : 0) + offset) % PALETA_DELITOS.length];
+}
+
+// Paleta fija para "semaforizar" cada delito con un color distinto y estable
+// (el mismo delito siempre sale del mismo color, sin importar en qué orden
+// aparezca en los datos).
+
+// Conteo genérico por valor de texto — a diferencia de agruparPor (que solo
+// acepta CrimeRecord[]), esta sirve para cualquier lista de valores crudos
+// que vengan de un Excel externo como IRISP1.
+function contarPorValor(valores: string[]): { key: string; casos: number }[] {
+  const mapa = new Map<string, number>();
+  for (const v of valores) mapa.set(v, (mapa.get(v) || 0) + 1);
+  return Array.from(mapa.entries()).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos);
+}
+
+// Ajusta automáticamente el centro/zoom del mapa para que los puntos
+// filtrados en ese momento siempre queden visibles — sin esto, al filtrar
+// por un Delito o Estación específico los puntos podían quedar fuera del
+// área que el usuario tenía encuadrada manualmente, y parecía que "no
+// aparecía nada" aunque el conteo sí fuera correcto.
+
+// Leaflet mide el tamaño del contenedor del mapa UNA vez al montarse — si
+// después el contenedor cambia de tamaño (ej. al entrar/salir de pantalla
+// completa, que pasa de 65vh a 100vh), el mapa se queda con el tamaño viejo
+// hasta que se le avisa explícitamente con invalidateSize().
+function AjustarTamanoAlCambiarPantallaCompleta({ activo }: { activo: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    const id = setTimeout(() => map.invalidateSize(), 80);
+    return () => clearTimeout(id);
+  }, [activo, map]);
+  return null;
+}
+
+function AjustarVistaAPuntos({ puntos: puntosCrudos }: { puntos: { lat: number; lon: number }[] }) {
+  const map = useMap();
+  // Un punto en (0,0) o sin coordenada real mandaría el encuadre al otro
+  // lado del mundo (todo el mapa de calor quedaba del tamaño de un píxel).
+  const puntos = puntosCrudos.filter((p) => esCoordenadaValida(p.lat, p.lon));
+  const firma = puntos.map((p) => `${p.lat},${p.lon}`).join('|');
+  useEffect(() => {
+    if (puntos.length === 0) return;
+    if (puntos.length === 1) {
+      map.setView([puntos[0].lat, puntos[0].lon], Math.max(map.getZoom(), 14));
+      return;
+    }
+    const bounds = L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firma]);
+  return null;
+}
+
+// A diferencia de AjustarVistaAPuntos (que se re-ajusta CADA VEZ que
+// cambian los puntos — correcto para cuando se elige un barrio o una
+// zona), esto se ajusta UNA SOLA VEZ, la primera vez que hay datos que
+// mostrar. Antes el mapa siempre arrancaba con el zoom fijo de
+// CENTRO_DEFECTO (muy alejado) y había que acercar el zoom a mano cada
+// vez — ahora arranca ya encuadrado.
+//
+// Prioriza "poligono" (el contorno real de Estación Norte+Sur, el área
+// urbana) sobre "puntos" (todos los casos de Delitos) — MEPOY también
+// tiene casos rurales lejanos (Timbío, Sotará, La Vega...), así que
+// encuadrar por TODOS los puntos terminaba mostrando medio departamento
+// en vez de la ciudad. Si no hay polígono de estaciones cargado, cae de
+// respaldo a los puntos, para no dejar el mapa sin encuadrar.
+function AjustarVistaInicial({ puntos, poligono }: { puntos: { lat: number; lon: number }[]; poligono?: [number, number][] }) {
+  const map = useMap();
+  const yaAjustado = useRef(false);
+  useEffect(() => {
+    if (yaAjustado.current) return;
+    if (poligono && poligono.length > 0) {
+      yaAjustado.current = true;
+      const bounds = L.latLngBounds(poligono.map(([lon, lat]) => [lat, lon] as [number, number]));
+      map.fitBounds(bounds, { padding: [30, 30] });
+      return;
+    }
+    const validos = puntos.filter((p) => esCoordenadaValida(p.lat, p.lon));
+    if (validos.length === 0) return;
+    yaAjustado.current = true;
+    const bounds = L.latLngBounds(validos.map((p) => [p.lat, p.lon] as [number, number]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    // Si uno o dos puntos tienen coordenadas muy alejadas del resto (un
+    // error de digitación, o algo geocodificado mal), fitBounds igual
+    // intenta encuadrarlos a TODOS — terminando con un zoom de país o de
+    // continente en vez de la ciudad. Como límite de seguridad, si el
+    // zoom resultante queda por debajo de un nivel de ciudad razonable,
+    // se sube — no perfecto (no "ignora" el punto raro), pero evita el
+    // caso extremo de arrancar viendo medio continente.
+    setTimeout(() => {
+      if (map.getZoom() < 11) map.setZoom(11);
+    }, 0);
+  }, [puntos, poligono, map]);
+  return null;
+}
+
+// Selección por clic — a nivel de MAPA (no por capa individual). Si dos
+// polígonos se superponen en el punto donde se hizo clic (ej. el contorno
+// grande de una Estación y, adentro, un Cuadrante más pequeño), Leaflet por
+// sí solo le entrega el clic al que esté dibujado ENCIMA — que puede no ser
+// el que el usuario quiso tocar. Aquí se prueba el punto contra TODAS las
+// capas visibles con el mismo punto-en-polígono ya usado para el mapa de
+// calor, y de todas las que sí contienen ese punto, se elige la de MENOR
+// área — es decir, la más específica/anidada (el Cuadrante antes que su
+// Estación, si ambos contienen el punto).
+function areaRealDeFeature(feature: any): number {
+  const anillos = extraerAnillosDeFeature(feature);
+  let area = 0;
+  for (const anillo of anillos) {
+    let a = 0;
+    for (let i = 0; i < anillo.length - 1; i++) {
+      const [x1, y1] = anillo[i];
+      const [x2, y2] = anillo[i + 1];
+      a += x1 * y2 - x2 * y1;
+    }
+    area += Math.abs(a) / 2;
+  }
+  return area;
+}
+
+function IrACoordenadas({ onIr, oscuro = false }: { onIr: (lat: number, lon: number) => void; oscuro?: boolean }) {
+  const [lat, setLat] = useState('');
+  const [lon, setLon] = useState('');
+  function ir() {
+    const latNum = parseFloat(lat.replace(',', '.'));
+    const lonNum = parseFloat(lon.replace(',', '.'));
+    if (Number.isFinite(latNum) && Number.isFinite(lonNum)) {
+      onIr(latNum, lonNum);
+      setLat('');
+      setLon('');
+    }
+  }
+  if (oscuro) {
+    // Variante del panel lateral oscuro ("Área geográfica").
+    const clase = 'h-8 w-full min-w-0 rounded-lg border border-white/20 bg-white/10 px-2 text-[12.5px] text-white placeholder:text-slate-400 focus:border-emerald-300 focus:outline-none';
+    return (
+      <div className="space-y-1.5">
+        <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2 text-[12px] text-slate-300">
+          <span>Latitud</span>
+          <input type="text" inputMode="decimal" placeholder="ej. 2.4448" value={lat} onChange={(e) => setLat(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ir()} className={clase} />
+          <span>Longitud</span>
+          <input type="text" inputMode="decimal" placeholder="ej. -76.6147" value={lon} onChange={(e) => setLon(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ir()} className={clase} />
+        </div>
+        <button type="button" onClick={ir} className="flex w-full items-center justify-center gap-1 rounded-lg bg-white/10 px-2 py-1.5 text-[12px] font-semibold hover:bg-white/20">
+          <MapPin size={13} /> Ir a la coordenada
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        placeholder="Latitud"
+        value={lat}
+        onChange={(e) => setLat(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && ir()}
+        className="w-24 rounded border border-slate-300 px-1.5 py-0.5 text-xs"
+      />
+      <input
+        type="text"
+        placeholder="Longitud"
+        value={lon}
+        onChange={(e) => setLon(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && ir()}
+        className="w-24 rounded border border-slate-300 px-1.5 py-0.5 text-xs"
+      />
+      <button type="button" onClick={ir} className="rounded bg-brand-navy px-2 py-0.5 text-xs font-medium text-white hover:bg-brand-navy-light">
+        <MapPin size={12} className="inline -mt-0.5 mr-1" />Ir
+      </button>
+    </div>
+  );
+}
+
+// Ajusta la vista del mapa a un punto exacto (coordenadas escritas a mano) —
+// un marcador temporal queda puesto ahí hasta que se busque otro punto.
+function AjustarVistaAPunto({ punto, info }: { punto: { lat: number; lon: number }; info: { estacion?: string; cai?: string; cuadrante?: string; barrio?: string; barrioAproximado?: boolean } | null }) {
+  const mapa = useMap();
+  useEffect(() => {
+    mapa.setView([punto.lat, punto.lon], 17, { animate: true });
+  }, [punto.lat, punto.lon]);
+  return (
+    <CircleMarker center={[punto.lat, punto.lon]} radius={9} pathOptions={{ color: '#dc2626', weight: 3, fillColor: '#dc2626', fillOpacity: 0.3 }}>
+      <Popup>
+        <div className="space-y-1 text-xs">
+          <p className="font-semibold text-slate-700">Coordenada: {punto.lat.toFixed(6)}, {punto.lon.toFixed(6)}</p>
+          <p><strong>Estación:</strong> {info?.estacion ?? 'No disponible'}</p>
+          <p><strong>CAI:</strong> {info?.cai ?? 'No disponible'}</p>
+          <p><strong>Cuadrante / Zona de Atención:</strong> {info?.cuadrante ?? 'No disponible'}</p>
+          <p><strong>Barrio:</strong> {info?.barrio ?? 'No disponible'}{info?.barrioAproximado && ' (aproximado, por el punto más cercano)'}</p>
+        </div>
+      </Popup>
+    </CircleMarker>
+  );
+}
+
+// Paleta fija de colores bien distinguibles entre sí — a cada delito se le
+// asigna uno de forma estable (mismo delito, mismo color, siempre), usando
+// un hash simple del nombre para elegir la posición en la paleta.
+const PALETA_DELITOS_PUNTOS = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0284c7', '#9333ea', '#ca8a04'];
+function colorPorDelitoSimple(nombreDelito: string | null | undefined): string {
+  const nombre = nombreDelito || 'Sin delito';
+  let hash = 0;
+  for (let i = 0; i < nombre.length; i++) hash = (hash * 31 + nombre.charCodeAt(i)) >>> 0;
+  return PALETA_DELITOS_PUNTOS[hash % PALETA_DELITOS_PUNTOS.length];
+}
+
+function SeleccionPorClicEnMapa({ capas, camposUnion, onSeleccionar, deshabilitado = false }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; onSeleccionar: (sel: { capaId: string; feature: any; nombre: string } | null) => void; deshabilitado?: boolean }) {
+  useMapEvents({
+    click(e) {
+      // Mientras se ubica un punto del Plan Candado, el clic es para eso.
+      if (deshabilitado) return;
+      const { lat, lng } = e.latlng;
+      let mejor: { capaId: string; feature: any; nombre: string; area: number } | null = null;
+      const diagnostico: any[] = [];
+      for (const capa of capas) {
+        if (!capa.visible) {
+          diagnostico.push({ capa: capa.nombre, visible: false });
+          continue;
+        }
+        const campo = camposUnion.get(capa.id);
+        const features = extraerFeatures(capa.geojson);
+        let coincidenciasEnEstaCapa = 0;
+        for (const f of features) {
+          if (!puntoEnFeatureGeoJSON(lng, lat, f)) continue;
+          coincidenciasEnEstaCapa++;
+          const area = areaRealDeFeature(f);
+          if (!mejor || area < mejor.area) {
+            const valorCrudo = campo && f.properties?.[campo] ? String(f.properties[campo]) : '';
+            const traducido = valorCrudo ? mapearCuadrante(valorCrudo, new Set()) : '';
+            const nombre = (traducido && traducido !== 'NO REPORTADO') ? traducido : (valorCrudo || f.properties?.nombre || f.properties?.NOMBRE || 'Zona seleccionada');
+            mejor = { capaId: capa.id, feature: f, nombre, area };
+          }
+        }
+        diagnostico.push({ capa: capa.nombre, visible: true, totalFeatures: features.length, campoDetectado: campo, coincidenciasEnEstePunto: coincidenciasEnEstaCapa });
+      }
+      console.log('[Mapa: clic]', { lat, lng, resultado: mejor?.nombre ?? 'NINGUNA COINCIDENCIA', capas: diagnostico });
+      onSeleccionar(mejor ? { capaId: mejor.capaId, feature: mejor.feature, nombre: mejor.nombre } : null);
+    },
+  });
+  return null;
+}
+
+// Guarda la instancia real de Leaflet en una ref accesible desde fuera del
+// árbol de componentes del mapa (la necesita la descarga, para proyectar
+// las coordenadas del polígono seleccionado a píxeles y poder recortar la
+// imagen exactamente a su forma).
+function CapturarInstanciaDeMapa({ mapaRef }: { mapaRef: React.MutableRefObject<L.Map | null> }) {
+  const map = useMap();
+  useEffect(() => {
+    mapaRef.current = map;
+  }, [map, mapaRef]);
+  return null;
+}
+
+function AjustarVistaAPoligono({ feature }: { feature: any }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!feature) return;
+    try {
+      const capa = L.geoJSON(feature);
+      map.fitBounds(capa.getBounds(), { padding: [30, 30], maxZoom: 17 });
+    } catch { /* geometría inválida — se ignora, el mapa se queda como estaba */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feature]);
+  return null;
+}
+
+
+function LeyendaGradiente({ titulo, colores }: { titulo: string; colores: string[] }) {
+  return (
+    <div>
+      <p className="mb-1 font-semibold text-slate-700">{titulo}</p>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-slate-400">Baja</span>
+        <span className="h-2.5 w-16 rounded-full" style={{ background: `linear-gradient(to right, ${colores.join(', ')})` }} />
+        <span className="text-[10px] text-slate-400">Alta</span>
+      </div>
+    </div>
+  );
+}
+
+// Leyenda de una superficie Kernel: las 5 bandas fijas de la escala
+// (las dos primeras se leen como "Baja"), la unidad real y el radio.
+function LeyendaDensidadKernel({ titulo, colores, resultado, eventos, consultando, onConsultar }: {
+  titulo: string;
+  colores: (string | null)[];
+  resultado: ResultadoKernel | null;
+  eventos: number;
+  consultando: boolean;
+  onConsultar: () => void;
+}) {
+  const md = resultado?.metadatos;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+      <div className="flex items-center gap-2">
+        <p className="text-[10.5px] font-extrabold uppercase tracking-wide text-slate-700">{titulo}</p>
+        <button
+          type="button"
+          onClick={onConsultar}
+          title="Haz clic en cualquier punto del mapa para ver los eventos y la densidad en un radio de 200 m"
+          className={clsx('rounded px-1.5 py-0.5 text-[10px] font-semibold', consultando ? 'bg-[#0f5f57] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
+        >
+          {consultando ? '✓ Consultando (clic en el mapa)' : '🔎 Consultar zona'}
+        </button>
+      </div>
+      <div className="mt-1 grid w-56 grid-cols-5 gap-px overflow-hidden rounded">
+        {colores.map((c, i) => <span key={i} className="h-2.5" style={{ background: c ?? 'transparent', outline: c ? undefined : '1px dashed #cbd5e1' }} />)}
+      </div>
+      <div className="grid w-56 grid-cols-5 text-[10px] text-slate-500">
+        <span className="col-span-2 text-center">Baja</span>
+        <span className="text-center">Media</span>
+        <span className="text-center">Alta</span>
+        <span className="text-center font-semibold text-red-700">Crítica</span>
+      </div>
+      <p className="mt-0.5 text-[9.5px] leading-tight text-slate-400">
+        {eventos.toLocaleString('es-CO')} eventos · eventos/m² · radio {md?.radioMetros ?? 200} m geodésico · celda {md ? `${md.tamanoCeldaMetros.x.toFixed(1)} m` : '10 m'}
+        {md && md.puntosDescartados > 0 ? ` · ${md.puntosDescartados} sin coordenada válida` : ''}
+      </p>
+    </div>
+  );
+}
+
+function FiltroChips({ titulo, valores, seleccionados, onToggle }: {
+  titulo: string; valores: string[]; seleccionados: string[]; onToggle: (v: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-semibold text-slate-500">{titulo}</p>
+      <div className="flex flex-wrap gap-1">
+        {valores.map((v) => {
+          const activo = seleccionados.includes(v);
+          return (
+            <button
+              key={v}
+              onClick={() => onToggle(v)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${activo ? 'border-brand-green bg-brand-green text-white' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`}
+            >
+              {v}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TablaResumen({ titulo, filas }: { titulo: string; filas: { key: string; casos: number }[] }) {
+  const total = filas.reduce((a, f) => a + f.casos, 0);
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-semibold text-slate-500">{titulo}</p>
+      <table className="w-full text-xs">
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.key} className="border-b border-slate-100 last:border-0">
+              <td className="py-1 text-slate-600">{f.key}</td>
+              <td className="py-1 text-right font-semibold text-slate-800">{f.casos}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-slate-200 font-bold text-slate-700">
+            <td className="py-1">Total</td>
+            <td className="py-1 text-right">{total}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Escala de color verde→amarillo→naranja→rojo, igual a la usada en la Matriz
+// de Calor, para mantener coherencia visual en todo el dashboard.
+function colorPorIntensidad(valor: number, max: number): string {
+  if (max === 0 || valor === 0) return '#eef2f0';
+  const intensidad = valor / max;
+  if (intensidad < 0.2) return '#c7ecd3';
+  if (intensidad < 0.4) return '#8fd6a3';
+  if (intensidad < 0.6) return '#f5d949';
+  if (intensidad < 0.8) return '#f2a340';
+  return '#d92b2b';
+}
+
+// Estado vacío del filtro propio del mapa (vacío = Todos).
+const SIN_IGNORAR: ReadonlySet<string> = new Set();
+
+// Tonos de las tarjetas KPI — cada fuente con el mismo color de su capa.
+const TONOS_KPI = {
+  slate: { tarjeta: 'border-slate-200 bg-white', icono: 'bg-slate-100 text-slate-600', valor: 'text-[#10233f]' },
+  verde: { tarjeta: 'border-emerald-100 bg-[#f0f9f5]', icono: 'bg-[#008A63] text-white', valor: 'text-[#0b4a46]' },
+  ambar: { tarjeta: 'border-amber-100 bg-[#fffaf0]', icono: 'bg-[#d97706] text-white', valor: 'text-[#9a4d05]' },
+  azul: { tarjeta: 'border-blue-100 bg-[#f3f7ff]', icono: 'bg-[#2563eb] text-white', valor: 'text-[#1e3a8a]' },
+  violeta: { tarjeta: 'border-violet-100 bg-[#f7f4ff]', icono: 'bg-[#7c3aed] text-white', valor: 'text-[#4c1d95]' },
+  rosa: { tarjeta: 'border-rose-100 bg-[#fff4f7]', icono: 'bg-[#db2777] text-white', valor: 'text-[#831843]' },
+};
+
+const FILTROS_MAPA_VACIOS = {
+  anio: [] as string[],
+  mes: [] as string[],
+  delito: [] as string[],
+  estacion: [] as string[],
+  cai: [] as string[],
+  cuadrante: [] as string[],
+  barrioHecho: [] as string[],
+  fechaInicial: '' as string,
+  fechaFinal: '' as string,
+};
+
+// Perfil piloto (/piloto): si el ámbito territorial de Popayán no se puede
+// validar, el mapa no se abre (ver components/mapa/RestriccionPiloto.tsx).
+// Para los demás perfiles es exactamente el mismo mapa de siempre.
+export function MapaGeorreferenciacion() {
+  return (
+    <CompuertaGeograficaPiloto alto={420}>
+      <MapaGeorreferenciacionContenido />
+    </CompuertaGeograficaPiloto>
+  );
+}
+
+function MapaGeorreferenciacionContenido() {
+  const esPiloto = esPerfilPilotoActual();
+  const { records, periodos, filters: filtrosPrincipales, setFilters, clearFilters, meta, remoteMeta } = useData();
+
+  // Filtros PROPIOS de este módulo — independientes del filtro general del
+  // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
+  // que se entra a la página; cambiar aquí NUNCA afecta a ningún otro
+  // módulo, y viceversa.
+  // Año y Mes se suman aquí (antes el mapa no los tenía propios): así el
+  // panel superior es la ÚNICA fuente de verdad de todo el módulo — mapa,
+  // calor, KPI, barrios y análisis territorial leen este mismo estado.
+  // UNA SOLA FUENTE DE VERDAD: el mapa ya no tiene filtro propio. Lee y
+  // escribe el FILTRO PRINCIPAL del dashboard (DataContext), así lo que se
+  // elija allí —delito, estación, barrio, fechas…— se ve de inmediato en el
+  // mapa, el calor y el análisis territorial, y viceversa (clic en un
+  // polígono o en una fila del análisis también actualiza el filtro
+  // principal). La forma del objeto se conserva para no tocar el resto del
+  // archivo.
+  const filtrosMapa = useMemo(() => ({
+    anio: filtrosPrincipales.anio,
+    mes: filtrosPrincipales.mes,
+    delito: filtrosPrincipales.delito,
+    estacion: filtrosPrincipales.estacion,
+    cai: filtrosPrincipales.cai,
+    cuadrante: filtrosPrincipales.cuadrante,
+    barrioHecho: filtrosPrincipales.barrioHecho,
+    fechaInicial: filtrosPrincipales.fechaInicial ?? '',
+    fechaFinal: filtrosPrincipales.fechaFinal ?? '',
+  }), [filtrosPrincipales]);
+  type FiltrosMapa = typeof FILTROS_MAPA_VACIOS;
+  const setFiltrosMapa = useCallback((cambio: FiltrosMapa | ((prev: FiltrosMapa) => FiltrosMapa)) => {
+    setFilters((prev: FilterState) => {
+      const actual: FiltrosMapa = {
+        anio: prev.anio, mes: prev.mes, delito: prev.delito, estacion: prev.estacion, cai: prev.cai,
+        cuadrante: prev.cuadrante, barrioHecho: prev.barrioHecho, fechaInicial: prev.fechaInicial ?? '', fechaFinal: prev.fechaFinal ?? '',
+      };
+      const nuevo = typeof cambio === 'function' ? cambio(actual) : cambio;
+      return { ...prev, ...nuevo, fechaInicial: nuevo.fechaInicial || null, fechaFinal: nuevo.fechaFinal || null };
+    });
+  }, [setFilters]);
+
+  // Filtros "adicionales" del filtro principal (modalidad, arma, género,
+  // clase de sitio, franja, turno…): también recortan el mapa. Se resuelven
+  // con la MISMA función del dashboard (aplicarFiltros) y se guardan como el
+  // conjunto de registros que los cumplen. null = ninguno activo.
+  const CAMPOS_ADICIONALES_MAPA = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad', 'franjaHoraria', 'turno', 'diaSemana', 'diaMes', 'horaExacta'] as const;
+  const idsFiltrosAdicionales = useMemo(() => {
+    const activos = CAMPOS_ADICIONALES_MAPA.filter((k) => (filtrosPrincipales[k] ?? []).length > 0);
+    if (activos.length === 0) return null;
+    const parcial: FilterState = { ...emptyFilterState };
+    for (const k of activos) parcial[k] = filtrosPrincipales[k];
+    return new Set(aplicarFiltros(records, parcial).map((r) => r.__id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, filtrosPrincipales]);
+  const filters = filtrosMapa; // alias interno — así el resto del archivo, que ya usa "filters.delito" etc., no hay que reescribirlo entero.
+
+  // Fecha inicial/final del filtro PRINCIPAL (arriba del dashboard) — a
+  // pedido explícito, ahora SÍ alimenta el mapa (antes eran dos filtros de
+  // fecha totalmente aislados: el de arriba nunca tocaba el mapa, ni
+  // siquiera parcialmente, porque "filters" en este archivo apuntaba solo
+  // al filtro propio del mapa — ver alias arriba). Se combina como
+  // restricción ADICIONAL: un registro tiene que pasar el filtro propio
+  // del mapa (si tiene fecha puesta) Y el filtro principal (si lo tiene).
+  const fechaInicialGlobal = filtrosPrincipales.fechaInicial;
+  const fechaFinalGlobal = filtrosPrincipales.fechaFinal;
+
+  // Sin NINGÚN filtro temporal activo (ni el propio del mapa, ni el
+  // principal, ni año/mes, ni periodos de multifecha), el mapa por
+  // defecto debe mostrar solo la vigencia actual — igual que ya se hizo
+  // en Matriz de Calor, Delictividad por Unidad y el resto del
+  // dashboard. Antes el mapa mezclaba los 23 años de histórico por
+  // defecto (bug real, parte de la misma auditoría). La "fecha de corte"
+  // es la fecha más reciente que traigan los datos (FECHA_MAX_PARAMETRO
+  // si el archivo la trae, o si no, la fecha más reciente encontrada) —
+  // nunca una fecha fija en el código.
+  const hayFiltroTemporalMapa = !!filtrosMapa.fechaInicial || !!filtrosMapa.fechaFinal
+    || filtrosMapa.anio.length > 0 || filtrosMapa.mes.length > 0
+    || !!fechaInicialGlobal || !!fechaFinalGlobal
+    || filtrosPrincipales.anio.length > 0 || filtrosPrincipales.mes.length > 0
+    || periodos.length > 0;
+  const limiteVigenciaActual = useMemo(() => {
+    if (hayFiltroTemporalMapa) return null;
+    const conFecha = records.filter((r) => r.fecha);
+    if (conFecha.length === 0) return null;
+    const maxTs = meta?.fechaMaxParametro ? meta.fechaMaxParametro.getTime() : maxDe(conFecha.map((r) => r.fecha!.getTime()));
+    const anioReferencia = new Date(maxTs).getFullYear();
+    return { inicio: new Date(anioReferencia, 0, 1), fin: new Date(maxTs) };
+  }, [records, hayFiltroTemporalMapa, meta?.fechaMaxParametro]);
+
+  // Registros filtrados SOLO con los filtros propios del mapa — reemplaza
+  // al "filteredRecords" global (que aquí no aplica) para lo poco que se
+  // usa (el conteo "colorear por casos" y el texto informativo).
+  // (parsearValorFecha / elegirColumnaFechaConfiable / extraerFechaDePunto
+  // ahora viven en utils/fechaPunto.ts — compartidas con Microgerencia,
+  // ver import arriba.)
+
+  const [filteredRecords, registrosSinFiltroBarrio] = useMemo(() => {
+    // El CAI se compara normalizado (mismo criterio de formatoCaiCanonico +
+    // normalizar) porque la opción elegida es el nombre CANÓNICO, mientras
+    // que el registro puede traer una variante con espacios/mayúsculas
+    // distintas (ver opcionesFiltroMapa.cai) — comparar tal cual dejaría de
+    // encontrar coincidencias reales.
+    const caiSeleccionadosNorm = filtrosMapa.cai.map((c) => normalizar(formatoCaiCanonico(c)));
+    // El análisis multifecha (periodos, definido en el panel de filtros
+    // principal) se combina aquí como una restricción ADICIONAL — el mapa
+    // conserva su propio filtro de fecha de siempre (independiente del
+    // resto del dashboard), y si además hay periodos activos, el registro
+    // tiene que caer en AMBOS: su propio filtro de fecha (si lo tiene) Y
+    // en alguno de los periodos. Sin periodos activos, esto no cambia nada.
+    const ventanasPeriodos = periodos.map((p) => ({
+      inicio: (() => { const [a, m, d] = p.fechaInicial.split('-').map(Number); const [h, mi] = (p.horaInicial || '00:00').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+      fin: (() => { const [a, m, d] = p.fechaFinal.split('-').map(Number); const [h, mi] = (p.horaFinal || '23:59').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+    }));
+    // Mismo filtro con o sin la condición de Barrio: la versión SIN barrio
+    // alimenta el Top 3 / Top 5 de flechas, para que elegir barrios en el
+    // filtro los AGREGUE a las flechas sin esconder los del Top.
+    const cumple = (r: CrimeRecord, ignorar: ReadonlySet<string> = SIN_IGNORAR) =>
+      (!idsFiltrosAdicionales || idsFiltrosAdicionales.has(r.__id)) &&
+      (ignorar.has('anio') || filtrosMapa.anio.length === 0 || (r.anio !== null && filtrosMapa.anio.includes(String(r.anio)))) &&
+      (ignorar.has('mes') || filtrosMapa.mes.length === 0 || (r.mes !== null && filtrosMapa.mes.includes(String(r.mes)))) &&
+      (ignorar.has('delito') || filtrosMapa.delito.length === 0 || filtrosMapa.delito.includes(r.delito)) &&
+      (ignorar.has('estacion') || filtrosMapa.estacion.length === 0 || filtrosMapa.estacion.includes(r.estacion)) &&
+      (ignorar.has('cai') || caiSeleccionadosNorm.length === 0 || caiSeleccionadosNorm.includes(normalizar(formatoCaiCanonico(r.cai)))) &&
+      (ignorar.has('cuadrante') || filtrosMapa.cuadrante.length === 0 || filtrosMapa.cuadrante.includes(r.cuadrante)) &&
+      (ignorar.has('barrioHecho') || filtrosMapa.barrioHecho.length === 0 || filtrosMapa.barrioHecho.includes(r.barrioHecho)) &&
+      (!filtrosMapa.fechaInicial || (r.fecha && r.fecha >= new Date(filtrosMapa.fechaInicial))) &&
+      (!filtrosMapa.fechaFinal || (r.fecha && r.fecha <= new Date(filtrosMapa.fechaFinal + 'T23:59:59'))) &&
+      (!fechaInicialGlobal || (r.fecha && r.fecha >= new Date(fechaInicialGlobal))) &&
+      (!fechaFinalGlobal || (r.fecha && r.fecha <= new Date(fechaFinalGlobal + 'T23:59:59'))) &&
+      (ignorar.has('vigencia') || !limiteVigenciaActual || (r.fecha && r.fecha >= limiteVigenciaActual.inicio && r.fecha <= limiteVigenciaActual.fin)) &&
+      (ventanasPeriodos.length === 0 || (() => {
+        if (!r.fecha) return false;
+        const fh = new Date(r.fecha);
+        fh.setHours(r.hora ?? 0, 0, 0, 0);
+        return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
+      })());
+    const filtrar = (ignorarBarrio: boolean) => {
+      const ignorar = ignorarBarrio ? new Set(['barrioHecho']) : SIN_IGNORAR;
+      return records.filter((r) => cumple(r, ignorar));
+    };
+    const conBarrio = filtrar(false);
+    return [conBarrio, filtrosMapa.barrioHecho.length > 0 ? filtrar(true) : conBarrio, cumple] as const;
+  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, idsFiltrosAdicionales]);
+
+  // Opciones disponibles para cada filtro — SOLO valores que de verdad
+  // existen en los datos cargados (nunca una lista vacía ni inventada).
+  const esValorReal = (v: string) => !!v && !['NO REPORTADO', 'SIN REPORTAR', 'SIN ASIGNAR', 'N/A', 'NA', '-'].includes(v.trim().toUpperCase());
+  const opcionesFiltroMapa = useMemo(() => {
+    // El campo CAI de los datos a veces trae, además de los CAI reales,
+    // otros valores que no son un CAI (Zonas de Atención, Comunas, etc.) —
+    // se descartan aquí y solo se conserva lo que empieza con "CAI " —
+    // sea NUMERADO ("CAI 4", el formato de los datos más nuevos) o CON
+    // NOMBRE PROPIO ("CAI Villa del Norte", "CAI La Paz" — el formato
+    // real de varias jurisdicciones). Antes solo se aceptaba el numérico
+    // (con dígito obligatorio al final), así que cualquier CAI con nombre
+    // se descartaba entero — la lista de CAI quedaba vacía aunque los
+    // datos SÍ trajeran CAI reales, y con ella toda la tarjeta de
+    // "CAI de Estación X" (que depende de esta misma lista) dejaba de
+    // aparecer. Ya canonizado por formatoCaiCanonico más arriba (agrupa
+    // variantes de espacios/mayúsculas del histórico y de DB2).
+    const caiCanonicoPorClave = new Map<string, string>();
+    for (const r of records) {
+      if (!esValorReal(r.cai)) continue;
+      const canonico = formatoCaiCanonico(r.cai);
+      if (!/^CAI\s+\S/i.test(canonico)) continue;
+      if (!caiCanonicoPorClave.has(normalizar(canonico))) caiCanonicoPorClave.set(normalizar(canonico), canonico);
+    }
+    const caiOrdenados = Array.from(caiCanonicoPorClave.values()).sort((a, b) => {
+      const na = Number(a.match(/\d+/)?.[0]);
+      const nb = Number(b.match(/\d+/)?.[0]);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return a.localeCompare(b);
+    });
+    return {
+      delito: Array.from(new Set(records.map((r) => r.delito).filter(esValorReal))).sort(),
+      estacion: Array.from(new Set(records.map((r) => r.estacion).filter(esValorReal))).sort(),
+      cai: caiOrdenados,
+      cuadrante: Array.from(new Set(records.map((r) => r.cuadrante).filter(esValorReal))).sort(),
+      barrioHecho: Array.from(new Set(records.map((r) => r.barrioHecho).filter(esValorReal))).sort(),
+    };
+  }, [records]);
+
+  const [mostrarSelectorFuentes, setMostrarSelectorFuentes] = useState(false);
+  // Mapa de calor y Puntos: independientes (los dos, uno o ninguno).
+  // La descarga dibuja exactamente lo que esté activo.
+  const [verCalor, setVerCalor] = useState(true);
+  const [verPuntos, setVerPuntos] = useState(false);
+  // Cada uno se prende o apaga por separado (se pueden tener los dos, uno o ninguno).
+  function alternarModoVista(modo: 'calor' | 'puntos') {
+    if (modo === 'calor') setVerCalor((v) => !v);
+    else setVerPuntos((v) => !v);
+  }
+  const [coordenadaManual, setCoordenadaManual] = useState<{ lat: number; lon: number } | null>(null);
+  const [mostrarFiltrosMapa, setMostrarFiltrosMapa] = useState(false);
+  // Estado SOLO visual del rediseño (no filtra ni calcula nada).
+  const [tipoMapa, setTipoMapa] = useState<'mapa' | 'satelite' | 'hibrido'>('mapa');
+  // Abierto de entrada solo en pantallas anchas (≥1536 px), donde va al lado del mapa.
+  const [configAbierta, setConfigAbierta] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1536);
+  const [leyendaAbierta, setLeyendaAbierta] = useState(true);
+
+  // Paleta del mapa de calor de Delitos: antes era fija (verde → amarillo →
+  // naranja → rojo). Ahora es una selección manual de colores, de una lista
+  // fija de opciones — se puede, por ejemplo, destildar "Verde" y quedarse
+  // solo con amarillo/naranja/rojo. El orden de la lista (no el orden en que
+  // se marcaron) define el orden del degradado, para que siempre vaya de
+  // "menos" a "más" intensidad. Se exige al menos un color activo.
+  // Paleta del mapa de calor de Delitos: 5 bandas FIJAS (Muy baja...Muy
+  // alta, siempre en el mismo rango de intensidad — ver
+  // ANCLAS_FRACCION_FIJAS en kernelDensity.ts). Desmarcar una banda no
+  // "corre" a las demás para llenar el hueco — esa banda puntual queda
+  // transparente, y las otras 4 se quedan exactamente donde siempre.
+  const OPCIONES_COLOR_CALOR: { id: string; etiqueta: string; hex: string }[] = [
+    { id: 'verde', etiqueta: 'Verde (muy baja)', hex: '#22c55e' },
+    { id: 'verde-lima', etiqueta: 'Verde lima (baja)', hex: '#a3e635' },
+    { id: 'amarillo', etiqueta: 'Amarillo (media)', hex: '#facc15' },
+    { id: 'naranja', etiqueta: 'Naranja (alta)', hex: '#f97316' },
+    { id: 'rojo', etiqueta: 'Rojo (muy alta)', hex: '#dc2626' },
+  ];
+  const PALETA_CALOR_DEFECTO = ['verde', 'verde-lima', 'amarillo', 'naranja', 'rojo'];
+  // Colorear cada polígono de CAI con su propio color (ver "Colores de
+  // CAI" en Configuración visual) — antes esto estaba SIEMPRE encendido,
+  // sin ningún interruptor, para cualquier capa cuyo campo se pareciera a
+  // nombres de CAI. Encimado con el mapa de calor, eso es justo lo que
+  // hacía ver el mapa "sucio"/con muchos colores mezclados incluso sin
+  // ningún filtro puesto. Ahora empieza APAGADO — una vista limpia
+  // (calles + calor) es lo normal; colorear las zonas por CAI queda como
+  // algo que se activa a propósito, no un extra que nadie pidió ver.
+  const [colorearZonasPorCai, setColorearZonasPorCai] = useState(() => {
+    try { return localStorage.getItem('mepoy-colorear-zonas-cai') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-colorear-zonas-cai', colorearZonasPorCai ? '1' : '0'); } catch { /* ver comentario arriba */ }
+  }, [colorearZonasPorCai]);
+
+  // Convenciones del mapa (Leyenda): color propio de Operatividad, Macri y
+  // RNMC, color propio de cada delito y tamaño de TODOS los puntos. Solo
+  // cambia el dibujo (nunca qué puntos se muestran ni los conteos); se
+  // recuerda en este navegador.
+  const leerJson = <T,>(clave: string, defecto: T): T => {
+    try { const v = JSON.parse(localStorage.getItem(clave) || 'null'); return v ?? defecto; } catch { return defecto; }
+  };
+  const [coloresCapa, setColoresCapa] = useState<Record<string, string>>(() => leerJson('mepoy-colores-capa', {}));
+  const [coloresDelito, setColoresDelito] = useState<Record<string, string>>(() => leerJson('mepoy-colores-delito', {}));
+  const [escalaPuntos, setEscalaPuntos] = useState<number>(() => {
+    const v = Number(leerJson('mepoy-escala-puntos', 1));
+    return Number.isFinite(v) && v >= 0.5 && v <= 3 ? v : 1;
+  });
+  useEffect(() => { try { localStorage.setItem('mepoy-colores-capa', JSON.stringify(coloresCapa)); } catch { /* queda en memoria */ } }, [coloresCapa]);
+  useEffect(() => { try { localStorage.setItem('mepoy-colores-delito', JSON.stringify(coloresDelito)); } catch { /* queda en memoria */ } }, [coloresDelito]);
+  useEffect(() => { try { localStorage.setItem('mepoy-escala-puntos', JSON.stringify(escalaPuntos)); } catch { /* queda en memoria */ } }, [escalaPuntos]);
+  const cambiarEnMapa = (set: typeof setColoresDelito) => (clave: string, color: string | null) => set((prev) => {
+    const n = { ...prev };
+    if (color) n[clave] = color; else delete n[clave];
+    return n;
+  });
+  const cambiarColorDelito = cambiarEnMapa(setColoresDelito);
+  const cambiarColorCapa = cambiarEnMapa(setColoresCapa);
+  const colorCapa = (tipo: string, auto: string) => coloresCapa[tipo] ?? auto;
+  const radioDe = (_clave: string, base: number) => Math.max(1.5, base * escalaPuntos);
+  const colorDelitoFinal = (_fuente: string, delito: string | null | undefined, auto: string) => coloresDelito[delito || 'Sin delito'] ?? auto;
+  const [delitoEditandoColor, setDelitoEditandoColor] = useState<string | null>(null);
+
+  const [coloresSeleccionadosCalor, setColoresSeleccionadosCalor] = useState<string[]>(() => {
+    try {
+      const guardado = localStorage.getItem('mepoy-paleta-calor-delitos');
+      if (guardado) {
+        const ids: string[] = JSON.parse(guardado);
+        if (Array.isArray(ids) && ids.length > 0 && ids.every((id) => OPCIONES_COLOR_CALOR.some((o) => o.id === id))) return ids;
+      }
+    } catch { /* si el navegador bloquea localStorage, se usa la paleta por defecto */ }
+    return PALETA_CALOR_DEFECTO;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-paleta-calor-delitos', JSON.stringify(coloresSeleccionadosCalor)); } catch { /* ver comentario arriba */ }
+  }, [coloresSeleccionadosCalor]);
+  function alternarColorCalor(id: string, activo: boolean) {
+    setColoresSeleccionadosCalor((prev) => {
+      if (activo) return OPCIONES_COLOR_CALOR.map((o) => o.id).filter((oid) => oid === id || prev.includes(oid));
+      const siguiente = prev.filter((x) => x !== id);
+      return siguiente.length > 0 ? siguiente : prev; // no permitir dejar la paleta vacía
+    });
+  }
+  // SIEMPRE 5 posiciones, en el mismo orden fijo de OPCIONES_COLOR_CALOR —
+  // null en la posición de cualquier banda desmarcada. Esto es justo lo que
+  // hace que apagar "Verde" deje transparente ESA banda en vez de que
+  // "Amarillo" se corra a ocupar su lugar.
+  const paletaCalorDelitos: (string | null)[] = OPCIONES_COLOR_CALOR.map((o) => (coloresSeleccionadosCalor.includes(o.id) ? o.hex : null));
+
+  // Delitos y Operatividad ya no necesitan pasar por "Seleccionar fuentes"
+  // para activarse — su único interruptor es el checkbox de la fila de
+  // arriba (junto al mapa), igual que ya funcionaba Delitos. IRISP1 y Macri
+  // sí mantienen ese segundo interruptor (ver modal "Seleccionar fuentes"),
+  // porque son fuentes externas que conviene poder desactivar aparte.
+  const [fuentesActivas, setFuentesActivas] = useState({ irisp1: true, delitos: true, operatividad: true, macri: true });
+  // Operatividad: filtro propio por categoría (Capturas, Incautaciones…),
+  // máximo de la superficie Kernel ya calculada (para la leyenda y la
+  // consulta) y el modo "consultar zona con clic".
+  // Categoría de operatividad: ahora también vive en el filtro principal.
+  const filtroCategoriaOperatividad = useMemo(() => filtrosPrincipales.categoriaOperatividad ?? [], [filtrosPrincipales.categoriaOperatividad]);
+  const setFiltroCategoriaOperatividad = (valores: string[]) => setFilters((prev: FilterState) => ({ ...prev, categoriaOperatividad: valores }));
+  const [kernelOperatividad, setKernelOperatividad] = useState<ResultadoKernel | null>(null);
+  const [consultarOperatividad, setConsultarOperatividad] = useState(false);
+
+  // Colores por CAI — configurables a mano, se guardan en localStorage para
+  // que se mantengan mientras se use el dashboard (no se pierden al
+  // refrescar la página). Nunca afectan el color del mapa de calor, solo
+  // sirven para diferenciar visualmente cada CAI.
+  const [coloresCai, setColoresCai] = useState<Record<string, string>>(() => {
+    try {
+      const guardado = localStorage.getItem('mepoy-colores-cai');
+      return guardado ? JSON.parse(guardado) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-colores-cai', JSON.stringify(coloresCai)); } catch { /* si el navegador bloquea localStorage, simplemente no se guarda */ }
+  }, [coloresCai]);
+  const PALETA_CAI_DEFECTO = ['#3b82f6', '#ef4444', '#22c55e', '#a855f7', '#f97316', '#14b8a6', '#eab308', '#ec4899'];
+  function colorDeCai(nombreCai: string): string {
+    if (coloresCai[nombreCai]) return coloresCai[nombreCai];
+    const indice = opcionesFiltroMapa.cai.indexOf(nombreCai);
+    return PALETA_CAI_DEFECTO[indice % PALETA_CAI_DEFECTO.length] ?? '#116762';
+  }
+
+  // Transparencia configurable — independiente para el mapa de calor, el
+  // relleno de los polígonos, y las etiquetas. 0 a 100 (%).
+  // Calor más denso por defecto (antes 70 %): las concentraciones se distinguen
+  // con claridad sobre el mapa base, en pantalla y en la descarga.
+  const [opacidades, setOpacidades] = useState({ calor: 88, poligono: 100, etiquetas: 100 });
+  // Los paneles de detalle de cada fuente de puntos (Estado del trámite,
+  // Dependencia, Semaforización, etc.) ahora empiezan COLAPSADOS — con el
+  // nuevo panel "Filtros de visualización" de la izquierda, ya no hace
+  // falta tenerlos abiertos por defecto; siguen disponibles con un clic
+  // para quien los necesite.
+  const [capasDetalleAbiertas, setCapasDetalleAbiertas] = useState<Set<string>>(new Set());
+
+  // Jerarquía real cuadrante → CAI → estación, tomada de los datos ya
+  // cargados — así, si un shapefile trae solo el nombre del CUADRANTE (el
+  // caso más común), igual se puede saber si ese cuadrante pertenece al CAI
+  // o a la estación que el usuario tenga filtrados arriba.
+  const jerarquiaCuadrantes = useMemo(() => {
+    const mapa = new Map<string, { cai: string | null; estacion: string | null }>();
+    for (const r of records) {
+      if (r.cuadrante && !mapa.has(normalizar(r.cuadrante))) {
+        mapa.set(normalizar(r.cuadrante), { cai: r.cai, estacion: r.estacion });
+      }
+    }
+    return mapa;
+  }, [records]);
+
+  // Igual que arriba pero a nivel de CAI — necesaria para que un polígono
+  // de CAI (no de cuadrante) también se resalte cuando el filtro activo es
+  // por Estación (ej. "Estación Norte" debe resaltar sus CAI 1-4 Y sus
+  // cuadrantes, no solo estos últimos).
+  const jerarquiaCai = useMemo(() => {
+    const mapa = new Map<string, string | null>();
+    for (const r of records) {
+      if (r.cai && !mapa.has(normalizar(r.cai))) mapa.set(normalizar(r.cai), r.estacion);
+    }
+    return mapa;
+  }, [records]);
+
+  // CAI que pertenecen a la Estación filtrada en este momento — se
+  // recalcula solo cuando cambia la Estación o la lista real de CAI. Vacío
+  // si no hay ninguna Estación filtrada (o si hay más de una).
+  const caiDeEstacionActiva = useMemo(() => {
+    if (filtrosMapa.estacion.length !== 1) return [];
+    const estacionNorm = normalizar(filtrosMapa.estacion[0]);
+    return opcionesFiltroMapa.cai.filter((cai) => normalizar(jerarquiaCai.get(normalizar(cai)) ?? '') === estacionNorm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrosMapa.estacion, jerarquiaCai, opcionesFiltroMapa.cai]);
+
+  // Todo lo que el dashboard ya conoce como "nombre real" de una zona
+  // (estación, CAI o cuadrante) — se usa para adivinar solo qué columna de
+  // cada shapefile corresponde a cuál cosa, sin que el usuario tenga que
+  // configurarlo a mano.
+  const valoresConocidos = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of records) {
+      if (r.estacion) set.add(normalizar(r.estacion));
+      if (r.cai) set.add(normalizar(r.cai));
+      if (r.cuadrante) set.add(normalizar(r.cuadrante));
+    }
+    return set;
+  }, [records]);
+
+  // ¿Este valor (el que traiga el shapefile en su campo de unión) coincide
+  // con el CAI, la Estación o el Cuadrante que el usuario tenga
+  // seleccionados arriba en Filtros? Si el shapefile es a nivel de
+  // cuadrante o de CAI, resuelve primero a qué CAI/estación pertenece antes
+  // de comparar.
+  function coincideConFiltrosActivos(valorCrudo: unknown): boolean {
+    if (!valorCrudo) return false;
+    const norm = normalizar(valorCrudo);
+    if (filters.cai.some((c) => normalizar(c) === norm)) return true;
+    if (filters.estacion.some((e) => normalizar(e) === norm)) return true;
+    if (filters.cuadrante.some((c) => normalizar(c) === norm)) return true;
+    // El shapefile de Cuadrantes puede traer el código crudo
+    // (MEPOYMNVCCD01E01C02000007) en vez del nombre ya traducido
+    // (Zona de Atención 7 Norte) — se traduce con la MISMA función que
+    // usa el dataset principal antes de comparar, para que igual coincida.
+    const traducidoDesdeCodigo = mapearCuadrante(String(valorCrudo), new Set());
+    if (traducidoDesdeCodigo && traducidoDesdeCodigo !== 'NO REPORTADO') {
+      const normTraducido = normalizar(traducidoDesdeCodigo);
+      if (filters.cuadrante.some((c) => normalizar(c) === normTraducido)) return true;
+      if (filters.estacion.some((e) => normalizar(e) === normTraducido)) return true;
+      if (filters.cai.some((c) => normalizar(c) === normTraducido)) return true;
+    }
+    const infoCuadrante = jerarquiaCuadrantes.get(norm);
+    if (infoCuadrante) {
+      if (infoCuadrante.cai && filters.cai.some((c) => normalizar(c) === normalizar(infoCuadrante.cai))) return true;
+      if (infoCuadrante.estacion && filters.estacion.some((e) => normalizar(e) === normalizar(infoCuadrante.estacion))) return true;
+    }
+    const estacionDelCai = jerarquiaCai.get(norm);
+    if (estacionDelCai && filters.estacion.some((e) => normalizar(e) === normalizar(estacionDelCai))) return true;
+    return false;
+  }
+  const soloLectura = esSoloConsulta();
+  // La «X» de las capas: solo el administrador (enlace raíz con usuario y contraseña).
+  const puedeEliminarCapas = !soloLectura && tieneAcceso('eliminarCapas');
+  // PLAN CANDADO 2026: lee el filtro principal (Estación / CAI) sin
+  // escribirlo; su estado propio (capa activa, General / Por CAI) no toca
+  // ninguna otra capa. Ubicar puntos: solo quien puede actualizar información.
+  const planCandado = usePlanCandado({
+    estacionFiltro: filtrosPrincipales.estacion,
+    caiFiltro: filtrosPrincipales.cai,
+    coloresCaiPersonalizados: coloresCai,
+    editable: !soloLectura && tieneAcceso('actualizarInformacion'),
+    puedeEliminar: puedeEliminarCapas,
+  });
+  // El Plan Candado se maneja en su propio módulo (menú lateral «Plan Candado
+  // 2026»); aquí ya no se muestra, así que la capa queda siempre apagada.
+  useEffect(() => { if (planCandado.activo) planCandado.setActivo(false); }, [planCandado.activo]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Las capas ORIGINALES no se tocan; el perfil piloto ve una copia con
+  // solo los elementos que pertenecen a Popayán.
+  const [capasFuente, setCapas] = useState<CapaGeografica[]>([]);
+  const capas = useMemo(() => (esPiloto ? restringirCapasAPopayan(capasFuente) : capasFuente), [esPiloto, capasFuente]);
+
+  // Campo de unión EFECTIVO por capa: el que el usuario haya configurado a
+  // mano (si lo hizo), o si no, el que se detecte solo. Así el resaltado
+  // por filtro funciona aunque nadie haya tocado la configuración manual de
+  // "Colorear por casos".
+  const camposUnionAutoDetectados = useMemo(() => {
+    const mapa = new Map<string, string | null>();
+    for (const capa of capas) {
+      mapa.set(capa.id, capa.campoUnion ?? detectarCampoUnion(capa.geojson, valoresConocidos));
+    }
+    return mapa;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capas, valoresConocidos]);
+  const capaArchivoGeorreferenciado = useCapaArchivoGeorreferenciado(capas, camposUnionAutoDetectados);
+  const [mostrarPronosticoIA, setMostrarPronosticoIA] = useState(false);
+  const [horizontePronosticoIA, setHorizontePronosticoIA] = useState<Horizonte>(168);
+  const [error, setError] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [capasPuntosFuente, setCapasPuntos] = useState<CapaPuntos[]>([]);
+  // Puntos con coordenadas FUERA de la jurisdicción MEPOY (errores de
+  // digitación, p. ej. en el océano) no se dibujan, aunque ya estuvieran
+  // guardados en el equipo; se avisan en el mapa para poder corregirlos.
+  const { capasPuntos, puntosFueraMepoy } = useMemo(() => {
+    const fuera: { capa: string; lat: number; lon: number; detalle: string }[] = [];
+    const limpias = capasPuntosFuente.map((c) => {
+      const dentro = c.puntos.filter((p) => {
+        if (dentroDeMepoy(p.lat, p.lon)) return true;
+        const f = p.fila ?? {};
+        const fecha = f.FECHA_HECHO ? new Date(f.FECHA_HECHO).toLocaleDateString('es-CO') : '';
+        fuera.push({ capa: c.nombre, lat: p.lat, lon: p.lon, detalle: [fecha, f.OPERATIVIDAD, p.delitoCorto, p.estacionCorta].filter(Boolean).join(' · ') });
+        return false;
+      });
+      for (const x of c.fueraDeJurisdiccion ?? []) fuera.push({ capa: c.nombre, ...x });
+      return dentro.length === c.puntos.length ? c : { ...c, puntos: dentro };
+    });
+    return { capasPuntos: esPiloto ? restringirCapasPuntosAPopayan(limpias) : limpias, puntosFueraMepoy: fuera };
+  }, [esPiloto, capasPuntosFuente]);
+  // Zona seleccionada (clic sobre un polígono de una capa cargada) — para
+  // recortar el mapa de calor a solo esa zona y poder descargarla aparte.
+  const [zonaSeleccionada, setZonaSeleccionada] = useState<{ capaId: string; feature: any; nombre: string } | null>(null);
+  const [delitoZonaSeleccionada, setDelitoZonaSeleccionada] = useState<string | null>(null);
+
+  // Todos los polígonos, de CUALQUIER capa visible, que coincidan con el
+  // CAI/Estación/Cuadrante filtrados arriba — se recalcula solo cuando
+  // cambian los filtros o las capas cargadas.
+  const LIMITE_FEATURES_POR_FILTRO = 20;
+  const resultadoFiltroActivo = useMemo(() => {
+    const resultado: any[] = [];
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      if (!campo) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        if (coincideConFiltrosActivos(f?.properties?.[campo])) resultado.push(f);
+      }
+    }
+    // Seguro: una Estación/CAI/Cuadrante real coincide con un puñado de
+    // polígonos (unos pocos cuadrantes, o un solo contorno) — si de
+    // repente coincide con MUCHOS (confirmado en producción: pasaba
+    // cuando el filtro caía por error sobre una capa de municipios sin
+    // relación real, con geometrías enormes y muy detalladas), intentar
+    // dibujarlos igual arriesga tumbar la página entera (se vio un
+    // "Maximum call stack size exceeded" real con esto). Mejor avisar y
+    // no intentarlo, que sea el usuario quien revise cuál capa está
+    // causando la coincidencia de más.
+    if (resultado.length > LIMITE_FEATURES_POR_FILTRO) {
+      return { features: [] as any[], demasiadoAmplio: true };
+    }
+    return { features: resultado, demasiadoAmplio: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capas, camposUnionAutoDetectados, filters.cai, filters.estacion, filters.cuadrante, jerarquiaCuadrantes, jerarquiaCai]);
+  const featuresPorFiltroActivo = resultadoFiltroActivo.features;
+  const filtroDemasiadoAmplio = resultadoFiltroActivo.demasiadoAmplio;
+
+  // "Zona activa" = lo que se haya seleccionado con un clic puntual, o —
+  // si no hay ningún clic— TODOS los polígonos que ya coincidan con el
+  // filtro de arriba, tratados como una sola unidad (mismo mapa de calor
+  // recortado, mismo botón de descarga, mismo encuadre automático).
+  const zonaActiva = zonaSeleccionada
+    ? zonaSeleccionada
+    : featuresPorFiltroActivo.length > 0
+      ? {
+          capaId: '__filtro__',
+          feature: { type: 'FeatureCollection', features: featuresPorFiltroActivo },
+          nombre: `Filtro activo (${featuresPorFiltroActivo.length} zona${featuresPorFiltroActivo.length === 1 ? '' : 's'})`,
+        }
+      : null;
+  const [descargandoZona, setDescargandoZona] = useState(false);
+  const mapaRef = useRef<L.Map | null>(null);
+  const [modalCapaPuntos, setModalCapaPuntos] = useState<string | null>(null);
+  const [modoComparacion, setModoComparacion] = useState(false);
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  // En pantalla completa: qué fuente se está explorando (IRISP1 o Delitos) y
+  // qué delito específico está seleccionado (null = todos, sin filtrar).
+  const [panelFuenteFullscreen, setPanelFuenteFullscreen] = useState<'irisp1' | 'delitos' | null>(null);
+  // Selección INDEPENDIENTE por fuente — cada una se puede agregar/quitar
+  // por su cuenta. Elegir un delito en una fuente intenta automáticamente
+  // encontrar y agregar su correspondencia real en la otra (nunca la
+  // inventa: solo si el mismo nombre corto existe de verdad ahí).
+  const [seleccionIrisp1, setSeleccionIrisp1] = useState<string | null>(null);
+  const [seleccionDelitos, setSeleccionDelitos] = useState<string | null>(null);
+  const [capaExpandida, setCapaExpandida] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Lee de nuevo las capas guardadas en este equipo y las compartidas del
+  // servidor — al abrir la página y con el botón "Actualizar mapa".
+  const [actualizandoMapa, setActualizandoMapa] = useState(false);
+  const [estadoCompartir, setEstadoCompartir] = useState<string | null>(null);
+  const [compartiendo, setCompartiendo] = useState<string | null>(null);
+  async function recargarCapasDelMapa() {
+    setActualizandoMapa(true);
+    try {
+      const guardadas = await cargarCapas();
+      setCapas(guardadas);
+      const guardadasPuntos = await cargarCapasPuntos();
+      setCapasPuntos(guardadasPuntos);
+      // Después de mostrar lo que ya había en este equipo, se traen las
+      // capas compartidas desde el servidor central (las que cargaron otros
+      // equipos) — ver geoSync.ts.
+      try {
+        setEstadoCompartir('Buscando capas compartidas…');
+        const sincronizadas = await sincronizarCapasDesdeServidor();
+        if (sincronizadas) setCapas(sincronizadas);
+        setEstadoCompartir(null);
+      } catch (e) {
+        setEstadoCompartir(`No se pudieron traer las capas compartidas: ${e instanceof Error ? e.message : 'error desconocido'}`);
+      }
+    } finally {
+      setActualizandoMapa(false);
+    }
+  }
+  useEffect(() => {
+    recargarCapasDelMapa();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Capas compartidas con los demás equipos ────────────────────────────
+  async function compartirCapa(capa: CapaGeografica) {
+    setCompartiendo(capa.id);
+    setEstadoCompartir(`Compartiendo "${capa.nombre}" con los demás equipos…`);
+    try {
+      const version = await subirCapaCompartida(capa);
+      const partes = Math.max(1, Math.ceil(JSON.stringify(capa.geojson).length / 2_500_000));
+      setCapas((prev) => {
+        const nuevas = prev.map((c) => (c.id === capa.id ? { ...c, compartida: true, versionCompartida: version, partesCompartidas: partes } : c));
+        guardarCapas(nuevas);
+        return nuevas;
+      });
+      setEstadoCompartir(`"${capa.nombre}" ya está disponible para todos los equipos.`);
+    } catch (e) {
+      setEstadoCompartir(`No se pudo compartir "${capa.nombre}": ${e instanceof Error ? e.message : 'error desconocido'}. La capa sigue disponible en este equipo.`);
+    } finally {
+      setCompartiendo(null);
+    }
+  }
+
+  async function persistirPuntos(nuevas: CapaPuntos[]) {
+    setCapasPuntos(nuevas);
+    await guardarCapasPuntos(nuevas);
+  }
+
+  async function guardarNuevaCapaPuntos(capa: CapaPuntos) {
+    await persistirPuntos([...capasPuntos.filter((c) => c.nombre !== capa.nombre), capa]);
+    setModalCapaPuntos(null);
+  }
+
+  async function quitarCapaPuntos(id: string) {
+    if (!tieneAcceso('eliminarCapas')) return;
+    if (!confirm('¿Quitar esta capa de puntos?')) return;
+    await persistirPuntos(capasPuntos.filter((c) => c.id !== id));
+  }
+
+  async function actualizarCapaPuntos(id: string, cambios: Partial<CapaPuntos>) {
+    await persistirPuntos(capasPuntos.map((c) => (c.id === id ? { ...c, ...cambios } : c)));
+  }
+
+  function alternarVisibilidadPorTipo(tipo: 'irisp1' | 'delitos' | 'operatividad' | 'macri' | 'rnmc', visible: boolean) {
+    persistirPuntos(capasPuntos.map((c) => (c.tipo === tipo ? { ...c, visible } : c)));
+  }
+
+  function alternarDelitoPropio(capa: CapaPuntos, delitoCorto: string) {
+    const actual = capa.filtroDelitoPropio;
+    const nuevo = actual.includes(delitoCorto) ? actual.filter((v) => v !== delitoCorto) : [...actual, delitoCorto];
+    actualizarCapaPuntos(capa.id, { filtroDelitoPropio: nuevo });
+  }
+
+  function alternarFiltroCapa(capa: CapaPuntos, campo: 'filtroEstado' | 'filtroEstadoExistencia' | 'filtroDependencia', valor: string) {
+    const actual = capa[campo];
+    const nuevo = actual.includes(valor) ? actual.filter((v) => v !== valor) : [...actual, valor];
+    actualizarCapaPuntos(capa.id, { [campo]: nuevo } as Partial<CapaPuntos>);
+  }
+
+  async function persistir(nuevas: CapaGeografica[]) {
+    setCapas(nuevas);
+    await guardarCapas(nuevas);
+  }
+
+  async function manejarArchivo(file: File) {
+    setError(null);
+    setCargando(true);
+    try {
+      let geojson: any;
+      if (/\.(geojson|json)$/i.test(file.name)) {
+        const texto = await file.text();
+        geojson = JSON.parse(texto);
+      } else if (/\.zip$/i.test(file.name)) {
+        const buffer = await file.arrayBuffer();
+        geojson = await shp(buffer);
+      } else {
+        setError('Formato no soportado. Sube un archivo .zip (con .shp, .shx, .dbf y .prj comprimidos juntos) o un archivo .geojson/.json.');
+        setCargando(false);
+        return;
+      }
+      const nueva: CapaGeografica = {
+        id: `${Date.now()}`,
+        nombre: file.name.replace(/\.(zip|geojson|json)$/i, ''),
+        geojson,
+        visible: true,
+        campoUnion: null,
+        dimension: null,
+        colorearPorCasos: false,
+      };
+      await persistir([...capas, nueva]);
+      setCapaExpandida(nueva.id);
+      // Toda capa nueva se comparte sola con los demás equipos.
+      if (hayServidorParaCapas()) compartirCapa(nueva);
+    } catch (e) {
+      setError('No se pudo procesar el archivo. Verifica que el .zip contenga los 4 componentes del mismo shapefile (.shp, .shx, .dbf, .prj) sin carpetas dentro del zip.');
+    } finally {
+      setCargando(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  async function quitarCapa(id: string) {
+    if (!tieneAcceso('eliminarCapas')) return;
+    const capa = capas.find((c) => c.id === id);
+    if (!confirm(capa?.compartida ? '¿Quitar esta capa geográfica? Está compartida: se quitará también de los demás equipos.' : '¿Quitar esta capa geográfica?')) return;
+    if (capa?.compartida) {
+      try {
+        await borrarCapaCompartida(capa.id, capa.partesCompartidas ?? 1);
+      } catch (e) {
+        setEstadoCompartir(`No se pudo quitar la capa del servidor: ${e instanceof Error ? e.message : 'error desconocido'}. No se quitó.`);
+        return;
+      }
+    }
+    await persistir(capas.filter((c) => c.id !== id));
+  }
+
+  async function actualizarCapa(id: string, cambios: Partial<CapaGeografica>) {
+    const nuevas = capas.map((c) => (c.id === id ? { ...c, ...cambios } : c));
+    await persistir(nuevas);
+    // Si cambia algo de la configuración (no la visibilidad, que es de cada
+    // equipo) en una capa compartida, se actualiza su ficha en el servidor.
+    const capa = nuevas.find((c) => c.id === id);
+    const tocaFicha = Object.keys(cambios).some((k) => ['nombre', 'campoUnion', 'dimension', 'colorearPorCasos'].includes(k));
+    if (capa?.compartida && tocaFicha && capa.versionCompartida) {
+      subirFichaCapa(capa, capa.partesCompartidas ?? 1, capa.versionCompartida).catch((e) =>
+        setEstadoCompartir(`No se pudo actualizar la capa compartida: ${e instanceof Error ? e.message : 'error desconocido'}`));
+    }
+  }
+
+  async function limpiarTodo() {
+    if (!confirm('¿Quitar todas las capas geográficas cargadas?')) return;
+    await limpiarCapas();
+    setCapas([]);
+  }
+
+  // Conteo de casos filtrados por cada dimensión (estación/cuadrante/barrio),
+  // usando exactamente los mismos filtros globales del dashboard — así el
+  // mapa nunca depende de una fuente de datos distinta al resto de la app.
+  const conteosPorDimension = useMemo(() => {
+    const mapa: Record<string, Map<string, number>> = {};
+    for (const dim of DIMENSIONES) {
+      const agrupado = agruparPor(filteredRecords, dim.getter);
+      mapa[dim.valor] = new Map(agrupado.map((a) => [normalizar(a.key), a.casos]));
+    }
+    return mapa;
+  }, [filteredRecords]);
+
+
+  // Para cada capa de puntos: qué valores de Delito Principal equivalen al
+  // Delito activo en el filtro general (cruce por palabra clave), y los
+  // puntos que finalmente se muestran tras aplicar ese cruce + los filtros
+  // propios de la capa (Estado / Estado de existencia / Dependencia).
+  // Contorno del área urbana (Estación Norte + Sur) — para encuadrar el
+  // mapa ahí al abrir, en vez de en TODOS los puntos de Delitos (que
+  // incluyen zonas rurales lejanas como Timbío, Sotará, La Vega...).
+  // Busca, entre las capas cargadas, alguna cuyos valores coincidan con
+  // nombres de Estación conocidos (igual criterio que ya usa el PDF de
+  // Microgerencia en microgerenciaMapas.ts).
+  const anillosNorteSur = useMemo((): [number, number][] => {
+    for (const capa of capas) {
+      const feats = extraerFeatures(capa.geojson);
+      if (feats.length === 0) continue;
+      const columnas = Object.keys(feats[0]?.properties ?? {});
+      for (const columna of columnas) {
+        const coincidencias = feats.filter((f) => {
+          const v = normalizar(f?.properties?.[columna]);
+          return v === normalizar('E-Norte') || v === normalizar('E-Sur') || v === normalizar('ESTACION NORTE') || v === normalizar('ESTACION SUR');
+        });
+        if (coincidencias.length > 0) {
+          return coincidencias.flatMap((f) => extraerAnillosDeFeature(f)).flat();
+        }
+      }
+    }
+    return [];
+  }, [capas]);
+
+  // Puntos de la capa "Delitos" tomados de los MISMOS registros filtrados
+  // (filteredRecords): así el mapa de calor respeta TODOS los filtros del
+  // filtro principal —incluidos modalidad, arma, género, franja…, que la
+  // capa de puntos guardada no trae— y coincide siempre con las tablas.
+  //
+  // EXCEPCIÓN: el filtro de BARRIO no recorta el mapa de calor. Elegir
+  // barrios solo los AGREGA a los señalados (flechas) sobre el calor de
+  // siempre — así el calor nunca «desaparece» al sumar barrios.
+  const puntosDelitosDesdeRegistros = useMemo(
+    (): CapaPuntos['puntos'] => registrosSinFiltroBarrio
+      .filter((r) => esCoordenadaValida(r.lat, r.lon) && dentroDeMepoy(r.lat, r.lon) && (!esPiloto || puntoEnPopayan(r.lat, r.lon)))
+      .map((r) => ({
+        lat: r.lat as number,
+        lon: r.lon as number,
+        fila: { FECHA_HECHO: r.fecha, DELITO: r.delito, ESTACION: r.estacion, CAI: r.cai, BARRIO: r.barrioHecho, ZONA: r.cuadrante } as Record<string, any>,
+        delitoCorto: r.delito,
+        estacionCorta: r.estacion,
+        caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,
+      })),
+    [registrosSinFiltroBarrio],
+  );
+
+  const capasPuntosProcesadas = useMemo(() => {
+    // Ventanas del análisis multifecha, en el mismo formato que el resto
+    // del archivo (ver filteredRecords más arriba) — se recalculan aquí
+    // porque este useMemo es independiente de aquel.
+    const ventanasPeriodos = periodos.map((p) => ({
+      inicio: (() => { const [a, m, d] = p.fechaInicial.split('-').map(Number); const [h, mi] = (p.horaInicial || '00:00').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+      fin: (() => { const [a, m, d] = p.fechaFinal.split('-').map(Number); const [h, mi] = (p.horaFinal || '23:59').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
+    }));
+    return capasPuntos.map((capa) => {
+      // "Delitos" trae el mismo vocabulario que el DB2 (DELITO, ESTACION),
+      // así que cada punto YA se tradujo a nombre corto exacto al cargar la
+      // capa (ver puntosStorage.ts) — el cruce con el filtro del dashboard es
+      // una comparación directa, sin adivinar por palabra clave. "IRISP1"
+      // trae texto legal libre, así que sigue necesitando el cruce difuso.
+      const esExacto = capa.tipo === 'delitos';
+
+      // Cuál columna "FECHA *" usar para ESTA capa — se decide UNA VEZ por
+      // capa (no por punto), mirando cómo se comportan sus datos de verdad
+      // (ver elegirColumnaFechaConfiable más arriba).
+      const columnaFechaCapa = elegirColumnaFechaConfiable(capa.puntos);
+
+      const valoresDelitoCrudos = capa.colDelito ? [...new Set(capa.puntos.map((p) => String(p.fila[capa.colDelito!] ?? '')))] : [];
+      const equivalentesDifuso = !esExacto && capa.colDelito && filters.delito.length > 0
+        ? delitosIrispEquivalentes(filters.delito, valoresDelitoCrudos)
+        : null;
+
+      const valoresDependenciaCrudos = capa.colDependencia ? [...new Set(capa.puntos.map((p) => String(p.fila[capa.colDependencia!] ?? '')))] : [];
+      const equivalentesEstacionDifuso = !esExacto && capa.colDependencia && filters.estacion.length > 0
+        ? dependenciasIrispEquivalentes(filters.estacion, valoresDependenciaCrudos)
+        : null;
+
+      // Todos los delitos (nombre corto) que esta capa debe mostrar: los que
+      // coincidan con el filtro del dashboard, MÁS los que el usuario haya
+      // marcado a mano en el selector propio de la capa (delitos que no
+      // existen como opción en el filtro principal, ej. "Receptación").
+      const delitosCortosAMostrar = filters.delito.length > 0 || capa.filtroDelitoPropio.length > 0
+        ? new Set([...filters.delito, ...capa.filtroDelitoPropio])
+        : null; // null = sin filtro de delito activo, se muestra todo
+
+      // Delitos excluidos de TODO el dashboard (ver utils/delitosExcluidos.ts
+      // y DataContext.tsx) — la capa "Delitos" se construye desde el mismo
+      // dataset, así que nunca debería mostrarlos. Segunda barrera aquí
+      // mismo (más allá del origen) para que un dato ya guardado con una
+      // lista de exclusión vieja se autocorrija sin depender de volver a
+      // subir el archivo.
+      const DELITOS_EXCLUIDOS_MAPA = new Set(DELITOS_EXCLUIDOS_CANONICOS.map((d) => d.toUpperCase()));
+      const caiPermitidosNorm = new Set(filters.cai.map((c) => normalizar(formatoCaiCanonico(c))));
+      const cuadrantesPermitidosNorm = new Set(filters.cuadrante.map((c) => normalizar(c)));
+
+      const puntosFiltrados = capa.tipo === 'delitos' ? puntosDelitosDesdeRegistros : capa.puntos.filter((p) => {
+        if (esExacto && DELITOS_EXCLUIDOS_MAPA.has((p.delitoCorto ?? '').toUpperCase())) return false;
+        if (esExacto && capa.colDelito && delitosCortosAMostrar && !delitosCortosAMostrar.has(p.delitoCorto ?? '')) return false;
+        if (esExacto && capa.colDependencia && filters.estacion.length > 0 && !filters.estacion.includes(p.estacionCorta ?? '')) return false;
+        // CAI, Zona de Atención y Barrio (selección múltiple): también
+        // recortan los puntos de Delitos, con el mismo vocabulario que los
+        // registros. Un punto guardado antes de que su ficha trajera BARRIO
+        // o ZONA no se descarta: se vuelve a generar al recargar los datos.
+        if (esExacto && filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
+        if (esExacto && filters.cuadrante.length > 0 && 'ZONA' in p.fila && !filters.cuadrante.includes(String(p.fila.ZONA ?? ''))) return false;
+        // (El Barrio no recorta el calor: solo agrega barrios señalados.)
+        // Operatividad: CAI (inferido por su cuadrante), Zona de Atención
+        // (su cuadrante) y su categoría. La matriz de Operatividad no trae
+        // barrio, así que el filtro de Barrio no puede aplicarse a ella.
+        if (capa.tipo === 'operatividad') {
+          if (filtroCategoriaOperatividad.length > 0 && !filtroCategoriaOperatividad.includes(String(p.fila.OPERATIVIDAD ?? ''))) return false;
+          if (filters.estacion.length > 0 && p.estacionCorta && !filters.estacion.includes(p.estacionCorta)) return false;
+          if (filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
+          if (filters.cuadrante.length > 0 && 'CUADRANTE' in p.fila && !cuadrantesPermitidosNorm.has(normalizar(String(p.fila.CUADRANTE ?? '')))) return false;
+        }
+        if (!esExacto && equivalentesDifuso && capa.filtroDelitoPropio.length === 0 && !equivalentesDifuso.has(String(p.fila[capa.colDelito!] ?? ''))) return false;
+        if (!esExacto && equivalentesEstacionDifuso && !equivalentesEstacionDifuso.has(String(p.fila[capa.colDependencia!] ?? ''))) return false;
+        if (capa.colEstado && capa.filtroEstado.length > 0 && !capa.filtroEstado.includes(String(p.fila[capa.colEstado] ?? ''))) return false;
+        if (capa.colEstadoExistencia && capa.filtroEstadoExistencia.length > 0 && !capa.filtroEstadoExistencia.includes(String(p.fila[capa.colEstadoExistencia] ?? ''))) return false;
+        if (capa.colDependencia && capa.filtroDependencia.length > 0 && !capa.filtroDependencia.includes(String(p.fila[capa.colDependencia] ?? ''))) return false;
+        if (filters.anio.length > 0 || filters.mes.length > 0) {
+          const fechaPunto = extraerFechaDePunto(p, columnaFechaCapa);
+          if (!fechaPunto) return false;
+          if (filters.anio.length > 0 && !filters.anio.includes(String(fechaPunto.getFullYear()))) return false;
+          if (filters.mes.length > 0 && !filters.mes.includes(String(fechaPunto.getMonth() + 1))) return false;
+        }
+        if (filters.fechaInicial || filters.fechaFinal) {
+          const fechaPunto = extraerFechaDePunto(p, columnaFechaCapa);
+          if (!fechaPunto) return false;
+          if (filters.fechaInicial && fechaPunto < new Date(filters.fechaInicial)) return false;
+          if (filters.fechaFinal && fechaPunto > new Date(filters.fechaFinal + 'T23:59:59')) return false;
+        }
+        // Fecha del filtro PRINCIPAL (arriba del dashboard) — restricción
+        // ADICIONAL a la fecha propia del mapa (si la tuviera). A pedido
+        // explícito: antes el filtro de arriba nunca llegaba hasta aquí.
+        if (fechaInicialGlobal || fechaFinalGlobal) {
+          const fechaPunto = extraerFechaDePunto(p, columnaFechaCapa);
+          if (!fechaPunto) return false;
+          if (fechaInicialGlobal && fechaPunto < new Date(fechaInicialGlobal)) return false;
+          if (fechaFinalGlobal && fechaPunto > new Date(fechaFinalGlobal + 'T23:59:59')) return false;
+        }
+        // Sin ningún filtro temporal activo, por defecto solo la vigencia
+        // actual — igual razón que arriba en filteredRecords.
+        if (limiteVigenciaActual) {
+          const fechaPunto = extraerFechaDePunto(p, columnaFechaCapa);
+          if (!fechaPunto || fechaPunto < limiteVigenciaActual.inicio || fechaPunto > limiteVigenciaActual.fin) return false;
+        }
+        // Análisis multifecha (periodos) — restricción ADICIONAL, igual
+        // que en filteredRecords más arriba: si hay periodos activos, el
+        // punto tiene que caer en alguno de ellos, además de cualquier
+        // otro filtro que ya tuviera. Sin periodos activos, no cambia nada.
+        if (ventanasPeriodos.length > 0) {
+          const fechaPunto = extraerFechaDePunto(p, columnaFechaCapa);
+          if (!fechaPunto) return false;
+          if (!ventanasPeriodos.some((v) => fechaPunto >= v.inicio && fechaPunto <= v.fin)) return false;
+        }
+        return true;
+      });
+
+      if ((filters.fechaInicial || filters.fechaFinal) && capa.puntos.length > 0 && puntosFiltrados.length === 0) {
+        const columnasEjemplo = Object.keys(capa.puntos[0].fila);
+        const columnasConFecha = columnasEjemplo.filter((k) => /FECHA/i.test(k));
+        console.warn(`[Mapa: filtro de fecha] La capa "${capa.nombre}" quedó en 0 puntos al filtrar por fecha. Columna elegida automáticamente: ${JSON.stringify(columnaFechaCapa)}. Columnas con "FECHA" en el nombre: ${JSON.stringify(columnasConFecha)}. Valor de ejemplo: ${JSON.stringify(columnasConFecha.map((c) => capa.puntos[0].fila[c]))}`);
+      }
+      // Diagnóstico COMPLEMENTARIO al de arriba: cubre el caso contrario —
+      // el filtro de fecha está activo pero el número de puntos NO cambia
+      // en absoluto (ni a 0, ni a un número distinto), lo cual señala que
+      // el filtro simplemente no se está aplicando para esta capa en vez
+      // de que sí se aplique y no encuentre nada.
+      if ((filters.fechaInicial || filters.fechaFinal) && capa.puntos.length > 0 && puntosFiltrados.length === capa.puntos.length) {
+        const fechasExtraidas = capa.puntos.slice(0, 5).map((p) => extraerFechaDePunto(p, columnaFechaCapa)?.toISOString() ?? 'null');
+        console.warn(`[Mapa: filtro de fecha] La capa "${capa.nombre}" tiene el filtro de fecha activo pero el conteo de puntos NO cambió (siguen siendo los ${capa.puntos.length} de siempre) — el filtro no está afectando esta capa. Columna elegida automáticamente: ${JSON.stringify(columnaFechaCapa)}. Fechas extraídas de los primeros 5 puntos: ${JSON.stringify(fechasExtraidas)}`);
+      }
+
+      // Todos los delitos distintos que trae la capa (nombre corto), para el
+      // selector propio "manipulables" — incluye los que YA coinciden con el
+      // dashboard y los que no, para que el usuario pueda sumar cualquiera.
+      const todosLosDelitosCortos = capa.colDelito
+        ? [...new Set(capa.puntos.map((p) => p.delitoCorto).filter((d): d is string => !!d))].sort()
+        : [];
+
+      const ordenDelitos = capa.colDelito
+        ? contarPorValor(puntosFiltrados.map((p) => p.delitoCorto ?? String(p.fila[capa.colDelito!] ?? ''))).map((d) => d.key)
+        : [];
+      const resumenEstado = capa.colEstado
+        ? contarPorValor(puntosFiltrados.map((p) => String(p.fila[capa.colEstado!] ?? 'Sin dato')))
+        : [];
+      const resumenExistencia = capa.colEstadoExistencia
+        ? contarPorValor(puntosFiltrados.map((p) => String(p.fila[capa.colEstadoExistencia!] ?? 'Sin dato')))
+        : [];
+
+      return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
+    });
+  }, [capasPuntos, puntosDelitosDesdeRegistros, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad]);
+
+  // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
+  // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
+  // nunca combinados en una sola lista. El mapa de calor comparativo y la
+  // grilla de coincidencia se calculan a partir de estas dos listas.
+  // Puntos que pertenecen al Barrio elegido en el filtro — se busca en
+  // TODAS las columnas de cada punto (los archivos de puntos no siempre
+  // usan el mismo nombre de columna para "barrio"), para poder ajustar el
+  // zoom ahí aunque no haya un polígono propio de barrios cargado.
+  // A qué Estación/CAI/Cuadrante pertenece la coordenada escrita a mano —
+  // punto-en-polígono contra las capas cargadas. El Barrio no suele tener
+  // shapefile propio, así que se aproxima con el punto de Delitos/IRISP1
+  // más cercano (a menos de ~150m) que ya traiga barrio en su fila.
+  const infoCoordenadaManual = useMemo(() => {
+    if (!coordenadaManual) return null;
+    const { lat, lon } = coordenadaManual;
+    const resultado: { estacion?: string; cai?: string; cuadrante?: string; barrio?: string; barrioAproximado?: boolean } = {};
+
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      for (const f of extraerFeatures(capa.geojson)) {
+        if (!puntoEnFeatureGeoJSON(lon, lat, f)) continue;
+        const valorCrudo = campo ? String(f.properties?.[campo] ?? '') : '';
+        if (!valorCrudo) continue;
+        if (opcionesFiltroMapa.estacion.some((e) => normalizar(e) === normalizar(MAPA_ESTACION[valorCrudo.toUpperCase()] ?? valorCrudo))) {
+          resultado.estacion = MAPA_ESTACION[valorCrudo.toUpperCase()] ?? valorCrudo;
+        } else if (opcionesFiltroMapa.cai.some((c) => normalizar(c) === normalizar(valorCrudo))) {
+          resultado.cai = valorCrudo;
+        } else {
+          const traducido = mapearCuadrante(valorCrudo, new Set());
+          resultado.cuadrante = (traducido && traducido !== 'NO REPORTADO') ? traducido : valorCrudo;
+        }
+      }
+    }
+
+    let mejorDistancia = Infinity;
+    for (const cp of capasPuntos) {
+      const colBarrio = Object.keys(cp.puntos[0]?.fila ?? {}).find((k) => /BARRIO/i.test(k));
+      if (!colBarrio) continue;
+      for (const p of cp.puntos) {
+        const dLat = p.lat - lat, dLon = p.lon - lon;
+        const distMetrosAprox = Math.sqrt(dLat * dLat + dLon * dLon) * 111320;
+        if (distMetrosAprox < mejorDistancia && distMetrosAprox < 150) {
+          const valorBarrio = String(p.fila[colBarrio] ?? '').trim();
+          if (valorBarrio) {
+            mejorDistancia = distMetrosAprox;
+            resultado.barrio = valorBarrio;
+            resultado.barrioAproximado = true;
+          }
+        }
+      }
+    }
+    return resultado;
+  }, [coordenadaManual, capas, camposUnionAutoDetectados, opcionesFiltroMapa, capasPuntos]);
+
+  const puntosDelBarrioSeleccionado = useMemo(() => {
+    // Con uno o VARIOS barrios elegidos, el mapa se encuadra en sus casos.
+    if (filtrosMapa.barrioHecho.length === 0) return [];
+    const barriosNorm = new Set(filtrosMapa.barrioHecho.map((b) => normalizar(b)));
+    const todosLosPuntos = capasPuntosProcesadas.filter(({ capa }) => capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados);
+    return todosLosPuntos.filter((p) => Object.values(p.fila).some((v) => barriosNorm.has(normalizar(String(v ?? '')))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrosMapa.barrioHecho.join(','), capasPuntosProcesadas]);
+
+  const puntosDelitosVisibles = useMemo(
+    () => capasPuntosProcesadas
+      .filter(({ capa }) => capa.tipo === 'delitos' && capa.visible)
+      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
+    [capasPuntosProcesadas],
+  );
+  const puntosIrisp1Visibles = useMemo(
+    () => capasPuntosProcesadas
+      .filter(({ capa }) => capa.tipo === 'irisp1' && capa.visible)
+      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
+    [capasPuntosProcesadas],
+  );
+
+  // RNMC (comparendos) — mismo patrón que IRISP1, pero sin el modo
+  // "pantalla completa" (exploración por comportamiento aparte); se
+  // mantiene simple, mostrando siempre los puntos visibles tal cual.
+  const puntosRnmcParaMostrar = useMemo(
+    () => capasPuntosProcesadas
+      .filter(({ capa }) => capa.tipo === 'rnmc' && capa.visible)
+      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto }))),
+    [capasPuntosProcesadas],
+  );
+  const mostrarCalorRnmc = capasPuntos.some((c) => c.tipo === 'rnmc' && c.visible);
+
+  // --- Pantalla completa: exploración independiente por delito -----------
+  // En este modo se navega TODOS los puntos de la fuente elegida (sin
+  // depender del filtro principal del dashboard) — se listan con su
+  // conteo, y al elegir uno se filtra el mapa a ese delito específico.
+  // OJO: no se exige "capa.visible" aquí — elegir la fuente con el botón de
+  // pantalla completa (IRISP1/Delitos) YA es la intención explícita de
+  // verla, sin importar si el checkbox de arriba (fuera de pantalla
+  // completa) está marcado o no. Exigirlo era justo el bug: si esa capa
+  // seguía "apagada" desde antes de entrar a pantalla completa, no
+  // aparecía ni un punto ni el mapa de calor al elegir un delito.
+  const puntosCrudosPorTipo = (tipo: 'irisp1' | 'delitos') => capasPuntosProcesadas
+    .filter(({ capa }) => capa.tipo === tipo)
+    .flatMap(({ capa }) => capa.puntos.map((p) => ({ lat: p.lat, lon: p.lon, delitoCorto: p.delitoCorto })));
+
+  const tablaDelitosFullscreen = useMemo(() => {
+    if (!panelFuenteFullscreen) return [];
+    const puntos = puntosCrudosPorTipo(panelFuenteFullscreen);
+    return contarPorValor(puntos.map((p) => p.delitoCorto ?? 'NO REPORTADO'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelFuenteFullscreen, capasPuntosProcesadas]);
+
+  // Puntos a mostrar en el mapa: en pantalla completa, cada fuente muestra
+  // ÚNICAMENTE el delito seleccionado PARA ESA FUENTE (seleccionIrisp1 /
+  // seleccionDelitos son independientes entre sí) — sin selección para esa
+  // fuente, no se muestra nada de ella (el mapa base queda limpio hasta que
+  // se elija algo). Fuera de pantalla completa, sigue el comportamiento de
+  // siempre (checkbox de arriba).
+  const puntosDelitosParaMostrar = useMemo(() => {
+    if (pantallaCompleta) {
+      return seleccionDelitos ? puntosCrudosPorTipo('delitos').filter((p) => (p.delitoCorto ?? 'NO REPORTADO') === seleccionDelitos) : [];
+    }
+    return puntosDelitosVisibles;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pantallaCompleta, seleccionDelitos, puntosDelitosVisibles, capasPuntosProcesadas]);
+
+  // ── Barrios más afectados (flechas sobre el mapa de calor) ──────────────
+  // 0 = apagado; 3 o 5 = cuántos barrios señalar. Se calcula con los MISMOS
+  // registros que ya filtra el panel "Filtros de visualización" (delito,
+  // estación, CAI, zona, fechas) — si se elige "H. Personas", las flechas
+  // apuntan a los barrios con más hurtos a personas.
+  const [cantidadFlechasBarrio, setCantidadFlechasBarrio] = useState<0 | 3 | 5>(3);
+  // Polígonos de barrio (si hay una capa de barrios cargada en el mapa),
+  // por nombre normalizado — solo para ubicar mejor la flecha.
+  const poligonosBarrio = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id) ?? null;
+      const esCapaBarrios = capa.dimension === 'barrioHecho' || /barrio/i.test(capa.nombre) || (campo != null && /BARRIO/i.test(campo));
+      if (!esCapaBarrios) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const props = f?.properties ?? {};
+        const clave = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /BARRIO|NOMBRE/i.test(k))?.[1];
+        if (clave != null) m.set(normalizarNombre(clave), f);
+      }
+    }
+    return m;
+  }, [capas, camposUnionAutoDetectados]);
+  const registrosParaFlechas = useMemo(
+    () => (pantallaCompleta && seleccionDelitos ? registrosSinFiltroBarrio.filter((r) => r.delito === seleccionDelitos) : registrosSinFiltroBarrio),
+    [registrosSinFiltroBarrio, pantallaCompleta, seleccionDelitos],
+  );
+  // Barrios agregados a las flechas = los elegidos en el filtro "Barrio" de
+  // "Filtros de visualización" (no hay una segunda lista aparte).
+  const barriosManuales = filtrosMapa.barrioHecho;
+  const flechasBarrios = useMemo(() => {
+    if (cantidadFlechasBarrio === 0 && barriosManuales.length === 0) return [];
+    return calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: zonaActiva?.feature, adicionales: barriosManuales });
+    // zonaActiva se recalcula en cada render — se compara por su nombre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registrosParaFlechas, cantidadFlechasBarrio, barriosManuales, poligonosBarrio, zonaActiva?.nombre, zonaActiva?.capaId]);
+  const barriosManualesSinUbicar = barriosManuales.filter((b) => !flechasBarrios.some((f) => normalizarNombre(f.barrio) === normalizarNombre(b)));
+  // Dónde dejó el usuario cada rótulo (arrastrándolo), por barrio. Se
+  // conserva al cambiar de filtro: si el barrio vuelve a salir, su rótulo
+  // aparece donde se había dejado.
+  const [posicionesRotulo, setPosicionesRotulo] = useState<PosicionesRotulo>({});
+  // Para las descargas: las flechas con la posición de rótulo que se VE en
+  // pantalla en este momento (arrastrada o automática), para que la imagen
+  // salga igual a lo que se acomodó.
+  const conRotulosDePantalla = (lista: typeof flechasBarrios) =>
+    mapaRef.current ? posicionesEfectivasRotulo(lista, mapaRef.current, posicionesRotulo) : lista;
+  const flechasDentroDe = (feature: any) =>
+    cantidadFlechasBarrio === 0 && barriosManuales.length === 0 ? [] : conRotulosDePantalla(calcularTopBarrios(registrosParaFlechas, cantidadFlechasBarrio, { poligonosBarrio, dentroDe: feature, adicionales: barriosManuales }));
+
+  const puntosIrisp1ParaMostrar = useMemo(() => {
+    if (pantallaCompleta) {
+      return seleccionIrisp1 ? puntosCrudosPorTipo('irisp1').filter((p) => (p.delitoCorto ?? 'NO REPORTADO') === seleccionIrisp1) : [];
+    }
+    return puntosIrisp1Visibles;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pantallaCompleta, seleccionIrisp1, puntosIrisp1Visibles, capasPuntosProcesadas]);
+
+  // Puntos (de la fuente que esté visible en ese momento — Delitos o
+  // IRISP1, lo que sea que ya se esté mostrando) que caen DENTRO del
+  // polígono seleccionado — recalculado solo cuando cambia la zona, la
+  // fuente de puntos, o el delito elegido específicamente para esa zona.
+  // Universo de puntos con su delito conservado (capasPuntosProcesadas trae
+  // el objeto completo; las listas "...ParaMostrar" de arriba ya lo
+  // recortan a solo {lat, lon} para el mapa de calor general) — de aquí
+  // salen los puntos reales para recortar por polígono.
+  const todosLosPuntosVisiblesConDelito = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+
+  // Solo "Delitos" (nunca mezclado con IRISP1/Operatividad/Macri, aunque
+  // también estén visibles en ese momento) — es lo único que usan las
+  // descargas de imagen (mapa general, CAI, zona), para que su total
+  // siempre pueda compararse en pie de igualdad con "Delictividad por
+  // Unidad", que también es exclusivamente Delitos. Mezclar fuentes ahí
+  // era justo lo que hacía que los totales nunca coincidieran.
+  const todosLosPuntosDelitosVisibles = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'delitos' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+
+  const delitosDisponiblesEnZona = useMemo(() => {
+    if (!zonaActiva) return [];
+    const universo = todosLosPuntosVisiblesConDelito.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, zonaActiva.feature));
+    return Array.from(new Set(universo.map((p) => p.delitoCorto ?? 'NO REPORTADO'))).sort();
+  }, [zonaActiva, todosLosPuntosVisiblesConDelito]);
+
+  const puntosEnZonaParaCalor = useMemo(() => {
+    if (!zonaActiva) return [];
+    return todosLosPuntosVisiblesConDelito.filter((p) => {
+      if (delitoZonaSeleccionada && (p.delitoCorto ?? 'NO REPORTADO') !== delitoZonaSeleccionada) return false;
+      return puntoEnFeatureGeoJSON(p.lon, p.lat, zonaActiva.feature);
+    });
+  }, [zonaActiva, delitoZonaSeleccionada, todosLosPuntosVisiblesConDelito]);
+
+  // Límites internos de CUADRANTE que caen dentro de una zona dada — se
+  // dibujan también en la imagen exportada (además del contorno de la zona
+  // en sí), para que se vea la subdivisión interna.
+  function calcularAnillosCuadrantesInternos(feature: any): [number, number][][] {
+    const anillos: [number, number][][] = [];
+
+    // La capa de "cuadrantes"/Zona de Atención es, de las capas de
+    // polígono cargadas, la que tiene MÁS elementos — es la subdivisión
+    // más fina (una Estación tiene ~5 CAI, pero decenas de cuadrantes).
+    // Se identifica así, por conteo, en vez de comparar nombres: el
+    // shapefile puede traer sus valores en un formato distinto al de los
+    // datos ya cargados (código crudo vs. nombre traducido), y esa
+    // comparación puede fallar aunque el resaltado en vivo del mapa sí
+    // funcione (que usa otra lógica, jerárquica, no una comparación
+    // directa de texto).
+    let capaConMasElementos: CapaGeografica | null = null;
+    let maxElementos = 0;
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      const cantidad = extraerFeatures(capa.geojson).length;
+      if (cantidad > maxElementos) {
+        maxElementos = cantidad;
+        capaConMasElementos = capa;
+      }
+    }
+    if (!capaConMasElementos) return anillos;
+
+    for (const f of extraerFeatures(capaConMasElementos.geojson)) {
+      const geom = f.geometry;
+      const puntoRepresentativo: [number, number] | undefined = geom?.type === 'Polygon' ? geom.coordinates[0]?.[0] : geom?.type === 'MultiPolygon' ? geom.coordinates[0]?.[0]?.[0] : undefined;
+      if (!puntoRepresentativo) continue;
+      if (puntoEnFeatureGeoJSON(puntoRepresentativo[0], puntoRepresentativo[1], feature)) {
+        anillos.push(...extraerAnillosDeFeature(f));
+      }
+    }
+    return anillos;
+  }
+
+  // Busca el polígono PROPIO de un CAI (no el de la estación completa) —
+  // recorre las capas cargadas y devuelve el primer feature cuyo campo
+  // detectado coincida con ese nombre de CAI exacto.
+  function buscarFeatureDeCai(nombreCai: string): any | null {
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id);
+      if (!campo) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const valor = String(f?.properties?.[campo] ?? '');
+        if (normalizar(valor) === normalizar(nombreCai)) return f;
+      }
+    }
+    return null;
+  }
+
+  // Miniaturas de mapa de calor, una por cada CAI de la Estación
+  // seleccionada — se regeneran solas cuando cambia la lista de CAI o el
+  // delito filtrado. Cada una usa el MISMO motor de dibujo que la
+  // descarga principal (calles + Kernel Density + borde), solo que a un
+  // tamaño más chico para que las 3-4 se generen rápido.
+  const [previsualizacionesCai, setPrevisualizacionesCai] = useState<Record<string, string | 'cargando' | 'error'>>({});
+
+  useEffect(() => {
+    if (caiDeEstacionActiva.length === 0) return;
+    let cancelado = false;
+    for (const nombreCai of caiDeEstacionActiva) {
+      setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'cargando' }));
+      const feature = buscarFeatureDeCai(nombreCai);
+      if (!feature) {
+        setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'error' }));
+        continue;
+      }
+      const puntosDeEsteCai = todosLosPuntosDelitosVisibles.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
+      const conteoPorDelito = new Map<string, number>();
+      for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
+      const etiquetas = [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`];
+      generarDataUrlPoligonoAislado({
+        feature,
+        puntos: puntosDeEsteCai,
+        colores: paletaCalorDelitos,
+        etiquetas,
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
+      })
+        .then((dataUrl) => { if (!cancelado) setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: dataUrl })); })
+        .catch(() => { if (!cancelado) setPrevisualizacionesCai((prev) => ({ ...prev, [nombreCai]: 'error' })); });
+    }
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas, coloresSeleccionadosCalor.join(','), JSON.stringify(coloresCai), colorearZonasPorCai]);
+
+
+  // Estilo de cada polígono EN PANTALLA — una sola función para el mapa y
+  // para las descargas, así la imagen descargada conserva los mismos
+  // colores (CAI, intensidad por casos, selección) que se ven en pantalla.
+  function estiloPoligonoEnPantalla(capa: CapaGeografica, feature: any) {
+    const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
+    const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
+    const esSeleccionadaPorClic = zonaSeleccionada?.capaId === capa.id && zonaSeleccionada.feature === feature;
+    const campoEfectivo = camposUnionAutoDetectados.get(capa.id);
+    // Resalta TODOS los polígonos que correspondan al CAI, la
+    // Estación o el Cuadrante filtrados arriba — no solo el que
+    // se haya seleccionado con un clic puntual.
+    const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
+    const opacidadPoligono = opacidades.poligono / 100;
+    if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
+      return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 * opacidadPoligono };
+    }
+    if (capa.colorearPorCasos && conteos && capa.campoUnion) {
+      const valorCrudo = feature?.properties?.[capa.campoUnion!];
+      const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
+      return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
+    }
+    // Capas de CAI (dimensión sin "colorear por casos" activo):
+    // usan el color propio configurable de cada CAI en vez del
+    // verde institucional genérico, para diferenciarlos entre sí
+    // — SOLO si el interruptor "Colorear zonas por CAI" está
+    // encendido (ver Configuración visual). Apagado por
+    // defecto, para que la vista de siempre sea calles + calor,
+    // sin el mosaico de colores que nadie pidió ver.
+    if (colorearZonasPorCai && campoEfectivo && opcionesFiltroMapa.cai.length > 0) {
+      const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
+      const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
+      if (coincideCai) {
+        return { color: '#000000', weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
+      }
+    }
+    return { color: '#000000', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
+  }
+
+  /** Rellenos de color de las capas visibles para la descarga (solo los que
+   *  no son el verde genérico): colores de CAI, intensidad y selección. */
+  function rellenosParaExportar(): { anillos: [number, number][][]; color: string; opacidad: number }[] {
+    const out: { anillos: [number, number][][]; color: string; opacidad: number }[] = [];
+    for (const capa of capas) {
+      if (!capa.visible) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const e = estiloPoligonoEnPantalla(capa, f);
+        // Sin el verde genérico ni el sombreado negro de selección (es solo un resaltado de pantalla).
+        if (!e.fillColor || e.fillColor === '#116762' || e.fillColor === '#000000' || !(e.fillOpacity > 0)) continue;
+        const anillos = extraerAnillosDeFeature(f);
+        if (anillos.length) out.push({ anillos, color: e.fillColor, opacidad: e.fillOpacity });
+      }
+    }
+    return out;
+  }
+
+
+  // Opciones de la DESCARGA del mapa (se recuerdan en este navegador):
+  // rótulos de barrios (Top 3/5 y elegidos) y cuadro de totales.
+  const [opcionesDescarga, setOpcionesDescarga] = useState<{ rotulos: boolean; totales: boolean; fondoTransparente: boolean }>(() => {
+    try { return { rotulos: true, totales: true, fondoTransparente: true, ...JSON.parse(localStorage.getItem('mepoy-opciones-descarga-mapa') || '{}') }; } catch { return { rotulos: true, totales: true, fondoTransparente: true }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('mepoy-opciones-descarga-mapa', JSON.stringify(opcionesDescarga)); } catch { /* sin almacenamiento */ }
+  }, [opcionesDescarga]);
+  // Píxeles por grado del mapa tal como se ve ahora (para que pines y
+  // etiquetas del Plan Candado salgan en la descarga igual que en pantalla).
+  function escalaPantallaMapa(): { pxPorGradoLon: number; pxPorGradoLat: number } | undefined {
+    const m = mapaRef.current;
+    if (!m) return undefined;
+    const b = m.getBounds();
+    const t = m.getSize();
+    const dLon = b.getEast() - b.getWest();
+    const dLat = b.getNorth() - b.getSouth();
+    if (!(dLon > 0) || !(dLat > 0) || t.x <= 0 || t.y <= 0) return undefined;
+    return { pxPorGradoLon: t.x / dLon, pxPorGradoLat: t.y / dLat };
+  }
+  // Los mismos puntos (color, tamaño y relleno) que se ven en modo «Puntos».
+  function puntosParaExportar(): PuntoMarcadoExport[] {
+    if (!verPuntos) return [];
+    const lista: PuntoMarcadoExport[] = [];
+    if (mostrarCalorDelitos) for (const p of puntosDelitosParaMostrar) {
+      const delito = (p as any).delitoCorto ?? null;
+      const color = colorDelitoFinal('delitos', delito, colorPorDelitoSimple(delito));
+      lista.push({ lat: p.lat, lon: p.lon, color, radio: radioDe('delitos', 4), relleno: 0.75, grosor: 1 });
+    }
+    if (mostrarCalorIrisp1) for (const p of puntosIrisp1ParaMostrar) {
+      const delito = (p as any).delitoCorto ?? null;
+      const color = colorDelitoFinal('irisp1', delito, colorPorDelitoSimple(delito));
+      lista.push({ lat: p.lat, lon: p.lon, color, radio: radioDe('irisp1', 4), relleno: 0.4, grosor: 2 });
+    }
+    if (mostrarCalorOperatividad) for (const p of puntosOperatividadParaMostrar) lista.push({ lat: p.lat, lon: p.lon, color: colorCapa('operatividad', '#d97706'), radio: radioDe('operatividad', 4), relleno: 0.75, grosor: 1 });
+    if (mostrarCalorMacri) for (const p of puntosMacriParaMostrar) lista.push({ lat: p.lat, lon: p.lon, color: colorCapa('macri', '#7c3aed'), radio: radioDe('macri', 4), relleno: 0.75, grosor: 1 });
+    if (mostrarCalorRnmc) for (const p of puntosRnmcParaMostrar) lista.push({ lat: p.lat, lon: p.lon, color: colorCapa('rnmc', '#db2777'), radio: radioDe('rnmc', 4), relleno: 0.75, grosor: 1 });
+    return lista;
+  }
+
+  function conOpcionesDescarga<T extends { flechas?: unknown[]; etiquetas: string[]; gruposEtiquetas?: unknown[] }>(o: T, vista?: L.LatLngBounds): T {
+    const marcadores = marcadoresParaExportar(planCandado, mapaRef.current);
+    return {
+      ...o,
+      // Calor y/o puntos: exactamente lo que está activo en pantalla.
+      mostrarCalor: verCalor,
+      puntosMarcados: puntosParaExportar(),
+      flechas: opcionesDescarga.rotulos ? o.flechas : [],
+      etiquetas: opcionesDescarga.totales ? o.etiquetas : [],
+      gruposEtiquetas: opcionesDescarga.totales ? o.gruposEtiquetas : [],
+      // Puntos del Plan Candado ubicados (si la capa está activa), como en pantalla.
+      marcadores: vista ? marcadores.filter((m) => vista.contains([m.lat, m.lon])) : marcadores,
+      escalaPantalla: escalaPantallaMapa(),
+    };
+  }
+
+  async function descargarPrevisualizacionCai(nombreCai: string) {
+    const feature = buscarFeatureDeCai(nombreCai);
+    if (!feature) return;
+    const puntosDeEsteCai = todosLosPuntosDelitosVisibles.filter((p) => puntoEnFeatureGeoJSON(p.lon, p.lat, feature));
+    const conteoPorDelito = new Map<string, number>();
+    for (const p of puntosDeEsteCai) conteoPorDelito.set(p.delitoCorto ?? 'No reportado', (conteoPorDelito.get(p.delitoCorto ?? 'No reportado') ?? 0) + 1);
+    const lineasDelito = Array.from(conteoPorDelito.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, c]) => `${d}: ${c} caso${c === 1 ? '' : 's'}`);
+    try {
+      await exportarPoligonoAislado(conOpcionesDescarga({
+        feature,
+        puntos: puntosDeEsteCai,
+        colores: paletaCalorDelitos,
+        etiquetas: [`${nombreCai} — Total: ${puntosDeEsteCai.length} caso${puntosDeEsteCai.length === 1 ? '' : 's'}`, ...lineasDelito],
+        nombreArchivo: `mapa-calor-${nombreCai}`.replace(/\s+/g, '-'),
+        flechas: flechasDentroDe(feature),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
+      }));
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la descarga de la miniatura de CAI:', err);
+      setError(`No fue posible descargar el mapa de ${nombreCai}. Revisa la consola (F12).`);
+    }
+  }
+
+  async function descargarZonaSeleccionada() {
+    if (!zonaActiva) return;
+    setDescargandoZona(true);
+    try {
+      const anillosCuadrantesInternos = calcularAnillosCuadrantesInternos(zonaActiva.feature);
+
+      // Desglose REAL por delito — cada línea sale de contar
+      // puntosEnZonaParaCalor (los mismos puntos que ya se están pintando
+      // en el mapa de calor), agrupados por delito. Nunca es un número
+      // inventado: si dice "Homicidio: 3", es porque hay exactamente 3
+      // puntos de Homicidio dentro de ese polígono.
+      const conteoPorDelito = new Map<string, number>();
+      for (const p of puntosEnZonaParaCalor) {
+        const nombre = p.delitoCorto ?? 'No reportado';
+        conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+      }
+      const lineasDelito = Array.from(conteoPorDelito.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+      const etiquetas = [
+        `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
+        ...lineasDelito,
+      ];
+      await exportarPoligonoAislado(conOpcionesDescarga({
+        feature: zonaActiva.feature,
+        puntos: puntosEnZonaParaCalor,
+        colores: paletaCalorDelitos,
+        etiquetas,
+        nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+        flechas: conRotulosDePantalla(flechasBarrios),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
+        anillosInternos: anillosCuadrantesInternos,
+      }));
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la descarga del mapa de calor:', err);
+      setError('No fue posible generar la imagen del mapa. Revisa la consola del navegador (F12) para más detalle.');
+    } finally {
+      setDescargandoZona(false);
+    }
+  }
+
+  async function copiarZonaAlPortapapeles() {
+    if (!zonaActiva) return;
+    setDescargandoZona(true);
+    try {
+      const anillosCuadrantesInternos = calcularAnillosCuadrantesInternos(zonaActiva.feature);
+      const conteoPorDelito = new Map<string, number>();
+      for (const p of puntosEnZonaParaCalor) {
+        const nombre = p.delitoCorto ?? 'No reportado';
+        conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+      }
+      const lineasDelito = Array.from(conteoPorDelito.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+      const etiquetas = [
+        `${zonaActiva.nombre} — Total: ${puntosEnZonaParaCalor.length} caso${puntosEnZonaParaCalor.length === 1 ? '' : 's'}`,
+        ...lineasDelito,
+      ];
+      await exportarPoligonoAislado(conOpcionesDescarga({
+        feature: zonaActiva.feature,
+        puntos: puntosEnZonaParaCalor,
+        colores: paletaCalorDelitos,
+        etiquetas,
+        nombreArchivo: `mapa-calor-${zonaActiva.nombre}`.replace(/\s+/g, '-'),
+        flechas: conRotulosDePantalla(flechasBarrios),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: opacidades.poligono / 100,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
+        alPortapapeles: true,
+        anillosInternos: anillosCuadrantesInternos,
+      }));
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la copia al portapapeles:', err);
+      setError('No fue posible copiar la imagen al portapapeles. Revisa la consola (F12), o usa "Descargar imagen".');
+    } finally {
+      setDescargandoZona(false);
+    }
+  }
+
+  function ajustarVistaAZonaActiva() {
+    if (!mapaRef.current || !zonaActiva) return;
+    try {
+      const capaTemporal = L.geoJSON(zonaActiva.feature);
+      mapaRef.current.fitBounds(capaTemporal.getBounds(), { padding: [30, 30], maxZoom: 17 });
+    } catch { /* geometría inválida — se ignora */ }
+  }
+
+  // Descarga del mapa GENERAL — no depende de tener una zona seleccionada:
+  // toma el rectángulo de lo que se está viendo en pantalla en ese momento
+  // como si fuera el "polígono", con exactamente los mismos puntos que ya
+  // se están mostrando (respetando los checkboxes de IRISP1/Delitos
+  // activos y el filtro de este mapa).
+  async function descargarMapaGeneral() {
+    if (!mapaRef.current) return;
+    setDescargandoZona(true);
+    try {
+      const bounds = mapaRef.current.getBounds();
+      const sur = bounds.getSouth(), norte = bounds.getNorth(), oeste = bounds.getWest(), este = bounds.getEast();
+      const featureRectangular = {
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [[[oeste, sur], [este, sur], [este, norte], [oeste, norte], [oeste, sur]]] },
+        properties: {},
+      };
+
+      // La descarga debe recortarse a la FORMA REAL de las capas visibles
+      // (Comuna/CAI/Estación) — igual que ya funciona bien la descarga de
+      // un CAI individual — en vez de un simple rectángulo que arrastra
+      // todo el paisaje de alrededor (montañas, veredas, otros
+      // municipios) que no hace parte de la jurisdicción.
+      //
+      // OJO: una capa como "Jurisdicción Estaciones" puede incluir
+      // territorios MUY lejanos entre sí (ej. Timbío, Sotará, además de
+      // Norte/Sur) — combinarlos todos sin filtrar dejaba "islas" sueltas,
+      // sin calles ni mapa de calor, regadas por toda la imagen. Por eso
+      // solo se conservan los anillos que caen dentro (o cerca) de lo que
+      // se ve actualmente en el mapa — si Norte y Sur son lo que tienes en
+      // pantalla al descargar, son los que se incluyen; los territorios
+      // lejanos que no estás viendo en ese momento quedan afuera.
+      // Se conservan solo los anillos que tocan el rectángulo de la pantalla
+      // (sin margen extra): la imagen sale con el MISMO encuadre que se ve.
+      const dentroDeVistaRecorte = (an: [number, number][]) => {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const [lon, lat] of an) { if (lon < x0) x0 = lon; if (lon > x1) x1 = lon; if (lat < y0) y0 = lat; if (lat > y1) y1 = lat; }
+        return x1 >= oeste && x0 <= este && y1 >= sur && y0 <= norte;
+      };
+      const anillosCapasParaRecorte = capas
+        .filter((c) => c.visible)
+        .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)))
+        .filter(dentroDeVistaRecorte);
+      const featureRecorte = anillosCapasParaRecorte.length > 0
+        ? {
+            type: 'Feature',
+            geometry: { type: 'MultiPolygon', coordinates: anillosCapasParaRecorte.map((anillo) => [anillo]) },
+            properties: {},
+          }
+        : featureRectangular;
+
+      const puntosVisibles = todosLosPuntosDelitosVisibles;
+
+      // Un año por grupo — si los puntos visibles solo tienen un año, sigue
+      // saliendo una sola caja (comportamiento de siempre); con varios años
+      // (típico en multifecha), cada año se separa en su propia caja.
+      function anioDePunto(p: (typeof puntosVisibles)[number]): number | null {
+        const f = (p as any).fila?.FECHA_HECHO;
+        if (f instanceof Date) return f.getFullYear();
+        if (typeof f === 'string') { const d = new Date(f); return isNaN(d.getTime()) ? null : d.getFullYear(); }
+        return null;
+      }
+      const puntosPorAnio = new Map<number | null, typeof puntosVisibles>();
+      for (const p of puntosVisibles) {
+        const anio = anioDePunto(p);
+        if (!puntosPorAnio.has(anio)) puntosPorAnio.set(anio, []);
+        puntosPorAnio.get(anio)!.push(p);
+      }
+      const aniosOrdenados = Array.from(puntosPorAnio.keys()).sort((a, b) => (a ?? 0) - (b ?? 0));
+
+      const gruposEtiquetas = aniosOrdenados.map((anio) => {
+        const puntosDeEsteAnio = puntosPorAnio.get(anio)!;
+        const conteoPorDelito = new Map<string, number>();
+        for (const p of puntosDeEsteAnio) {
+          const nombre = p.delitoCorto ?? 'No reportado';
+          conteoPorDelito.set(nombre, (conteoPorDelito.get(nombre) ?? 0) + 1);
+        }
+        const lineasDelito = Array.from(conteoPorDelito.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([delito, casos]) => `${delito}: ${casos} caso${casos === 1 ? '' : 's'}`);
+        const titulo = anio
+          ? `${anio} — Total: ${puntosDeEsteAnio.length} caso${puntosDeEsteAnio.length === 1 ? '' : 's'}`
+          : `Mapa general — Total: ${puntosDeEsteAnio.length} caso${puntosDeEsteAnio.length === 1 ? '' : 's'}`;
+        return { titulo, lineas: lineasDelito };
+      });
+
+      await exportarPoligonoAislado(conOpcionesDescarga({
+        feature: featureRecorte,
+        puntos: puntosVisibles,
+        colores: mostrarCalorIrisp1 && !mostrarCalorDelitos ? ['#60a5fa', '#3b82f6', '#6366f1', '#7c3aed', '#581c87'] : paletaCalorDelitos,
+        etiquetas: [],
+        gruposEtiquetas,
+        nombreArchivo: 'mapa-general-mepoy',
+        flechas: conRotulosDePantalla(flechasBarrios),
+        opacidadCalor: opacidades.calor / 100,
+        opacidadPoligono: 0,
+        opacidadEtiquetas: opacidades.etiquetas / 100,
+        rellenos: rellenosParaExportar(),
+        anillosInternos: anillosCapasParaRecorte,
+        colorBorde: '#1f2937',
+        tamanoFuenteBase: 8,
+        // Fondo transparente fuera de la jurisdicción (como siempre), salvo que se pida el mapa completo.
+        fondoCompleto: !opcionesDescarga.fondoTransparente,
+        // Mismo encuadre de la pantalla: barrios, rótulos y escala quedan
+        // donde el usuario los ve (antes se ampliaba al contorno completo
+        // de las capas y los rótulos quedaban amontonados).
+        vistaFija: { sur, norte, oeste, este },
+        anchoLienzo: Math.round(Math.min(2600, Math.max(1200, (mapaRef.current.getSize().x || 1200) * 1.8))),
+      }, bounds));
+    } catch (err) {
+      console.error('[MapaGeorreferenciacion] Falló la descarga del mapa general:', err);
+      setError('No fue posible generar la imagen del mapa general. Revisa la consola del navegador (F12) para más detalle.');
+    } finally {
+      setDescargandoZona(false);
+    }
+  }
+
+  function elegirFuenteFullscreen(fuente: 'irisp1' | 'delitos') {
+    // Esto SOLO abre/cierra la tabla para explorar esa fuente — ya no toca
+    // ninguna selección; elegir qué se ve en el mapa es responsabilidad de
+    // seleccionarDelitoDesde() / quitarSeleccion(), completamente aparte.
+    setPanelFuenteFullscreen((actual) => (actual === fuente ? null : fuente));
+  }
+
+  /**
+   * Al elegir un delito desde la tabla de una fuente, se agrega esa
+   * selección Y se verifica de verdad (por nombre corto exacto, nunca
+   * inventado) si el MISMO delito existe también en la otra fuente — si
+   * existe, se agrega automáticamente ahí también, para poder comparar de
+   * inmediato. El usuario conserva control total: cada selección se puede
+   * quitar por separado con su propia X (quitarSeleccion), sin afectar la
+   * de la otra fuente.
+   */
+  function seleccionarDelitoDesde(fuente: 'irisp1' | 'delitos', delito: string) {
+    if (fuente === 'irisp1') {
+      setSeleccionIrisp1(delito);
+      const existeEnDelitos = puntosCrudosPorTipo('delitos').some((p) => (p.delitoCorto ?? 'NO REPORTADO') === delito);
+      if (existeEnDelitos) setSeleccionDelitos(delito);
+    } else {
+      setSeleccionDelitos(delito);
+      const existeEnIrisp1 = puntosCrudosPorTipo('irisp1').some((p) => (p.delitoCorto ?? 'NO REPORTADO') === delito);
+      if (existeEnIrisp1) setSeleccionIrisp1(delito);
+    }
+  }
+
+  function quitarSeleccion(fuente: 'irisp1' | 'delitos') {
+    if (fuente === 'irisp1') setSeleccionIrisp1(null);
+    else setSeleccionDelitos(null);
+  }
+
+  // Sincronización directa: el checkbox superior de cada fuente es lo único
+  // que decide si su mapa de calor se dibuja — "Comparar" ya NO es un
+  // requisito para verlo, solo agrega el análisis de correspondencia usando
+  // las fuentes que estén encendidas en ese momento (si solo una está
+  // encendida, simplemente no habrá nada con qué cruzarla, sin que eso
+  // rompa nada).
+  // En pantalla completa: el estado depende ÚNICAMENTE de qué haya
+  // seleccionado en "Limpiar filtros" para cada fuente — ninguna
+  // selección = mapa base; solo una = su mapa de calor propio; las dos =
+  // modo comparación automático (ver punto 13 de la lógica pedida).
+  const mostrarCalorDelitos = fuentesActivas.delitos && (pantallaCompleta ? !!seleccionDelitos : capasPuntos.some((c) => c.tipo === 'delitos' && c.visible));
+  const mostrarCalorIrisp1 = fuentesActivas.irisp1 && (pantallaCompleta ? !!seleccionIrisp1 : capasPuntos.some((c) => c.tipo === 'irisp1' && c.visible));
+  // Operatividad y Macri son más simples que Delitos/IRISP1: no tienen modo
+  // "pantalla completa" propio ni entran en "Comparar" (esa comparación
+  // sigue siendo específicamente IRISP1 vs Delitos) — solo se encienden con
+  // su checkbox, igual que las otras dos, en cuanto exista una capa suya
+  // visible.
+  const mostrarCalorOperatividad = fuentesActivas.operatividad && capasPuntos.some((c) => c.tipo === 'operatividad' && c.visible);
+  const mostrarCalorMacri = fuentesActivas.macri && capasPuntos.some((c) => c.tipo === 'macri' && c.visible);
+  const puntosOperatividadParaMostrar = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'operatividad' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+  // ── Barrios con más registros de Operatividad, IRISP1 y RNMC ─────────────
+  // Mismos rótulos con flecha que los barrios de Delitos (misma cantidad 3/5
+  // y misma lógica), cada fuente con su propio color de contorno. Se calculan
+  // con los MISMOS puntos que se dibujan (ya filtrados).
+  const barrioDePunto = (p: { fila?: Record<string, any> }) => String(p.fila?.BARRIO ?? p.fila?.BARRIO_HECHOS ?? p.fila?.Barrio ?? p.fila?.BARRIO_HECHO ?? '');
+  const flechasDeFuente = (puntos: { lat: number; lon: number; fila?: Record<string, any> }[]) =>
+    cantidadFlechasBarrio === 0 || puntos.length === 0 ? [] : calcularTopBarrios(
+      puntos.map((p) => ({ barrioHecho: barrioDePunto(p), lat: p.lat, lon: p.lon, cantidad: 1 })),
+      cantidadFlechasBarrio,
+      { poligonosBarrio, dentroDe: zonaActiva?.feature },
+    );
+  const [posicionesRotuloFuente, setPosicionesRotuloFuente] = useState<Record<string, PosicionesRotulo>>({});
+  const flechasOperatividad = useMemo(() => (mostrarCalorOperatividad ? flechasDeFuente(puntosOperatividadParaMostrar) : []), // eslint-disable-line react-hooks/exhaustive-deps
+    [mostrarCalorOperatividad, puntosOperatividadParaMostrar, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre]);
+  const flechasIrisp1 = useMemo(() => (mostrarCalorIrisp1 ? flechasDeFuente(puntosIrisp1ParaMostrar) : []), // eslint-disable-line react-hooks/exhaustive-deps
+    [mostrarCalorIrisp1, puntosIrisp1ParaMostrar, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre]);
+  const flechasRnmc = useMemo(() => (mostrarCalorRnmc ? flechasDeFuente(puntosRnmcParaMostrar) : []), // eslint-disable-line react-hooks/exhaustive-deps
+    [mostrarCalorRnmc, puntosRnmcParaMostrar, cantidadFlechasBarrio, poligonosBarrio, zonaActiva?.nombre]);
+  const FLECHAS_FUENTES: { clave: string; flechas: typeof flechasOperatividad; estilo: EstiloFlecha }[] = [
+    { clave: 'operatividad', flechas: flechasOperatividad, estilo: { color: '#d97706', texto: '#78350f', unidad: ['registro', 'registros'], etiqueta: 'Operatividad' } },
+    { clave: 'irisp1', flechas: flechasIrisp1, estilo: { color: '#2563eb', texto: '#1e3a8a', unidad: ['información', 'informaciones'], etiqueta: 'IRISP1' } },
+    { clave: 'rnmc', flechas: flechasRnmc, estilo: { color: '#db2777', texto: '#831843', unidad: ['comparendo', 'comparendos'], etiqueta: 'RNMC' } },
+  ];
+  const puntosMacriParaMostrar = useMemo(
+    () => capasPuntosProcesadas.filter(({ capa }) => capa.tipo === 'macri' && capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados),
+    [capasPuntosProcesadas],
+  );
+  // Convenciones automáticas dentro del mapa: los delitos que de verdad
+  // están dibujados (con el filtro de delito actual o todos), con el mismo
+  // color de su punto y su cantidad. Solo lee los puntos ya filtrados.
+  const convencionesDelitos = useMemo(() => {
+    const contar = (puntos: typeof puntosDelitosParaMostrar) => {
+      const m = new Map<string, number>();
+      for (const p of puntos) { const d = (p as any).delitoCorto || 'Sin delito'; m.set(d, (m.get(d) ?? 0) + 1); }
+      return Array.from(m.entries()).map(([delito, casos]) => ({ delito, casos })).sort((x, y) => y.casos - x.casos);
+    };
+    return {
+      delitos: mostrarCalorDelitos ? contar(puntosDelitosParaMostrar) : [],
+      irisp1: mostrarCalorIrisp1 ? contar(puntosIrisp1ParaMostrar) : [],
+    };
+  }, [mostrarCalorDelitos, mostrarCalorIrisp1, puntosDelitosParaMostrar, puntosIrisp1ParaMostrar]);
+
+  // Operatividad usa EXACTAMENTE la misma escala de Delitos (verde →
+  // amarillo → naranja → rojo, con los mismos colores activos/apagados).
+  const PALETA_CALOR_MACRI = ['#ddd6fe', '#a78bfa', '#8b5cf6', '#7c3aed', '#5b21b6'];
+
+  // Grilla de correspondencia espacial: se activa con "Comparar" (modo
+  // normal) O automáticamente en pantalla completa cuando AMBAS fuentes
+  // tienen un delito seleccionado a la vez — en ambos casos usa los puntos
+  // "para mostrar" de cada fuente, que ya reflejan el filtro que
+  // corresponda en cada modo.
+  const grillaComparativa = useMemo(
+    () => (modoComparacion || (pantallaCompleta && seleccionIrisp1 && seleccionDelitos)
+      ? construirGrillaComparativa(puntosDelitosParaMostrar, puntosIrisp1ParaMostrar)
+      : []),
+    [modoComparacion, pantallaCompleta, seleccionIrisp1, seleccionDelitos, puntosDelitosParaMostrar, puntosIrisp1ParaMostrar],
+  );
+
+  // ── Análisis territorial (tarjetas inferiores y "Barrios más afectados")
+  // Todo sale de filteredRecords — los MISMOS registros que alimentan el
+  // mapa — con agruparPor (1 hecho = 1 caso, la regla oficial del
+  // dashboard). Aporte % = casos ÷ total de registros filtrados.
+  const totalFiltrado = filteredRecords.length;
+  const conAporte = (filas: { key: string; casos: number }[]) =>
+    filas.map((f) => ({ key: f.key, casos: f.casos, aportePct: totalFiltrado > 0 ? (f.casos / totalFiltrado) * 100 : 0 }));
+  // Barrios: se cuentan SIN el filtro de Barrio (con todos los demás), para
+  // que la lista no se reduzca al elegir uno y se puedan ir SUMANDO barrios
+  // a la selección (los elegidos quedan marcados). Mismos registros que las
+  // flechas de barrios más afectados.
+  // Dos o más años en el análisis (multifecha con periodos de años
+  // distintos, o el filtro Año con varios años): las tarjetas muestran los
+  // casos de cada año y la variación en vez del aporte %.
+  const aniosTarjetas = useMemo(() => {
+    if (periodos.length > 0) return aniosDePeriodos(periodos);
+    return filtrosPrincipales.anio.length >= 2 ? [...filtrosPrincipales.anio].map(Number).sort((a, b) => a - b) : [];
+  }, [periodos, filtrosPrincipales.anio]);
+  const rankingBarrios = useMemo(() => {
+    const total = registrosSinFiltroBarrio.length;
+    const filas = agruparPor(registrosSinFiltroBarrio, (r) => r.barrioHecho)
+      .filter((f) => esBarrioReal(f.key))
+      .map((f) => ({ key: f.key, casos: f.casos, aportePct: total > 0 ? (f.casos / total) * 100 : 0 }));
+    return agregarCasosPorAnio(filas, registrosSinFiltroBarrio, (r) => r.barrioHecho, aniosTarjetas);
+  }, [registrosSinFiltroBarrio, aniosTarjetas]);
+  const rankingDelitos = useMemo(
+    () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => r.delito).filter((f) => esValorReal(f.key))), filteredRecords, (r) => r.delito, aniosTarjetas),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredRecords, aniosTarjetas],
+  );
+  const rankingCai = useMemo(
+    () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => (esValorReal(r.cai) ? formatoCaiCanonico(r.cai) : '')).filter((f) => /^CAI\s+\S/i.test(f.key))), filteredRecords, (r) => (esValorReal(r.cai) ? formatoCaiCanonico(r.cai) : ''), aniosTarjetas),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredRecords, aniosTarjetas],
+  );
+  const rankingZonas = useMemo(
+    () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => r.cuadrante).filter((f) => esValorReal(f.key))), filteredRecords, (r) => r.cuadrante, aniosTarjetas),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredRecords, aniosTarjetas],
+  );
+
+  // Comunas y cuadrantes no vienen como columna en la base de Delictividad
+  // (CUADRANTE se traduce a Zona de Atención al cargar). Se obtienen por
+  // UBICACIÓN: cada registro con coordenadas válidas se ubica en el
+  // polígono de la capa "Comunas" / "Cuadrantes" cargada. Sin capa de
+  // comunas, se usa la equivalencia del propio dashboard (Comuna N ↔ CAI N,
+  // la misma que usa MACRI). Nada se inventa: sin capa ni CAI numerado, la
+  // tarjeta lo dice.
+  const conteoEspacialPorCapa = (patronCapa: RegExp, patronCampo: RegExp) => {
+    const capa = capas.find((c) => c.visible && patronCapa.test(c.nombre)) ?? capas.find((c) => patronCapa.test(c.nombre));
+    if (!capa) return null;
+    const campoDetectado = camposUnionAutoDetectados.get(capa.id) ?? null;
+    const features = extraerFeatures(capa.geojson).map((f) => {
+      const props = f?.properties ?? {};
+      const campo = campoDetectado && props[campoDetectado] != null && patronCampo.test(campoDetectado)
+        ? campoDetectado
+        : Object.keys(props).find((k) => patronCampo.test(k)) ?? campoDetectado ?? Object.keys(props)[0];
+      const nombre = campo ? String(props[campo] ?? '').trim() : '';
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const anillo of extraerAnillosDeFeature(f)) {
+        for (const [x, y] of anillo) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+      }
+      return { f, nombre, minX, minY, maxX, maxY };
+    }).filter((g) => g.nombre && isFinite(g.minX));
+    if (features.length === 0) return null;
+    const conteo = new Map<string, number>();
+    const porAnio = new Map<string, Record<number, number>>();
+    let conCoordenada = 0;
+    for (const r of filteredRecords) {
+      if (r.lat == null || r.lon == null || !esCoordenadaValida(r.lat, r.lon)) continue;
+      conCoordenada++;
+      const g = features.find((x) => r.lon! >= x.minX && r.lon! <= x.maxX && r.lat! >= x.minY && r.lat! <= x.maxY && puntoEnFeatureGeoJSON(r.lon!, r.lat!, x.f));
+      if (g) {
+        conteo.set(g.nombre, (conteo.get(g.nombre) ?? 0) + 1);
+        if (r.anio != null) { const m = porAnio.get(g.nombre) ?? {}; m[r.anio] = (m[r.anio] ?? 0) + 1; porAnio.set(g.nombre, m); }
+      }
+    }
+    const filas = Array.from(conteo.entries()).map(([key, casos]) => ({ key, casos })).sort((a, b) => b.casos - a.casos);
+    return { capa: capa.nombre, conCoordenada, filas, porAnio };
+  };
+  const rankingComunas = useMemo(() => {
+    const espacial = conteoEspacialPorCapa(/comuna/i, /COMUNA|NOMBRE|NOM_|^NOM|NUM/i);
+    if (espacial && espacial.filas.length > 0) {
+      const conAnios = aniosTarjetas.length >= 2
+        ? conAporte(espacial.filas).map((f) => ({ ...f, porAnio: Object.fromEntries(aniosTarjetas.map((a) => [a, espacial.porAnio.get(f.key)?.[a] ?? 0])) as Record<number, number> }))
+        : conAporte(espacial.filas);
+      return { filas: conAnios, nota: `Por ubicación del hecho en la capa "${espacial.capa}" (${formatNumero(espacial.conCoordenada)} de ${formatNumero(totalFiltrado)} registros con coordenadas).` };
+    }
+    const porCai = agruparPor(filteredRecords, (r) => {
+      const m = formatoCaiCanonico(r.cai ?? '').match(/^CAI (\d+)$/);
+      return m ? `Comuna ${m[1]}` : '';
+    }).filter((f) => f.key.startsWith('Comuna '));
+    const comunaDe = (r: CrimeRecord) => { const m = formatoCaiCanonico(r.cai ?? '').match(/^CAI (\d+)$/); return m ? `Comuna ${m[1]}` : ''; };
+    return { filas: agregarCasosPorAnio(conAporte(porCai), filteredRecords, comunaDe, aniosTarjetas), nota: 'Comuna N ↔ CAI N (misma equivalencia de MACRI). Carga la capa de comunas para calcularlo por ubicación.' };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredRecords, capas, camposUnionAutoDetectados, aniosTarjetas]);
+  // Horas más afectadas: mismos registros filtrados que el mapa (r.hora).
+  const etiquetaHoraMapa = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
+  const rankingHoras = useMemo(() => {
+    const conteo = new Map<number, number>();
+    for (const r of filteredRecords) if (r.hora !== null && r.hora !== undefined) conteo.set(r.hora, (conteo.get(r.hora) ?? 0) + 1);
+    const filas = conAporte(Array.from(conteo.entries()).sort((x, y) => y[1] - x[1] || x[0] - y[0]).map(([h, casos]) => ({ key: etiquetaHoraMapa(String(h)), casos })));
+    return agregarCasosPorAnio(filas, filteredRecords, (r) => (r.hora != null ? etiquetaHoraMapa(String(r.hora)) : ''), aniosTarjetas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredRecords, aniosTarjetas]);
+  // Clic en una hora = filtrar por esa hora en el filtro principal; otro clic la quita.
+  const alternarHora = (hora: string) => setFilters((prev: FilterState) => ({
+    ...prev,
+    horaExacta: prev.horaExacta.includes(hora) ? prev.horaExacta.filter((h) => h !== hora) : [hora],
+  }));
+
+  // ── KPI: mismos conjuntos que ya usa el mapa ───────────────────────────
+  // Delitos = registros filtrados (lo mismo que cuentan las tarjetas de
+  // abajo); las demás fuentes = puntos ya filtrados de sus capas.
+  const kpisFuentes = useMemo(() => {
+    const contar = (tipo: TipoCapaPuntos) => {
+      const delTipo = capasPuntosProcesadas.filter(({ capa }) => capa.tipo === tipo);
+      return delTipo.length === 0 ? null : delTipo.reduce((a, { puntosFiltrados }) => a + puntosFiltrados.length, 0);
+    };
+    const enMapaDelitos = contar('delitos');
+    const valores = {
+      delitos: filteredRecords.length,
+      operatividad: contar('operatividad'),
+      irisp1: contar('irisp1'),
+      macri: contar('macri'),
+      rnmc: contar('rnmc'),
+    };
+    const total = Object.values(valores).reduce<number>((a, v) => a + (v ?? 0), 0);
+    return { valores, total, enMapaDelitos };
+  }, [capasPuntosProcesadas, filteredRecords]);
+  const tiposPuntosCargados = Array.from(new Set(capasPuntos.map((c) => c.tipo)));
+  const tiposPuntosVisibles = Array.from(new Set(capasPuntos.filter((c) => c.visible).map((c) => c.tipo)));
+  const capasActivas = capas.filter((c) => c.visible).length + tiposPuntosVisibles.length;
+  const capasDisponibles = capas.length + tiposPuntosCargados.length;
+
+  const NOMBRES_MES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const etiquetasMes = Object.fromEntries(NOMBRES_MES.map((n, idx) => [String(idx + 1), n]));
+  const textoVigencia = limiteVigenciaActual
+    ? `${limiteVigenciaActual.inicio.getFullYear()} (hasta ${limiteVigenciaActual.fin.toLocaleDateString('es-CO')})`
+    : filtrosMapa.fechaInicial || filtrosMapa.fechaFinal
+      ? `${filtrosMapa.fechaInicial || '…'} a ${filtrosMapa.fechaFinal || '…'}`
+      : filtrosMapa.anio.length > 0
+        ? filtrosMapa.anio.slice().sort().join(', ') + (filtrosMapa.mes.length > 0 ? ` · ${filtrosMapa.mes.map((m) => NOMBRES_MES[Number(m) - 1]?.slice(0, 3)).join(', ')}` : '')
+        : fechaInicialGlobal || fechaFinalGlobal || periodos.length > 0
+          ? 'Según filtro principal'
+          : filtrosMapa.mes.length > 0 ? `Meses: ${filtrosMapa.mes.map((m) => NOMBRES_MES[Number(m) - 1]?.slice(0, 3)).join(', ')}` : 'Todo el histórico';
+
+  const textoUltimaActualizacion = remoteMeta?.ultimaActualizacion
+    ? new Date(remoteMeta.ultimaActualizacion).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
+    : meta?.fechaMax ? `Datos al ${meta.fechaMax.toLocaleDateString('es-CO')}` : '—';
+
+  // Chips de filtros activos — cada uno se quita con su ×.
+  const quitarFiltroMapa = (clave: keyof typeof FILTROS_MAPA_VACIOS) =>
+    setFiltrosMapa((prev) => ({ ...prev, [clave]: FILTROS_MAPA_VACIOS[clave] }));
+  const ETIQUETA_ADICIONAL: Record<(typeof CAMPOS_ADICIONALES_MAPA)[number], string> = {
+    zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio', causaLesion: 'Causa de lesión',
+    grupoEdad: 'Grupo de edad', franjaHoraria: 'Franja', turno: 'Turno', diaSemana: 'Día de la semana', diaMes: 'Día del mes', horaExacta: 'Hora',
+  };
+  const resumirLista = (v: string[]) => (v.length <= 2 ? v.join(', ') : `${v.slice(0, 2).join(', ')} +${v.length - 2}`);
+  const chipsFiltros: { id: string; texto: string; quitar?: () => void }[] = [
+    filtrosMapa.anio.length > 0 && { id: 'anio', texto: `Año: ${resumirLista(filtrosMapa.anio)}`, quitar: () => quitarFiltroMapa('anio') },
+    filtrosMapa.mes.length > 0 && { id: 'mes', texto: `Mes: ${resumirLista(filtrosMapa.mes.map((m) => etiquetasMes[m] ?? m))}`, quitar: () => quitarFiltroMapa('mes') },
+    filtrosMapa.fechaInicial && { id: 'fi', texto: `Desde: ${filtrosMapa.fechaInicial}`, quitar: () => quitarFiltroMapa('fechaInicial') },
+    filtrosMapa.fechaFinal && { id: 'ff', texto: `Hasta: ${filtrosMapa.fechaFinal}`, quitar: () => quitarFiltroMapa('fechaFinal') },
+    filtrosMapa.delito.length > 0 && { id: 'delito', texto: `Delito: ${resumirLista(filtrosMapa.delito)}`, quitar: () => quitarFiltroMapa('delito') },
+    filtrosMapa.cuadrante.length > 0 && { id: 'zona', texto: `Zona: ${resumirLista(filtrosMapa.cuadrante)}`, quitar: () => quitarFiltroMapa('cuadrante') },
+    filtrosMapa.estacion.length > 0 && { id: 'estacion', texto: `Estación: ${resumirLista(filtrosMapa.estacion)}`, quitar: () => quitarFiltroMapa('estacion') },
+    filtrosMapa.cai.length > 0 && { id: 'cai', texto: `CAI: ${resumirLista(filtrosMapa.cai)}`, quitar: () => quitarFiltroMapa('cai') },
+    filtrosMapa.barrioHecho.length > 0 && { id: 'barrio', texto: `Barrio: ${resumirLista(filtrosMapa.barrioHecho)}`, quitar: () => quitarFiltroMapa('barrioHecho') },
+    filtroCategoriaOperatividad.length > 0 && { id: 'op', texto: `Operatividad: ${resumirLista(filtroCategoriaOperatividad)}`, quitar: () => setFiltroCategoriaOperatividad([]) },
+    ...CAMPOS_ADICIONALES_MAPA.filter((k) => (filtrosPrincipales[k] ?? []).length > 0).map((k) => ({ id: k, texto: `${ETIQUETA_ADICIONAL[k]}: ${resumirLista(filtrosPrincipales[k])}` })),
+    periodos.length > 0 && { id: 'global-periodos', texto: `Multifecha: ${periodos.length} periodo(s)` },
+  ].filter(Boolean) as { id: string; texto: string; quitar?: () => void }[];
+  // Clic en una fila del análisis territorial = sumar/quitar ese valor del
+  // filtro (el mapa y todo lo demás reaccionan con el mismo estado).
+  const alternarValorFiltro = (clave: 'delito' | 'cai' | 'cuadrante' | 'barrioHecho', valor: string) =>
+    setFiltrosMapa((prev) => ({ ...prev, [clave]: prev[clave].includes(valor) ? prev[clave].filter((v) => v !== valor) : [...prev[clave], valor] }));
+
+
+
+
+  // ── REDISEÑO: gestor de capas · panel derecho · buscador ─────────────────
+  // Solo organiza la interfaz alrededor de las capas que YA existen
+  // (capas, capasPuntos, capa temporal): no cambia sus datos ni su lógica.
+  const [gestorAbierto, setGestorAbierto] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1280);
+  const [pestanaDerecha, setPestanaDerecha] = useState<'config' | 'leyenda' | 'analisis'>('leyenda');
+  const [filtroGestor, setFiltroGestor] = useState('');
+  const [gruposCerrados, setGruposCerrados] = useState<Record<string, boolean>>({});
+  const [menuCapaAbierto, setMenuCapaAbierto] = useState<string | null>(null);
+  const [textoUbicacion, setTextoUbicacion] = useState('');
+  const [opcionesDescargaAbiertas, setOpcionesDescargaAbiertas] = useState(false);
+
+  type GrupoCapa = 'policial' | 'territorial' | 'contexto' | 'personalizada';
+  const grupoDeCapa = (c: CapaGeografica): GrupoCapa => {
+    const n = normalizar(c.nombre).replace(/[_-]/g, ' ');
+    if (c.dimension === 'estacion' || c.dimension === 'cuadrante' || /ESTACION|\bCAI\b|CUADRANT|ZONAS? (DE )?ATENCION|JURIS|POLICIA|MEPOY/.test(n)) return 'policial';
+    if (c.dimension === 'barrioHecho' || /MUNICIP|COMUNA|BARRIO|LIMITE|VEREDA|CORREGIM|PERIMETRO|URBAN|RURAL|DEPARTAMENT|MANZANA|SECTOR|LOCALIDAD/.test(n)) return 'territorial';
+    if (/\bVIA|VIAL|CALLE|RIO|HIDRO|QUEBRADA|COLEGIO|ESCUELA|HOSPITAL|SALUD|EQUIPAMIENTO|CAMARA|PARQUE|ESTABLECIMIENTO|COMERCI|INSTITUC|IGLESIA|TRANSPORTE|ESTACION DE SERVICIO/.test(n)) return 'contexto';
+    return 'personalizada';
+  };
+  const tipoGeometria = (c: CapaGeografica): string => {
+    const tipos = new Set(extraerFeatures(c.geojson).slice(0, 200).map((f: any) => String(f?.geometry?.type ?? '')));
+    const pol = tipos.has('Polygon') || tipos.has('MultiPolygon');
+    const lin = tipos.has('LineString') || tipos.has('MultiLineString');
+    const pto = tipos.has('Point') || tipos.has('MultiPoint');
+    return [pol && 'Polígono', lin && 'Línea', pto && 'Punto'].filter(Boolean).join(' · ') || 'Geometría';
+  };
+  const acercarACapa = (geojson: unknown) => {
+    try {
+      const b = L.geoJSON(geojson as any).getBounds();
+      if (b.isValid()) mapaRef.current?.fitBounds(b, { padding: [24, 24], maxZoom: 17 });
+    } catch { /* geometría inválida */ }
+  };
+  const GRUPOS_GESTOR: { id: GrupoCapa; titulo: string; color: string; icono: React.ReactNode }[] = [
+    { id: 'policial', titulo: 'Zonas de atención, estaciones y CAI', color: '#159089', icono: <MapIcon size={16} /> },
+    { id: 'territorial', titulo: 'Otras capas geográficas', color: '#2f6fdb', icono: <Globe2 size={16} /> },
+    { id: 'contexto', titulo: 'Capas de contexto', color: '#7c3aed', icono: <Landmark size={16} /> },
+    { id: 'personalizada', titulo: 'Capas personalizadas y otras', color: '#d97706', icono: <FolderOpen size={16} /> },
+  ];
+  const capasPorGrupo = useMemo(() => {
+    const m: Record<GrupoCapa, CapaGeografica[]> = { policial: [], territorial: [], contexto: [], personalizada: [] };
+    for (const c of capas) m[grupoDeCapa(c)].push(c);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capas]);
+  const coincideGestor = (nombre: string) => !filtroGestor.trim() || normalizar(nombre).includes(normalizar(filtroGestor));
+  const alternarGrupo = (id: string) => setGruposCerrados((prev) => ({ ...prev, [id]: !prev[id] }));
+  const todosLosGrupos = ['eventos', ...GRUPOS_GESTOR.map((g) => g.id)];
+
+  // Buscador de ubicación: nombres reales de las geometrías cargadas
+  // (barrios, CAI, estaciones, zonas, comunas, municipios…).
+  const indiceUbicaciones = useMemo(() => {
+    const lista: { capaId: string; capa: string; nombre: string; feature: any }[] = [];
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id) ?? capa.campoUnion ?? null;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const props = f?.properties ?? {};
+        const v = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /NOMBRE|NOM_|BARRIO|\bCAI\b|ESTACION|COMUNA|ZONA|CUADRANTE|MUNICIP|NAME/i.test(k))?.[1];
+        const nombre = String(v ?? '').trim();
+        if (nombre) lista.push({ capaId: capa.id, capa: capa.nombre, nombre, feature: f });
+      }
+    }
+    return lista;
+  }, [capas, camposUnionAutoDetectados]);
+  const resultadosUbicacion = useMemo(() => {
+    const q = normalizar(textoUbicacion);
+    if (q.length < 2) return [];
+    const vistos = new Set<string>();
+    return indiceUbicaciones.filter((u) => {
+      const k = `${u.capaId}|${normalizar(u.nombre)}`;
+      if (vistos.has(k) || !normalizar(u.nombre).includes(q)) return false;
+      vistos.add(k);
+      return true;
+    }).slice(0, 8);
+  }, [textoUbicacion, indiceUbicaciones]);
+  const irAUbicacion = (u: { capaId: string; nombre: string; feature: any }) => {
+    acercarACapa(u.feature);
+    setZonaSeleccionada({ capaId: u.capaId, feature: u.feature, nombre: u.nombre });
+    setDelitoZonaSeleccionada(null);
+    setTextoUbicacion('');
+  };
+  const centrarEnJurisdiccion = () => {
+    const visibles = capas.filter((c) => c.visible);
+    if (visibles.length > 0) { acercarACapa({ type: 'FeatureCollection', features: visibles.flatMap((c) => extraerFeatures(c.geojson)) }); return; }
+    const pts = todosLosPuntosDelitosVisibles;
+    if (pts.length > 1) mapaRef.current?.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon] as [number, number])), { padding: [24, 24] });
+  };
+
+  // Fuentes de eventos (barra superior y gestor): cifras REALES y filtradas.
+  const FUENTES_EVENTOS = [
+    { tipo: 'delitos' as const, etiqueta: 'Delitos', color: '#dc2626', icono: <ShieldAlert size={14} /> },
+    { tipo: 'operatividad' as const, etiqueta: 'Operatividad', color: '#d97706', icono: <ClipboardList size={14} /> },
+    { tipo: 'irisp1' as const, etiqueta: 'IRISP1', color: '#2563eb', icono: <FileText size={14} /> },
+    { tipo: 'macri' as const, etiqueta: 'Macri', color: '#7c3aed', icono: <Crosshair size={14} /> },
+    { tipo: 'rnmc' as const, etiqueta: 'RNMC', color: '#db2777', icono: <Scale size={14} /> },
+  ];
+  const enMapaPorFuente: Record<string, number> = {
+    delitos: puntosDelitosParaMostrar.length, operatividad: puntosOperatividadParaMostrar.length, irisp1: puntosIrisp1ParaMostrar.length,
+    macri: puntosMacriParaMostrar.length, rnmc: puntosRnmcParaMostrar.length,
+  };
+  const fuenteCargada = (tipo: TipoCapaPuntos) => capasPuntos.some((c) => c.tipo === tipo);
+  const fuenteVisible = (tipo: TipoCapaPuntos) => capasPuntos.some((c) => c.tipo === tipo && c.visible);
+  const fuentesCargadas = FUENTES_EVENTOS.filter((f) => fuenteCargada(f.tipo));
+  const todasVisibles = fuentesCargadas.length > 0 && fuentesCargadas.every((f) => fuenteVisible(f.tipo));
+  const totalEnMapa = FUENTES_EVENTOS.reduce((a, f) => a + (fuenteVisible(f.tipo) ? enMapaPorFuente[f.tipo] : 0), 0);
+  const capasVisiblesPoligono = capas.filter((c) => c.visible);
+  const columnasMapa = `${gestorAbierto ? '300px' : '46px'} minmax(0,1fr)`;
+  const [pestanaPanel, setPestanaPanel] = useState<'capas' | 'apariencia'>('capas');
+  const [pestanaApariencia, setPestanaApariencia] = useState<'calor' | 'puntos' | 'poligonos'>('calor');
+  const [leyendaMapaAbierta, setLeyendaMapaAbierta] = useState(false);
+  // Al elegir un campo de simbología del archivo georreferenciado, la leyenda
+  // se abre sola para mostrar sus convenciones.
+  const hayConvencionesArchivo = capaArchivoGeorreferenciado.modoVisualizacion === 'puntos' && !!capaArchivoGeorreferenciado.campoSimbologia && capaArchivoGeorreferenciado.categoriasSimbologia.length > 0;
+  useEffect(() => { if (hayConvencionesArchivo) setLeyendaMapaAbierta(true); }, [hayConvencionesArchivo, capaArchivoGeorreferenciado.campoSimbologia]);
+  const aniosMapa = useMemo(() => Array.from(new Set((meta?.aniosDisponibles ?? []).map(String))).sort(), [meta]);
+  const elementosVisibles = capasVisiblesPoligono.reduce((a, c) => a + contarFeatures(c.geojson), 0);
+  const tituloFuentes = (() => {
+    const v = FUENTES_EVENTOS.filter((f) => fuenteVisible(f.tipo)).map((f) => f.etiqueta);
+    return v.length === 0 ? 'eventos' : v.length === 1 ? v[0] : v.length === 2 ? v.join(' y ') : 'eventos (varias fuentes)';
+  })();
+  const [analisisAbierto, setAnalisisAbierto] = useState(false);
+  // «Capa principal»: clic = ver solo esa fuente (las demás se ocultan).
+  const TIPOS_EVENTOS: TipoCapaPuntos[] = ['delitos', 'operatividad', 'irisp1', 'macri', 'rnmc'];
+  const elegirCapaPrincipal = (tipo: TipoCapaPuntos) => {
+    // Un solo guardado (evita que cambios seguidos se pisen entre sí).
+    persistirPuntos(capasPuntos.map((c) => (TIPOS_EVENTOS.includes(c.tipo) ? { ...c, visible: c.tipo === tipo } : c)));
+  };
+  const visibilidadCapas = (ids: string[], visible: boolean) => {
+    persistir(capas.map((c) => (ids.includes(c.id) ? { ...c, visible } : c)));
+  };
+  // Interruptores rápidos sobre las capas REALES cargadas (solo los que existen).
+  const ATAJOS_TERRITORIALES = ([
+    { id: 'municipios', texto: 'Límites municipios', icono: <MapIcon size={15} />, prueba: (c: CapaGeografica) => /MUNICIP|LIMITE/.test(normalizar(c.nombre)) },
+    { id: 'estaciones', texto: 'Estaciones', icono: <Building2 size={15} />, prueba: (c: CapaGeografica) => c.dimension === 'estacion' || /ESTACION|JURIS/.test(normalizar(c.nombre)) },
+    { id: 'zonas', texto: 'Zonas de atención', icono: <MapPinned size={15} />, prueba: (c: CapaGeografica) => c.dimension === 'cuadrante' || /CUADRANT|ZONA/.test(normalizar(c.nombre)) },
+    { id: 'cai', texto: 'CAI', icono: <Shield size={15} />, prueba: (c: CapaGeografica) => /\bCAI\b/.test(normalizar(c.nombre).replace(/[_-]/g, ' ')) },
+    { id: 'comunas', texto: 'Comunas', icono: <Landmark size={15} />, prueba: (c: CapaGeografica) => /COMUNA/.test(normalizar(c.nombre)) },
+    { id: 'barrios', texto: 'Barrios', icono: <Home size={15} />, prueba: (c: CapaGeografica) => c.dimension === 'barrioHecho' || /BARRIO/.test(normalizar(c.nombre)) },
+  ]).map((a) => ({ ...a, capas: capas.filter(a.prueba) })).filter((a) => a.capas.length > 0);
+  const restablecerVisualizacion = () => {
+    setVerCalor(true); setVerPuntos(false); setTipoMapa('mapa');
+    if (fuenteCargada('delitos')) elegirCapaPrincipal('delitos');
+    setOpacidades({ calor: 88, poligono: 100, etiquetas: 100 });
+  };
+  const altoMapa = 'clamp(560px, calc(100vh - 210px), 980px)';
+  const temporada = useTemporada();
+  const controlesEncabezado = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Periodo aplicado al mapa">
+        <CalendarDays size={18} className="text-[#116762]" />
+        <div className="leading-tight">
+          <p className="text-[10.5px] text-slate-500">Vigencia del mapa</p>
+          <p className="max-w-[220px] truncate text-[13px] font-bold text-[#10233f]" title={textoVigencia}>{textoVigencia}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5" title="Registros filtrados de las fuentes cargadas · de ellos, los que tienen coordenadas y se dibujan en el mapa">
+        <Database size={18} className="text-[#116762]" />
+        <div className="leading-tight">
+          <p className="text-[10.5px] text-slate-500">Registros filtrados · en el mapa</p>
+          <p className="text-[13px] font-bold text-[#10233f]">{formatNumero(kpisFuentes.total)} <span className="font-semibold text-slate-400">·</span> <span className="text-[#116762]">{formatNumero(totalEnMapa)}</span></p>
+        </div>
+      </div>
+      <div className="hidden items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 2xl:flex" title="Última actualización de los datos">
+        <Clock size={18} className="text-[#116762]" />
+        <div className="leading-tight">
+          <p className="text-[10.5px] text-slate-500">Actualización</p>
+          <p className="text-[13px] font-bold text-[#10233f]">{textoUltimaActualizacion}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => recargarCapasDelMapa()}
+        disabled={actualizandoMapa}
+        title="Vuelve a leer las capas guardadas y las compartidas por los demás equipos"
+        className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[#116762] px-4 text-[13px] font-bold text-white shadow-sm hover:bg-[#0f5f57] disabled:opacity-60"
+      >
+        <RefreshCw size={15} className={clsx(actualizandoMapa && 'animate-spin')} /> {actualizandoMapa ? 'Actualizando…' : 'Actualizar mapa'}
+      </button>
+      <button type="button" onClick={() => setPantallaCompleta((v) => !v)} title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'} aria-label="Pantalla completa" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#10233f] hover:bg-slate-50">
+        {pantallaCompleta ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* ── A. ENCABEZADO COMPACTO ── */}
+      {temporada ? (
+        <BannerTemporada
+          temporada={temporada}
+          modulo="mapa"
+          titulo="Mapa / Georreferenciación"
+          subtitulo="Visualiza, analiza y compara la distribución territorial de los eventos"
+          icono={<MapIcon size={21} />}
+          acciones={controlesEncabezado}
+        />
+      ) : (
+      <header className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-[0_1px_2px_rgba(16,35,63,0.05)]">
+        <div className="flex min-w-[260px] flex-1 items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#116762] to-[#0b4a46] text-white shadow-sm"><MapIcon size={21} /></span>
+          <div className="min-w-0">
+            <h1 className="text-[20px] font-extrabold leading-tight tracking-tight text-[#10233f]">Mapa / Georreferenciación</h1>
+            <p className="text-[12.5px] text-slate-500">Visualiza, analiza y compara la distribución territorial de los eventos</p>
+          </div>
+        </div>
+        {controlesEncabezado}
+      </header>
+      )}
+
+      {(chipsFiltros.length > 0 || limiteVigenciaActual) && (
+        <p className="flex flex-wrap items-center gap-1.5 px-1 text-[11.5px] text-slate-500">
+          <SlidersHorizontal size={13} className="text-[#116762]" />
+          <span className="font-semibold text-[#0b4a46]">El mapa usa el filtro principal:</span>
+          {chipsFiltros.length > 0 ? chipsFiltros.map((c) => c.texto).join(' · ') : 'sin filtros'}
+          {limiteVigenciaActual ? ` · solo vigencia ${limiteVigenciaActual.inicio.getFullYear()} (elija Año o Fecha para otro periodo)` : ''}
+        </p>
+      )}
+
+      {/* ── C · D · E: GESTOR DE CAPAS · MAPA · PANEL DERECHO ── */}
+      <div className="grid grid-cols-1 items-start gap-3 xl:[grid-template-columns:var(--cols-mapa)]" style={{ ['--cols-mapa' as string]: columnasMapa }}>
+        {/* C. PANEL «CAPAS Y VISUALIZACIÓN» (opciones 6 + 7) */}
+        {gestorAbierto ? (
+          <aside className="order-2 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(16,35,63,0.06)] xl:order-none xl:sticky xl:top-0" style={{ maxHeight: altoMapa }} aria-label="Capas y visualización">
+            <div className="flex items-center justify-between gap-2 border-t-4 border-[#159089] bg-gradient-to-r from-[#0f5f57] to-[#116762] px-3 py-3 text-white">
+              <span className="flex items-center gap-2 text-[16px] font-extrabold"><MapIcon size={19} /> Visualización del mapa</span>
+              <button type="button" onClick={() => setGestorAbierto(false)} title="Contraer el panel" aria-label="Contraer el panel de capas" className="rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white"><ChevronsLeft size={17} /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-1 border-b border-slate-100 p-2" role="tablist">
+              {([['capas', 'Capas'], ['apariencia', 'Apariencia']] as const).map(([id, texto]) => (
+                <button key={id} type="button" role="tab" aria-selected={pestanaPanel === id} onClick={() => setPestanaPanel(id)} className={clsx('rounded-lg py-1.5 text-[12.5px] font-bold transition', pestanaPanel === id ? 'bg-[#116762] text-white shadow-sm' : 'border border-slate-200 text-slate-600 hover:bg-slate-50')}>{texto}</button>
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-xs [scrollbar-width:thin]">
+              {pestanaPanel === 'capas' ? (
+                <div className="space-y-3.5">
+                  {/* Año */}
+                  {aniosMapa.length > 0 && (
+                    <section className={clsx('rounded-xl border border-slate-200 p-2.5', periodos.length > 0 && 'opacity-50')} title={periodos.length > 0 ? 'En multifecha, los años los definen las vigencias' : undefined}>
+                      <p className="mb-1.5 text-[13px] font-extrabold text-[#10233f]">Año</p>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        {aniosMapa.map((a) => (
+                          <label key={a} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[#10233f]">
+                            <input type="checkbox" disabled={periodos.length > 0} className="h-4 w-4 accent-[#2f6fdb]" checked={filtrosMapa.anio.includes(a)} onChange={(e) => setFiltrosMapa((prev) => ({ ...prev, anio: e.target.checked ? [...prev.anio, a].sort() : prev.anio.filter((x) => x !== a) }))} />
+                            {a}
+                          </label>
+                        ))}
+                      </div>
+                      {filtrosMapa.anio.length === 0 && limiteVigenciaActual && <p className="mt-1 text-[10.5px] text-slate-400">Sin año elegido: vigencia {limiteVigenciaActual.inicio.getFullYear()} a la fecha.</p>}
+                    </section>
+                  )}
+
+                  {/* Capa principal */}
+                  <section>
+                    <p className="mb-1.5 text-[12.5px] font-extrabold text-[#10233f]">Capa principal</p>
+                    <div className="space-y-1.5">
+                      {FUENTES_EVENTOS.map((f) => {
+                        const cargada = fuenteCargada(f.tipo);
+                        const activa = fuenteVisible(f.tipo);
+                        const color = colorCapa(f.tipo, f.color);
+                        const valor = kpisFuentes.valores[f.tipo];
+                        return (
+                          <div key={f.tipo} className={clsx('flex items-center gap-2 rounded-xl border px-2.5 py-2 transition', activa ? 'border-[#116762] bg-[#116762] text-white shadow-sm' : 'border-slate-200 bg-white text-[#10233f]', !cargada && 'opacity-55')}>
+                            <button type="button" disabled={!cargada} onClick={() => elegirCapaPrincipal(f.tipo)} title={cargada ? `Ver solo ${f.etiqueta}` : `${f.etiqueta}: sin datos cargados`} className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed">
+                              <span className={clsx('h-3 w-3 shrink-0 rounded-full', activa && 'ring-2 ring-white')} style={{ background: activa ? '#ffffff' : color }} />
+                              <span className="flex-1 truncate text-[13px] font-semibold">{f.etiqueta}</span>
+                              <span className={clsx('text-[11px] tabular-nums', activa ? 'text-white/85' : 'text-slate-400')}>{cargada && valor != null ? formatNumero(valor) : 'Sin datos'}</span>
+                            </button>
+                            <input type="checkbox" disabled={!cargada} checked={activa} onChange={(e) => alternarVisibilidadPorTipo(f.tipo, e.target.checked)} title="Combinar con las demás fuentes" aria-label={`Combinar ${f.etiqueta}`} className="h-3.5 w-3.5 shrink-0 accent-white disabled:cursor-not-allowed" />
+                          </div>
+                        );
+                      })}
+                      {capasPuntos.filter((c) => c.tipo === 'generico').map((c) => (
+                        <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-[12.5px] text-[#10233f]">
+                          <input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={c.visible} onChange={(e) => actualizarCapaPuntos(c.id, { visible: e.target.checked })} />
+                          <span className="min-w-0 flex-1 truncate" title={c.nombre}>{c.nombre}</span>
+                          <span className="text-[11px] tabular-nums text-slate-400">{formatNumero(c.puntos.length)}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[10.5px] text-slate-400">Clic en el nombre = ver solo esa fuente · casilla = combinarla con otras.</p>
+                    <div className="mt-2 space-y-1.5">
+                      {([['calor', 'Mapa de calor', verCalor, <Flame key="i" size={15} />], ['puntos', 'Puntos de eventos', verPuntos, <MapPin key="i" size={15} />]] as const).map(([modo, texto, activo, icono]) => (
+                        <Interruptor key={modo} texto={texto} icono={icono} activo={activo} onChange={() => alternarModoVista(modo)} titulo={activo ? `Ocultar ${texto.toLowerCase()}` : `Mostrar ${texto.toLowerCase()}`} />
+                      ))}
+                    </div>
+                  </section>
+
+                  {/* Fondo de mapa */}
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-extrabold text-[#10233f]">Fondo de mapa</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([['mapa', 'Mapa', [TILE_CALLES]], ['satelite', 'Satélite', [TILE_SATELITE]], ['hibrido', 'Híbrido', [TILE_SATELITE, TILE_VIAS]]] as const).map(([valor, texto, tiles]) => (
+                        <button key={valor} type="button" aria-pressed={tipoMapa === valor} onClick={() => setTipoMapa(valor)} className={clsx('overflow-hidden rounded-xl border-2 text-[11.5px] font-bold transition', tipoMapa === valor ? 'border-[#116762] shadow-sm' : 'border-slate-200 hover:border-[#116762]/50')}>
+                          <span className="relative block h-12 bg-slate-200">
+                            {tiles.map((t, i) => <img key={i} src={t} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />)}
+                          </span>
+                          <span className={clsx('block py-1', tipoMapa === valor ? 'bg-[#116762] text-white' : 'bg-white text-[#10233f]')}>{texto}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  {/* Todas las capas (opción 7): búsqueda + grupos */}
+                  <section className="border-t border-slate-100 pt-3">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <p className="text-[13px] font-extrabold text-[#10233f]">Capas de visualización <span className="font-semibold text-slate-400">({capas.length})</span></p>
+                      <span className="flex gap-1 text-[10.5px] font-semibold text-[#116762]">
+                        <button type="button" onClick={() => setGruposCerrados({})} className="hover:underline">Expandir</button>·
+                        <button type="button" onClick={() => setGruposCerrados(Object.fromEntries(todosLosGrupos.map((g) => [g, true])))} className="hover:underline">Contraer</button>
+                      </span>
+                    </div>
+                    <div className="relative mb-1.5">
+                      <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input type="search" value={filtroGestor} onChange={(e) => setFiltroGestor(e.target.value)} placeholder="Buscar capas…" aria-label="Buscar capas" className="h-8 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-[12.5px] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20" />
+                    </div>
+                    {estadoCompartir && <p className="mb-1.5 rounded-md bg-[#eef7f4] px-2 py-1.5 text-[11px] leading-snug text-[#0b4a46]">{estadoCompartir}</p>}
+              {GRUPOS_GESTOR.map((g) => {
+                const lista = capasPorGrupo[g.id].filter((c) => coincideGestor(c.nombre));
+                const esTemporal = g.id === 'personalizada' && capaArchivoGeorreferenciado.archivo && coincideGestor(capaArchivoGeorreferenciado.archivo.name ?? 'Capa temporal');
+                if (lista.length === 0 && !esTemporal && (filtroGestor.trim() || capasPorGrupo[g.id].length === 0) && g.id !== 'personalizada') return null;
+                const cerrado = gruposCerrados[g.id];
+                const visibles = capasPorGrupo[g.id].filter((c) => c.visible).length;
+                return (
+                  <section key={g.id} className="mb-2 overflow-hidden rounded-xl border border-slate-200">
+                    <button type="button" onClick={() => alternarGrupo(g.id)} aria-expanded={!cerrado} className="flex w-full items-center gap-2 bg-slate-50 px-2.5 py-2 text-left hover:bg-slate-100">
+                      <span style={{ color: g.color }}>{g.icono}</span>
+                      <span className="flex-1 text-[13px] font-bold text-[#10233f]">{g.titulo} <span className="font-semibold text-slate-400">({capasPorGrupo[g.id].length + (g.id === 'personalizada' && capaArchivoGeorreferenciado.archivo ? 1 : 0)})</span></span>
+                      {visibles > 0 && <span className="rounded-full px-1.5 text-[10px] font-bold text-white" style={{ background: g.color }}>{visibles}</span>}
+                      <ChevronDown size={15} className={clsx('text-slate-400 transition', cerrado && '-rotate-90')} />
+                    </button>
+                    {!cerrado && (
+                      <div className="space-y-0.5 px-1 py-1">
+                        {lista.length === 0 && !esTemporal && <p className="px-1.5 py-1 text-[11px] text-slate-400">{filtroGestor ? 'Sin coincidencias.' : 'Sin capas en este grupo.'}</p>}
+                        {lista.map((capa) => {
+                          const detectado = camposUnionAutoDetectados.get(capa.id);
+                          const menu = menuCapaAbierto === capa.id;
+                          return (
+                            <div key={capa.id} className="relative">
+                              <div className="group flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-slate-50">
+                                <input type="checkbox" className="h-3.5 w-3.5 shrink-0 accent-[#116762]" checked={capa.visible} onChange={(e) => actualizarCapa(capa.id, { visible: e.target.checked })} aria-label={`Mostrar ${capa.nombre}`} />
+                                <span className="h-2.5 w-2.5 shrink-0 rounded-sm border" style={{ borderColor: g.color, background: capa.visible ? `${g.color}33` : 'transparent' }} />
+                                <button type="button" onClick={() => actualizarCapa(capa.id, { visible: !capa.visible })} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-[#10233f]" title={`${capa.nombre} · ${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`}>{capa.nombre}</button>
+                                <span title={`${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`} className="shrink-0 text-slate-300"><Info size={12} /></span>
+                                {capa.compartida ? <Cloud size={12} className="shrink-0 text-emerald-500" aria-label="Compartida con todos los equipos" /> : !detectado ? <AlertCircle size={12} className="shrink-0 text-amber-500" aria-label="Falta elegir el campo de nombre" /> : null}
+                                <span className="h-3.5 w-6 shrink-0 rounded border-2" style={{ borderColor: g.color, background: `${g.color}1f` }} />
+                                <button type="button" onClick={() => setMenuCapaAbierto(menu ? null : capa.id)} aria-expanded={menu} aria-label={`Opciones de ${capa.nombre}`} className="shrink-0 rounded p-0.5 text-slate-400 opacity-70 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"><MoreHorizontal size={14} /></button>
+                              </div>
+                              {menu && (
+                                <div className="mx-1.5 mb-1 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11.5px]">
+                                  <p className="text-slate-500">{tipoGeometria(capa)} · {formatNumero(contarFeatures(capa.geojson))} elementos{detectado ? ` · campo: ${detectado}` : ''}</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    <button type="button" onClick={() => { acercarACapa(capa.geojson); setMenuCapaAbierto(null); }} className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-0.5 font-semibold text-[#10233f] hover:bg-[#f1f8f6]"><LocateFixed size={12} /> Acercar</button>
+                                    {!capa.compartida && hayServidorParaCapas() && !soloLectura && (
+                                      <button type="button" disabled={compartiendo != null} onClick={() => compartirCapa(capa)} className="flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"><Cloud size={12} /> {compartiendo === capa.id ? 'Subiendo…' : 'Compartir'}</button>
+                                    )}
+                                    {puedeEliminarCapas && (
+                                      <button type="button" onClick={() => { quitarCapa(capa.id); setMenuCapaAbierto(null); }} className="flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-0.5 font-semibold text-rose-600 hover:bg-rose-50"><Trash2 size={12} /> Retirar</button>
+                                    )}
+                                  </div>
+                                  {!soloLectura && (
+                                    <label className="block text-slate-500">
+                                      Campo que nombra la capa
+                                      <select value={detectado ?? ''} onChange={(e) => actualizarCapa(capa.id, { campoUnion: e.target.value || null })} className="mt-0.5 w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-[11.5px] text-[#10233f]">
+                                        <option value="">— Detectar automáticamente —</option>
+                                        {propiedadesDisponibles(capa.geojson).map((p) => <option key={p} value={p}>{p}</option>)}
+                                      </select>
+                                    </label>
+                                  )}
+                                </div>
+                              )}
+                              {!detectado && !soloLectura && !menu && (
+                                <button type="button" onClick={() => setMenuCapaAbierto(capa.id)} className="ml-6 text-[10.5px] font-semibold text-amber-600 hover:underline">Elegir el campo de nombre</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {esTemporal && (
+                          <p className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px] text-[#10233f]">
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#d97706]" />
+                            <span className="min-w-0 flex-1 truncate">{capaArchivoGeorreferenciado.archivo?.name ?? 'Capa temporal'}</span>
+                            <span className="rounded bg-amber-100 px-1 text-[9.5px] font-bold uppercase text-amber-700">temporal</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+
+                    <button type="button" onClick={() => setMostrarSelectorFuentes(true)} className="mt-1 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-semibold text-[#116762] hover:bg-[#f1f8f6]"><ListChecks size={13} /> Seleccionar fuentes (IRISP1 / Macri)</button>
+                  </section>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Configuración visual">
+                    {([['calor', 'Mapa de calor'], ['puntos', 'Puntos'], ['poligonos', 'Polígonos']] as const).map(([id, texto]) => (
+                      <button key={id} type="button" role="tab" aria-selected={pestanaApariencia === id} onClick={() => setPestanaApariencia(id)} className={clsx('rounded-lg py-1 text-[11.5px] font-bold transition', pestanaApariencia === id ? 'bg-white text-[#116762] shadow-sm' : 'text-slate-500 hover:text-[#10233f]')}>{texto}</button>
+                    ))}
+                  </div>
+                  {pestanaApariencia === 'calor' && (
+                    <section className="space-y-3">
+                      <Deslizador texto="Transparencia del calor" valor={opacidades.calor} onChange={(v) => setOpacidades((prev) => ({ ...prev, calor: v }))} />
+                      <div>
+                        <p className="mb-1 text-[12px] font-bold text-[#10233f]">Paleta de colores (Delitos)</p>
+                        <span className="mb-1.5 block h-3 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                        <div className="space-y-1">
+                          {OPCIONES_COLOR_CALOR.map((o) => (
+                            <label key={o.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+                              <input type="checkbox" className="accent-[#116762]" checked={coloresSeleccionadosCalor.includes(o.id)} onChange={(e) => alternarColorCalor(o.id, e.target.checked)} />
+                              <span className="h-3 w-3 shrink-0 rounded-full border border-slate-300" style={{ background: o.hex }} />
+                              {o.etiqueta}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="mt-1 text-[10.5px] text-slate-400">Desmarque un color para quitarlo del degradado (debe quedar al menos uno).</p>
+                      </div>
+                    </section>
+                  )}
+                  {pestanaApariencia === 'puntos' && (
+                    <section className="space-y-2">
+                      <ControlTamanoPuntos escala={escalaPuntos} onChange={setEscalaPuntos} />
+                      <p className="text-[10.5px] text-slate-400">{verPuntos ? 'El color de cada delito o fuente se cambia en la leyenda del mapa (clic en el color).' : 'Active «Puntos de eventos» en la pestaña Capas para verlos en el mapa.'}</p>
+                    </section>
+                  )}
+                  {pestanaApariencia === 'poligonos' && (
+                    <section className="space-y-3">
+                      <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2.5 text-xs text-slate-600">
+                        <input type="checkbox" checked={colorearZonasPorCai} onChange={(e) => setColorearZonasPorCai(e.target.checked)} className="mt-0.5 accent-[#116762]" />
+                        <span><span className="font-semibold text-slate-700">Colorear zonas por CAI</span><br />Pinta cada polígono de CAI con su color.</span>
+                      </label>
+                      <Deslizador texto="Transparencia de polígonos" valor={opacidades.poligono} onChange={(v) => setOpacidades((prev) => ({ ...prev, poligono: v }))} />
+                      <Deslizador texto="Transparencia de etiquetas" valor={opacidades.etiquetas} onChange={(v) => setOpacidades((prev) => ({ ...prev, etiquetas: v }))} />
+                      <div>
+                        <p className="mb-1 text-[12px] font-bold text-[#10233f]">Colores de CAI</p>
+                        {opcionesFiltroMapa.cai.length === 0 ? <p className="text-xs text-slate-400">Todavía no hay CAI en los datos cargados.</p> : (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            {opcionesFiltroMapa.cai.map((nombreCai) => (
+                              <label key={nombreCai} className="flex items-center justify-between gap-1.5 text-[11.5px] text-slate-600">
+                                <span className="truncate" title={nombreCai}>{nombreCai}</span>
+                                <input type="color" value={colorDeCai(nombreCai)} onChange={(e) => setColoresCai((prev) => ({ ...prev, [nombreCai]: e.target.value }))} className="h-5 w-7 shrink-0 cursor-pointer rounded border border-slate-200" title={`Color de ${nombreCai}`} />
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Barrios señalados en el mapa</p>
+                    <div className="grid grid-cols-3 gap-1">
+                      {([[0, 'No'], [3, 'Top 3'], [5, 'Top 5']] as const).map(([valor, texto]) => (
+                        <button key={valor} type="button" onClick={() => setCantidadFlechasBarrio(valor)} className={clsx('rounded-md px-2 py-1 text-[11.5px] font-semibold', cantidadFlechasBarrio === valor ? 'bg-[#116762] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>{texto}</button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">Para señalar más barrios, elíjalos en el filtro Barrio: se suman al Top. Los rótulos se pueden arrastrar.</p>
+                    {flechasBarrios.some((f) => f.manual) && (
+                      <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
+                        {flechasBarrios.filter((f) => f.manual).map((f) => (
+                          <li key={f.barrio} className="flex items-center justify-between gap-2">
+                            <span className="truncate">{f.barrio} <span className="rounded bg-sky-100 px-1 text-[9.5px] font-semibold text-sky-700">agregado</span></span>
+                            <span className="flex shrink-0 items-center gap-1">
+                              <b>{f.casos.toLocaleString('es-CO')}</b>
+                              <button type="button" title={`Quitar ${f.barrio}`} onClick={() => setFiltrosMapa((prev) => ({ ...prev, barrioHecho: prev.barrioHecho.filter((b) => normalizarNombre(b) !== normalizarNombre(f.barrio)) }))} className="rounded p-0.5 text-slate-400 hover:text-red-500"><X size={11} /></button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {barriosManualesSinUbicar.length > 0 && <p className="mt-1.5 text-[10.5px] leading-snug text-amber-600">Sin ubicación en el mapa: {barriosManualesSinUbicar.join(', ')}.</p>}
+                    {cantidadFlechasBarrio > 0 && flechasBarrios.length === 0 && barriosManuales.length === 0 && <p className="mt-1.5 text-[11px] text-slate-400">Sin barrios con casos ubicables para estos filtros.</p>}
+                    <button type="button" onClick={() => setPosicionesRotulo({})} disabled={Object.keys(posicionesRotulo).length === 0} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                      <RotateCcw size={12} /> Reacomodar rótulos
+                    </button>
+                  </section>
+
+                </div>
+              )}
+            </div>
+
+            {/* Pie: nivel de intensidad + acciones */}
+            <div className="space-y-2 border-t border-slate-100 px-3 py-2.5">
+              {verCalor && (
+                <div>
+                  <p className="mb-1 text-[11.5px] font-bold text-[#10233f]">Nivel de intensidad{mostrarCalorDelitos ? ' (delitos)' : ''}</p>
+                  <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                  <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
+                </div>
+              )}
+              <button type="button" onClick={clearFilters} className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 py-2.5 text-[13px] font-bold text-[#10233f] hover:bg-slate-200"><Trash2 size={15} /> Limpiar filtros</button>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button type="button" onClick={restablecerVisualizacion} className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-1.5 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50"><RotateCcw size={13} /> Restablecer vista</button>
+                {!soloLectura ? (
+                  <button type="button" onClick={() => inputRef.current?.click()} title="Shapefile (.zip) o GeoJSON" className="flex items-center justify-center gap-1.5 rounded-lg bg-[#116762] py-1.5 text-[11.5px] font-bold text-white hover:bg-[#0f5f57]"><FileUp size={13} /> {cargando ? 'Procesando…' : 'Cargar capa'}</button>
+                ) : <span />}
+              </div>
+            </div>
+          </aside>
+        ) : (
+          <button type="button" onClick={() => setGestorAbierto(true)} title="Abrir Capas y visualización" className="order-2 flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-[12.5px] font-semibold text-[#10233f] shadow-sm hover:bg-slate-50 xl:order-none xl:sticky xl:top-0 xl:flex-col xl:px-0 xl:py-4">
+            <Filter size={16} className="text-[#116762]" />
+            <span className="xl:[writing-mode:vertical-rl]">Capas y visualización</span>
+            <span className="rounded-full bg-[#116762] px-1.5 text-[10px] font-bold text-white">{capasActivas}</span>
+          </button>
+        )}
+
+        {/* D. MAPA PROTAGONISTA */}
+        <div className="order-1 min-w-0 xl:order-none">
+          <div className={clsx('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', pantallaCompleta && 'fixed inset-0 z-[9999] flex h-[100dvh] w-screen flex-col rounded-none border-0')}>
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-2.5 py-1.5">
+              <IrATerritorio capas={capas} obtenerMapa={() => mapaRef.current} />
+              <div className="relative min-w-[180px] flex-1 sm:max-w-[300px]">
+                <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={textoUbicacion}
+                  onChange={(e) => setTextoUbicacion(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && resultadosUbicacion[0]) irAUbicacion(resultadosUbicacion[0]); if (e.key === 'Escape') setTextoUbicacion(''); }}
+                  placeholder="Buscar barrio, CAI, estación, zona…"
+                  aria-label="Buscar ubicación en las capas cargadas"
+                  className="h-8 w-full rounded-xl border border-slate-200 bg-white pl-8 pr-2 text-[12.5px] text-[#10233f] placeholder:text-slate-400 focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
+                />
+                {textoUbicacion.trim().length >= 2 && (
+                  <div className="absolute left-0 top-full z-[1300] mt-1 w-full min-w-[260px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                    {resultadosUbicacion.length === 0 ? (
+                      <p className="px-3 py-2 text-[12px] text-slate-400">Sin coincidencias en las capas cargadas.</p>
+                    ) : resultadosUbicacion.map((u) => (
+                      <button key={`${u.capaId}-${u.nombre}`} type="button" onClick={() => irAUbicacion(u)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-[#f1f8f6]">
+                        <MapPin size={13} className="shrink-0 text-[#116762]" />
+                        <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{u.nombre}</span>
+                        <span className="max-w-[110px] truncate text-[10.5px] text-slate-400">{u.capa}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="ml-auto flex items-center gap-1.5">
+                <button type="button" onClick={() => setAnalisisAbierto((v) => !v)} aria-pressed={analisisAbierto} title="Registros visibles, zona seleccionada, coordenadas, comparación y pronóstico" className={clsx('flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[12px] font-semibold transition', analisisAbierto ? 'border-[#116762] bg-[#e3f2ef] text-[#0b4a46]' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}>
+                  <ChartColumn size={14} /> Análisis
+                </button>
+                <div className="relative">
+                  <div className="flex overflow-hidden rounded-xl">
+                    <button type="button" onClick={descargarMapaGeneral} disabled={descargandoZona} title="Descarga la vista actual (la imagen usa el mapa de calles) con el calor y/o los puntos que estén activos" className="flex items-center gap-1.5 bg-[#116762] px-3 py-1.5 text-[12px] font-bold text-white hover:bg-[#0f5f57] disabled:cursor-not-allowed disabled:opacity-60">
+                      <Download size={14} /> {descargandoZona ? 'Generando…' : 'Descargar mapa'}
+                    </button>
+                    <button type="button" onClick={() => setOpcionesDescargaAbiertas((v) => !v)} aria-expanded={opcionesDescargaAbiertas} aria-label="Opciones de la descarga" title="Qué incluir en la imagen" className="border-l border-white/25 bg-[#116762] px-1.5 text-white hover:bg-[#0f5f57]"><ChevronDown size={14} /></button>
+                  </div>
+                  {opcionesDescargaAbiertas && (
+                    <div className="absolute right-0 top-full z-[1300] mt-1 w-56 space-y-1.5 rounded-xl border border-slate-200 bg-white p-3 text-[12px] text-slate-700 shadow-lg">
+                      <p className="font-bold text-[#10233f]">En la descarga</p>
+                      <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.rotulos} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, rotulos: e.target.checked }))} /> Etiquetas de barrios</label>
+                      <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.totales} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, totales: e.target.checked }))} /> Cuadro de totales</label>
+                      <label className="flex cursor-pointer items-center gap-1.5" title="Sin marcar: el mapa de calles cubre toda la imagen"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.fondoTransparente} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, fondoTransparente: e.target.checked }))} /> Fondo transparente</label>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div
+              data-mapa-contenedor
+              className={clsx('relative isolate w-full', pantallaCompleta && 'min-h-0 flex-1')}
+              style={pantallaCompleta ? undefined : { height: altoMapa }}
+            >
+          {/* Controles de exploración por delito — solo en pantalla
+              completa: elegir fuente (IRISP1/Delitos), ver su tabla de
+              delitos con conteo, elegir uno para filtrar el mapa, y limpiar
+              para volver a ver todos. */}
+          {pantallaCompleta && (
+            <div className="absolute left-16 top-3 z-[1000] flex flex-col gap-2">
+              {/* left-16 (en vez de left-3) para separarlo claramente de los
+                  controles de zoom (+/-) de Leaflet, que viven en la esquina
+                  superior izquierda del mapa — antes quedaban casi pegados. */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => elegirFuenteFullscreen('irisp1')}
+                  className={clsx(
+                    'rounded-lg px-3 py-1.5 text-xs font-semibold shadow-md',
+                    panelFuenteFullscreen === 'irisp1' ? 'bg-blue-600 text-white' : 'bg-white/95 text-slate-700 hover:bg-white',
+                  )}
+                >
+                  IRISP1
+                </button>
+                <button
+                  onClick={() => elegirFuenteFullscreen('delitos')}
+                  className={clsx(
+                    'rounded-lg px-3 py-1.5 text-xs font-semibold shadow-md',
+                    panelFuenteFullscreen === 'delitos' ? 'bg-rose-600 text-white' : 'bg-white/95 text-slate-700 hover:bg-white',
+                  )}
+                >
+                  Delitos
+                </button>
+
+                {/* "Limpiar filtros": cada fuente seleccionada tiene su
+                    propia X — quitar una NO afecta a la otra. Cuando las dos
+                    están presentes, el mapa entra solo en modo comparación
+                    (ver mostrarCalorDelitos/mostrarCalorIrisp1). */}
+                {seleccionIrisp1 && (
+                  <button
+                    onClick={() => quitarSeleccion('irisp1')}
+                    className="flex items-center gap-1 rounded-lg border border-blue-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-md hover:bg-white"
+                  >
+                    <X size={12} /> {seleccionIrisp1} (IRISP1)
+                  </button>
+                )}
+                {seleccionDelitos && (
+                  <button
+                    onClick={() => quitarSeleccion('delitos')}
+                    className="flex items-center gap-1 rounded-lg border border-rose-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-md hover:bg-white"
+                  >
+                    <X size={12} /> {seleccionDelitos} (Delitos)
+                  </button>
+                )}
+              </div>
+
+              {panelFuenteFullscreen && (
+                <div className="max-h-[70vh] w-64 overflow-y-auto rounded-lg bg-white/98 shadow-lg">
+                  <p className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                    {panelFuenteFullscreen === 'irisp1' ? 'IRISP1' : 'Delitos'} — todos los delitos
+                  </p>
+                  <ul>
+                    {tablaDelitosFullscreen.map((d) => {
+                      const seleccionado = (panelFuenteFullscreen === 'irisp1' ? seleccionIrisp1 : seleccionDelitos) === d.key;
+                      return (
+                        <li key={d.key}>
+                          <button
+                            onClick={() => seleccionarDelitoDesde(panelFuenteFullscreen, d.key)}
+                            className={clsx(
+                              'flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-slate-50',
+                              seleccionado && 'bg-brand-green/10 font-semibold text-brand-green',
+                            )}
+                          >
+                            <span>{d.key}</span>
+                            <span className="text-slate-400">{d.casos}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {tablaDelitosFullscreen.length === 0 && <li className="px-3 py-2 text-xs text-slate-400">Sin puntos cargados para esta fuente.</li>}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <MapContainer center={CENTRO_DEFECTO} zoom={12} zoomControl={false} style={{ height: '100%', width: '100%' }}>
+            <ZoomSliderControl />
+            <LimitarAPopayan />
+            <ScaleControl position="bottomleft" imperial={false} />
+            <EtiquetasZonas capas={capasVisiblesPoligono} camposUnion={camposUnionAutoDetectados} satelital={tipoMapa !== 'mapa'} />
+            <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
+            <CapturarInstanciaDeMapa mapaRef={mapaRef} />
+            <SeleccionPorClicEnMapa
+              deshabilitado={!!planCandado.colocandoId}
+              capas={capas}
+              camposUnion={camposUnionAutoDetectados}
+              onSeleccionar={(sel) => {
+                setZonaSeleccionada((actual) => (actual?.feature === sel?.feature ? null : sel));
+                setDelitoZonaSeleccionada(null);
+                // Detecta a qué filtro corresponde lo que se acaba de hacer
+                // clic (Estación, CAI o Zona de Atención/Cuadrante) y lo
+                // refleja automáticamente en el formulario de filtros de
+                // arriba — así el filtro y el mapa siempre quedan
+                // sincronizados, sin tener que elegirlo a mano dos veces.
+                if (sel) {
+                  const nombreNorm = normalizar(sel.nombre);
+                  if (opcionesFiltroMapa.cuadrante.some((c) => normalizar(c) === nombreNorm)) {
+                    setFiltrosMapa((prev) => ({ ...prev, cuadrante: [sel.nombre], cai: [], estacion: [] }));
+                  } else if (opcionesFiltroMapa.cai.some((c) => normalizar(c) === nombreNorm)) {
+                    setFiltrosMapa((prev) => ({ ...prev, cai: [sel.nombre], cuadrante: [] }));
+                  } else if (opcionesFiltroMapa.estacion.some((e) => normalizar(e) === nombreNorm)) {
+                    setFiltrosMapa((prev) => ({ ...prev, estacion: [sel.nombre], cai: [], cuadrante: [] }));
+                  }
+                }
+              }}
+            />
+            {/* Mapa base: calles (OpenStreetMap), satélite o híbrido (Esri).
+                Solo cambia el fondo — capas, calor y cálculos son los mismos. */}
+            {tipoMapa === 'mapa' ? (
+              <TileLayer
+                key="base-calles"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+            ) : (
+              <TileLayer
+                key="base-satelite"
+                attribution="Imágenes &copy; Esri, Maxar, Earthstar Geographics"
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                maxNativeZoom={19}
+                maxZoom={20}
+              />
+            )}
+            {tipoMapa === 'hibrido' && (
+              <>
+                <TileLayer key="hib-vias" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} />
+                <TileLayer key="hib-lugares" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={20} />
+              </>
+            )}
+            {capas.filter((c) => c.visible).map((capa) => {
+              const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
+              const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
+
+              function estiloFeature(feature: any) {
+                return estiloPoligonoEnPantalla(capa, feature);
+              }
+
+              function onEachFeature(feature: any, layer: L.Layer) {
+                const props = feature.properties || {};
+                let filas = Object.entries(props).slice(0, 10).map(([k, v]) => `<tr><td style="padding-right:8px;color:#64748b;font-weight:600">${k}</td><td>${v}</td></tr>`).join('');
+                if (capa.colorearPorCasos && conteos && capa.campoUnion) {
+                  const casos = conteos.get(normalizar(props[capa.campoUnion])) ?? 0;
+                  filas = `<tr><td style="padding-right:8px;color:#116762;font-weight:700">Casos (filtro actual)</td><td style="font-weight:700">${casos}</td></tr>` + filas;
+                }
+                layer.bindPopup(`<div style="font-size:12px;max-width:220px"><table>${filas || '<tr><td>Sin atributos</td></tr>'}</table></div>`);
+                // La SELECCIÓN por clic ya no se maneja aquí (por-capa) sino
+                // una sola vez a nivel de todo el mapa — ver
+                // SeleccionPorClicEnMapa — para elegir siempre el polígono
+                // más específico cuando hay varios superpuestos en el mismo
+                // punto. Aquí solo queda el popup con los atributos.
+              }
+
+              return (
+                <GeoJSONLayer
+                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}`}
+                  data={capa.geojson as any}
+                  style={estiloFeature}
+                  onEachFeature={onEachFeature}
+                />
+              );
+            })}
+
+            {/* Puntos de IRISP1 / Delitos, coloreados por delito (semaforización) */}
+            {/* Encuadre inicial — una sola vez, la primera vez que hay
+                puntos de Delitos para mostrar, así el mapa no arranca muy
+                alejado y sin necesidad de acercar el zoom a mano. */}
+            <AjustarVistaInicial puntos={todosLosPuntosDelitosVisibles} poligono={anillosNorteSur} />
+            {/* Encuadra el mapa en los puntos visibles cada vez que cambian
+                (por un filtro de Delito/Estación, o al cargar una capa
+                nueva) — en pantalla completa, se encuadra según lo que se
+                esté explorando por delito en ese momento. */}
+            <AjustarVistaAPuntos
+              puntos={
+                pantallaCompleta && (seleccionDelitos || seleccionIrisp1)
+                  ? [...puntosDelitosParaMostrar, ...puntosIrisp1ParaMostrar]
+                  : capasPuntosProcesadas
+                      .filter(({ capa }) => capa.visible)
+                      .flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon })))
+              }
+            />
+
+            {/* Mapa de calor de Delitos: Kernel Density geográficamente fijo
+                (ver src/utils/kernelDensity.ts) — 5 clases por cuantiles,
+                verde → amarillo → naranja → rojo. Se calcula UNA SOLA VEZ y
+                se ancla como imagen a coordenadas reales: el zoom del mapa
+                solo escala esa imagen, nunca recalcula el kernel ni cambia
+                su clasificación. Se calcula EXCLUSIVAMENTE con los puntos de
+                capas tipo "delitos" — nunca se mezcla con los de IRISP1.
+                Depende ÚNICAMENTE del checkbox "Delitos" de arriba — ya NO
+                requiere que "Comparar" esté activo: se enciende y apaga con
+                su propio checkbox, en sincronía directa con la capa. */}
+            {coordenadaManual && <AjustarVistaAPunto punto={coordenadaManual} info={infoCoordenadaManual} />}
+            {puntosDelBarrioSeleccionado.length > 0 && <AjustarVistaAPuntos puntos={puntosDelBarrioSeleccionado} />}
+
+            {mostrarCalorDelitos && verCalor && (
+              <KernelHeatmapLayer
+                puntos={puntosDelitosParaMostrar}
+                colores={paletaCalorDelitos}
+                opacidad={opacidades.calor / 100}
+              />
+            )}
+            {/* Flechas a los barrios más afectados — encima del calor, solo
+                mientras la capa de Delitos está a la vista. */}
+            {mostrarCalorDelitos && flechasBarrios.length > 0 && (
+              <FlechasBarrios
+                flechas={flechasBarrios}
+                posiciones={posicionesRotulo}
+                onMover={(clave, pos) => setPosicionesRotulo((prev) => ({ ...prev, [clave]: pos }))}
+              />
+            )}
+            {/* Barrios con más Operatividad / IRISP1 / RNMC: mismo rótulo, otro color. */}
+            {FLECHAS_FUENTES.filter((x) => x.flechas.length > 0).map((x) => (
+              <FlechasBarrios
+                key={x.clave}
+                flechas={x.flechas}
+                estilo={x.estilo}
+                posiciones={posicionesRotuloFuente[x.clave] ?? {}}
+                onMover={(clave, pos) => setPosicionesRotuloFuente((prev) => ({ ...prev, [x.clave]: { ...(prev[x.clave] ?? {}), [clave]: pos } }))}
+              />
+            ))}
+
+            {/* Mapa de calor de IRISP1: misma cuadrícula compacta, con su
+                propia escala de 5 clases (azul → morado), completamente
+                distinta a la de Delitos. Se calcula EXCLUSIVAMENTE con los
+                puntos de capas tipo "irisp1", y depende únicamente del
+                checkbox "IRISP1" de arriba, igual que Delitos. */}
+            {mostrarCalorIrisp1 && verCalor && (
+              <KernelHeatmapLayer
+                puntos={puntosIrisp1ParaMostrar}
+                colores={paletaCalorDelitos}
+                opacidad={opacidades.calor / 100}
+              />
+            )}
+
+            {/* Mapa de calor de RNMC (comparendos) — misma mecánica, con su
+                propia escala (rosado → magenta) para distinguirse de
+                Delitos/IRISP1/Operatividad/Macri. Usa la latitud/longitud
+                que trae la matriz de comparendos. */}
+            {mostrarCalorRnmc && verCalor && (
+              <KernelHeatmapLayer
+                puntos={puntosRnmcParaMostrar}
+                colores={paletaCalorDelitos}
+                opacidad={opacidades.calor / 100}
+              />
+            )}
+
+            {/* Mapa de calor de Operatividad y Macri: mismo mecanismo que
+                Delitos/IRISP1 (Kernel Density con su propia escala de
+                colores), pero sin modo "pantalla completa" propio ni
+                participación en "Comparar" — eso sigue siendo
+                específicamente IRISP1 vs Delitos. */}
+            {mostrarCalorOperatividad && verCalor && (
+              <KernelHeatmapLayer
+                puntos={puntosOperatividadParaMostrar}
+                colores={paletaCalorDelitos}
+                opacidad={opacidades.calor / 100}
+                onResultado={setKernelOperatividad}
+              />
+            )}
+            {mostrarCalorOperatividad && verCalor && consultarOperatividad && (
+              <ConsultaDensidadKernel
+                puntos={puntosOperatividadParaMostrar}
+                densidadMaxima={kernelOperatividad?.metadatos.densidadMaxima ?? null}
+                titulo="Operatividad — consulta de zona"
+              />
+            )}
+            {mostrarCalorMacri && verCalor && (
+              <KernelHeatmapLayer puntos={puntosMacriParaMostrar} colores={PALETA_CALOR_MACRI} opacidad={opacidades.calor / 100} />
+            )}
+
+            {/* Modo "Puntos" — en vez de la superficie de densidad, cada
+                delito/IRISP1 se marca individualmente (mismo color que su
+                fuente), respetando los mismos checkboxes de arriba. */}
+            {verPuntos && mostrarCalorDelitos && puntosDelitosParaMostrar.map((p, i) => {
+              const delito = (p as any).delitoCorto ?? null;
+              const color = colorDelitoFinal('delitos', delito, colorPorDelitoSimple(delito));
+              return (
+                <CircleMarker key={`pd-${i}`} center={[p.lat, p.lon]} radius={radioDe('delitos', 4)} pathOptions={{ color, weight: 1, fillColor: color, fillOpacity: 0.75 }}>
+                  <Popup>{delito ?? 'Delito'}</Popup>
+                </CircleMarker>
+              );
+            })}
+            {verPuntos && mostrarCalorIrisp1 && puntosIrisp1ParaMostrar.map((p, i) => {
+              const delito = (p as any).delitoCorto ?? null;
+              const color = colorDelitoFinal('irisp1', delito, colorPorDelitoSimple(delito));
+              return (
+                <CircleMarker key={`pi-${i}`} center={[p.lat, p.lon]} radius={radioDe('irisp1', 4)} pathOptions={{ color, weight: 2, fillColor: color, fillOpacity: 0.4 }}>
+                  <Popup>{delito ?? 'IRISP1'}</Popup>
+                </CircleMarker>
+              );
+            })}
+            {verPuntos && mostrarCalorOperatividad && puntosOperatividadParaMostrar.map((p, i) => (
+              <CircleMarker key={`po-${i}`} center={[p.lat, p.lon]} radius={radioDe('operatividad', 4)} pathOptions={{ color: colorCapa('operatividad', '#d97706'), weight: 1, fillColor: colorCapa('operatividad', '#d97706'), fillOpacity: 0.75 }}>
+                <Popup>Operatividad</Popup>
+              </CircleMarker>
+            ))}
+            {verPuntos && mostrarCalorMacri && puntosMacriParaMostrar.map((p, i) => (
+              <CircleMarker key={`pm-${i}`} center={[p.lat, p.lon]} radius={radioDe('macri', 4)} pathOptions={{ color: colorCapa('macri', '#7c3aed'), weight: 1, fillColor: colorCapa('macri', '#7c3aed'), fillOpacity: 0.75 }}>
+                <Popup>Macri</Popup>
+              </CircleMarker>
+            ))}
+            {verPuntos && mostrarCalorRnmc && puntosRnmcParaMostrar.map((p, i) => (
+              <CircleMarker key={`pr-${i}`} center={[p.lat, p.lon]} radius={radioDe('rnmc', 4)} pathOptions={{ color: colorCapa('rnmc', '#db2777'), weight: 1, fillColor: colorCapa('rnmc', '#db2777'), fillOpacity: 0.75 }}>
+                <Popup>RNMC — {(p as any).delitoCorto ?? 'Comparendo'}</Popup>
+              </CircleMarker>
+            ))}
+
+            {/* Zona seleccionada con un clic sobre un polígono cargado: el
+                mapa se encuadra en ella y, si hay puntos dentro, se pinta un
+                mapa de calor recortado a EXACTAMENTE esos puntos (nunca
+                mezclado con el resto del mapa) — ver panel flotante para
+                elegir el delito y descargar. */}
+            {zonaActiva && (
+              <>
+                <AjustarVistaAPoligono feature={zonaActiva.feature} />
+                {puntosEnZonaParaCalor.length > 0 && (
+                  <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={paletaCalorDelitos} opacidad={opacidades.calor / 100} />
+                )}
+              </>
+            )}
+
+            {/* Modo comparación: grilla de celdas con la coincidencia entre
+                ambas fuentes (ver src/data/mapaCalorAnalisis.ts para la
+                fórmula exacta). Solo se dibujan las celdas con actividad real
+                en ambas fuentes, para no saturar el mapa. */}
+            {(modoComparacion || (pantallaCompleta && seleccionIrisp1 && seleccionDelitos)) && grillaComparativa
+              .filter((c) => c.casosDelitos > 0 && c.casosIrisp1 > 0)
+              .map((c, i) => (
+                <CircleMarker
+                  key={`comp-${i}`}
+                  center={[c.lat, c.lon]}
+                  radius={9}
+                  pane="markerPane"
+                  pathOptions={{
+                    color: c.clasificacion === 'alta' ? '#a21caf' : c.clasificacion === 'media' ? '#ec4899' : '#f472b6',
+                    weight: 2,
+                    fillColor: c.clasificacion === 'alta' ? '#a21caf' : c.clasificacion === 'media' ? '#ec4899' : '#f472b6',
+                    fillOpacity: 0.35,
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -6]}>
+                    <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                      <strong>Zona analizada</strong><br />
+                      Delitos: {c.casosDelitos}<br />
+                      IRISP1: {c.casosIrisp1}<br />
+                      Densidad Delitos: {(c.intensidadDelitos * 100).toFixed(0)}%<br />
+                      Densidad IRISP1: {(c.intensidadIrisp1 * 100).toFixed(0)}%<br />
+                      <strong>Correspondencia espacial: {c.coincidenciaPct.toFixed(0)}%</strong><br />
+                      {c.clasificacion === 'alta' ? '🟢 Alta correspondencia' : c.clasificacion === 'media' ? '🟡 Media correspondencia' : '🔴 Baja correspondencia'}
+                    </div>
+                  </Tooltip>
+                </CircleMarker>
+              ))}
+
+            {/* Los puntos individuales se ocultan por completo en modo
+                comparación, y también cuando cualquiera de los mapas de
+                calor de ESTE MISMO grupo (Delitos o IRISP1) está activo —
+                se pidió ver directamente el mapa de calor "ya pintado",
+                sin los puntos sueltos compitiendo visualmente con la
+                cuadrícula de color. Las capas de Operatividad, Macri y
+                RNMC quedan excluidas de este bloque (bug real, ya
+                corregido: antes SÍ se colaban aquí incluso con su propio
+                mapa de calor activo, porque este bloque solo conocía
+                Delitos/IRISP1) — cada una ya tiene su propio bloque de
+                puntos, correctamente controlado por su propio checkbox y
+                por el modo Puntos/Calor (ver más abajo). */}
+            {!modoComparacion && !mostrarCalorDelitos && !mostrarCalorIrisp1 && capasPuntosProcesadas.filter(({ capa }) => capa.visible && capa.tipo !== 'operatividad' && capa.tipo !== 'macri' && capa.tipo !== 'rnmc').map(({ capa, puntosFiltrados, ordenDelitos }) => (
+              puntosFiltrados.map((p, i) => {
+                // Vista normal (sin comparar): cada delito con su propio
+                // color, igual que semaforiza el resto del dashboard.
+                const claveEstilo = capa.tipo;
+                const color = (capa.colDelito ? coloresDelito[p.delitoCorto || 'Sin delito'] : undefined) ?? (capa.colDelito ? colorPorDelito(p.delitoCorto ?? '', ordenDelitos, capa.tipo) : (capa.tipo === 'irisp1' ? '#2563eb' : capa.tipo === 'delitos' ? '#dc2626' : '#116762'));
+                return (
+                  <CircleMarker
+                    key={`${capa.id}-${i}`}
+                    center={[p.lat, p.lon]}
+                    radius={radioDe(claveEstilo, 7)}
+                    // pane="markerPane": Leaflet dibuja los polígonos (GeoJSON)
+                    // en su propio "overlayPane", y por defecto CircleMarker
+                    // también usaría ese mismo pane — cuando cambia cualquier
+                    // filtro del dashboard, el polígono se vuelve a dibujar
+                    // (para recalcular sus colores) y, al reinsertarse,
+                    // terminaba tapando los puntos aunque siguieran ahí.
+                    // Poniéndolos en "markerPane" (que Leaflet siempre pinta
+                    // por encima) quedan visibles pase lo que pase con los
+                    // polígonos.
+                    pane="markerPane"
+                    pathOptions={{ color: '#ffffff', weight: 1.5, fillColor: color, fillOpacity: 0.9 }}
+                  >
+                    <Popup>
+                      <div style={{ fontSize: 12, maxWidth: 260 }}>
+                        {/* El nombre/alias de la persona (cuando el archivo lo
+                            trae, ej. la columna "Nombre" de IRISP1) se
+                            resalta arriba de todo, en vez de perderse entre
+                            las demás columnas. */}
+                        {(() => {
+                          const claveNombre = Object.keys(p.fila).find((k) => /^nombre$/i.test(k.trim()) || /alias/i.test(k));
+                          const valorNombre = claveNombre ? p.fila[claveNombre] : null;
+                          return valorNombre ? (
+                            <p style={{ marginBottom: 6, fontWeight: 700, color: '#0f172a', borderBottom: '1px solid #e2e8f0', paddingBottom: 4 }}>
+                              {valorNombre}
+                            </p>
+                          ) : null;
+                        })()}
+                        <table>
+                          <tbody>
+                            {Object.entries(p.fila)
+                              .filter(([k]) => !/^nombre$/i.test(k.trim()) && !/alias/i.test(k))
+                              .slice(0, 12)
+                              .filter(([, v]) => v !== '' && v !== undefined)
+                              .map(([k, v]) => (
+                                <tr key={k}>
+                                  <td style={{ paddingRight: 8, color: '#64748b', fontWeight: 600, verticalAlign: 'top' }}>{k}</td>
+                                  <td>{String(v)}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Popup>
+                  </CircleMarker>
+                );
+              })
+            ))}
+            <CapaPronosticoIA
+              activo={mostrarPronosticoIA}
+              delito={filtrosMapa.delito.length === 1 ? filtrosMapa.delito[0] : null}
+              horizonteHoras={horizontePronosticoIA}
+              records={records}
+            />
+            <CapaLeafletArchivoGeorreferenciado
+              registrosFiltrados={capaArchivoGeorreferenciado.registrosFiltrados}
+              modoVisualizacion={capaArchivoGeorreferenciado.modoVisualizacion}
+              coloresActivos={capaArchivoGeorreferenciado.coloresActivos}
+              opacidad={capaArchivoGeorreferenciado.opacidad}
+              estiloPuntos={capaArchivoGeorreferenciado.estiloPuntos}
+              simbologiaPuntos={capaArchivoGeorreferenciado.simbologiaPuntos}
+              categoriasSimbologia={capaArchivoGeorreferenciado.categoriasSimbologia}
+              campoSimbologia={capaArchivoGeorreferenciado.campoSimbologia}
+              archivo={capaArchivoGeorreferenciado.archivo}
+              setColoresCategoria={capaArchivoGeorreferenciado.setColoresCategoria}
+              setCategoriasOcultas={capaArchivoGeorreferenciado.setCategoriasOcultas}
+              leyendaEnMapa={false}
+            />
+          </MapContainer>
+
+              {/* Encabezado oscuro sobre el mapa: título, subtítulo y escala de densidad */}
+              <div className="pointer-events-none absolute left-14 right-3 top-3 z-[1000] flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-[#0d1b2a]/88 px-3.5 py-2.5 text-white shadow-lg backdrop-blur-sm">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#159089] to-[#2f6fdb]"><Layers size={20} /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[17px] font-extrabold leading-tight">Mapa de {tituloFuentes}</p>
+                  <p className="truncate text-[12px] text-slate-300">{filtrosMapa.delito.length ? filtrosMapa.delito.join(', ') : 'Todos los delitos'} • {textoVigencia}</p>
+                </div>
+                {verCalor && (
+                  <div className="w-[190px] shrink-0">
+                    <p className="mb-1 text-[11px] font-semibold text-slate-200">Densidad de casos</p>
+                    <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                    <div className="mt-0.5 flex justify-between text-[10px] text-slate-300"><span>Baja</span><span>Alta</span></div>
+                  </div>
+                )}
+              </div>
+
+              {/* Controles: encuadrar y pantalla completa (bajo el zoom) */}
+              <div className="absolute bottom-[96px] left-3 z-[1000] flex flex-col gap-1.5">
+                <button type="button" onClick={centrarEnJurisdiccion} title="Encuadrar las capas visibles" aria-label="Encuadrar" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[#10233f] shadow-md hover:bg-slate-50"><LocateFixed size={17} /></button>
+                <button type="button" onClick={() => setPantallaCompleta((v) => !v)} title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'} aria-label="Pantalla completa" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[#10233f] shadow-md hover:bg-slate-50">{pantallaCompleta ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+              </div>
+
+              {/* Rosa de los vientos */}
+              <div className="pointer-events-none absolute right-3 top-[86px] z-[999] flex h-11 w-11 flex-col items-center justify-center rounded-full border border-white/40 bg-[#0d1b2a]/80 text-white shadow-md" aria-label="Norte arriba">
+                <span className="text-[10px] font-extrabold leading-none">N</span>
+                <Navigation2 size={16} className="fill-white" />
+              </div>
+
+              {/* Vista general + contadores */}
+              <div className="absolute bottom-3 right-3 z-[1000] flex flex-col items-end gap-2">
+                {!esPiloto && <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />}
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {puntosFueraMepoy.length > 0 && (
+                    <span
+                      className="flex cursor-help items-center gap-1.5 rounded-lg bg-amber-500/95 px-2.5 py-1.5 text-[11.5px] font-semibold text-white shadow"
+                      title={`Coordenadas fuera de la jurisdicción MEPOY (probable error de digitación). No se dibujan; sí cuentan en las tablas:\n${puntosFueraMepoy.slice(0, 15).map((p) => `• ${p.capa}: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.detalle ? ` — ${p.detalle}` : ''}`).join('\n')}${puntosFueraMepoy.length > 15 ? `\n… y ${puntosFueraMepoy.length - 15} más` : ''}`}
+                    >
+                      ⚠ {formatNumero(puntosFueraMepoy.length)} {puntosFueraMepoy.length === 1 ? 'punto' : 'puntos'} fuera de MEPOY sin dibujar
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><MapIcon size={13} /> Zonas visibles: <b>{formatNumero(elementosVisibles)}</b></span>
+                  <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><ChartColumn size={13} /> Casos mostrados: <b>{formatNumero(totalEnMapa)}</b></span>
+                </div>
+              </div>
+
+              {/* Leyenda (plegable) */}
+              <div className="absolute bottom-[40px] left-14 z-[1000] w-[230px] rounded-xl border border-slate-200 bg-white/95 text-xs shadow-lg backdrop-blur-sm">
+                <button type="button" onClick={() => setLeyendaMapaAbierta((v) => !v)} aria-expanded={leyendaMapaAbierta} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-bold text-[#10233f]">
+                  <span className="flex items-center gap-1.5"><Palette size={13} className="text-[#116762]" /> Leyenda</span>
+                  <ChevronDown size={14} className={clsx('transition', leyendaMapaAbierta && 'rotate-180')} />
+                </button>
+                {leyendaMapaAbierta && (
+                  <div className="max-h-[min(380px,45vh)] space-y-3 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2 [scrollbar-width:thin]">
+                  {verCalor && mostrarCalorDelitos && (
+                    <div>
+                      <p className="mb-1 font-semibold text-[#10233f]">Intensidad delictiva (densidad Kernel)</p>
+                      <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                      <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>Baja</span><span>Alta</span></div>
+                    </div>
+                  )}
+                  {verCalor && mostrarCalorIrisp1 && <LeyendaGradiente titulo="IRISP1 (densidad Kernel)" colores={paletaCalorDelitos.filter((c): c is string => c !== null)} />}
+                  {verCalor && mostrarCalorOperatividad && (
+                    <LeyendaDensidadKernel titulo="Densidad de operatividad" colores={paletaCalorDelitos} resultado={kernelOperatividad} eventos={puntosOperatividadParaMostrar.length} consultando={consultarOperatividad} onConsultar={() => setConsultarOperatividad((v) => !v)} />
+                  )}
+                  {verCalor && mostrarCalorMacri && <LeyendaGradiente titulo="Macri" colores={PALETA_CALOR_MACRI} />}
+                  {verCalor && mostrarCalorRnmc && <LeyendaGradiente titulo="RNMC (densidad Kernel)" colores={paletaCalorDelitos.filter((c): c is string => c !== null)} />}
+                  {modoComparacion && mostrarCalorDelitos && mostrarCalorIrisp1 && (
+                    <p className="flex items-center gap-1.5 text-slate-600"><span className="h-3 w-3 rounded-full" style={{ background: 'radial-gradient(circle, #ec4899, #a21caf)' }} /> Correspondencia espacial IRISP1 vs Delitos</p>
+                  )}
+                        {([['delitos', 'Delitos'], ['irisp1', 'IRISP1']] as const).filter(([fuente]) => convencionesDelitos[fuente].length > 0).map(([fuente, nombre]) => {
+                          const lista = convencionesDelitos[fuente];
+                          const conColor = verPuntos;
+                          return (
+                            <div key={fuente}>
+                              <p className="font-semibold text-[#10233f]">{nombre} en el mapa</p>
+                              <p className="mb-1 text-[10px] text-slate-500">{filters.delito.length > 0 ? `Filtro: ${filters.delito.join(', ')}` : 'Todos los delitos'}</p>
+                              <div className="space-y-0.5">
+                                {lista.map(({ delito, casos }) => {
+                                  const auto = colorPorDelitoSimple(delito);
+                                  const colorActual = colorDelitoFinal(fuente, delito, auto);
+                                  const idEdicion = `${fuente}:${delito}`;
+                                  const abierto = conColor && delitoEditandoColor === idEdicion;
+                                  return (
+                                    <div key={delito}>
+                                      <div className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                                        {conColor ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => setDelitoEditandoColor((v) => (v === idEdicion ? null : idEdicion))}
+                                            aria-expanded={abierto}
+                                            title={`Cambiar el color de ${delito}`}
+                                            className={clsx('h-3.5 w-3.5 shrink-0 rounded-full ring-1 transition hover:scale-125', abierto || coloresDelito[delito] ? 'ring-2 ring-[#10233f]' : 'ring-white')}
+                                            style={{ backgroundColor: colorActual }}
+                                          />
+                                        ) : <span className="h-[3px] w-2.5 shrink-0 rounded-full bg-slate-400" />}
+                                        <span className="min-w-0 flex-1 truncate" title={delito}>{delito}</span>
+                                        <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(casos)}</span>
+                                      </div>
+                                      {abierto && (
+                                        <div className="my-1">
+                                          <SelectorColorRapido valor={coloresDelito[delito] ?? null} colorAuto={colorActual} onChange={(c) => cambiarColorDelito(delito, c)} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {conColor && <p className="pt-0.5 text-[10px] text-slate-400">Clic en un color para cambiarlo.</p>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {verPuntos && ([
+                          ['operatividad', 'Operatividad', '#d97706', mostrarCalorOperatividad, puntosOperatividadParaMostrar.length],
+                          ['macri', 'Macri', '#7c3aed', mostrarCalorMacri, puntosMacriParaMostrar.length],
+                          ['rnmc', 'RNMC', '#db2777', mostrarCalorRnmc, puntosRnmcParaMostrar.length],
+                        ] as const).filter(([, , , activo, n]) => activo && n > 0).map(([clave, nombre, color, , n]) => {
+                          const idEdicion = `capa:${clave}`;
+                          const abierto = delitoEditandoColor === idEdicion;
+                          return (
+                            <div key={clave}>
+                              <div className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                                <button
+                                  type="button"
+                                  onClick={() => setDelitoEditandoColor((v) => (v === idEdicion ? null : idEdicion))}
+                                  aria-expanded={abierto}
+                                  title={`Cambiar el color de ${nombre}`}
+                                  className={clsx('h-3.5 w-3.5 shrink-0 rounded-full ring-1 transition hover:scale-125', abierto || coloresCapa[clave] ? 'ring-2 ring-[#10233f]' : 'ring-white')}
+                                  style={{ backgroundColor: colorCapa(clave, color) }}
+                                />
+                                <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{nombre}</span>
+                                <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(n)}</span>
+                              </div>
+                              {abierto && (
+                                <div className="my-1">
+                                  <SelectorColorRapido valor={coloresCapa[clave] ?? null} colorAuto={colorCapa(clave, color)} onChange={(c) => cambiarColorCapa(clave, c)} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                  {/* Archivo georreferenciado (puntos por categoría): antes era un
+                      recuadro aparte que quedaba debajo de esta leyenda. */}
+                  {capaArchivoGeorreferenciado.modoVisualizacion === 'puntos' && capaArchivoGeorreferenciado.campoSimbologia && capaArchivoGeorreferenciado.categoriasSimbologia.length > 0 && (
+                    <div>
+                      <p className="font-semibold text-[#10233f]">{capaArchivoGeorreferenciado.campoSimbologia}</p>
+                      {capaArchivoGeorreferenciado.archivo && <p className="truncate text-[10px] text-slate-500" title={capaArchivoGeorreferenciado.archivo.name}>{capaArchivoGeorreferenciado.archivo.name}</p>}
+                      <div className="mt-1 space-y-0.5">
+                        {capaArchivoGeorreferenciado.categoriasSimbologia.map((c) => (
+                          <div key={c.valor} className={clsx('flex items-center gap-2 text-[11.5px] text-slate-600', !c.visible && 'opacity-45')}>
+                            <label title="Cambiar color" className="relative h-3.5 w-3.5 shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-white" style={{ backgroundColor: c.color, boxShadow: `0 0 0 1px ${c.color}` }}>
+                              <input type="color" value={c.color} onChange={(e) => { const v = e.target.value; capaArchivoGeorreferenciado.setColoresCategoria((prev) => ({ ...prev, [c.valor]: v })); }} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => capaArchivoGeorreferenciado.setCategoriasOcultas((prev) => (prev.includes(c.valor) ? prev.filter((v) => v !== c.valor) : [...prev, c.valor]))}
+                              title={`${c.visible ? 'Ocultar' : 'Mostrar'} «${c.valor}»`}
+                              className={clsx('min-w-0 flex-1 truncate text-left', !c.visible && 'line-through')}
+                            >
+                              {c.valor}
+                            </button>
+                            <span className="tabular-nums font-semibold text-[#10233f]">{formatNumero(c.casos)}</span>
+                          </div>
+                        ))}
+                        <p className="pt-0.5 text-[10px] text-slate-400">Clic en el color para cambiarlo · en el nombre para ocultarlo.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="mb-1 font-semibold text-[#10233f]">Capas geográficas visibles</p>
+                    {capasVisiblesPoligono.length === 0 ? (
+                      <p className="text-[11px] text-slate-400">Ninguna visible. Actívelas en el gestor de capas.</p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {capasVisiblesPoligono.map((capa) => {
+                          const g = GRUPOS_GESTOR.find((x) => x.id === grupoDeCapa(capa))!;
+                          return (
+                            <div key={capa.id} className="flex items-center gap-2 text-[11.5px] text-slate-600">
+                              <span className="h-3 w-3 shrink-0 rounded-sm border-2" style={{ borderColor: g.color, background: `${g.color}22` }} />
+                              <span className="min-w-0 flex-1 truncate" title={capa.nombre}>{capa.nombre}</span>
+                              <span className="text-[10px] text-slate-400">{g.titulo.split(' ')[0]}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {!verCalor && !verPuntos && <p className="text-[11px] text-slate-400">Sin capas de eventos activas.</p>}
+
+                  </div>
+                )}
+              </div>
+
+              {/* Panel de análisis (se abre con el botón «Análisis») */}
+              {analisisAbierto && (
+                <div className="absolute bottom-3 right-3 top-[84px] z-[1100] flex w-[300px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                    <span className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#10233f]"><ChartColumn size={15} className="text-[#116762]" /> Análisis del mapa</span>
+                    <button type="button" onClick={() => setAnalisisAbierto(false)} aria-label="Cerrar análisis" className="rounded p-0.5 text-slate-400 hover:text-slate-600"><X size={15} /></button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto p-3 text-xs [scrollbar-width:thin]">
+<div className="space-y-4">
+                  <section>
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Registros visibles en el mapa</p>
+                    <table className="w-full text-[11.5px]">
+                      <thead><tr className="text-[10px] uppercase tracking-wide text-slate-400"><th className="pb-1 text-left">Fuente</th><th className="pb-1 text-right">Filtrados</th><th className="pb-1 text-right">En el mapa</th></tr></thead>
+                      <tbody>
+                        {FUENTES_EVENTOS.map((f) => {
+                          const valor = kpisFuentes.valores[f.tipo];
+                          return (
+                            <tr key={f.tipo} className={clsx('border-t border-slate-100', !fuenteVisible(f.tipo) && 'text-slate-400')}>
+                              <td className="py-1"><span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: colorCapa(f.tipo, f.color) }} />{f.etiqueta}</span></td>
+                              <td className="py-1 text-right tabular-nums">{fuenteCargada(f.tipo) && valor != null ? formatNumero(valor) : 'Sin datos'}</td>
+                              <td className="py-1 text-right font-semibold tabular-nums">{fuenteCargada(f.tipo) ? formatNumero(fuenteVisible(f.tipo) ? enMapaPorFuente[f.tipo] : 0) : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <p className="mt-1 text-[10.5px] leading-snug text-slate-400">«En el mapa» = registros con coordenadas válidas que se dibujan; puede ser menor que los filtrados.</p>
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Entidad seleccionada</p>
+                    {zonaActiva ? (
+                      <div className="rounded-lg bg-[#f1f8f6] p-2.5">
+                        <p className="text-[13px] font-bold text-[#10233f]">{zonaActiva.nombre}</p>
+                        <p className="text-[11px] text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono{delitoZonaSeleccionada ? ` · ${delitoZonaSeleccionada}` : ''}</p>
+                        {(() => {
+                          const conteo = new Map<string, number>();
+                          for (const p of puntosEnZonaParaCalor) { const k = (p as any).delitoCorto ?? 'No reportado'; conteo.set(k, (conteo.get(k) ?? 0) + 1); }
+                          const filas = Array.from(conteo.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+                          return filas.length > 0 && (
+                            <ul className="mt-1.5 space-y-0.5">
+                              {filas.map(([k, n]) => <li key={k} className="flex justify-between gap-2 text-[11.5px]"><span className="truncate text-slate-600">{k}</span><b className="tabular-nums text-[#10233f]">{formatNumero(n)}</b></li>)}
+                            </ul>
+                          );
+                        })()}
+                        <div className="mt-2 grid grid-cols-2 gap-1.5">
+                          <button type="button" onClick={descargarZonaSeleccionada} disabled={descargandoZona || puntosEnZonaParaCalor.length === 0} className="flex items-center justify-center gap-1 rounded-lg bg-[#116762] px-2 py-1.5 text-[11.5px] font-semibold text-white hover:bg-[#0f5f57] disabled:opacity-50"><Download size={12} /> Descargar</button>
+                          <button type="button" onClick={copiarZonaAlPortapapeles} disabled={descargandoZona || puntosEnZonaParaCalor.length === 0} className="rounded-lg border border-slate-300 px-2 py-1.5 text-[11.5px] font-semibold text-slate-600 hover:bg-white disabled:opacity-50">📋 Copiar</button>
+                        </div>
+                        <button type="button" onClick={() => setZonaSeleccionada(null)} className="mt-1.5 text-[10.5px] font-semibold text-slate-500 hover:underline">Quitar selección</button>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">Haga clic en un polígono del mapa o búsquelo arriba para ver sus casos.</p>
+                    )}
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <p className="mb-1.5 text-[12.5px] font-bold text-[#10233f]">Consultar una coordenada</p>
+                    <IrACoordenadas onIr={(lat, lon) => setCoordenadaManual({ lat, lon })} />
+                    <p className="mt-1 text-[10.5px] leading-snug text-slate-400">Muestra su estación, CAI, cuadrante y barrio.</p>
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 accent-[#116762]" checked={modoComparacion} onChange={(e) => setModoComparacion(e.target.checked)} />
+                      <span><span className="text-[12.5px] font-bold text-[#10233f]">Comparar IRISP1 vs Delitos</span><br /><span className="text-[10.5px] text-slate-500">Marca las zonas donde coinciden ambas fuentes (pase el mouse sobre el mapa).</span></span>
+                    </label>
+                  </section>
+
+                  <section className="border-t border-slate-100 pt-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-bold text-[#10233f]">
+                      <input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={mostrarPronosticoIA} onChange={(e) => setMostrarPronosticoIA(e.target.checked)} />
+                      <Sparkles size={13} className="text-indigo-500" /> Pronóstico IA por CAI
+                    </label>
+                    {mostrarPronosticoIA && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        {([24, 48, 72, 168] as const).map((h) => (
+                          <button key={h} type="button" onClick={() => setHorizontePronosticoIA(h)} className={clsx('rounded px-2 py-0.5 text-[11px] font-semibold', horizontePronosticoIA === h ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100')}>{h === 168 ? '7 días' : `${h}h`}</button>
+                        ))}
+                        <p className="mt-1 text-[10.5px] text-slate-400">Concentración pronosticada según patrones históricos — no es certeza de ocurrencia.</p>
+                      </div>
+                    )}
+                  </section>
+</div>
+
+                  </div>
+                </div>
+              )}
+          {/* Panel flotante de la zona seleccionada — aparece con un clic
+              sobre cualquier polígono de una capa cargada (ej. el CAI 5).
+              El botón de descarga usa exactamente el mismo motor de
+              exportación de imágenes que el resto del dashboard. */}
+          {filtroDemasiadoAmplio && (
+            <div className="absolute right-16 top-[84px] z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
+              <p className="text-sm font-semibold text-amber-800">Este filtro coincide con demasiados polígonos</p>
+              <p className="mt-1 text-xs text-amber-700">
+                Probablemente hay una capa cargada (revisa "JURIS_ESTACIONES_2026") cuyos valores no corresponden
+                de verdad a esta Estación/CAI/Cuadrante — por seguridad, no se intenta dibujar. Quita esa capa o
+                revisa cuál es la correcta.
+              </p>
+            </div>
+          )}
+          {zonaActiva && !analisisAbierto && (
+            <div className="absolute right-16 top-[84px] z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>
+                  <p className="text-sm font-bold text-slate-800">{zonaActiva.nombre}</p>
+                </div>
+                <button onClick={() => setZonaSeleccionada(null)} className="text-slate-400 hover:text-slate-600" title="Quitar selección">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <label className="mb-1 block text-[11px] font-semibold text-slate-500">Delito dentro de esta zona</label>
+              <select
+                value={delitoZonaSeleccionada ?? ''}
+                onChange={(e) => setDelitoZonaSeleccionada(e.target.value || null)}
+                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+              >
+                <option value="">Todos los delitos</option>
+                {delitosDisponiblesEnZona.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+
+              <p className="mb-2 text-xs text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono</p>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={descargarZonaSeleccionada}
+                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-brand-green px-3 py-2 text-xs font-semibold text-white hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={13} />
+                  {descargandoZona ? '...' : 'Descargar'}
+                </button>
+                <button
+                  onClick={copiarZonaAlPortapapeles}
+                  disabled={descargandoZona || puntosEnZonaParaCalor.length === 0}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-brand-navy hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  📋 Copiar
+                </button>
+              </div>
+            </div>
+          )}
+
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+      {modalCapaPuntos && (
+        <CargaCapaPuntosModal nombreCapa={modalCapaPuntos} onCerrar={() => setModalCapaPuntos(null)} onGuardar={guardarNuevaCapaPuntos} />
+      )}
+      <input ref={inputRef} type="file" accept=".zip,.geojson,.json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) manejarArchivo(f); }} />
+
+      {/* Capa temporal (CSV/XLS/XLSX con coordenadas) — aislada de Delitos e IRISP1 */}
+      {!soloLectura && (
+        <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,35,63,0.04)]">
+          <div className="mb-2 flex items-center gap-2">
+            <IconoCaja tamano="sm"><FileUp size={15} /></IconoCaja>
+            <h2 className="text-[14px] font-bold text-[#10233f]">Capa temporal georreferenciada <span className="font-normal text-slate-500">· CSV, XLS o XLSX con coordenadas</span></h2>
+          </div>
+          <PanelArchivoGeorreferenciado {...capaArchivoGeorreferenciado} />
+        </section>
+      )}
+
+      {caiDeEstacionActiva.length > 0 && (
+        <Card>
+          <p className="mb-3 text-sm font-bold text-slate-700">CAI de {filtrosMapa.estacion[0]} — mapa de calor por CAI</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {caiDeEstacionActiva.map((cai) => {
+              const seleccionado = filtrosMapa.cai.includes(cai);
+              const previa = previsualizacionesCai[cai];
+              return (
+                <div key={cai} className={`overflow-hidden rounded-lg border ${seleccionado ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setFiltrosMapa((prev) => ({ ...prev, cai: seleccionado ? [] : [cai] }))}
+                    className="flex aspect-square w-full items-center justify-center bg-slate-50"
+                    title="Clic para resaltar este CAI en el mapa de arriba"
+                  >
+                    {previa === 'cargando' || !previa ? (
+                      <span className="text-xs text-slate-400">Generando…</span>
+                    ) : previa === 'error' ? (
+                      <span className="px-2 text-center text-xs text-slate-400">Sin geometría propia para este CAI</span>
+                    ) : (
+                      <img src={previa} alt={`Mapa de calor de ${cai}`} className="h-full w-full object-contain" />
+                    )}
+                  </button>
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2 py-1.5">
+                    <span className="flex items-center gap-1.5 truncate text-xs font-semibold text-slate-600">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorDeCai(cai) }} />
+                      {cai}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => descargarPrevisualizacionCai(cai)}
+                      disabled={typeof previa !== 'string' || previa === 'error'}
+                      className="shrink-0 text-slate-400 hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-40"
+                      title={`Descargar mapa de ${cai}`}
+                    >
+                      <Download size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">Haz clic en una miniatura para resaltar ese CAI en el mapa de arriba — un segundo clic lo quita. El ícono de descarga baja esa imagen individual.</p>
+        </Card>
+      )}
+
+
+
+      {mostrarSelectorFuentes && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setMostrarSelectorFuentes(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold text-slate-700">Seleccionar fuentes</p>
+            <div className="space-y-2">
+              {[
+                { clave: 'irisp1' as const, etiqueta: 'IRISP1', disponible: true },
+                { clave: 'macri' as const, etiqueta: 'Macri', disponible: true },
+              ].map((f) => (
+                <label key={f.clave} className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${f.disponible ? 'border-slate-200' : 'border-slate-100 text-slate-400'}`}>
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={fuentesActivas[f.clave]}
+                      disabled={!f.disponible}
+                      onChange={(e) => setFuentesActivas((prev) => ({ ...prev, [f.clave]: e.target.checked }))}
+                    />
+                    {f.etiqueta}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-slate-400">Delitos y Operatividad ya no pasan por aquí — se activan directamente con su checkbox junto al mapa.</p>
+            <button type="button" onClick={() => setMostrarSelectorFuentes(false)} className="mt-3 w-full rounded-lg bg-brand-navy px-3 py-2 text-sm font-semibold text-white">Cerrar</button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// TILES de muestra para las miniaturas del fondo de mapa (Popayán, zoom 13).
+const TILE_CALLES = 'https://tile.openstreetmap.org/13/2352/4040.png';
+const TILE_SATELITE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/13/4040/2352';
+const TILE_VIAS = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/13/4040/2352';
+
+/** Interruptor (switch) con ícono, para el panel «Capas y visualización». */
+function Interruptor({ texto, icono, activo, onChange, titulo }: { texto: string; icono: React.ReactNode; activo: boolean; onChange: (v: boolean) => void; titulo?: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={activo} onClick={() => onChange(!activo)} title={titulo} className="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-[12.5px] text-[#10233f] hover:bg-slate-50">
+      <span className="text-[#116762]">{icono}</span>
+      <span className="min-w-0 flex-1 truncate">{texto}</span>
+      <span className={clsx('relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors', activo ? 'bg-[#116762]' : 'bg-slate-300')}>
+        <span className={clsx('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all', activo ? 'left-[18px]' : 'left-0.5')} />
+      </span>
+    </button>
+  );
+}
+
+function Deslizador({ texto, valor, onChange }: { texto: string; valor: number; onChange: (v: number) => void }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-[12px]"><span className="font-semibold text-[#10233f]">{texto}</span><span className="font-bold tabular-nums text-slate-600">{valor}%</span></div>
+      <input type="range" min={0} max={100} value={valor} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-[#116762]" aria-label={texto} />
+    </div>
+  );
+}
+
+/** Nombre de cada polígono de las capas visibles, sobre el mapa (solo capas con pocas zonas, para no saturar). */
+function EtiquetasZonas({ capas, camposUnion, satelital }: { capas: CapaGeografica[]; camposUnion: Map<string, string | null>; satelital: boolean }) {
+  const etiquetas = useMemo(() => {
+    const lista: { clave: string; nombre: string; pos: [number, number] }[] = [];
+    for (const capa of capas) {
+      const features = extraerFeatures(capa.geojson);
+      if (features.length === 0 || features.length > 40) continue;
+      const campo = camposUnion.get(capa.id) ?? capa.campoUnion ?? null;
+      features.forEach((f: any, i: number) => {
+        const props = f?.properties ?? {};
+        const v = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /NOMBRE|NOM_|ESTACION|ZONA|CAI|COMUNA|BARRIO|NAME/i.test(k))?.[1];
+        const nombre = String(v ?? '').trim();
+        if (!nombre) return;
+        try {
+          const c = L.geoJSON(f).getBounds().getCenter();
+          lista.push({ clave: `${capa.id}-${i}`, nombre, pos: [c.lat, c.lng] });
+        } catch { /* geometría inválida */ }
+      });
+    }
+    return lista;
+  }, [capas, camposUnion]);
+  const color = satelital ? '#ffffff' : '#10233f';
+  const halo = satelital ? '0 0 4px #000,0 1px 3px #000' : '0 0 3px #fff,0 0 2px #fff,0 0 1px #fff';
+  return (
+    <>
+      {etiquetas.map((e) => (
+        <Marker
+          key={e.clave}
+          position={e.pos}
+          interactive={false}
+          pane="markerPane"
+          icon={L.divIcon({ className: '', iconSize: [0, 0], html: `<div style="transform:translate(-50%,-50%);white-space:nowrap;font:800 13px/1 system-ui,Arial,sans-serif;color:${color};text-shadow:${halo};pointer-events:none">${e.nombre.replace(/</g, '&lt;')}</div>` })}
+        />
+      ))}
+    </>
+  );
+}
+
+/** «Vista general»: minimapa con el recuadro de lo que se ve en el mapa principal. */
+function MiniMapaGeneral({ mapaRef, tipoMapa, capas }: { mapaRef: React.MutableRefObject<L.Map | null>; tipoMapa: 'mapa' | 'satelite' | 'hibrido'; capas: CapaGeografica[] }) {
+  const [vista, setVista] = useState<{ bounds: L.LatLngBounds; centro: L.LatLng; zoom: number } | null>(null);
+  const [abierto, setAbierto] = useState(true);
+  useEffect(() => {
+    let mapa: L.Map | null = null;
+    const leer = () => { if (mapa) setVista({ bounds: mapa.getBounds(), centro: mapa.getCenter(), zoom: mapa.getZoom() }); };
+    const t = window.setInterval(() => {
+      if (mapaRef.current && mapaRef.current !== mapa) {
+        mapa?.off('moveend', leer);
+        mapa = mapaRef.current;
+        mapa.on('moveend', leer);
+        leer();
+      }
+    }, 500);
+    return () => { window.clearInterval(t); mapa?.off('moveend', leer); };
+  }, [mapaRef]);
+  if (!vista) return null;
+  const contorno = capas.flatMap((c) => extraerFeatures(c.geojson)).slice(0, 400);
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/30 bg-[#0d1b2a]/88 shadow-lg">
+      <button type="button" onClick={() => setAbierto((v) => !v)} className="flex w-full items-center justify-between gap-2 px-2.5 py-1 text-[11px] font-bold text-white">Vista general <ChevronDown size={12} className={clsx('transition', !abierto && '-rotate-90')} /></button>
+      {abierto && (
+        <div className="h-[110px] w-[170px]">
+          <MapContainer center={vista.centro} zoom={Math.max(1, vista.zoom - 4)} zoomControl={false} attributionControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} boxZoom={false} keyboard={false} touchZoom={false} style={{ height: '100%', width: '100%', background: '#0d1b2a' }}>
+            <SincronizarMiniMapa centro={vista.centro} zoom={Math.max(1, vista.zoom - 4)} />
+            {tipoMapa === 'mapa'
+              ? <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              : <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />}
+            {contorno.length > 0 && <GeoJSONLayer key={contorno.length} data={{ type: 'FeatureCollection', features: contorno } as never} interactive={false} style={{ color: '#ffffff', weight: 0.8, opacity: 0.7, fillOpacity: 0 }} />}
+            <Rectangle bounds={vista.bounds} pathOptions={{ color: '#5eead4', weight: 1.5, fillColor: '#5eead4', fillOpacity: 0.18 }} interactive={false} />
+          </MapContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SincronizarMiniMapa({ centro, zoom }: { centro: L.LatLng; zoom: number }) {
+  const map = useMap();
+  useEffect(() => { map.setView(centro, zoom, { animate: false }); }, [map, centro, zoom]);
+  return null;
+}

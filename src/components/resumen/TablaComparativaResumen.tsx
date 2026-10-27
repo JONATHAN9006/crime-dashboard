@@ -1,0 +1,132 @@
+import { formatDecimal, formatNumero } from '../../utils/aggregations';
+
+// Tabla de los dos comparativos del Resumen (Delitos y Operatividad), con
+// el mismo lenguaje visual de la imagen de referencia: encabezado verde
+// petróleo, DIF y % en celda de color sólido, APORTE % con barra pequeña y
+// fila TOTAL destacada. Solo presenta: las cifras llegan calculadas desde
+// ResumenEjecutivo (no calcula nada por su cuenta).
+
+export interface FilaComparativaResumen {
+  key: string;
+  totalAnioAnteriorCompleto: number;
+  anterior: number;
+  actual: number;
+  diferencia: number;
+  variacionPct: number | null;
+  aportePct: number | null;
+  // Fila que se muestra pero NO entra en la fila TOTAL (ej. droga, que es
+  // una cantidad en gramos/kg y no un número de procedimientos).
+  excluirDelTotal?: boolean;
+  // Formato propio de las cifras de la fila (ej. "1.234,5 kg").
+  formato?: (n: number) => string;
+}
+
+export function TablaComparativaResumen({ filas, etiqueta, anioAnterior, anioActual, invertirColores = false, alinearNombre = 'left', aporteTotal, onRowClick, compacta = false }: {
+  filas: FilaComparativaResumen[];
+  etiqueta: string;
+  anioAnterior: number;
+  anioActual: number;
+  // Operatividad: más = favorable (verde). Delitos: más = desfavorable (rojo).
+  invertirColores?: boolean;
+  alinearNombre?: 'left' | 'center';
+  // Texto de la celda APORTE % en la fila TOTAL (ej. "100%" o la suma visible).
+  aporteTotal: string;
+  // Clic en una fila (ej. Casos por estación → filtra por esa estación).
+  onRowClick?: (key: string) => void;
+  // Versión angosta (ej. dentro de una columna de 1/3): letra y ancho mínimo menores.
+  compacta?: boolean;
+}) {
+  const filasTotal = filas.filter((f) => !f.excluirDelTotal);
+  const totalCompleto = filasTotal.reduce((a, f) => a + f.totalAnioAnteriorCompleto, 0);
+  const totalAnterior = filasTotal.reduce((a, f) => a + f.anterior, 0);
+  const totalActual = filasTotal.reduce((a, f) => a + f.actual, 0);
+  const totalDif = totalActual - totalAnterior;
+  const totalPct = totalAnterior > 0 ? (totalDif / totalAnterior) * 100 : null;
+  const maxAbs = Math.max(1, ...filas.map((f) => Math.abs(f.aportePct ?? 0)));
+
+  const desfavorable = (v: number) => (invertirColores ? v < 0 : v > 0);
+  const celda = (v: number | null) => {
+    if (v === null || Math.abs(v) < 0.0001) return 'bg-amber-400 text-white';
+    return desfavorable(v) ? 'bg-[#ef3e55] text-white' : 'bg-[#25b36a] text-white';
+  };
+  const pctTexto = (v: number | null) => (v === null ? 'N/A' : `${v > 0 ? '+' : ''}${formatDecimal(v, 1)}%`);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className={`w-full table-fixed border-separate border-spacing-0 ${compacta ? 'min-w-[470px] text-[12px]' : 'min-w-[620px] text-[13px]'}`}>
+        {compacta ? (
+          <colgroup>
+            <col className="w-[16%]" />
+            <col className="w-[11%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[27%]" />
+          </colgroup>
+        ) : (
+        <colgroup>
+          <col className="w-[22%]" />
+          <col className="w-[11%]" />
+          <col className="w-[10%]" />
+          <col className="w-[10%]" />
+          <col className="w-[10%]" />
+          <col className="w-[11%]" />
+          <col className="w-[26%]" />
+        </colgroup>
+        )}
+        <thead>
+          <tr className="text-[12px] font-semibold uppercase text-white">
+            <th className="rounded-tl-md bg-[#0f5f57] px-2 py-2 text-center">{etiqueta}</th>
+            <th className="bg-[#0f5f57] px-2 py-2 text-center">Total {anioAnterior}</th>
+            <th className="bg-[#0f5f57] px-2 py-2 text-center">{anioAnterior}</th>
+            <th className="bg-[#0f5f57] px-2 py-2 text-center">{anioActual}</th>
+            <th className="bg-[#0f5f57] px-2 py-2 text-center">Dif</th>
+            <th className="bg-[#0f5f57] px-2 py-2 text-center">%</th>
+            <th className="rounded-tr-md bg-[#0f5f57] px-2 py-2 text-center">Aporte %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f) => {
+            const aporte = f.aportePct ?? 0;
+            const fmt = f.formato ?? formatNumero;
+            // Barra de aporte en azul claro en las dos tablas (a pedido); el
+            // signo lo sigue indicando el número (negativo = el delito bajó).
+            const colorBarra = Math.abs(aporte) < 0.0001 ? 'bg-slate-300' : 'bg-sky-400';
+            return (
+              <tr key={f.key} onClick={() => onRowClick?.(f.key)} className={onRowClick ? 'cursor-pointer hover:bg-slate-50' : undefined}>
+                <td className={`truncate border-b border-slate-100 px-3 py-[5px] text-slate-800 ${alinearNombre === 'center' ? 'text-center' : 'text-left'}`} title={f.key}>{f.key}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-400">{fmt(f.totalAnioAnteriorCompleto)}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{fmt(f.anterior)}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px] text-center text-slate-700">{fmt(f.actual)}</td>
+                <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.diferencia)}`}>{f.diferencia > 0 ? '+' : ''}{fmt(f.diferencia)}</td>
+                <td className={`border-b border-white/60 ${compacta ? 'px-0.5 text-[11.5px]' : 'px-2'} py-[5px] text-center font-bold ${celda(f.variacionPct)}`}>{pctTexto(f.variacionPct)}</td>
+                <td className="border-b border-slate-100 px-2 py-[5px]">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      {f.aportePct !== null && <div className={`h-full rounded-full ${colorBarra}`} style={{ width: `${Math.max(2, (Math.abs(aporte) / maxAbs) * 100)}%` }} />}
+                    </div>
+                    <span className="w-12 shrink-0 text-right text-slate-700">{f.aportePct === null ? '—' : `${formatDecimal(aporte, 1)}%`}</span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="text-[13.5px] font-bold text-white">
+            <td className="rounded-bl-md bg-[#0f5f57] px-3 py-2 text-center">TOTAL</td>
+            <td className="bg-[#0f5f57] px-2 py-2 text-center">{formatNumero(totalCompleto)}</td>
+            <td className="bg-[#0f5f57] px-2 py-2 text-center">{formatNumero(totalAnterior)}</td>
+            <td className="bg-[#0f5f57] px-2 py-2 text-center">{formatNumero(totalActual)}</td>
+            {/* DIF y % del TOTAL con el mismo semáforo de las filas: verde si se
+                va ganando, rojo si se va perdiendo (Operatividad invierte). */}
+            <td className={`border-x border-[#0f5f57] px-2 py-2 text-center ${celda(totalDif)}`}>{totalDif > 0 ? '+' : ''}{formatNumero(totalDif)}</td>
+            <td className={`border-x border-[#0f5f57] px-2 py-2 text-center ${celda(totalPct)}`}>{pctTexto(totalPct)}</td>
+            <td className="rounded-br-md bg-[#0f5f57] px-2 py-2 text-center">{aporteTotal}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}

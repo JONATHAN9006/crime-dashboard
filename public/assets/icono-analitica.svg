@@ -1,0 +1,21 @@
+<svg width="160" height="160" viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg">
+  <!-- Insignia circular con borde blanco que resalta sobre el sidebar oscuro -->
+  <circle cx="80" cy="80" r="72" fill="#0b4a46" stroke="#ffffff" stroke-width="4"/>
+
+  <!-- Barras de la gráfica (alturas crecientes, tonos institucionales) -->
+  <rect x="38" y="88" width="14" height="38" rx="2" fill="#8fd6a3"/>
+  <rect x="58" y="72" width="14" height="54" rx="2" fill="#4db6ae"/>
+  <rect x="78" y="56" width="14" height="70" rx="2" fill="#ffffff"/>
+  <rect x="98" y="40" width="14" height="86" rx="2" fill="#f2a340"/>
+
+  <!-- Línea de tendencia ascendente con puntos -->
+  <polyline points="38,96 58,80 78,60 98,44 118,32" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="38" cy="96" r="4" fill="#ffffff"/>
+  <circle cx="58" cy="80" r="4" fill="#ffffff"/>
+  <circle cx="78" cy="60" r="4" fill="#ffffff"/>
+  <circle cx="98" cy="44" r="4" fill="#ffffff"/>
+  <circle cx="118" cy="32" r="5" fill="#f2a340" stroke="#ffffff" stroke-width="2"/>
+
+  <!-- Línea base -->
+  <line x1="32" y1="126" x2="124" y2="126" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
+</svg>

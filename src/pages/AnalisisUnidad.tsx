@@ -1,0 +1,515 @@
+import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { useTemporada } from '../config/temporadas';
+import { contarOperatividad } from '../utils/operatividadConteo';
+import { useMemo, useState } from 'react';
+import { useData } from '../context/DataContext';
+import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
+import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria } from '../hooks/useTemporalAnalysis';
+import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral, useProyeccion } from '../hooks/useComparativoHomologo';
+import { useKpis } from '../hooks/useKpis';
+import { agruparPor, totalCasos, formatPct } from '../utils/aggregations';
+import { Card, PageHeader } from '../components/ui/Card';
+import { ComponenteBloqueado } from '../components/ui/ComponenteBloqueado';
+import { obtenerModoAcceso } from '../utils/modoAcceso';
+import { DASHBOARD_ACCESS } from '../config/dashboardAccess';
+import { ProveedorRegistroPdf } from '../context/RegistroPdfContext';
+import { GroupedBarChart } from '../components/charts/GroupedBarChart';
+import { SelectorTopBotones, type ValorTop } from '../components/ui/SelectorTopBotones';
+import { BotonAporte, TablaComparativaSimple } from '../components/resumen/ComparativoComun';
+import { ResumenDelictividadVisual, type TarjetaResumen } from '../components/resumen/ResumenVisual';
+import { Top5Dona } from '../components/resumen/BloquesResumen';
+import { RankingAporte } from '../components/charts/RankingAporte';
+import type { CrimeRecord } from '../types/crime';
+import { agregarCasosPorAnio } from '../utils/casosPorAnio';
+import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
+import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
+import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
+import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays, ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
+import { ComparativoMultifecha } from './ComparativoMultifecha';
+
+const OPCIONES_TOP = [
+  { label: 'Top 5', valor: 5 },
+  { label: 'Top 10', valor: 10 },
+  { label: 'Todos', valor: undefined },
+];
+
+// "14" → "14:00 – 14:59"
+const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
+
+const OPCIONES_TOP_5_10 = [
+  { label: 'Top 5', valor: 5 },
+  { label: 'Top 10', valor: 10 },
+];
+
+function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor: number | undefined; onChange: (v: number | undefined) => void; opciones?: { label: string; valor: number | undefined }[] }) {
+  return (
+    <div className="flex gap-1">
+      {opciones.map((o) => (
+        <button
+          key={o.label}
+          onClick={() => onChange(o.valor)}
+          className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${valor === o.valor ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function AnalisisUnidad() {
+  const { records, filteredRecords, recordsBase, filters, meta, drillDown, filteredOperatividadRecords, periodos } = useData();
+  const temporada = useTemporada();
+  const modoAcceso = obtenerModoAcceso();
+  const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
+  const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
+  const [topDelitos, setTopDelitos] = useState<number | undefined>(10);
+  const [topCai, setTopCai] = useState<ValorTop>(10);
+  const [topCuadrante, setTopCuadrante] = useState(10);
+  const [verAporteEstacion, setVerAporteEstacion] = useState(false);
+  const [topBarrio, setTopBarrio] = useState(10);
+  const [topArma, setTopArma] = useState(10);
+  const [topModalidad, setTopModalidad] = useState(10);
+  const [topClaseSitio, setTopClaseSitio] = useState(10);
+  const [topCausaLesion, setTopCausaLesion] = useState(10);
+
+  // ── Migrado de la antigua página "Indicadores" (fusionada aquí) ──────
+  const kpis = useKpis(filteredRecords);
+
+  // Comparativo homólogo (año anterior "a la fecha" vs. año actual) para TODOS
+  // los componentes de esta página, incluida la estación — así se evita que
+  // una misma unidad muestre cifras distintas en secciones distintas del
+  // dashboard (un solo cálculo, una sola fuente de verdad).
+  const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
+  // VISTA de las barras/rankings/donas: sin año elegido → vigencia actual
+  // (a la fecha); con UN año → ese año; con VARIOS años → todos los años
+  // elegidos juntos (filteredRecords ya trae Año/Mes/Fecha y demás filtros).
+  // Las tablas comparativas (Resumen general, Casos por estación) siguen
+  // usando la ventana actual vs anterior.
+  const variosAnios = filters.anio.length >= 2;
+  const ventanaVista = useMemo(
+    () => (variosAnios ? { ...ventana, recsActual: filteredRecords } : ventana),
+    [variosAnios, ventana, filteredRecords],
+  );
+  const recsVista = ventanaVista.recsActual;
+  const aniosElegidos = [...filters.anio].map(Number).sort((a, b) => a - b);
+  const etiquetaVigencia = variosAnios
+    ? `vigencias ${aniosElegidos.length > 2 && aniosElegidos.every((y, i) => i === 0 || y === aniosElegidos[i - 1] + 1) ? `${aniosElegidos[0]}–${aniosElegidos[aniosElegidos.length - 1]}` : aniosElegidos.join(', ')}`
+    : `vigencia ${ventana.anioActual}`;
+  const cmpGeneral = useComparativoGeneral(ventana);
+  // Con VARIOS años elegidos, las tablas de ranking muestran los casos de
+  // cada año y la variación (en vez de la suma y el aporte %).
+  const aniosTabla = variosAnios ? aniosElegidos : [];
+  const conAnios = <T extends { key: string }>(filas: T[], getter: (r: CrimeRecord) => string | null | undefined) => agregarCasosPorAnio(filas, recsVista, getter, aniosTabla);
+
+  // EXCLUSIVAMENTE la vigencia actual (ventana.recsActual) — igual que Top
+  // delitos/CAI/Turno más abajo en esta misma página. Antes usaba
+  // filteredRecords directo, que sin ningún año/fecha filtrado mezclaba
+  // los 23 años de histórico en una sola gráfica de "día de la semana"
+  // (bug real, confirmado: los totales por día sumaban ~103.000 casos en
+  // vez de los ~10.000 esperados para un solo año).
+  const diaSemana = useTendenciaDiaSemana(recsVista);
+
+  // Incluye TAMBIÉN el año anterior (no solo el actual) — necesario para
+  // poder comparar, día a día, el mismo periodo contra el año pasado dentro
+  // del propio gráfico de Tendencia Diaria.
+  const registrosParaDiaria = useMemo(
+    () => filteredRecords.filter((r) => r.anio === ventana.anioActual || r.anio === ventana.anioAnterior),
+    [filteredRecords, ventana.anioActual, ventana.anioAnterior],
+  );
+  const diaria = useTendenciaDiaria(registrosParaDiaria);
+  // Abierta por defecto: la tendencia diaria comparte fila con la mensual.
+  const [vistaDiaria, setVistaDiaria] = useState(true);
+
+  // Total General = año COMPLETO (01/01–31/12) de la vigencia anterior.
+  const totalGeneralIndicadores = useMemo(
+    () => totalCasos(recordsBase.filter((r) => r.anio === ventana.anioAnterior)),
+    [recordsBase, ventana.anioAnterior],
+  );
+
+  const [resumenDiario, setResumenDiario] = useState<{ mesesTexto: string; porMes: { mesNombre: string; anio: number; casos: number }[]; porMesAnioAnterior: { mesNombre: string; anio: number; casos: number }[]; mostrarAnioAnterior: boolean } | null>(null);
+  // (Los textos de "mes más afectado", "prioridad" y correlación entre años
+  // se quitaron de la tendencia diaria a pedido.)
+  const desfavorableGeneral = cmpGeneral.variacionPct !== null && cmpGeneral.variacionPct > 0;
+
+  const urbanoRural = useUrbanoRural(recsVista);
+  const porGenero = useRanking(recsVista, (r) => r.genero, 10);
+  const porGrupoEdad = useRanking(recsVista, (r) => r.grupoEdad, 10);
+  // Igual razón que diaSemana arriba: EXCLUSIVAMENTE la vigencia actual,
+  // no filteredRecords directo (que mezclaba los 23 años sin filtro).
+  const porHora = useDistribucionHoraria(recsVista);
+  const [topHorasUnidad, setTopHorasUnidad] = useState<number | undefined>(undefined);
+  // "Horas más afectadas": las 24 horas como ranking (mismas barras y aporte
+  // de las demás tarjetas). Clic = filtrar por esa hora; otro clic la quita.
+  const [topHorasRanking, setTopHorasRanking] = useState<number | undefined>(5);
+  const horasMasAfectadas = useMemo(() => {
+    const totalHoras = porHora.reduce((a, h) => a + h.casos, 0);
+    const filas = [...porHora]
+      .filter((h) => h.casos > 0)
+      .sort((a, b) => b.casos - a.casos || a.horaNum - b.horaNum)
+      .map((h) => ({ key: String(h.horaNum), casos: h.casos, aportePct: totalHoras > 0 ? (h.casos / totalHoras) * 100 : 0 }));
+    return topHorasRanking ? filas.slice(0, topHorasRanking) : filas;
+  }, [porHora, topHorasRanking]);
+  const porHoraFiltrada = useMemo(() => {
+    if (!topHorasUnidad) return porHora;
+    return [...porHora].sort((a, b) => b.casos - a.casos).slice(0, topHorasUnidad);
+  }, [porHora, topHorasUnidad]);
+
+  const cmpEstacion = useComparativoCategoria(ventana, (r) => r.estacion, 10);
+  const cmpCuadrante = useComparativoCategoria(ventanaVista, (r) => r.cuadrante, 10);
+  const cmpBarrio = useComparativoCategoria(ventanaVista, (r) => r.barrioHecho, 10);
+  const cmpArma = useComparativoCategoria(ventanaVista, (r) => r.armas, 10);
+  const cmpModalidad = useComparativoCategoria(ventanaVista, (r) => r.modalidad, 10);
+  const cmpClaseSitio = useComparativoCategoria(ventanaVista, (r) => r.claseSitio, 10);
+  const cmpCausaLesion = useComparativoCategoria(ventanaVista, (r) => r.causaLesion, 10);
+  // Comparativo por delito, filtrado a EXACTAMENTE los delitos que estén
+  // seleccionados en el filtro principal — se acomoda solo, sin necesidad de
+  // ningún control adicional en esta tarjeta.
+  const cmpDelitoCompleto = useComparativoCategoria(ventana, (r) => r.delito, 200);
+  const cmpDelitoSeleccionado = filters.delito.length > 0
+    ? cmpDelitoCompleto.filter((f) => filters.delito.includes(f.key))
+    : [];
+  const proyeccion = useProyeccion(ventana);
+  // Base para la meta de reducción: el total COMPLETO de la vigencia anterior
+  // (2025, año cerrado 01/01–31/12), tal como se pidió — no el corte "a la
+  // fecha" que usa el resto de la comparación homóloga.
+  const totalAnioAnteriorCompleto = useMemo(
+    () => totalCasos(recordsBase.filter((r) => r.anio === ventana.anioAnterior)),
+    [recordsBase, ventana.anioAnterior],
+  );
+  const metaReduccion5 = totalAnioAnteriorCompleto * 0.95;
+  const cumpleMeta = proyeccion.disponible && proyeccion.proyeccionFinAnio <= metaReduccion5;
+
+  // Cuota mensual restante: de los casos que "todavía caben" dentro de la
+  // meta del 5% (lo que falta de la meta menos lo que ya ocurrió este año),
+  // repartido entre los meses que faltan del año — para saber, mes a mes,
+  // cuántos casos como máximo deberían presentarse (de este delito, si hay
+  // uno filtrado, o en general) para seguir en camino de cumplir la meta.
+  // Si el filtro de Delito está activo, esto ya corresponde a ESE delito
+  // específicamente, porque toda la cadena (recordsBase, ventana,
+  // proyección) ya respeta los filtros activos del dashboard.
+  const mesesRestantes = Math.max(1, 12 - (ventana.actualFin.getMonth() + 1));
+  const casosPermitidosRestantes = metaReduccion5 - proyeccion.casosActual;
+  const cuotaMensualRestante = casosPermitidosRestantes / mesesRestantes;
+
+  // "Proyección vs. 2025": a propósito compara la PROYECCIÓN de cierre
+  // contra el TOTAL REAL COMPLETO de 2025 (no contra el corte homólogo "a
+  // la fecha", que es una pregunta distinta) — es la comparación real que
+  // se pidió: "si termino el año a este ritmo, ¿cómo quedo frente a todo
+  // 2025?". Se protege división por cero cuando 2025 no tiene casos.
+  const diferenciaVs2025Completo = proyeccion.disponible ? proyeccion.proyeccionFinAnio - totalAnioAnteriorCompleto : 0;
+  const pctVs2025Completo = totalAnioAnteriorCompleto > 0 ? (diferenciaVs2025Completo / totalAnioAnteriorCompleto) * 100 : null;
+
+  // Proyección vs. meta — diferencia exacta (redondeada solo para mostrar;
+  // la comparación de "cumpleMeta" ya usa los valores sin redondear).
+  const diferenciaVsMeta = proyeccion.disponible ? Math.round(proyeccion.proyeccionFinAnio - metaReduccion5) : 0;
+  const coincideConMeta = diferenciaVsMeta === 0;
+
+  // Interpretación dinámica: una sola oración que une los cuatro conceptos
+  // (ritmo real, proyección, comparación contra 2025 y meta), generada
+  // exclusivamente a partir de los números ya calculados arriba — nunca un
+  // texto fijo ni una conclusión inventada.
+  const textoInterpretacion = proyeccion.disponible
+    ? `Con el ritmo actual de ${formatDecimal(proyeccion.casosPorDia, 2)} casos/día, se proyecta un cierre de aproximadamente ${formatNumero(proyeccion.proyeccionFinAnio)} casos para ${ventana.anioActual}. Frente al cierre real de ${ventana.anioAnterior} (${formatNumero(totalAnioAnteriorCompleto)} casos), esto representa ${pctVs2025Completo === null ? 'una variación no calculable (2025 sin casos registrados)' : `una variación de ${pctVs2025Completo >= 0 ? '+' : ''}${formatDecimal(pctVs2025Completo, 1)}%`}. La meta de reducción del 5% establece un máximo de ${formatNumero(metaReduccion5)} casos para ${ventana.anioActual}.`
+    : '';
+
+  // Top delitos: EXCLUSIVAMENTE la vigencia actual (ventana.recsActual), sin
+  // mezclar con el año anterior — reutiliza el mismo motor de ventana
+  // homóloga que ya respeta Año/Mes/Fecha/Estación/Delito seleccionados.
+  // El aporte % se calcula sobre el TOTAL COMPLETO de delitos de la
+  // vigencia (antes de recortar al Top N elegido), para que el porcentaje
+  // sea real y no quede inflado sobre un subconjunto — misma fórmula única
+  // usada en todo el dashboard: casos de la categoría / total del conjunto
+  // analizado × 100. Nunca produce NaN/Infinity: si el total es 0, el
+  // aporte es 0.
+  const porDelitoVigenciaActualCompleto = ventana.disponible
+    ? agruparPor(recsVista, (r) => r.delito).filter((d) => d.key !== 'NO REPORTADO')
+    : [];
+  const totalDelitosVigenciaActual = porDelitoVigenciaActualCompleto.reduce((a, d) => a + d.casos, 0);
+  const porDelitoVigenciaActual = porDelitoVigenciaActualCompleto.slice(0, topDelitos).map((d) => ({
+    ...d,
+    aportePct: totalDelitosVigenciaActual > 0 ? (d.casos / totalDelitosVigenciaActual) * 100 : 0,
+  }));
+
+  // CAI más afectados — misma vigencia actual (ventana.recsActual), mismo
+  // criterio que "Top delitos" de arriba.
+  const porCaiCompleto = ventana.disponible
+    ? agruparPor(recsVista, (r) => r.cai || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO')
+    : [];
+  const totalCaiVigenciaActual = porCaiCompleto.reduce((a, d) => a + d.casos, 0);
+  const porCaiRecortado = topCai === 'todas' ? porCaiCompleto : porCaiCompleto.slice(0, topCai);
+  const porCaiVigenciaActual = porCaiRecortado.map((d) => ({
+    ...d,
+    aportePct: totalCaiVigenciaActual > 0 ? (d.casos / totalCaiVigenciaActual) * 100 : 0,
+  }));
+
+  // Turno de vigilancia — mismo criterio de vigencia actual que los demás
+  // componentes de esta página (3 turnos de 8 horas, calculados ya desde
+  // la carga del archivo — ver csvParser.ts).
+  const porTurnoCompleto = ventana.disponible
+    ? agruparPor(recsVista, (r) => r.turno || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO')
+    : [];
+  const totalTurnoVigenciaActual = porTurnoCompleto.reduce((a, d) => a + d.casos, 0);
+  const porTurnoVigenciaActual = porTurnoCompleto.map((d) => ({
+    ...d,
+    aportePct: totalTurnoVigenciaActual > 0 ? (d.casos / totalTurnoVigenciaActual) * 100 : 0,
+  }));
+
+  // Operatividad (capturas, incautaciones, recuperaciones) — dataset
+  // SEPARADO del de delictividad, ya filtrado por DataContext con los
+  // MISMOS filtros generales (Delito ↔ delito asociado, Estación,
+  // Cuadrante, Barrio, Año, Mes, fecha). Si el delito filtrado es
+  // "Homicidio", esto ya trae solo la operatividad asociada a Homicidio.
+  // Conteo oficial (utils/operatividadConteo); la droga va por cantidad y no entra aquí.
+  const porCategoriaOperatividad = contarOperatividad(filteredOperatividadRecords, (r) => r.categoria || 'Sin categoría');
+  const totalOperatividad = porCategoriaOperatividad.reduce((a, d) => a + d.casos, 0);
+  const porCategoriaOperatividadConAporte = porCategoriaOperatividad.map((d) => ({
+    ...d,
+    aportePct: totalOperatividad > 0 ? (d.casos / totalOperatividad) * 100 : 0,
+  }));
+
+  // Igual que en Comparativo.tsx y ResumenEjecutivo.tsx: la ventana de
+  // "vigencia actual vs anterior" no tiene sentido con periodos de
+  // análisis multifecha activos — se muestra la vista de periodos en su
+  // lugar. Va DESPUÉS de todos los hooks de arriba, nunca antes.
+  if (periodos.length > 0) {
+    return <ComparativoMultifecha />;
+  }
+
+  // ── Estilo común de las tarjetas (como la imagen de referencia) ───────
+  const T = 'text-[14px] font-bold leading-tight text-[#10233f]';
+  const ico = (Icono: typeof MapPin, extra = '') => <Icono size={24} strokeWidth={2.3} className={`shrink-0 text-[#137a6f] ${extra}`} />;
+  // Resumen general con la estética del de Operatividad: total del año
+  // actual + delito principal arriba y un mosaico con el resto (mismos datos
+  // de siempre: año anterior, diferencia, variación, tendencia, vigencia
+  // anterior completa, promedio, máximo y mínimo diario).
+  const colorTendencia = desfavorableGeneral ? 'text-rose-600' : 'text-emerald-600';
+  // Delito principal DEL AÑO ACTUAL (mismo periodo que la cifra grande de al lado).
+  const delitoPrincipalActual = (() => {
+    const top = agruparPor(ventana.recsActual, (r) => r.delito).filter((d) => d.key !== 'NO REPORTADO')[0];
+    const tot = totalCasos(ventana.recsActual);
+    return top ? { key: top.key, casos: top.casos, pct: tot > 0 ? (top.casos / tot) * 100 : 0 } : null;
+  })();
+  const tonoVar = desfavorableGeneral ? 'rojo' as const : 'verde' as const;
+  const mosaicoResumen: TarjetaResumen[] = [
+    { titulo: `Casos año anterior (${ventana.anioAnterior})`, valor: formatNumero(cmpGeneral.casosAnterior), nota: 'a la fecha', tono: 'verde', icono: <CalendarDays size={18} strokeWidth={2} /> },
+    { titulo: 'Diferencia absoluta', valor: `${cmpGeneral.variacionAbs >= 0 ? '+' : ''}${formatNumero(cmpGeneral.variacionAbs)}`, colorValor: colorTendencia, tono: tonoVar, icono: desfavorableGeneral ? <TrendingUp size={18} strokeWidth={2} /> : <TrendingDown size={18} strokeWidth={2} /> },
+    { titulo: 'Variación %', valor: formatPct(cmpGeneral.variacionPct), colorValor: colorTendencia, tono: tonoVar, icono: <Activity size={18} strokeWidth={2} /> },
+    { titulo: 'Tendencia', valor: desfavorableGeneral ? 'Desfavorable' : 'Favorable', colorValor: colorTendencia, tono: tonoVar, icono: desfavorableGeneral ? <TrendingUp size={18} strokeWidth={2} /> : <TrendingDown size={18} strokeWidth={2} /> },
+    { titulo: `Total vigencia ${ventana.anioAnterior} completa`, valor: formatNumero(totalGeneralIndicadores), tono: 'verde', icono: <BarChart3 size={18} strokeWidth={2} /> },
+    { titulo: 'Promedio diario', valor: formatDecimal(kpis.promedioDiario), nota: 'casos/día', tono: 'azul', icono: <Clock size={18} strokeWidth={2} /> },
+    { titulo: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: 'en 1 día', tono: 'verde', icono: <ArrowUpToLine size={18} strokeWidth={2} /> },
+    { titulo: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: 'en 1 día', tono: 'azul', icono: <ArrowDownToLine size={18} strokeWidth={2} /> },
+  ];
+  const ranking = (filas: { key: string; actual: number; aportePct: number }[], limite: number) =>
+    [...filas].sort((a, b) => b.actual - a.actual).slice(0, limite).map((f) => ({ key: f.key, casos: f.actual, aportePct: f.aportePct }));
+  const total = (filas: { casos: number }[]) => filas.reduce((a, f) => a + f.casos, 0);
+  const COLORES_DONA = ['#10233f', '#159089', '#f97316', '#8a86da', '#a3acb9'];
+
+  return (
+    <ProveedorRegistroPdf>
+      <div className="space-y-4">
+        {temporada
+          ? <BannerTemporada temporada={temporada} modulo="delictividad" titulo="Análisis por Unidad" icono={<Building2 size={22} />} />
+          : <PageHeader title="Análisis por Unidad" />}
+
+        {ventana.disponible && (
+          <>
+            {/* ── FILA 1: Resumen general | Proyección | Casos por estación (+ meta del 5 %) ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)_minmax(0,1fr)]">
+              <Card adorno={temporada ? <TelaranaEsquina /> : undefined} className="h-full" title="Resumen general" descargable="resumen-general-unidad" icono={ico(BarChart3)} claseTitulo={T}>
+<ResumenDelictividadVisual
+                  anioActual={ventana.anioActual}
+                  anioAnterior={ventana.anioAnterior}
+                  casosActual={cmpGeneral.casosActual}
+                  variacionAbs={cmpGeneral.variacionAbs}
+                  variacionPct={cmpGeneral.variacionPct}
+                  desfavorable={desfavorableGeneral}
+                  principal={delitoPrincipalActual}
+                  tarjetas={mosaicoResumen}
+                />
+              </Card>
+
+              <Card className="h-full" title="Proyección de delitos" subtitle="Fin de año, según ritmo actual" descargable="proyeccion-delitos" icono={ico(LineChart)} claseTitulo={T}>
+                {proyeccion.disponible ? (
+                  <div className="space-y-2 text-[12.5px]">
+                    <div>
+                      <p className="text-[11px] text-slate-500">Casos a la fecha</p>
+                      <p className="text-[22px] font-bold leading-tight text-[#10233f]">{formatNumero(proyeccion.casosActual)} casos</p>
+                      <p className="text-[11.5px] text-slate-500">{proyeccion.diasTranscurridos} días transcurridos (01/01/{ventana.anioActual} – {formatFecha(ventana.actualFin)}) · Ritmo actual: {formatDecimal(proyeccion.casosPorDia, 2)} casos/día</p>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <p className="text-[11px] font-semibold text-brand-green">Proyección al cierre de {ventana.anioActual}</p>
+                      <p className="text-[22px] font-bold leading-tight text-[#10233f]">{formatNumero(proyeccion.proyeccionFinAnio)} casos</p>
+                      <p className="text-[11.5px] text-slate-500">Si se mantiene el ritmo actual, se proyectan aproximadamente {formatNumero(proyeccion.proyeccionFinAnio)} casos al cierre de {ventana.anioActual}.</p>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <p className={`flex items-center gap-1.5 font-semibold ${diferenciaVs2025Completo > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {diferenciaVs2025Completo > 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        {diferenciaVs2025Completo >= 0 ? '+' : ''}{formatNumero(diferenciaVs2025Completo)} casos vs. {ventana.anioAnterior}
+                        <span className="font-normal text-slate-400">({pctVs2025Completo === null ? 'N/A' : `${pctVs2025Completo >= 0 ? '+' : ''}${formatDecimal(pctVs2025Completo, 1)}%`})</span>
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] leading-snug text-slate-400">Proyección = (casos ÷ días transcurridos) × {proyeccion.diasEnAnio} días. Comparado contra el total REAL de {ventana.anioAnterior} completo ({formatNumero(totalAnioAnteriorCompleto)} casos) — no contra el mismo corte de fecha.</p>
+                    </div>
+                    <p className="border-t border-slate-100 pt-2 text-[11.5px] leading-snug text-slate-600">{textoInterpretacion}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">Sin datos suficientes para proyectar.</p>
+                )}
+              </Card>
+
+              {/* Casos por estación: TABLA (obligatoria) + debajo el recuadro rojo/verde de la meta del 5 %. */}
+              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T} actions={<BotonAporte activo={verAporteEstacion} onChange={setVerAporteEstacion} />}>
+                <TablaComparativaSimple
+                  filas={cmpEstacion.slice(0, 10).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual, totalAnterior: f.totalAnioAnteriorCompleto }))}
+                  etiqueta="Estación"
+                  anioAnterior={ventana.anioAnterior}
+                  anioActual={ventana.anioActual}
+                  subirEsBueno={false}
+                  mostrarAporte={verAporteEstacion}
+                  totalReferencia={cmpEstacion.reduce((a, f) => a + f.actual, 0)}
+                  onRowClick={(key) => drillDown('estacion', key)}
+                  seleccionados={filters.estacion as string[]}
+                  compacta
+                />
+                {proyeccion.disponible && (
+                  <div className={`mt-3 rounded-lg border p-3 ${cumpleMeta ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
+                    <p className={`flex items-center gap-2 text-[16px] font-bold ${cumpleMeta ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      <Target size={18} /> Meta de reducción del 5%: {formatNumero(metaReduccion5)} casos
+                    </p>
+                    <p className={`mt-1 text-[12px] font-medium ${cumpleMeta ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      {coincideConMeta
+                        ? 'La proyección coincide con la meta establecida.'
+                        : cumpleMeta
+                          ? `✓ La proyección se encuentra ${formatNumero(Math.abs(diferenciaVsMeta))} casos por debajo de la meta.`
+                          : `⚠ La proyección actual supera la meta en ${formatNumero(diferenciaVsMeta)} casos.`}
+                    </p>
+                    <p className="mt-1.5 border-t border-slate-200/70 pt-1.5 text-[11.5px] text-slate-600">
+                      Base: {formatNumero(totalAnioAnteriorCompleto)} casos en {ventana.anioAnterior} × 0,95.{' '}
+                      {casosPermitidosRestantes >= 0
+                        ? `Para cumplir la meta: máximo ≈ ${formatNumero(Math.max(0, Math.round(cuotaMensualRestante)))} casos/mes en lo que resta de ${ventana.anioActual} (${mesesRestantes} ${mesesRestantes === 1 ? 'mes restante' : 'meses restantes'}).`
+                        : `Ya se superó el total permitido por la meta (${formatNumero(Math.abs(casosPermitidosRestantes))} casos de más) antes de terminar el año.`}
+                    </p>
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* ── FILA 2: Tendencia mensual | Tendencia diaria ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+              <div className="min-w-0">
+                {accesoTendenciaMensual ? (
+                  <ComportamientoDelDelito descargable="tendencia-mensual" titulo="Tendencia Mensual" subtitulo="Comparación de casos por mes entre los años seleccionados" mostrarLectura={false} icono={ico(BarChart3)} />
+                ) : (
+                  <ComponenteBloqueado titulo="Tendencia mensual" subtitulo="Comparación de casos por mes entre los años disponibles" />
+                )}
+              </div>
+              <div className="min-w-0">
+                {accesoTendenciaDiaria ? (
+                  <Card
+                    className="h-full"
+                    title={`Tendencia diaria${resumenDiario?.mesesTexto ? ` — ${resumenDiario.mesesTexto}` : ''}`}
+                    subtitle="Comportamiento día a día en el periodo filtrado"
+                    descargable="tendencia-diaria"
+                    icono={ico(Activity)}
+                    claseTitulo={T}
+                    actions={
+                      <button onClick={() => setVistaDiaria((v) => { if (v) setResumenDiario(null); return !v; })} className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
+                        {vistaDiaria ? 'Ver resumen' : 'Ver serie completa'}
+                      </button>
+                    }
+                  >
+                    {vistaDiaria ? (
+                      <TendenciaDiariaChart data={diaria} height={300} onResumenChange={setResumenDiario} />
+                    ) : (
+                      <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos).</p>
+                    )}
+                  </Card>
+                ) : (
+                  <ComponenteBloqueado titulo="Tendencia diaria" subtitulo="Comportamiento día a día en el periodo filtrado" />
+                )}
+              </div>
+            </div>
+
+            {/* ── FILA 3: CAI | Turno | Top delitos | Top cuadrantes ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+              <Card className="h-full" title="CAI más afectados" subtitle={`Top ${topCai === 'todas' ? 'todos' : topCai}, ${etiquetaVigencia}`} descargable="cai-mas-afectados" icono={ico(MapPin)} claseTitulo={T} actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}>
+                <RankingAporte data={conAnios(porCaiVigenciaActual, (r) => r.cai || 'NO REPORTADO')} anios={aniosTabla} cabeza="CAI" onClick={(key) => drillDown('cai', key)} seleccionados={filters.cai as string[]} />
+              </Card>
+              <Card className="h-full" title="Turno de vigilancia" subtitle={`Exclusivamente ${etiquetaVigencia}`} descargable="turno-vigilancia" icono={ico(Clock)} claseTitulo={T}>
+                <RankingAporte data={conAnios(porTurnoVigenciaActual, (r) => r.turno || 'NO REPORTADO')} anios={aniosTabla} cabeza="Turno" onClick={(key) => drillDown('turno', key)} seleccionados={filters.turno as string[]} />
+              </Card>
+              <Card className="h-full" title="Análisis de delitos — Top por cantidad" subtitle={`Exclusivamente ${etiquetaVigencia}`} descargable="top-delitos" icono={ico(BarChart3)} claseTitulo={T} actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}>
+                <RankingAporte data={conAnios(porDelitoVigenciaActual, (r) => r.delito)} anios={aniosTabla} cabeza="Delito" onClick={(key) => drillDown('delito', key)} seleccionados={filters.delito as string[]} />
+              </Card>
+              <Card className="h-full" title={`Top ${topCuadrante} Zonas de Atención más afectadas`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpCuadrante, topCuadrante), (r) => r.cuadrante)} anios={aniosTabla} cabeza="Zonas de Atención" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
+              </Card>
+              <Card className="h-full" title="Horas más afectadas" subtitle={`${topHorasRanking ? `Top ${topHorasRanking}` : 'Las 24 horas'}, ${etiquetaVigencia}`} descargable="horas-mas-afectadas" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTop valor={topHorasRanking} onChange={setTopHorasRanking} opciones={OPCIONES_TOP} />}>
+                <RankingAporte
+                  data={conAnios(horasMasAfectadas, (r) => (r.hora != null ? String(r.hora) : '')).map((h) => ({ ...h, key: etiquetaHora(h.key) }))}
+                  anios={aniosTabla}
+                  cabeza="Hora"
+                  onClick={(etiqueta) => drillDown('horaExacta', String(parseInt(etiqueta, 10)))}
+                  seleccionados={filters.horaExacta.map(etiquetaHora)}
+                />
+              </Card>
+            </div>
+
+            {/* ── FILA 4: Barrios | Armas | Modalidades | Clase de sitio | Causa de lesión ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+              <Card className="h-full" title={`Top ${topBarrio} barrios más afectados`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-barrios" icono={ico(Home)} claseTitulo={T} actions={<SelectorTop valor={topBarrio} onChange={(v) => setTopBarrio(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpBarrio, topBarrio), (r) => r.barrioHecho)} anios={aniosTabla} cabeza="Barrio" onClick={(key) => drillDown('barrioHecho', key)} seleccionados={filters.barrioHecho as string[]} />
+              </Card>
+              <Card className="h-full" title="Armas empleadas" subtitle={`Top ${topArma}, ${etiquetaVigencia}`} descargable="armas-empleadas" icono={ico(Crosshair)} claseTitulo={T} actions={<SelectorTop valor={topArma} onChange={(v) => setTopArma(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpArma, topArma), (r) => r.armas)} anios={aniosTabla} cabeza="Arma" onClick={(key) => drillDown('armas', key)} seleccionados={filters.armas as string[]} />
+              </Card>
+              <Card className="h-full" title="Modalidades principales" subtitle={`Top ${topModalidad}, ${etiquetaVigencia}`} descargable="modalidades" icono={ico(Timer)} claseTitulo={T} actions={<SelectorTop valor={topModalidad} onChange={(v) => setTopModalidad(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpModalidad, topModalidad), (r) => r.modalidad)} anios={aniosTabla} cabeza="Modalidad" onClick={(key) => drillDown('modalidad', key)} seleccionados={filters.modalidad as string[]} />
+              </Card>
+              <Card className="h-full" title="Clase de sitio" subtitle={`Top ${topClaseSitio}, ${etiquetaVigencia}`} descargable="clase-sitio" icono={ico(Building)} claseTitulo={T} actions={<SelectorTop valor={topClaseSitio} onChange={(v) => setTopClaseSitio(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpClaseSitio, topClaseSitio), (r) => r.claseSitio)} anios={aniosTabla} cabeza="Clase de sitio" onClick={(key) => drillDown('claseSitio', key)} seleccionados={filters.claseSitio as string[]} />
+              </Card>
+              <Card className="h-full" title="Causa de lesión" subtitle={`Top ${topCausaLesion}, ${etiquetaVigencia}`} descargable="causa-lesion" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} claseTitulo={T} actions={<SelectorTop valor={topCausaLesion} onChange={(v) => setTopCausaLesion(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpCausaLesion, topCausaLesion), (r) => r.causaLesion)} anios={aniosTabla} cabeza="Causa" onClick={(key) => drillDown('causaLesion', key)} seleccionados={filters.causaLesion as string[]} />
+              </Card>
+            </div>
+
+            {/* ── FILA 5: Zonas | Género | Grupo de edad | Día de la semana | Concentración horaria ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3 2xl:grid-cols-[0.8fr_0.8fr_0.8fr_1.4fr_2.2fr]">
+              <Card className="h-full 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={urbanoRural} total={total(urbanoRural)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full 2xl:col-span-1" title="Distribución por género" descargable="distribucion-genero" icono={ico(Users)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGenero)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de lunes a domingo" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={10.5} espaciadoCategoria={0.32} ocultarEjeY abreviarEtiquetas ocultarLeyendaBarras lineaReferencia="tendencia" />
+              </Card>
+              <Card
+                className="h-full md:col-span-3 2xl:col-span-1"
+                title="Concentración horaria"
+                subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Las 3 horas con más casos se resaltan · línea naranja: promedio de 3 horas (franjas de mayor actividad)'}
+                descargable="concentracion-horaria"
+                icono={ico(Clock)}
+                claseTitulo="text-[14px] font-bold text-[#10233f]"
+                actions={
+                  <div className="flex gap-1">
+                    {[{ label: 'Top 5', v: 5 }, { label: 'Top 10', v: 10 }, { label: 'Todas', v: undefined }].map((o) => (
+                      <button key={o.label} onClick={() => setTopHorasUnidad(o.v)} className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${topHorasUnidad === o.v ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{o.label}</button>
+                    ))}
+                  </div>
+                }
+              >
+                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra tamanoEtiqueta={9} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad ? undefined : 'promedio3'} />
+              </Card>
+            </div>
+          </>
+        )}
+      </div>
+    </ProveedorRegistroPdf>
+  );
+}

@@ -1,0 +1,128 @@
+import * as XLSX from 'xlsx';
+import { MAPA_CUADRANTE } from './db2Mapeos';
+
+// Lector de la "MATRIZ_COMPARENDOS" — confirmado contra el archivo real del
+// usuario (Hoja1, 6.619 filas, columnas como ARTICULO/COMPORTAMIENTO/
+// CUADRANTE_HECHOS/LOCALIDAD/POLICIA_IMPONE). Esta va a ser SIEMPRE la
+// misma matriz (así lo indicó explícitamente), así que se lee por nombre
+// de columna exacto, sin heurísticas de detección como las de Delictividad.
+
+export interface RegistroComparendo {
+  __id: string; // EXPEDIENTE — único por comparendo, confirmado contra el archivo real (6.619 filas, 6.619 valores distintos). Es la identidad real del sistema de origen, no un hash calculado.
+  fecha: Date | null;
+  anio: number | null;
+  articulo: string; // "Art. 27" (sin el texto largo)
+  numeral: string; // "Num. 6"
+  articuloNumeral: string; // "Art. 27 Num. 6" — clave para agrupar
+  comportamientoTexto: string; // el texto completo del comportamiento
+  comuna: string; // LOCALIDAD, ej. "C-4"
+  cuadranteHechos: string; // código crudo
+  zonaAtencionHechos: string; // traducido vía MAPA_CUADRANTE, ej. "Z. Atención 16 Norte"
+  cuadrantePatrulla: string; // código crudo (CUADRANTE_CARGO_POL)
+  zonaAtencionPatrulla: string; // traducido — la "patrulla" que atendió
+  unidadPolicial: string; // UNIDAD_LABORA_POL, ej. "MEPOY - CAI COMUNA CUATRO"
+  funcionario: string; // POLICIA_IMPONE (antes POLICIA_IMPUSO) — grado + nombre, ej. "SI GARCIA CHICANGANA WILSON"
+  barrio: string;
+  lat: number | null;
+  lon: number | null;
+  mediacionInSitu: boolean; // columna MEDIACION — "X" cuando se aplicó, vacía si no
+}
+
+function parseCoordenada(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.'));
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+
+function limpiar(v: unknown): string {
+  return String(v ?? '').trim();
+}
+
+// "Art. 27 - Comportamientos que..." → "Art. 27"
+function extraerArticuloCorto(texto: string): string {
+  const m = texto.match(/Art\.\s*\d+/i);
+  return m ? m[0].replace(/\s+/g, ' ') : texto;
+}
+// "Num. 6 - Portar armas..." → "Num. 6"
+function extraerNumeralCorto(texto: string): string {
+  const m = texto.match(/Num\.\s*\d+/i);
+  return m ? m[0].replace(/\s+/g, ' ') : texto;
+}
+
+function traducirZona(codigoCrudo: string): string {
+  const codigo = codigoCrudo.trim().toUpperCase();
+  return MAPA_CUADRANTE[codigo] ?? codigoCrudo;
+}
+
+function parseFechaExcel(valor: unknown): Date | null {
+  if (valor instanceof Date && !isNaN(valor.getTime())) return valor;
+  if (typeof valor === 'number' && valor > 20000 && valor < 60000) {
+    const f = new Date(Date.UTC(1899, 11, 30) + valor * 86400000);
+    return isNaN(f.getTime()) ? null : f;
+  }
+  const texto = limpiar(valor);
+  if (!texto) return null;
+  const m = texto.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m) {
+    const f = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return isNaN(f.getTime()) ? null : f;
+  }
+  const intento = new Date(texto);
+  return isNaN(intento.getTime()) ? null : intento;
+}
+
+/** Qué columna se usó para "Funcionario policial" en la última lectura (para avisarlo en pantalla). */
+export let ultimaColumnaFuncionario: { columna: string | null; candidatas: string[] } = { columna: null, candidatas: [] };
+
+export async function leerMatrizComparendos(file: File): Promise<RegistroComparendo[]> {
+  const buffer = await file.arrayBuffer();
+  const libro = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const hoja = libro.Sheets[libro.SheetNames[0]];
+  const filasCrudas: Record<string, unknown>[] = XLSX.utils.sheet_to_json(hoja, { defval: '' });
+  // Encabezados normalizados (sin tildes, mayúsculas, espacios → "_") para
+  // que una variación menor del nombre de columna no deje un campo vacío.
+  const normalizarEncabezado = (k: string) => k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const filas = filasCrudas.map((f) => {
+    const n: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(f)) n[normalizarEncabezado(k)] = v;
+    return n;
+  });
+  // Columna del funcionario que IMPONE el comparendo: POLICIA_IMPONE en la
+  // matriz actual, POLICIA_IMPUSO en las anteriores; se acepta cualquier
+  // encabezado equivalente ("FUNCIONARIO IMPONE", "POLICÍA QUE IMPUSO"…).
+  // Nunca se toma la cédula (ID_…). Último recurso: POLICIA_INSERTO.
+  const columnas = filas.length > 0 ? Object.keys(filas[0]) : [];
+  const colFuncionario = columnas.find((c) => /^(POLICIA|FUNCIONARIO|AGENTE|UNIFORMADO)_?(QUE_)?(IMPONE|IMPUSO)$/.test(c))
+    ?? columnas.find((c) => !/^ID|IDENTIFICACION|CEDULA|DOCUMENTO/.test(c) && /(POLICIA|FUNCIONARIO)/.test(c) && /(IMPON|IMPUS)/.test(c))
+    ?? columnas.find((c) => c === 'POLICIA_INSERTO');
+  ultimaColumnaFuncionario = { columna: colFuncionario ?? null, candidatas: columnas.filter((c) => /POLICIA|FUNCIONARIO|AGENTE|UNIFORMADO/.test(c)) };
+
+  return filas.map((fila): RegistroComparendo => {
+    const articuloTexto = limpiar(fila.ARTICULO);
+    const comportamientoTexto = limpiar(fila.COMPORTAMIENTO);
+    const articulo = extraerArticuloCorto(articuloTexto);
+    const numeral = extraerNumeralCorto(comportamientoTexto);
+    const cuadranteHechos = limpiar(fila.CUADRANTE_HECHOS);
+    const cuadrantePatrulla = limpiar(fila.CUADRANTE_CARGO_POL);
+    const fecha = parseFechaExcel(fila.FECHA_HECHOS);
+    return {
+      __id: limpiar(fila.EXPEDIENTE) || `SIN-EXPEDIENTE-${Math.random().toString(36).slice(2)}`,
+      fecha,
+      anio: fecha ? fecha.getFullYear() : null,
+      articulo,
+      numeral,
+      articuloNumeral: `${articulo} ${numeral}`.trim(),
+      comportamientoTexto,
+      comuna: limpiar(fila.LOCALIDAD),
+      cuadranteHechos,
+      zonaAtencionHechos: cuadranteHechos ? traducirZona(cuadranteHechos) : '',
+      cuadrantePatrulla,
+      zonaAtencionPatrulla: cuadrantePatrulla ? traducirZona(cuadrantePatrulla) : '',
+      unidadPolicial: limpiar(fila.UNIDAD_LABORA_POL),
+      funcionario: (colFuncionario ? limpiar(fila[colFuncionario]) : '') || limpiar(fila.POLICIA_INSERTO),
+      barrio: limpiar(fila.BARRIO_HECHOS),
+      lat: parseCoordenada(fila.LATITUD) ?? parseCoordenada(fila.LATITUD_GPS),
+      lon: parseCoordenada(fila.LONGITUD) ?? parseCoordenada(fila.LONGITUD_GPS),
+      mediacionInSitu: limpiar(fila.MEDIACION).toUpperCase() === 'X',
+    };
+  });
+}
