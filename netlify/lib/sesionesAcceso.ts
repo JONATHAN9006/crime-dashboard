@@ -70,6 +70,11 @@ const secretoSesion = () => process.env.CAI_SECRETO || process.env.SUPABASE_SERV
 export function firmarTokenAdmin(exp: number): string {
   return firmarCon(secretoAdmin(), { rol: 'admin', exp });
 }
+/** Lee un token de administrador con firma válida, esté vigente o vencido (solo para registrar su cierre). */
+export function leerTokenAdmin(token: unknown): { exp: number } | null {
+  const d = leerCon(secretoAdmin(), token);
+  return d && d.rol === 'admin' && typeof d.exp === 'number' ? { exp: d.exp } : null;
+}
 /** ¿Token de administrador válido y vigente? */
 export function tokenAdminValido(token: unknown): boolean {
   const d = leerCon(secretoAdmin(), token);

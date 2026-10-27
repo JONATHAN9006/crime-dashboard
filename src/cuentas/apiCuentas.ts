@@ -138,4 +138,13 @@ export const adminCambiarEstado = (rol: RolSesion, activo: boolean) => conAdmin(
 export const adminCambiarAmbito = (ambito: AmbitoConsulta) => conAdmin({ accion: 'admin_ambito', ambito });
 export const adminQuitarClave = (rol: RolCuenta) => conAdmin({ accion: 'admin_quitar_clave', rol });
 export const adminGenerarClave = (rol: RolCuenta) => conAdmin({ accion: 'admin_generar_clave', rol }) as Promise<{ ok: boolean; error?: string; clave?: string }>;
+export interface FiltrosBitacora { desde: string; hasta: string; rol?: RolCuenta | ''; tipo?: string; resultado?: string; buscar?: string; orden?: 'fecha' | 'rol' | 'evento' | 'detalle' | 'ip'; asc?: boolean }
+export interface IndicadorBitacora { actual: number; anterior: number }
+export interface PaginaBitacora {
+  ok: boolean; error?: string; desde?: string; hasta?: string; pagina?: number; porPagina?: number; total?: number;
+  filas?: (EventoBitacora & { dispositivo: string | null; distancia_km: number | null })[];
+  indicadores?: { ingresos: IndicadorBitacora; fallidos: IndicadorBitacora; administrativas: IndicadorBitacora; cuentasConActividad: number };
+}
+export const adminBitacora = (f: FiltrosBitacora, pagina: number, porPagina: number) => conAdmin({ accion: 'admin_bitacora', ...f, pagina, porPagina }) as Promise<PaginaBitacora>;
+export const adminBitacoraExportar = (f: FiltrosBitacora) => conAdmin({ accion: 'admin_bitacora_exportar', ...f }) as Promise<{ ok: boolean; error?: string; filas?: EventoBitacora[]; total?: number; truncado?: boolean; desde?: string; hasta?: string }>;
 export const adminCerrarSesiones = (rol: RolSesion) => conAdmin({ accion: 'admin_cerrar', rol });

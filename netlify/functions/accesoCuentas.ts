@@ -97,6 +97,8 @@ export const handler: Handler = async (event) => {
       case 'admin_cerrar':
       case 'admin_quitar_clave':
       case 'admin_generar_clave':
+      case 'admin_bitacora':
+      case 'admin_bitacora_exportar':
         if (!tokenAdminValido(c.adminToken)) return resp({ ok: false, motivo: 'admin', error: 'La sesión de administrador expiró. Vuelve a ingresar.' }, 401);
         return await admin(db, c);
       default:
@@ -217,6 +219,7 @@ async function evento(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: st
 }
 
 async function admin(db: SupabaseClient, c: Cuerpo) {
+  if (c.accion === 'admin_bitacora' || c.accion === 'admin_bitacora_exportar') return consultarBitacora(db, c);
   const rol = String(c.rol || '') as RolCuenta;
   if (c.accion === 'admin_clave') {
     if (!ROLES.includes(rol)) return resp({ ok: false, error: 'Cuenta no válida.' }, 400);
@@ -226,7 +229,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
     if (error) throw error;
     if (!data || data.length === 0) return resp({ ok: false, error: 'Esa cuenta no existe.' });
     if (rol !== 'administrador') await db.from('sesiones_acceso').delete().eq('rol', rol);
-    await registrarEvento(db, { rol, evento: 'admin', detalle: 'El administrador asignó una contraseña nueva' });
+    await registrarEvento(db, { rol, evento: 'sensible_clave', detalle: 'El administrador asignó una contraseña nueva' });
     return resp({ ok: true });
   }
   // Quitar la contraseña: interno/piloto quedan sin poder ingresar hasta que
@@ -238,7 +241,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
     if (error) throw error;
     if (!data || data.length === 0) return resp({ ok: false, error: 'Esa cuenta no existe.' });
     if (rol !== 'administrador') await db.from('sesiones_acceso').delete().eq('rol', rol);
-    await registrarEvento(db, { rol, evento: 'admin', detalle: rol === 'administrador' ? 'Se quitó la contraseña del panel (vuelve a la de Netlify)' : 'El administrador quitó la contraseña (acceso directo sin usuario ni contraseña)' });
+    await registrarEvento(db, { rol, evento: 'sensible_clave', detalle: rol === 'administrador' ? 'Se quitó la contraseña del panel (vuelve a la de Netlify)' : 'El administrador quitó la contraseña (acceso directo sin usuario ni contraseña)' });
     return resp({ ok: true });
   }
   // Generar una contraseña nueva y segura en el servidor. Solo se guarda su
@@ -250,7 +253,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
     if (error) throw error;
     if (!data || data.length === 0) return resp({ ok: false, error: 'Esa cuenta no existe.' });
     if (rol !== 'administrador') await db.from('sesiones_acceso').delete().eq('rol', rol);
-    await registrarEvento(db, { rol, evento: 'admin', detalle: 'El administrador generó una contraseña nueva' });
+    await registrarEvento(db, { rol, evento: 'sensible_clave', detalle: 'El administrador generó una contraseña nueva' });
     return resp({ ok: true, clave: nueva });
   }
   if (c.accion === 'admin_estado') {
@@ -259,7 +262,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
     const { error } = await db.from('cuentas_acceso').update({ activo, actualizado: new Date().toISOString() }).eq('rol', rol);
     if (error) throw error;
     if (!activo) await db.from('sesiones_acceso').delete().eq('rol', rol);
-    await registrarEvento(db, { rol, evento: 'admin', detalle: activo ? 'Cuenta activada' : 'Cuenta desactivada' });
+    await registrarEvento(db, { rol, evento: 'sensible_estado', detalle: activo ? 'Cuenta activada' : 'Cuenta desactivada' });
     return resp({ ok: true });
   }
   if (c.accion === 'admin_ambito') {
@@ -268,13 +271,13 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
     const { error } = await db.from('cuentas_acceso').update({ ambito, actualizado: new Date().toISOString() }).eq('rol', 'piloto');
     if (error) throw error;
     await db.from('sesiones_acceso').delete().eq('rol', 'piloto');
-    await registrarEvento(db, { rol: 'piloto', evento: 'admin', detalle: ambito === 'mepoy' ? 'Territorio: toda la jurisdicción MEPOY' : 'Territorio: solo Popayán (Estaciones Norte y Sur)' });
+    await registrarEvento(db, { rol: 'piloto', evento: 'sensible_territorio', detalle: ambito === 'mepoy' ? 'Territorio: toda la jurisdicción MEPOY' : 'Territorio: solo Popayán (Estaciones Norte y Sur)' });
     return resp({ ok: true });
   }
   if (c.accion === 'admin_cerrar') {
     if (!esRolSesion(rol)) return resp({ ok: false, error: 'Cuenta no válida.' }, 400);
     await db.from('sesiones_acceso').delete().eq('rol', rol);
-    await registrarEvento(db, { rol, evento: 'admin', detalle: 'El administrador cerró todas las sesiones' });
+    await registrarEvento(db, { rol, evento: 'sensible_sesiones', detalle: 'El administrador cerró todas las sesiones' });
     return resp({ ok: true });
   }
   // admin_resumen
@@ -294,7 +297,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
   for (const i of ingresos || []) if (!ultimos.has(i.rol)) ultimos.set(i.rol, i.fecha);
   // Última vez que el administrador cambió, generó o quitó la contraseña de cada cuenta.
   const claveCambio = new Map<string, string>();
-  const { data: cambiosClave } = await db.from('bitacora_acceso').select('rol, fecha').eq('evento', 'admin').like('detalle', '%ontraseña%').order('fecha', { ascending: false }).limit(100);
+  const { data: cambiosClave } = await db.from('bitacora_acceso').select('rol, fecha').in('evento', ['admin', 'sensible_clave']).like('detalle', '%ontraseña%').order('fecha', { ascending: false }).limit(100);
   for (const i of cambiosClave || []) if (!claveCambio.has(i.rol)) claveCambio.set(i.rol, i.fecha);
   return resp({
     ok: true,
@@ -317,5 +320,105 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
       };
     }),
     bitacora: bitacora || [],
+  });
+}
+
+// ── Bitácora de accesos (solo administrador) ─────────────────────────────
+// Filtros, paginación e indicadores se resuelven AQUÍ, en el servidor: el
+// navegador recibe solo la página pedida. La bitácora es de solo lectura:
+// no existe ninguna acción para editar ni borrar registros.
+//
+// Tipos de evento (columna `evento`):
+//   ingreso · fallido · rechazado · bloqueado · salida · expirada · cerrada ·
+//   seguridad · admin (histórico, antes de la clasificación) ·
+//   sensible_clave · sensible_estado · sensible_territorio · sensible_sesiones
+const EV_SENSIBLES = ['sensible_clave', 'sensible_estado', 'sensible_territorio', 'sensible_sesiones'];
+const EV_FALLIDOS = ['fallido', 'rechazado', 'bloqueado'];
+const EV_EXITOSOS = ['ingreso', 'salida', 'expirada', 'cerrada', 'admin', ...EV_SENSIBLES];
+const EV_ADMIN = ['admin', ...EV_SENSIBLES];
+const GRUPOS_TIPO: Record<string, string[]> = {
+  ingreso: ['ingreso'],
+  fallido: EV_FALLIDOS,
+  salida: ['salida', 'expirada', 'cerrada'],
+  admin: EV_ADMIN,
+  sensible: EV_SENSIBLES,
+  seguridad: ['seguridad'],
+};
+const GRUPOS_RESULTADO: Record<string, string[]> = { exitoso: EV_EXITOSOS, fallido: EV_FALLIDOS, alerta: ['seguridad'] };
+const DIA_MS = 86400000;
+const fechaValida = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const inicioBogota = (d: string) => new Date(`${d}T00:00:00-05:00`).getTime();
+
+async function consultarBitacora(db: SupabaseClient, c: Cuerpo) {
+  const hoy = new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10);
+  const hasta = fechaValida(c.hasta) ? String(c.hasta) : hoy;
+  const desde = fechaValida(c.desde) ? String(c.desde) : new Date(inicioBogota(hasta) - 29 * DIA_MS + 5 * 3600000).toISOString().slice(0, 10);
+  const t0 = inicioBogota(desde);
+  const t1 = inicioBogota(hasta) + DIA_MS; // límite superior exclusivo: incluye todo el día final
+  if (!(t1 > t0) || t1 - t0 > 400 * DIA_MS) return resp({ ok: false, error: 'Rango de fechas no válido (máximo 400 días).' }, 400);
+  const rol = ROLES.includes(c.rol as RolCuenta) ? (c.rol as RolCuenta) : null;
+  const tipo = GRUPOS_TIPO[String(c.tipo || '')] ?? null;
+  const resultado = GRUPOS_RESULTADO[String(c.resultado || '')] ?? null;
+  // Búsqueda: solo letras, números y signos simples (sin comodines ni sintaxis de filtros).
+  const q = String(c.buscar ?? '').normalize('NFC').replace(/[^\p{L}\p{N} .:@_-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+
+  const base = (desdeMs: number, hastaMs: number, cols = 'id, rol, fecha, evento, detalle, ip', opciones?: { count: 'exact'; head?: boolean }) => {
+    let qy = db.from('bitacora_acceso').select(cols, opciones).gte('fecha', new Date(desdeMs).toISOString()).lt('fecha', new Date(hastaMs).toISOString());
+    if (rol) qy = qy.eq('rol', rol);
+    return qy;
+  };
+  const conFiltros = (qy: ReturnType<typeof base>) => {
+    if (tipo) qy = qy.in('evento', tipo);
+    if (resultado) qy = qy.in('evento', resultado);
+    if (q) {
+      const rolesQ = ROLES.filter((r) => ({ administrador: 'administrador', interno: 'usuario interno', piloto: 'usuario piloto' })[r].includes(q.toLowerCase()));
+      qy = qy.or([`detalle.ilike.%${q}%`, `ip.ilike.%${q}%`, `evento.ilike.%${q}%`, ...rolesQ.map((r) => `rol.eq.${r}`)].join(','));
+    }
+    return qy;
+  };
+
+  if (c.accion === 'admin_bitacora_exportar') {
+    const TOPE = 10000;
+    const { data, count, error } = await conFiltros(base(t0, t1, 'id, rol, fecha, evento, detalle, ip', { count: 'exact' })).order('fecha', { ascending: false }).order('id', { ascending: false }).range(0, TOPE - 1);
+    if (error) throw error;
+    return resp({ ok: true, desde, hasta, filas: data || [], total: count ?? 0, truncado: (count ?? 0) > TOPE });
+  }
+
+  const porPagina = [10, 25, 50, 100].includes(Number(c.porPagina)) ? Number(c.porPagina) : 10;
+  const pagina = Math.max(1, Math.floor(Number(c.pagina) || 1));
+  const desdeFila = (pagina - 1) * porPagina;
+  // Orden: por defecto fecha descendente (lo más reciente primero). Otras
+  // columnas permitidas desempatan siempre por fecha descendente.
+  const campo = ['fecha', 'rol', 'evento', 'detalle', 'ip'].includes(String(c.orden)) ? String(c.orden) : 'fecha';
+  let consulta = conFiltros(base(t0, t1, 'id, rol, fecha, evento, detalle, ip, dispositivo, distancia_km', { count: 'exact' }));
+  if (campo !== 'fecha') consulta = consulta.order(campo, { ascending: c.asc !== false });
+  const { data: filas, count, error } = await consulta
+    .order('fecha', { ascending: campo === 'fecha' ? c.asc === true : false }).order('id', { ascending: campo === 'fecha' ? c.asc === true : false }).range(desdeFila, desdeFila + porPagina - 1);
+  if (error) throw error;
+
+  // Indicadores del periodo (respetan periodo y cuenta) y del periodo anterior de igual duración.
+  const largo = t1 - t0;
+  const contar = async (eventos: string[], a: number, b: number) => {
+    const { count: n, error: e } = await base(a, b, 'id', { count: 'exact', head: true }).in('evento', eventos);
+    if (e) throw e;
+    return n ?? 0;
+  };
+  const [ing, fal, adm, ingAnt, falAnt, admAnt, ...porRol] = await Promise.all([
+    contar(['ingreso'], t0, t1), contar(EV_FALLIDOS, t0, t1), contar(EV_ADMIN, t0, t1),
+    contar(['ingreso'], t0 - largo, t0), contar(EV_FALLIDOS, t0 - largo, t0), contar(EV_ADMIN, t0 - largo, t0),
+    ...(rol ? [rol] : ROLES).map(async (r) => {
+      const { count: n, error: e } = await db.from('bitacora_acceso').select('id', { count: 'exact', head: true }).eq('rol', r).gte('fecha', new Date(t0).toISOString()).lt('fecha', new Date(t1).toISOString());
+      if (e) throw e;
+      return (n ?? 0) > 0 ? 1 : 0;
+    }),
+  ]);
+  return resp({
+    ok: true, desde, hasta, pagina, porPagina, total: count ?? 0, filas: filas || [],
+    indicadores: {
+      ingresos: { actual: ing, anterior: ingAnt },
+      fallidos: { actual: fal, anterior: falAnt },
+      administrativas: { actual: adm, anterior: admAnt },
+      cuentasConActividad: porRol.reduce((a: number, b: number) => a + b, 0),
+    },
   });
 }

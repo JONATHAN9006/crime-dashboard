@@ -21,6 +21,20 @@ function leer(): Sesion | null {
   } catch { /* sin almacenamiento */ }
   return null;
 }
+/** Sesión guardada aunque esté vencida (solo para registrar su expiración en la bitácora). */
+function leerCrudo(): Sesion | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(CLAVE) || 'null');
+    if (s && typeof s.token === 'string' && typeof s.expira === 'number') return s;
+  } catch { /* sin almacenamiento */ }
+  return null;
+}
+/** Deja constancia del cierre en la bitácora (no bloquea ni cambia el cierre en sí). */
+function registrarCierre(accion: 'salir' | 'expirada', token: string) {
+  try {
+    void fetch(FUNCION, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion, token }) }).catch(() => {});
+  } catch { /* sin conexión: el cierre ocurre igual */ }
+}
 function guardar(s: Sesion | null) {
   try { if (s) localStorage.setItem(CLAVE, JSON.stringify(s)); else localStorage.removeItem(CLAVE); } catch { /* sin almacenamiento */ }
 }
@@ -36,7 +50,13 @@ async function llamar(cuerpo: Record<string, unknown>): Promise<{ ok: boolean; e
 type Estado = { fase: 'verificando' } | { fase: 'login'; aviso?: string } | { fase: 'dentro' };
 
 export function PuertaAdmin({ children }: { children: ReactNode }) {
-  const [estado, setEstado] = useState<Estado>(() => (leer() ? { fase: 'verificando' } : { fase: 'login' }));
+  const [estado, setEstado] = useState<Estado>(() => {
+    if (leer()) return { fase: 'verificando' };
+    // La sesión venció con el dashboard cerrado: se registra la expiración.
+    const vieja = leerCrudo();
+    if (vieja) { registrarCierre('expirada', vieja.token); guardar(null); }
+    return { fase: 'login' };
+  });
 
   useEffect(() => {
     if (estado.fase !== 'verificando') return;
@@ -53,11 +73,11 @@ export function PuertaAdmin({ children }: { children: ReactNode }) {
     if (estado.fase !== 'dentro') return;
     const s = leer();
     const ms = s ? Math.max(0, s.expira - Date.now()) : 0;
-    const id = window.setTimeout(() => { guardar(null); setEstado({ fase: 'login', aviso: 'La sesión expiró (12 horas). Vuelve a ingresar.' }); }, ms);
+    const id = window.setTimeout(() => { if (s) registrarCierre('expirada', s.token); guardar(null); setEstado({ fase: 'login', aviso: 'La sesión expiró (12 horas). Vuelve a ingresar.' }); }, ms);
     return () => window.clearTimeout(id);
   }, [estado.fase]);
 
-  const salir = useCallback(() => { guardar(null); setEstado({ fase: 'login', aviso: 'Sesión cerrada.' }); }, []);
+  const salir = useCallback(() => { const s = leer(); if (s) registrarCierre('salir', s.token); guardar(null); setEstado({ fase: 'login', aviso: 'Sesión cerrada.' }); }, []);
 
   if (estado.fase === 'dentro') return <AdminContext.Provider value={{ salir }}>{children}</AdminContext.Provider>;
   if (estado.fase === 'verificando') {

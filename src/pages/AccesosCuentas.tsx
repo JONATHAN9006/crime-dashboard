@@ -10,6 +10,7 @@ import {
   adminAsignarClave, adminCambiarAmbito, adminCambiarEstado, adminCerrarSesiones, adminGenerarClave, adminQuitarClave, adminResumen,
   type CuentaAcceso, type EventoBitacora, type ResumenCuentas, type RolCuenta,
 } from '../cuentas/apiCuentas';
+import { BitacoraAccesos } from '../components/cuentas/BitacoraAccesos';
 
 // Panel del ADMINISTRADOR: las TRES cuentas del S2IP (una por enlace) — no
 // existe forma de crear otras, ni aquí ni en el servidor (la base solo
@@ -101,20 +102,19 @@ export function AccesosCuentas() {
   const [datos, setDatos] = useState<ResumenCuentas | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dias, setDias] = useState(30);
-  const [filtroRol, setFiltroRol] = useState<RolCuenta | 'todas'>('todas');
+  const [filtroRol, setFiltroRol] = useState<RolCuenta | ''>('');
   const bitacoraRef = useRef<HTMLDivElement>(null);
 
-  const recargar = useCallback(async (d = dias) => {
+  const recargar = useCallback(async () => {
     setCargando(true);
-    const r = await adminResumen(d);
+    const r = await adminResumen(1);
     setCargando(false);
     if (r.ok && r.cuentas) {
       setDatos({ cuentas: r.cuentas, bitacora: r.bitacora ?? [], radioKm: r.radioKm ?? 40, exigeUbicacionPiloto: !!r.exigeUbicacionPiloto });
       setError(null);
       window.dispatchEvent(new Event('mepoy-cuentas'));
     } else setError(r.error || 'No fue posible consultar las cuentas.');
-  }, [dias]);
+  }, []);
   useEffect(() => { recargar(); }, [recargar]);
 
   // «Ver» en una tarjeta: filtra la bitácora por esa cuenta y baja hasta ella.
@@ -150,14 +150,7 @@ export function AccesosCuentas() {
             {datos.cuentas.map((c) => <TarjetaCuenta key={c.rol} c={c} recargar={() => recargar()} exigeUbicacion={datos.exigeUbicacionPiloto} radioKm={datos.radioKm} onVer={() => verActividad(c.rol)} />)}
           </div>
           <div ref={bitacoraRef} className="scroll-mt-4">
-            <Bitacora
-              eventos={datos.bitacora}
-              dias={dias}
-              cargando={cargando}
-              filtroRol={filtroRol}
-              setFiltroRol={setFiltroRol}
-              pedirDias={(d) => { if (d > dias) { setDias(d); recargar(d); } }}
-            />
+            <BitacoraAccesos rol={filtroRol} setRol={setFiltroRol} />
           </div>
         </>
       )}
@@ -373,151 +366,5 @@ function TarjetaCuenta({ c, recargar, exigeUbicacion, radioKm, onVer }: { c: Cue
         </p>
       )}
     </div>
-  );
-}
-
-function Bitacora({ eventos, dias, cargando, filtroRol, setFiltroRol, pedirDias }: {
-  eventos: EventoBitacora[];
-  dias: number;
-  cargando: boolean;
-  filtroRol: RolCuenta | 'todas';
-  setFiltroRol: (r: RolCuenta | 'todas') => void;
-  pedirDias: (d: number) => void;
-}) {
-  const hoy = isoDia(new Date());
-  const [desde, setDesde] = useState(() => isoDia(new Date(Date.now() - 29 * 86400000)));
-  const [hasta, setHasta] = useState(hoy);
-  const [tipo, setTipo] = useState('todos');
-  const [buscar, setBuscar] = useState('');
-  const [limite, setLimite] = useState(50);
-
-  // Si el periodo pide más días de los cargados, se consulta de nuevo al servidor (máx. 365).
-  useEffect(() => {
-    const necesarios = Math.ceil((Date.now() - new Date(`${desde}T00:00:00-05:00`).getTime()) / 86400000) + 1;
-    if (necesarios > dias) pedirDias(Math.min(365, necesarios));
-  }, [desde, dias, pedirDias]);
-  useEffect(() => { setLimite(50); }, [desde, hasta, tipo, buscar, filtroRol]);
-
-  const enPeriodo = useMemo(() => eventos.filter((e) => { const d = isoDia(new Date(e.fecha)); return d >= desde && d <= hasta; }), [eventos, desde, hasta]);
-  const delRol = useMemo(() => enPeriodo.filter((e) => filtroRol === 'todas' || e.rol === filtroRol), [enPeriodo, filtroRol]);
-  const filas = useMemo(() => {
-    const q = buscar.trim().toLowerCase();
-    return delRol.filter((e) => (tipo === 'todos' || (tipo === 'fallidos' ? FALLIDOS.has(e.evento) : e.evento === tipo))
-      && (!q || `${e.detalle ?? ''} ${e.ip ?? ''} ${NOMBRE_ROL[e.rol as RolCuenta] ?? e.rol} ${EVENTO[e.evento]?.texto ?? e.evento}`.toLowerCase().includes(q)));
-  }, [delRol, tipo, buscar]);
-  const kpi = {
-    exitosos: delRol.filter((e) => e.evento === 'ingreso').length,
-    fallidos: delRol.filter((e) => FALLIDOS.has(e.evento)).length,
-    admin: delRol.filter((e) => e.evento === 'admin').length,
-  };
-  const textoPeriodo = desde === isoDia(new Date(Date.now() - 29 * 86400000)) && hasta === hoy ? 'últimos 30 días' : 'periodo elegido';
-
-  function exportar() {
-    const hoja = XLSX.utils.json_to_sheet(filas.map((e) => ({
-      'Fecha y hora': fechaHora(e.fecha), Cuenta: NOMBRE_ROL[e.rol as RolCuenta] ?? e.rol, Evento: EVENTO[e.evento]?.texto ?? e.evento,
-      Detalle: e.detalle ?? '', IP: e.ip ?? '', Resultado: resultadoDe(e.evento).texto,
-    })));
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, 'Bitácora');
-    XLSX.writeFile(libro, `bitacora-accesos-${desde}-a-${hasta}.xlsx`);
-  }
-
-  const Kpi = ({ icono, fondo, valor, texto }: { icono: React.ReactNode; fondo: string; valor: number; texto: string }) => (
-    <div className="flex min-w-[170px] flex-1 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-      <span className={clsx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', fondo)}>{icono}</span>
-      <div className="leading-tight"><p className="text-[20px] font-extrabold text-[#10233f]">{valor}</p><p className="text-[11.5px] text-slate-500">{texto}<br />{textoPeriodo}</p></div>
-    </div>
-  );
-  const campo = 'rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[12.5px] text-[#10233f]';
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex min-w-[260px] flex-1 items-center gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0f5f57] text-white"><ClipboardList size={24} /></span>
-          <div>
-            <h2 className="text-[19px] font-extrabold text-[#10233f]">Bitácora de accesos</h2>
-            <p className="text-[12.5px] text-slate-500">Ingresos, intentos fallidos y acciones administrativas de las cuentas del sistema.</p>
-          </div>
-        </div>
-        <div className="flex flex-1 flex-wrap gap-3">
-          <Kpi icono={<UserCheck size={20} className="text-emerald-700" />} fondo="bg-emerald-50" valor={kpi.exitosos} texto="Accesos exitosos" />
-          <Kpi icono={<ShieldX size={20} className="text-rose-600" />} fondo="bg-rose-50" valor={kpi.fallidos} texto="Intentos fallidos" />
-          <Kpi icono={<Settings size={20} className="text-amber-600" />} fondo="bg-amber-50" valor={kpi.admin} texto="Acciones administrativas" />
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div className="mt-4 flex flex-wrap items-end gap-3 text-[12px]">
-        <label className="flex flex-col gap-1 font-semibold text-slate-600">Cuenta
-          <select value={filtroRol} onChange={(e) => setFiltroRol(e.target.value as RolCuenta | 'todas')} className={clsx(campo, 'min-w-[150px]')}>
-            <option value="todas">Todas</option>
-            {(['administrador', 'interno', 'piloto'] as const).map((r) => <option key={r} value={r}>{NOMBRE_ROL[r]}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 font-semibold text-slate-600">Tipo de evento
-          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={clsx(campo, 'min-w-[160px]')}>
-            <option value="todos">Todos</option>
-            <option value="fallidos">Todos los fallidos</option>
-            {Object.entries(EVENTO).map(([k, v]) => <option key={k} value={k}>{v.texto}</option>)}
-          </select>
-        </label>
-        <div className="flex flex-col gap-1 font-semibold text-slate-600">Periodo
-          <div className="flex items-center gap-1.5">
-            <input type="date" value={desde} max={hasta} min={isoDia(new Date(Date.now() - 364 * 86400000))} onChange={(e) => e.target.value && setDesde(e.target.value)} className={campo} aria-label="Desde" />
-            <span className="text-slate-400">→</span>
-            <input type="date" value={hasta} min={desde} max={hoy} onChange={(e) => e.target.value && setHasta(e.target.value)} className={campo} aria-label="Hasta" />
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
-            <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="search" value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar en la bitácora…" className={clsx(campo, 'w-[220px] pl-8')} />
-          </div>
-          {puedeDescargar() && (
-            <button type="button" onClick={exportar} disabled={filas.length === 0} className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#10233f] hover:bg-slate-50 disabled:opacity-50">
-              <Download size={14} /> Exportar
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Tabla */}
-      <div className="mt-3 overflow-auto rounded-xl border border-slate-200">
-        <table className="w-full min-w-[820px] text-left text-[12.5px]">
-          <thead className="bg-[#10233f] text-white">
-            <tr>
-              <th className="px-3 py-2.5 font-semibold">Fecha y hora</th>
-              <th className="px-3 py-2.5 font-semibold">Cuenta</th>
-              <th className="px-3 py-2.5 font-semibold">Evento</th>
-              <th className="px-3 py-2.5 font-semibold">Detalle</th>
-              <th className="px-3 py-2.5 font-semibold">IP</th>
-              <th className="px-3 py-2.5 font-semibold">Resultado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filas.slice(0, limite).map((e) => {
-              const ev = EVENTO[e.evento] ?? { texto: e.evento, clase: 'bg-slate-100 text-slate-600' };
-              const res = resultadoDe(e.evento);
-              return (
-                <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50/60">
-                  <td className="whitespace-nowrap px-3 py-2 text-slate-600">{fechaHora(e.fecha)}</td>
-                  <td className="whitespace-nowrap px-3 py-2 font-semibold text-[#10233f]">{NOMBRE_ROL[e.rol as RolCuenta] ?? e.rol}</td>
-                  <td className="px-3 py-2"><span className={clsx('whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold', ev.clase)}>{ev.texto}</span></td>
-                  <td className="px-3 py-2 text-slate-600">{e.detalle ?? ''}</td>
-                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{e.ip ?? ''}</td>
-                  <td className="px-3 py-2"><span className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold', res.clase)}>{res.texto === 'Fallido' ? <XCircle size={11} /> : res.texto === 'Alerta' ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />} {res.texto}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {filas.length === 0 && <p className="py-6 text-center text-[12.5px] text-slate-400">{cargando ? 'Consultando…' : 'Sin eventos con estos filtros.'}</p>}
-      </div>
-      <div className="mt-2 flex items-center justify-between text-[11.5px] text-slate-500">
-        <span>{filas.length > 0 ? `Mostrando ${Math.min(limite, filas.length)} de ${filas.length} eventos` : ''}</span>
-        {filas.length > limite && <button type="button" onClick={() => setLimite((l) => l + 50)} className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#10233f] hover:bg-slate-50">Ver más</button>}
-      </div>
-    </section>
   );
 }

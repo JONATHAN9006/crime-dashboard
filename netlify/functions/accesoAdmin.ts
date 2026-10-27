@@ -10,7 +10,7 @@
 // ingreso e intento fallido queda en la bitácora (si Supabase está configurado).
 import type { Handler } from '@netlify/functions';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { firmarTokenAdmin, registrarEvento, secretoAdmin, tokenAdminValido, verificarClave } from '../lib/sesionesAcceso';
+import { firmarTokenAdmin, leerTokenAdmin, registrarEvento, secretoAdmin, tokenAdminValido, verificarClave } from '../lib/sesionesAcceso';
 
 const USUARIO_ENV = (process.env.ADMIN_USUARIO || 'MEPOY_CIEPS').trim();
 // Hash de la contraseña inicial (no la contraseña).
@@ -74,6 +74,31 @@ export const handler: Handler = async (event) => {
   }
   if (c.accion === 'verificar') {
     return tokenAdminValido(c.token) ? resp({ ok: true }) : resp({ ok: false, error: 'La sesión expiró. Vuelve a ingresar.' });
+  }
+  // Cierre de la sesión del administrador. No cambia la validación del ingreso:
+  // solo deja constancia en la bitácora. El token es firmado y sin estado, así
+  // que se distingue por su vencimiento:
+  //  · vigente  → «salida»   (cierre voluntario con «Cerrar sesión»)
+  //  · vencido  → «expirada» (se cumplieron las 12 horas); se registra una sola
+  //    vez por token y solo si venció hace menos de 7 días.
+  if (c.accion === 'salir' || c.accion === 'expirada') {
+    const t = leerTokenAdmin(c.token);
+    if (!t) return resp({ ok: false, error: 'Sesión no válida.' }, 400);
+    const db = baseDatos();
+    if (!db) return resp({ ok: true, registrado: false });
+    const vigente = t.exp > Date.now();
+    if (vigente && c.accion === 'salir') {
+      await registrarEvento(db, { rol: 'administrador', evento: 'salida', detalle: 'Cierre de sesión voluntario', ip, dispositivo });
+      return resp({ ok: true, registrado: true, tipo: 'salida' });
+    }
+    if (!vigente && Date.now() - t.exp < 7 * 24 * 3600000) {
+      const vencio = new Date(t.exp).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const detalle = `Sesión expirada por tiempo (12 horas) · venció ${vencio}`;
+      const { count } = await db.from('bitacora_acceso').select('id', { count: 'exact', head: true }).eq('rol', 'administrador').eq('evento', 'expirada').eq('detalle', detalle);
+      if ((count ?? 0) === 0) await registrarEvento(db, { rol: 'administrador', evento: 'expirada', detalle, ip, dispositivo });
+      return resp({ ok: true, registrado: (count ?? 0) === 0, tipo: 'expirada' });
+    }
+    return resp({ ok: false, error: 'La sesión aún está vigente.' }, 400);
   }
   return resp({ ok: false, error: 'Acción no reconocida.' }, 400);
 };

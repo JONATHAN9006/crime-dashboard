@@ -36,7 +36,7 @@ create table if not exists bitacora_acceso (
   id            bigserial primary key,
   rol           text not null,
   fecha         timestamptz not null default now(),
-  evento        text not null,             -- ingreso | salida | fallido | rechazado | bloqueado | cerrada | seguridad | admin
+  evento        text not null,             -- ingreso | salida | expirada | fallido | rechazado | bloqueado | cerrada | seguridad | admin (histórico) | sensible_clave | sensible_estado | sensible_territorio | sensible_sesiones
   detalle       text,
   distancia_km  double precision,
   dispositivo   text,
