@@ -219,7 +219,15 @@ function AjustarTamanoAlCambiarPantallaCompleta({ activo }: { activo: boolean })
   return null;
 }
 
-function AjustarVistaAPuntos({ puntos: puntosCrudos }: { puntos: { lat: number; lon: number }[] }) {
+// conservarVista: para los cambios de filtro (Estación, Delito, periodo…).
+// El mapa NO se mueve si alguno de los puntos nuevos ya cae dentro de lo que
+// se está viendo: solo cambian los puntos y el mapa de calor. Antes se
+// re-encuadraba con cada filtro y, al pasar de Norte a Sur (quitando el
+// filtro en medio), el mapa se alejaba hasta los casos rurales y volvía a
+// acercarse. Solo si NINGÚN punto queda a la vista se encuadra, para no
+// dejar el mapa aparentemente vacío, el mapa se desplaza hasta ellos sin
+// cambiar el zoom.
+function AjustarVistaAPuntos({ puntos: puntosCrudos, conservarVista = false }: { puntos: { lat: number; lon: number }[]; conservarVista?: boolean }) {
   const map = useMap();
   // Un punto en (0,0) o sin coordenada real mandaría el encuadre al otro
   // lado del mundo (todo el mapa de calor quedaba del tamaño de un píxel).
@@ -227,6 +235,12 @@ function AjustarVistaAPuntos({ puntos: puntosCrudos }: { puntos: { lat: number; 
   const firma = puntos.map((p) => `${p.lat},${p.lon}`).join('|');
   useEffect(() => {
     if (puntos.length === 0) return;
+    if (conservarVista) {
+      const vista = map.getBounds();
+      if (puntos.some((p) => vista.contains([p.lat, p.lon]))) return;
+      mostrarSinCambiarZoom(map, L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number])));
+      return;
+    }
     if (puntos.length === 1) {
       map.setView([puntos[0].lat, puntos[0].lon], Math.max(map.getZoom(), 14));
       return;
@@ -440,12 +454,21 @@ function CapturarInstanciaDeMapa({ mapaRef }: { mapaRef: React.MutableRefObject<
   return null;
 }
 
-function AjustarVistaAPoligono({ feature }: { feature: any }) {
+// Cambio de filtro sin mover el zoom: si lo nuevo ya se ve (aunque sea en
+// parte), el mapa se queda quieto; si quedó fuera de la vista, solo se
+// desplaza hasta su centro, con el MISMO nivel de zoom.
+function mostrarSinCambiarZoom(map: L.Map, limites: L.LatLngBounds) {
+  if (!limites.isValid() || map.getBounds().intersects(limites)) return;
+  map.panTo(limites.getCenter());
+}
+
+function AjustarVistaAPoligono({ feature, conservarVista = false }: { feature: any; conservarVista?: boolean }) {
   const map = useMap();
   useEffect(() => {
     if (!feature) return;
     try {
       const capa = L.geoJSON(feature);
+      if (conservarVista) { mostrarSinCambiarZoom(map, capa.getBounds()); return; }
       map.fitBounds(capa.getBounds(), { padding: [30, 30], maxZoom: 17 });
     } catch { /* geometría inválida — se ignora, el mapa se queda como estaba */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1817,6 +1840,7 @@ function MapaGeorreferenciacionContenido() {
         puntos: puntosDeEsteCai,
         colores: paletaCalorDelitos,
         etiquetas,
+        mapaBase: tipoMapa,
         opacidadCalor: opacidades.calor / 100,
         opacidadPoligono: opacidades.poligono / 100,
         opacidadEtiquetas: opacidades.etiquetas / 100,
@@ -1827,7 +1851,7 @@ function MapaGeorreferenciacionContenido() {
     }
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas, coloresSeleccionadosCalor.join(','), JSON.stringify(coloresCai), colorearZonasPorCai]);
+  }, [caiDeEstacionActiva.join(','), filtrosMapa.delito.join(','), opacidades.calor, opacidades.poligono, opacidades.etiquetas, coloresSeleccionadosCalor.join(','), JSON.stringify(coloresCai), colorearZonasPorCai, tipoMapa]);
 
 
   // Estilo de cada polígono EN PANTALLA — una sola función para el mapa y
@@ -1939,6 +1963,8 @@ function MapaGeorreferenciacionContenido() {
       // Puntos del Plan Candado ubicados (si la capa está activa), como en pantalla.
       marcadores: vista ? marcadores.filter((m) => vista.contains([m.lat, m.lon])) : marcadores,
       escalaPantalla: escalaPantallaMapa(),
+      // El fondo de la imagen es el que está activo en pantalla.
+      mapaBase: tipoMapa,
     };
   }
 
@@ -3024,7 +3050,7 @@ function MapaGeorreferenciacionContenido() {
                       <p className="font-bold text-[#10233f]">En la descarga</p>
                       <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.rotulos} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, rotulos: e.target.checked }))} /> Etiquetas de barrios</label>
                       <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.totales} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, totales: e.target.checked }))} /> Cuadro de totales</label>
-                      <label className="flex cursor-pointer items-center gap-1.5" title="Sin marcar: el mapa de calles cubre toda la imagen"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.fondoTransparente} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, fondoTransparente: e.target.checked }))} /> Fondo transparente</label>
+                      <label className="flex cursor-pointer items-center gap-1.5" title="Sin marcar: el mapa base seleccionado cubre toda la imagen"><input type="checkbox" className="h-3.5 w-3.5 accent-[#116762]" checked={opcionesDescarga.fondoTransparente} onChange={(e) => setOpcionesDescarga((o) => ({ ...o, fondoTransparente: e.target.checked }))} /> Fondo transparente</label>
                     </div>
                   )}
                 </div>
@@ -3209,11 +3235,11 @@ function MapaGeorreferenciacionContenido() {
                 puntos de Delitos para mostrar, así el mapa no arranca muy
                 alejado y sin necesidad de acercar el zoom a mano. */}
             <AjustarVistaInicial puntos={todosLosPuntosDelitosVisibles} poligono={anillosNorteSur} />
-            {/* Encuadra el mapa en los puntos visibles cada vez que cambian
-                (por un filtro de Delito/Estación, o al cargar una capa
-                nueva) — en pantalla completa, se encuadra según lo que se
-                esté explorando por delito en ese momento. */}
+            {/* Al cambiar un filtro (Delito/Estación) o cargar una capa, el
+                mapa conserva su centro y zoom; solo encuadra si ningún punto
+                nuevo queda a la vista (ver conservarVista). */}
             <AjustarVistaAPuntos
+              conservarVista
               puntos={
                 pantallaCompleta && (seleccionDelitos || seleccionIrisp1)
                   ? [...puntosDelitosParaMostrar, ...puntosIrisp1ParaMostrar]
@@ -3356,7 +3382,9 @@ function MapaGeorreferenciacionContenido() {
                 elegir el delito y descargar. */}
             {zonaActiva && (
               <>
-                <AjustarVistaAPoligono feature={zonaActiva.feature} />
+                {/* Clic en un polígono: encuadra la zona. Zona por filtro
+                    (Estación, CAI, cuadrante): conserva el zoom. */}
+                <AjustarVistaAPoligono feature={zonaActiva.feature} conservarVista={zonaActiva.capaId === '__filtro__'} />
                 {puntosEnZonaParaCalor.length > 0 && (
                   <KernelHeatmapLayer puntos={puntosEnZonaParaCalor} colores={paletaCalorDelitos} opacidad={opacidades.calor / 100} />
                 )}
@@ -3488,22 +3516,6 @@ function MapaGeorreferenciacionContenido() {
             />
           </MapContainer>
 
-              {/* Encabezado oscuro sobre el mapa: título, subtítulo y escala de densidad */}
-              <div className="pointer-events-none absolute left-14 right-3 top-3 z-[1000] flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-[#0d1b2a]/88 px-3.5 py-2.5 text-white shadow-lg backdrop-blur-sm">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#159089] to-[#2f6fdb]"><Layers size={20} /></span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[17px] font-extrabold leading-tight">Mapa de {tituloFuentes}</p>
-                  <p className="truncate text-[12px] text-slate-300">{filtrosMapa.delito.length ? filtrosMapa.delito.join(', ') : 'Todos los delitos'} • {textoVigencia}</p>
-                </div>
-                {verCalor && (
-                  <div className="w-[190px] shrink-0">
-                    <p className="mb-1 text-[11px] font-semibold text-slate-200">Densidad de casos</p>
-                    <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
-                    <div className="mt-0.5 flex justify-between text-[10px] text-slate-300"><span>Baja</span><span>Alta</span></div>
-                  </div>
-                )}
-              </div>
-
               {/* Controles: encuadrar y pantalla completa (bajo el zoom) */}
               <div className="absolute bottom-[96px] left-3 z-[1000] flex flex-col gap-1.5">
                 <button type="button" onClick={centrarEnJurisdiccion} title="Encuadrar las capas visibles" aria-label="Encuadrar" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[#10233f] shadow-md hover:bg-slate-50"><LocateFixed size={17} /></button>
@@ -3511,30 +3523,30 @@ function MapaGeorreferenciacionContenido() {
               </div>
 
               {/* Rosa de los vientos */}
-              <div className="pointer-events-none absolute right-3 top-[86px] z-[999] flex h-11 w-11 flex-col items-center justify-center rounded-full border border-white/40 bg-[#0d1b2a]/80 text-white shadow-md" aria-label="Norte arriba">
+              <div className="pointer-events-none absolute right-3 top-3 z-[999] flex h-11 w-11 flex-col items-center justify-center rounded-full border border-white/40 bg-[#0d1b2a]/80 text-white shadow-md" aria-label="Norte arriba">
                 <span className="text-[10px] font-extrabold leading-none">N</span>
                 <Navigation2 size={16} className="fill-white" />
               </div>
 
-              {/* Vista general + contadores */}
-              <div className="absolute bottom-3 right-3 z-[1000] flex flex-col items-end gap-2">
-                {!esPiloto && <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />}
-                <div className="flex flex-wrap justify-end gap-1.5">
-                  {puntosFueraMepoy.length > 0 && (
-                    <span
-                      className="flex cursor-help items-center gap-1.5 rounded-lg bg-amber-500/95 px-2.5 py-1.5 text-[11.5px] font-semibold text-white shadow"
-                      title={`Coordenadas fuera de la jurisdicción MEPOY (probable error de digitación). No se dibujan; sí cuentan en las tablas:\n${puntosFueraMepoy.slice(0, 15).map((p) => `• ${p.capa}: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.detalle ? ` — ${p.detalle}` : ''}`).join('\n')}${puntosFueraMepoy.length > 15 ? `\n… y ${puntosFueraMepoy.length - 15} más` : ''}`}
-                    >
-                      ⚠ {formatNumero(puntosFueraMepoy.length)} {puntosFueraMepoy.length === 1 ? 'punto' : 'puntos'} fuera de MEPOY sin dibujar
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><MapIcon size={13} /> Zonas visibles: <b>{formatNumero(elementosVisibles)}</b></span>
-                  <span className="flex items-center gap-1.5 rounded-lg bg-[#0d1b2a]/88 px-2.5 py-1.5 text-[11.5px] text-white shadow"><ChartColumn size={13} /> Casos mostrados: <b>{formatNumero(totalEnMapa)}</b></span>
+              {/* Vista general (minimapa). Va a la izquierda de la columna del botón
+                  flotante del Analista IA para no quedar debajo de él con
+                  ningún desplazamiento de la página. */}
+              {!esPiloto && (
+                <div className="absolute bottom-8 right-[76px] z-[1000]">
+                  <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />
                 </div>
-              </div>
+              )}
 
-              {/* Leyenda (plegable) */}
-              <div className="absolute bottom-[40px] left-14 z-[1000] w-[230px] rounded-xl border border-slate-200 bg-white/95 text-xs shadow-lg backdrop-blur-sm">
+              {/* Escala de densidad + leyenda (plegable), apiladas abajo a la izquierda */}
+              <div className="absolute bottom-[40px] left-14 z-[1000] flex w-[230px] flex-col gap-2">
+              {verCalor && (
+                <div className="pointer-events-none rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur-sm" data-densidad-mapa>
+                  <p className="mb-1 text-[12px] font-bold text-[#10233f]">Densidad de casos</p>
+                  <span className="block h-2.5 w-full rounded-full" style={{ background: `linear-gradient(to right, ${paletaCalorDelitos.filter((c): c is string => c !== null).join(', ')})` }} />
+                  <div className="mt-0.5 flex justify-between text-[10.5px] text-slate-500"><span>Baja</span><span>Alta</span></div>
+                </div>
+              )}
+              <div className="rounded-xl border border-slate-200 bg-white/95 text-xs shadow-lg backdrop-blur-sm">
                 <button type="button" onClick={() => setLeyendaMapaAbierta((v) => !v)} aria-expanded={leyendaMapaAbierta} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-bold text-[#10233f]">
                   <span className="flex items-center gap-1.5"><Palette size={13} className="text-[#116762]" /> Leyenda</span>
                   <ChevronDown size={14} className={clsx('transition', leyendaMapaAbierta && 'rotate-180')} />
@@ -3681,10 +3693,11 @@ function MapaGeorreferenciacionContenido() {
                   </div>
                 )}
               </div>
+              </div>
 
               {/* Panel de análisis (se abre con el botón «Análisis») */}
               {analisisAbierto && (
-                <div className="absolute bottom-3 right-3 top-[84px] z-[1100] flex w-[300px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute bottom-3 right-3 top-3 z-[1100] flex w-[300px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
                     <span className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#10233f]"><ChartColumn size={15} className="text-[#116762]" /> Análisis del mapa</span>
                     <button type="button" onClick={() => setAnalisisAbierto(false)} aria-label="Cerrar análisis" className="rounded p-0.5 text-slate-400 hover:text-slate-600"><X size={15} /></button>
@@ -3775,7 +3788,7 @@ function MapaGeorreferenciacionContenido() {
               El botón de descarga usa exactamente el mismo motor de
               exportación de imágenes que el resto del dashboard. */}
           {filtroDemasiadoAmplio && (
-            <div className="absolute right-16 top-[84px] z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
+            <div className="absolute right-16 top-3 z-[1000] w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg">
               <p className="text-sm font-semibold text-amber-800">Este filtro coincide con demasiados polígonos</p>
               <p className="mt-1 text-xs text-amber-700">
                 Probablemente hay una capa cargada (revisa "JURIS_ESTACIONES_2026") cuyos valores no corresponden
@@ -3785,7 +3798,7 @@ function MapaGeorreferenciacionContenido() {
             </div>
           )}
           {zonaActiva && !analisisAbierto && (
-            <div className="absolute right-16 top-[84px] z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+            <div className="absolute right-16 top-3 z-[1000] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Zona seleccionada</p>

@@ -327,7 +327,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.27 · v220" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.10.31 · v223" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -343,7 +343,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.10.27 · v220</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.10.31 · v223</p>
             </div>
           )}
         </div>
@@ -363,7 +363,41 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             No recibe clics. Imagen WebP con transparencia real. */}
         {halloween && !colapsado && (
           <div className="pointer-events-none relative z-10 -mt-2 flex shrink-0 justify-end pr-1 [@media(max-height:780px)]:hidden" aria-hidden data-zombi-sidebar="1">
-            <img src="/assets/zombi-sidebar.webp" alt="" width={200} height={166} draggable={false} className="block h-auto w-[200px] select-none" />
+            {/* Animación sutil (solo CSS, sin librerías): el cuerpo «respira» e
+                intenta levantarse (sube ≤3 px y se inclina <1°, girando sobre la
+                base para que la tierra casi no se mueva); los ojos —ubicados en
+                la imagen en (56 %, 35 %) y (68 %, 43 %)— pulsan con un brillo
+                que solo SUMA luz (mezcla «screen»), sin tapar ni deformar; y una
+                neblina tenue cubre el borde del suelo. Con «reducir movimiento»
+                todo queda quieto. Las manos no se animan: la imagen es una sola
+                capa y separarlas dejaría huecos. */}
+            <style>{`
+              @keyframes zb-cuerpo { 0%,100% { transform: translateY(0) rotate(-0.8deg) } 45% { transform: translateY(-3px) rotate(0.6deg) } 70% { transform: translateY(-1.5px) rotate(0.2deg) } }
+              @keyframes zb-ojos { 0%,100% { opacity: .35 } 50% { opacity: .75 } }
+              @keyframes zb-niebla { 0%,100% { transform: translateX(-6px); opacity: .8 } 50% { transform: translateX(6px); opacity: 1 } }
+              .zb-cuerpo { animation: zb-cuerpo 4.5s ease-in-out infinite; transform-origin: 50% 100%; will-change: transform }
+              .zb-ojo { animation: zb-ojos 3.8s ease-in-out infinite }
+              .zb-niebla { animation: zb-niebla 7s ease-in-out infinite }
+              @media (prefers-reduced-motion: reduce) {
+                .zb-cuerpo, .zb-niebla { animation: none; transform: none }
+                .zb-ojo { animation: none; opacity: .45 }
+              }
+            `}</style>
+            <div className="relative w-[200px] overflow-hidden pt-1.5" data-zombi-escena="1">
+              <div className="zb-cuerpo relative">
+                <img src="/assets/zombi-sidebar.webp" alt="" width={200} height={166} draggable={false} className="block h-auto w-[200px] select-none" />
+                {([[55.9, 35.4], [68, 43.2]] as const).map(([x, y]) => (
+                  <span
+                    key={x}
+                    className="zb-ojo absolute h-[18px] w-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full mix-blend-screen"
+                    style={{ left: `${x}%`, top: `${y}%`, background: 'radial-gradient(circle, rgba(236,252,170,0.95) 0%, rgba(190,242,100,0.5) 35%, rgba(163,230,53,0) 70%)' }}
+                    data-zombi-ojo="1"
+                  />
+                ))}
+              </div>
+              {/* Neblina verde petróleo sobre el borde del suelo */}
+              <div className="zb-niebla absolute inset-x-[-8px] bottom-0 h-7" style={{ background: 'radial-gradient(ellipse 55% 100% at 30% 100%, rgba(8,51,47,0.55), transparent 70%), radial-gradient(ellipse 50% 90% at 75% 100%, rgba(10,61,57,0.5), transparent 70%)' }} />
+            </div>
           </div>
         )}
       </aside>

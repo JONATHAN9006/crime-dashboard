@@ -104,6 +104,10 @@ export interface OpcionesPoligonoAislado {
   // recibidos (descarga general: los que se ven en pantalla). Por defecto
   // solo los que caen dentro del área (descarga de un CAI o zona).
   ampliarParaMarcadores?: 'todos' | 'dentro';
+  // Mapa base de la imagen = el que está activo en pantalla (Mapa / Satélite /
+  // Híbrido). Sin este dato (descargas de otros módulos, que no tienen
+  // selector de fondo) se usa el mapa de calles de siempre.
+  mapaBase?: 'mapa' | 'satelite' | 'hibrido';
   // Encuadre fijo (descarga general): la imagen toma EXACTAMENTE el
   // rectángulo que se ve en pantalla — mismo encuadre, misma proporción y
   // los rótulos en el mismo lugar —, sin margen ni ampliaciones.
@@ -121,7 +125,7 @@ export interface OpcionesPoligonoAislado {
 // resultado (eso lo deciden las funciones de más abajo: descargar, copiar
 // al portapapeles, o generar una miniatura de vista previa).
 export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAislado): Promise<HTMLCanvasElement> {
-  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], mostrarCalor = true, puntosMarcados = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen: margenPedido = 0.08, aspectoObjetivo, vistaFija } = opciones;
+  const { feature, puntos, colores, etiquetas, gruposEtiquetas = [], flechas = [], mostrarCalor = true, puntosMarcados = [], rellenos = [], marcadores = [], escalaPantalla, ampliarParaMarcadores = 'dentro', relieve, fondoCompleto = false, opacidadPoligono = 0.08, opacidadCalor = 0.8, opacidadEtiquetas = 1, colorBorde = '#000000', anillosInternos = [], anchoLienzo = 1200, tamanoFuenteBase = 15, mostrarCalles = true, margen: margenPedido = 0.08, aspectoObjetivo, vistaFija, mapaBase = 'mapa' } = opciones;
   const margen = vistaFija ? 0 : margenPedido;
 
   const anillos = extraerAnillos(feature);
@@ -279,7 +283,12 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
     for (let tx = txMin; tx <= txMax; tx++) {
       for (let ty = tyMin; ty <= tyMax; ty++) {
         const subdominio = ['a', 'b', 'c'][(tx + ty) % 3];
-        const url = `https://${subdominio}.tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+        // Mismos proveedores que el mapa en pantalla: calles de OpenStreetMap
+        // o imagen satelital de Esri (Satélite e Híbrido; las vías y nombres
+        // del Híbrido se dibujan encima, más abajo). Ambos permiten CORS.
+        const url = mapaBase === 'mapa'
+          ? `https://${subdominio}.tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`
+          : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tx}`;
         tareasTiles.push(
           cargarImagen(url, true)
             .then((img) => {
@@ -294,6 +303,23 @@ export async function generarCanvasPoligonoAislado(opciones: OpcionesPoligonoAis
       }
     }
     await Promise.all(tareasTiles);
+    // Híbrido: vías y nombres de lugares de Esri sobre la imagen satelital,
+    // igual que en pantalla.
+    if (mapaBase === 'hibrido' && !relieve) {
+      for (const servicio of ['World_Transportation', 'World_Boundaries_and_Places']) {
+        const capasHibrido: Promise<void>[] = [];
+        for (let tx = txMin; tx <= txMax; tx++) {
+          for (let ty = tyMin; ty <= tyMax; ty++) {
+            capasHibrido.push(cargarImagen(`https://server.arcgisonline.com/ArcGIS/rest/services/Reference/${servicio}/MapServer/tile/${zoom}/${ty}/${tx}`, true).then((img) => {
+              const xIzq = ((tx / escalaMundo - mercLoX) / anchoMerc) * anchoLienzo;
+              const yArriba = ((ty / escalaMundo - mercLoY) / altoMerc) * alto;
+              ctx.drawImage(img, xIzq, yArriba, ((1 / escalaMundo) / anchoMerc) * anchoLienzo + 0.5, ((1 / escalaMundo) / altoMerc) * alto + 0.5);
+            }).catch(() => { /* sin vías en ese pedazo */ }));
+          }
+        }
+        await Promise.all(capasHibrido);
+      }
+    }
     // Alto relieve: el mismo relieve de pantalla (pintado desde el DEM).
     // «color»: tapa las calles con el relieve y, si se pidió, encima vías y
     // nombres; «sombra» (satélite): solo el sombreado, multiplicado.
