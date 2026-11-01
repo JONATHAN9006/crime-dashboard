@@ -164,3 +164,67 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarApor
     </div>
   );
 }
+
+// Vista DESAGRUPADA por tendencia (se usa cuando hay una estación elegida en
+// el filtro principal): cada concepto en su propia fila —sin bloques por
+// categoría—, separados en los que disminuyen (se pierde) y los que aumentan
+// (se gana). Mismas cifras de construirTablaOperatividad; solo cambia la
+// presentación. Sin subtotales: cada categoría tiene su propia unidad
+// (capturas, vehículos, kilos de droga…) y no se pueden sumar entre sí.
+export function TablaOperatividadPorTendencia({ grupos, ventana, unidad }: { grupos: Grupo[]; ventana: VentanaOp; unidad: UnidadDroga }) {
+  const filas = grupos.flatMap((g, gi) => g.filas
+    .filter((f) => f.anterior + f.actual > 0)
+    .map((f) => ({ ...f, categoria: g.titulo, orden: gi })));
+  const dif = (f: { anterior: number; actual: number }) => f.actual - f.anterior;
+  const ordenar = (a: typeof filas[number], b: typeof filas[number]) => a.orden - b.orden || Math.abs(dif(b)) - Math.abs(dif(a));
+  const secciones = [
+    { titulo: 'Disminuye', nota: 'se pierde', clase: 'bg-rose-50 text-rose-700', filas: filas.filter((f) => dif(f) < 0).sort(ordenar) },
+    { titulo: 'Aumenta', nota: 'se gana', clase: 'bg-emerald-50 text-emerald-700', filas: filas.filter((f) => dif(f) > 0).sort(ordenar) },
+    { titulo: 'Sin variación', nota: '', clase: 'bg-slate-100 text-[#10233f]', filas: filas.filter((f) => dif(f) === 0).sort(ordenar) },
+  ].filter((s) => s.filas.length > 0);
+  const fmt = (n: number, droga?: boolean) => (droga
+    ? (unidad === 'kg' ? n / 1000 : n).toLocaleString('es-CO', { maximumFractionDigits: unidad === 'kg' ? 1 : 0 })
+    : formatNumero(n));
+  const fmtDif = (n: number, droga?: boolean) => `${n > 0 ? '+' : ''}${fmt(n, droga)}`;
+  const celda = 'border-b border-slate-200 px-2 py-[7px]';
+  if (secciones.length === 0) return <p className="py-8 text-center text-sm text-slate-400">Sin operatividad registrada en el periodo para la estación seleccionada.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[600px] table-auto border-separate border-spacing-0 text-[15px]" data-operatividad-tendencia>
+        <thead>
+          <tr className="text-white">
+            <th rowSpan={2} className="rounded-tl-md bg-[#0f5f57] px-3 py-2 text-left text-[13.5px] font-bold uppercase">Categoría</th>
+            <th rowSpan={2} className="bg-[#0f5f57] px-3 py-2 text-left text-[13.5px] font-bold uppercase">Detalle</th>
+            <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioAnterior}</th>
+            <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioActual}</th>
+            <th colSpan={2} className="rounded-tr-md bg-[#0f5f57] px-2 pt-1.5 text-center text-[13.5px] font-bold uppercase">Variación</th>
+          </tr>
+          <tr className="text-white">
+            <th className="bg-[#0f5f57] px-2 pb-1.5 text-center text-[13px] font-bold uppercase">Dif.</th>
+            <th className="bg-[#0f5f57] px-2 pb-1.5 text-center text-[13px] font-bold">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {secciones.flatMap((s) => [
+            <tr key={`${s.titulo}-titulo`}>
+              <td colSpan={6} className={`border-b border-slate-300 px-3 py-1.5 text-[13px] font-bold uppercase ${s.clase}`}>
+                {s.titulo}{s.nota && <span className="ml-1 font-semibold normal-case opacity-80">({s.nota})</span>}
+                <span className="ml-2 font-semibold normal-case opacity-70">· {s.filas.length} {s.filas.length === 1 ? 'concepto' : 'conceptos'}</span>
+              </td>
+            </tr>,
+            ...s.filas.map((f) => (
+              <tr key={`${s.titulo}-${f.categoria}-${f.etiqueta}`}>
+                <td className={`${celda} text-[13px] font-semibold uppercase text-slate-500`}>{f.categoria}{f.esDroga && <span className="block text-[11.5px] normal-case">({unidad === 'kg' ? 'kilogramos' : 'gramos'})</span>}</td>
+                <td className={`${celda} font-semibold text-[#10233f]`}>{f.etiqueta}</td>
+                <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.anterior, f.esDroga)}</td>
+                <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.actual, f.esDroga)}</td>
+                <td className={`${celda} text-center font-semibold tabular-nums ${claseDif(dif(f), true)}`}>{fmtDif(dif(f), f.esDroga)}</td>
+                <td className={`${celda} whitespace-nowrap pr-3 text-right text-[14px]`}><VariacionPct anterior={f.anterior} actual={f.actual} subirEsBueno /></td>
+              </tr>
+            )),
+          ])}
+        </tbody>
+      </table>
+    </div>
+  );
+}

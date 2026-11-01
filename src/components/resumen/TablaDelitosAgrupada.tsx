@@ -9,7 +9,12 @@ import { VariacionPct, claseDif } from './ComparativoComun';
 
 export interface CifraDelito { key: string; anterior: number; actual: number; totalAnterior?: number }
 interface FilaT { etiqueta: string; anterior: number; actual: number; totalAnterior: number }
-interface Seccion { titulo?: string; filas: FilaT[] }
+interface Seccion {
+  titulo?: string; filas: FilaT[];
+  // Solo en la vista por tendencia (una estación elegida): texto del
+  // subtotal, nota bajo el título y color del bloque.
+  etiquetaTotal?: string; nota?: string; tono?: 'rojo' | 'verde' | 'gris';
+}
 
 const norm = (s: string) => (s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 type Regla = [RegExp, string];
@@ -68,6 +73,46 @@ export function construirTablaDelitos(cifras: CifraDelito[], soloConDatos = fals
     { filas: [...abajo, ...otros] },
   ].filter((s) => s.filas.length > 0);
 }
+
+// Nombre institucional del delito (el mismo de la tabla agrupada) o, si no
+// tiene uno, el nombre tal como viene en la base.
+function etiquetaDelito(key: string): string {
+  const n = norm(key);
+  for (const [re, etiqueta] of [...SUELTAS_ARRIBA, ...HURTO, ...SECUESTRO, ...SUELTAS_ABAJO]) if (re.test(n)) return etiqueta;
+  return key;
+}
+
+// Vista DESAGRUPADA por tendencia (se usa cuando hay una estación elegida
+// en el filtro principal): cada delito en su propia fila, separados en los
+// que aumentan (se pierde) y los que disminuyen (se gana), de mayor a menor
+// cambio. Mismas cifras que la tabla agrupada; solo cambia el orden.
+export function construirTablaDelitosPorTendencia(cifras: CifraDelito[]): Seccion[] {
+  const porEtiqueta = new Map<string, FilaT>();
+  for (const c of cifras) {
+    if (EXCLUIDOS.test(norm(c.key)) || c.anterior + c.actual === 0) continue;
+    const etiqueta = etiquetaDelito(c.key);
+    const f = porEtiqueta.get(etiqueta) ?? { etiqueta, anterior: 0, actual: 0, totalAnterior: 0 };
+    f.anterior += c.anterior; f.actual += c.actual; f.totalAnterior += c.totalAnterior ?? 0;
+    porEtiqueta.set(etiqueta, f);
+  }
+  const filas = [...porEtiqueta.values()];
+  const dif = (f: FilaT) => f.actual - f.anterior;
+  const aumento = filas.filter((f) => dif(f) > 0).sort((a, b) => dif(b) - dif(a) || b.actual - a.actual);
+  const baja = filas.filter((f) => dif(f) < 0).sort((a, b) => dif(a) - dif(b) || b.actual - a.actual);
+  const igual = filas.filter((f) => dif(f) === 0).sort((a, b) => b.actual - a.actual);
+  const secciones: Seccion[] = [
+    { titulo: 'En aumento', nota: 'se pierde', etiquetaTotal: 'Total en aumento', tono: 'rojo', filas: aumento },
+    { titulo: 'En disminución', nota: 'se gana', etiquetaTotal: 'Total en disminución', tono: 'verde', filas: baja },
+    { titulo: 'Sin variación', etiquetaTotal: 'Total sin variación', tono: 'gris', filas: igual },
+  ];
+  return secciones.filter((s) => s.filas.length > 0);
+}
+
+const TONO_SECCION = {
+  rojo: 'bg-rose-50 text-rose-700',
+  verde: 'bg-emerald-50 text-emerald-700',
+  gris: 'bg-slate-50 text-[#10233f]',
+} as const;
 
 export function TablaDelitosAgrupada({ secciones, anioAnterior, anioActual, mostrarAporte }: { secciones: Seccion[]; anioAnterior: number; anioActual: number; mostrarAporte: boolean }) {
   const todas = secciones.flatMap((s) => s.filas);
@@ -129,13 +174,13 @@ export function TablaDelitosAgrupada({ secciones, anioAnterior, anioActual, most
               ...s.filas.map((f, i) => (
                 <tr key={`${si}-${f.etiqueta}`}>
                   {i === 0 && (
-                    <td rowSpan={s.filas.length + 1} className="@min-[620px]:w-[18%] border-b border-r border-slate-300 bg-slate-50 px-1 @min-[620px]:px-3 py-2 text-center text-[12px] @min-[620px]:text-[14.5px] font-bold uppercase leading-tight text-[#10233f]"><span title={s.titulo} className="inline-block rotate-180 whitespace-nowrap [writing-mode:vertical-rl] @min-[620px]:hidden">{s.titulo?.replace('Modalidades de ', '')}</span><span className="hidden @min-[620px]:inline">{s.titulo}</span></td>
+                    <td rowSpan={s.filas.length + 1} className={`@min-[620px]:w-[18%] border-b border-r border-slate-300 px-1 @min-[620px]:px-3 py-2 text-center text-[12px] @min-[620px]:text-[14.5px] font-bold uppercase leading-tight ${TONO_SECCION[s.tono ?? 'gris']}`}><span title={s.titulo} className="inline-block rotate-180 whitespace-nowrap [writing-mode:vertical-rl] @min-[620px]:hidden">{s.titulo?.replace('Modalidades de ', '')}{s.nota ? ` · ${s.nota}` : ''}</span><span className="hidden @min-[620px]:inline">{s.titulo}</span>{s.nota && <span className="hidden text-[11.5px] font-semibold normal-case opacity-80 @min-[620px]:block">({s.nota})</span>}</td>
                   )}
                   <td className={`${celda} text-[12.5px] @min-[620px]:text-[15px] font-semibold uppercase text-[#10233f]`}>{f.etiqueta}</td>
                   {filaDatos(f)}
                 </tr>
               )),
-              filaTotal(`Total ${s.titulo?.replace('Modalidades de ', '')}`, totTot, totAnt, totAct),
+              filaTotal(s.etiquetaTotal ?? `Total ${s.titulo?.replace('Modalidades de ', '')}`, totTot, totAnt, totAct),
             ];
           })}
           {filaTotal('Total general', granTot, granAnt, granAct, true)}

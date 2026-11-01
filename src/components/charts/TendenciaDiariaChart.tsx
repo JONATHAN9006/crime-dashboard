@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis, useXAxisScale, useYAxisScale } from 'recharts';
+import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, useXAxisScale, useYAxisScale } from 'recharts';
 import { formatNumero } from '../../utils/aggregations';
 import { maxDe } from '../../utils/mathSeguro';
 
@@ -122,9 +122,13 @@ function claveMes(anio: number, mes: number): string {
   return `${anio}-${String(mes + 1).padStart(2, '0')}`;
 }
 
-export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
+export function TendenciaDiariaChart({ data, height = 320, onResumenChange, diaSeleccionado = null, onClickDia }: {
   data: PuntoDiario[];
   height?: number;
+  // Clic en un día de la gráfica: el padre lo usa como filtro (fecha
+  // "2026-08-24"). El día elegido se marca con una línea vertical.
+  diaSeleccionado?: string | null;
+  onClickDia?: (fecha: string) => void;
   // Reporta hacia afuera, cada vez que cambia la selección de meses, el
   // detalle de casos por mes visible en ese momento — para que el
   // componente padre pueda mostrar el análisis (mes más afectado,
@@ -326,7 +330,16 @@ export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
               MarcaAguaPorMes arriba) para poder ubicarse con las
               coordenadas reales del gráfico. */}
           <ResponsiveContainer width="100%" height={height}>
-            <ComposedChart data={dataFiltrada} margin={{ top: 20, right: 20, left: 4, bottom: 4 }}>
+            <ComposedChart
+              data={dataFiltrada}
+              margin={{ top: 20, right: 20, left: 4, bottom: 4 }}
+              style={onClickDia ? { cursor: 'pointer' } : undefined}
+              onClick={onClickDia ? ((estado: { activeTooltipIndex?: number | string | null } | null) => {
+                const i = estado?.activeTooltipIndex;
+                const p = i === null || i === undefined ? undefined : dataFiltrada[Number(i)];
+                if (p) onClickDia(p.fecha);
+              }) : undefined}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <MarcaAguaPorMes tramosPorMes={tramosPorMes} dataFiltrada={dataFiltrada} />
               <EtiquetaComparativaPorMes tramosPorMes={tramosPorMes} dataFiltrada={dataFiltrada} />
@@ -357,6 +370,10 @@ export function TendenciaDiariaChart({ data, height = 320, onResumenChange }: {
                 label={{ value: 'Día del mes', position: 'insideBottom', offset: -2, fontSize: 11, fill: '#94a3b8' }}
               />
               <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} width={40} />
+              {(() => {
+                const idxSel = diaSeleccionado ? dataFiltrada.findIndex((p) => p.fecha === diaSeleccionado) : -1;
+                return idxSel >= 0 ? <ReferenceLine x={idxSel} stroke="#116762" strokeWidth={2} strokeDasharray="4 3" label={{ value: 'Día filtrado', position: 'top', fontSize: 11, fill: '#116762', fontWeight: 700 }} /> : null;
+              })()}
               <Tooltip
                 contentStyle={{ borderRadius: 8, fontSize: 13, border: '1px solid #e2e8f0' }}
                 labelFormatter={((idx: number) => {

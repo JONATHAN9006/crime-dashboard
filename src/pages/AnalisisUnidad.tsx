@@ -4,7 +4,8 @@ import { contarOperatividad } from '../utils/operatividadConteo';
 import { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
-import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria } from '../hooks/useTemporalAnalysis';
+import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria, formatFechaISOLocal } from '../hooks/useTemporalAnalysis';
+import { aplicarFiltros } from '../utils/filters';
 import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral, useProyeccion } from '../hooks/useComparativoHomologo';
 import { useKpis } from '../hooks/useKpis';
 import { agruparPor, totalCasos, formatPct } from '../utils/aggregations';
@@ -58,7 +59,7 @@ function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor:
 }
 
 export function AnalisisUnidad() {
-  const { records, filteredRecords, recordsBase, filters, meta, drillDown, filteredOperatividadRecords, periodos } = useData();
+  const { records, filteredRecords, recordsBase, filters, setFilters, meta, drillDown, filteredOperatividadRecords, periodos } = useData();
   const temporada = useTemporada();
   const modoAcceso = obtenerModoAcceso();
   const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
@@ -113,10 +114,48 @@ export function AnalisisUnidad() {
   // Incluye TAMBIÉN el año anterior (no solo el actual) — necesario para
   // poder comparar, día a día, el mismo periodo contra el año pasado dentro
   // del propio gráfico de Tendencia Diaria.
-  const registrosParaDiaria = useMemo(
-    () => filteredRecords.filter((r) => r.anio === ventana.anioActual || r.anio === ventana.anioAnterior),
-    [filteredRecords, ventana.anioActual, ventana.anioAnterior],
+  //
+  // Clic en un día de la tendencia diaria = filtro de fecha de TODO el
+  // dashboard a ese día (Fecha inicial = Fecha final = el día). Se guardan
+  // las fechas que había antes para devolverlas al quitar el día, y la
+  // gráfica sigue mostrando la serie completa (no solo el día elegido).
+  const [diaFiltrado, setDiaFiltrado] = useState<{ fecha: string; ini: string | null; fin: string | null } | null>(null);
+  const diaActivo = diaFiltrado && filters.fechaInicial === diaFiltrado.fecha && filters.fechaFinal === diaFiltrado.fecha ? diaFiltrado : null;
+  const alternarDia = (fecha: string) => {
+    if (diaActivo && diaActivo.fecha === fecha) {
+      setFilters((prev) => ({ ...prev, fechaInicial: diaActivo.ini, fechaFinal: diaActivo.fin }));
+      setDiaFiltrado(null);
+      return;
+    }
+    const previo = diaActivo ?? { ini: filters.fechaInicial ?? null, fin: filters.fechaFinal ?? null };
+    setDiaFiltrado({ fecha, ini: previo.ini, fin: previo.fin });
+    setFilters((prev) => ({ ...prev, fechaInicial: fecha, fechaFinal: fecha }));
+  };
+  const fuenteDiaria = useMemo(
+    () => (diaActivo ? aplicarFiltros(recordsBase, { ...filters, fechaInicial: diaActivo.ini, fechaFinal: diaActivo.fin }) : filteredRecords),
+    [diaActivo, recordsBase, filters, filteredRecords],
   );
+  const registrosParaDiaria = useMemo(
+    () => fuenteDiaria.filter((r) => r.anio === ventana.anioActual || r.anio === ventana.anioAnterior),
+    [fuenteDiaria, ventana.anioActual, ventana.anioAnterior],
+  );
+  // Delitos del día elegido (y del mismo día del año anterior, para comparar).
+  const delitosDelDia = useMemo(() => {
+    if (!diaActivo) return null;
+    const [a, m, d] = diaActivo.fecha.split('-');
+    const mismoDiaAnterior = `${Number(a) - 1}-${m}-${d}`;
+    const cuenta = new globalThis.Map<string, { actual: number; anterior: number }>();
+    for (const r of fuenteDiaria) {
+      if (!r.fecha) continue;
+      const f = formatFechaISOLocal(r.fecha);
+      if (f !== diaActivo.fecha && f !== mismoDiaAnterior) continue;
+      const c = cuenta.get(r.delito) ?? { actual: 0, anterior: 0 };
+      if (f === diaActivo.fecha) c.actual += 1; else c.anterior += 1;
+      cuenta.set(r.delito, c);
+    }
+    const filas = [...cuenta.entries()].map(([delito, c]) => ({ delito, ...c })).sort((x, y) => y.actual - x.actual || y.anterior - x.anterior || x.delito.localeCompare(y.delito));
+    return { filas, total: filas.reduce((t, f) => t + f.actual, 0), totalAnterior: filas.reduce((t, f) => t + f.anterior, 0), anioAnterior: Number(a) - 1 };
+  }, [diaActivo, fuenteDiaria]);
   const diaria = useTendenciaDiaria(registrosParaDiaria);
   // Abierta por defecto: la tendencia diaria comparte fila con la mensual.
   const [vistaDiaria, setVistaDiaria] = useState(true);
@@ -420,7 +459,35 @@ export function AnalisisUnidad() {
                     }
                   >
                     {vistaDiaria ? (
-                      <TendenciaDiariaChart data={diaria} height={300} onResumenChange={setResumenDiario} />
+                      <>
+                        <TendenciaDiariaChart data={diaria} height={300} onResumenChange={setResumenDiario} diaSeleccionado={diaActivo?.fecha ?? null} onClickDia={alternarDia} />
+                        {diaActivo && delitosDelDia ? (
+                          <div className="mt-2 rounded-xl border border-[#116762]/30 bg-[#e3f2ef]/60 p-3" data-delitos-del-dia>
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[13.5px] font-bold text-[#10233f]">
+                                {formatFecha(new Date(`${diaActivo.fecha}T12:00:00`))}: {formatNumero(delitosDelDia.total)} {delitosDelDia.total === 1 ? 'caso' : 'casos'}
+                                <span className="ml-1 font-semibold text-slate-500">· mismo día {delitosDelDia.anioAnterior}: {formatNumero(delitosDelDia.totalAnterior)}</span>
+                              </p>
+                              <button type="button" onClick={() => alternarDia(diaActivo.fecha)} className="rounded-lg border border-[#116762]/40 bg-white px-2.5 py-1 text-[12px] font-semibold text-[#116762] hover:bg-[#f1f8f6]">Quitar día</button>
+                            </div>
+                            {delitosDelDia.filas.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {delitosDelDia.filas.map((f) => {
+                                  const activo = filters.delito.includes(f.delito);
+                                  return (
+                                    <button key={f.delito} type="button" onClick={() => drillDown('delito', f.delito)} title={activo ? 'Quitar este delito del filtro' : 'Filtrar el dashboard por este delito'}
+                                      className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold ${activo ? 'border-[#116762] bg-[#116762] text-white' : 'border-slate-300 bg-white text-[#10233f] hover:border-[#116762]'}`}>
+                                      {f.delito}: {formatNumero(f.actual)}<span className={`ml-1 font-normal ${activo ? 'text-white/80' : 'text-slate-500'}`}>({delitosDelDia.anioAnterior}: {formatNumero(f.anterior)})</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : <p className="text-[12.5px] text-slate-500">Sin casos registrados ese día con los filtros activos.</p>}
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-[11.5px] text-slate-400">Clic en un día para ver sus delitos y filtrar el dashboard por esa fecha.</p>
+                        )}
+                      </>
                     ) : (
                       <p className="py-8 text-center text-sm text-slate-400">Haz clic en "Ver serie completa" para visualizar el comportamiento diario detallado ({diaria.length} días con datos).</p>
                     )}

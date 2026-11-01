@@ -8,9 +8,9 @@ import { Card, PageHeader, EmptyState } from '../components/ui/Card';
 import { KpiResumen, Top5Dona, RankingTerritorial, ListaCasos, HorarioFranja, EstadoInformacionCompacto, AZUL_TINTA } from '../components/resumen/BloquesResumen';
 import { contarPor, maximoDe } from '../analitica/cambio';
 import { BotonUnidadDroga } from '../components/operatividad/BotonUnidadDroga';
-import { TablaOperatividadAgrupada, construirTablaOperatividad } from '../components/resumen/TablaOperatividadAgrupada';
+import { TablaOperatividadAgrupada, TablaOperatividadPorTendencia, construirTablaOperatividad } from '../components/resumen/TablaOperatividadAgrupada';
 import { BotonAporte } from '../components/resumen/ComparativoComun';
-import { TablaDelitosAgrupada, construirTablaDelitos } from '../components/resumen/TablaDelitosAgrupada';
+import { TablaDelitosAgrupada, construirTablaDelitos, construirTablaDelitosPorTendencia } from '../components/resumen/TablaDelitosAgrupada';
 import { esDroga, type UnidadDroga } from '../utils/operatividadConteo';
 import { franjaDeTresHoras } from '../analitica/lectura';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
@@ -241,6 +241,11 @@ export function ResumenEjecutivo() {
     return f ? { franja: f.key, casos: f.casos, pct: totalVigencia > 0 ? (f.casos / totalVigencia) * 100 : 0 } : null;
   }, [soloVigenciaActual, totalVigencia]);
   const [verMetodologia, setVerMetodologia] = useState(false);
+  // Con una o varias estaciones elegidas en el filtro principal, las dos
+  // tablas comparativas se muestran DESAGRUPADAS: cada delito / concepto de
+  // operatividad en su fila, separados en lo que se pierde y lo que se gana.
+  const porEstacion = filters.estacion.length > 0;
+  const textoEstacion = filters.estacion.join(', ');
 
   // Igual que en Comparativo.tsx: la comparación "vigencia actual vs
   // anterior" (año) no tiene sentido con periodos de análisis multifecha
@@ -353,7 +358,7 @@ export function ResumenEjecutivo() {
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <Card
           title="Comparativo de delitos"
-          subtitle={`${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`}
+          subtitle={porEstacion ? `${textoEstacion} · delito por delito · ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha` : `${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`}
           descargable="comparativo-delitos-resumen"
           icono={<Landmark size={30} className="text-[#137a6f]" strokeWidth={2.2} />}
           claseTitulo="text-[18px] font-bold text-[#10233f]"
@@ -367,7 +372,7 @@ export function ResumenEjecutivo() {
         >
           {filasTablaDelitos.length > 0 ? (
             <TablaDelitosAgrupada
-              secciones={construirTablaDelitos(filasTablaDelitos, !!delitosPermitidos)}
+              secciones={porEstacion ? construirTablaDelitosPorTendencia(filasTablaDelitos) : construirTablaDelitos(filasTablaDelitos, !!delitosPermitidos)}
               anioAnterior={ventana.anioAnterior}
               anioActual={ventana.anioActual}
               mostrarAporte={verAporteDelitos}
@@ -381,19 +386,21 @@ export function ResumenEjecutivo() {
 
         <Card
           title="Comparativo de Operatividad"
-          subtitle={`${ventanaOpTabla.inicio.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} – ${ventanaOpTabla.fin.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}: ${ventanaOpTabla.anioAnterior} vs. ${ventanaOpTabla.anioActual}`}
+          subtitle={`${porEstacion ? `${textoEstacion} · concepto por concepto · ` : ''}${ventanaOpTabla.inicio.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} – ${ventanaOpTabla.fin.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}: ${ventanaOpTabla.anioAnterior} vs. ${ventanaOpTabla.anioActual}`}
           descargable="comparativo-operatividad-resumen"
           icono={<Settings size={30} className="text-[#137a6f]" strokeWidth={2.4} />}
           claseTitulo="text-[18px] font-bold text-[#10233f]"
           actions={(
             <div className="flex items-center gap-1.5">
               {operatividadRecords.some(esDroga) && <BotonUnidadDroga unidad={unidadDroga} onChange={setUnidadDroga} />}
-              <BotonAporte activo={verAporteOperatividad} onChange={setVerAporteOperatividad} />
+              {!porEstacion && <BotonAporte activo={verAporteOperatividad} onChange={setVerAporteOperatividad} />}
             </div>
           )}
         >
           {operatividadRecords.length > 0 ? (
-            <TablaOperatividadAgrupada grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} mostrarAporte={verAporteOperatividad} />
+            porEstacion
+              ? <TablaOperatividadPorTendencia grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} />
+              : <TablaOperatividadAgrupada grupos={gruposOperatividad} ventana={ventanaOpTabla} unidad={unidadDroga} mostrarAporte={verAporteOperatividad} />
           ) : (
             <p className="flex items-center justify-center gap-2 py-8 text-center text-sm text-slate-400">
               {cargandoOperatividad ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#116762]/30 border-t-[#116762]" /> Cargando operatividad…</> : 'Sin datos de Operatividad cargados todavía.'}
