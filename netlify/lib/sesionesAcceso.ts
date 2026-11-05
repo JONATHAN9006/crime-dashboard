@@ -107,7 +107,37 @@ export async function validarSesion(db: SupabaseClient, t: TokenSesion | null, r
   ]);
   if (!cuenta || !cuenta.activo) return no('desactivado');
   if (!ses || ses.rol !== t.r) return no('cerrada');
+  if ((await estadoSuspension(db, t.r)).activa) return no('suspendido');
   return { motivo: null, rol: t.r, ambito: leerAmbito(cuenta.ambito) };
+}
+
+// ── Suspensión temporal del enlace /interno ─────────────────────────────
+// El estado se guarda en la propia bitácora (sin tablas ni columnas nuevas):
+// el último evento de suspensión de la cuenta manda. «suspension_activada»
+// lleva en el detalle la hora de fin (hasta=ISO) y el SERVIDOR decide con su
+// reloj si sigue vigente — nunca el navegador. Al vencer, el acceso se
+// restablece solo y se registra «suspension_finalizada». No borra datos,
+// cuentas ni sesiones: las sesiones quedan en pausa mientras dure.
+export const EVENTOS_SUSPENSION = ['suspension_activada', 'suspension_desactivada', 'suspension_finalizada'];
+export const ROLES_SUSPENDIBLES: RolSesion[] = ['interno'];
+export interface EstadoSuspension { activa: boolean; hasta: string | null; restanteMs: number }
+const SIN_SUSPENSION: EstadoSuspension = { activa: false, hasta: null, restanteMs: 0 };
+
+export async function estadoSuspension(db: SupabaseClient, rol: RolCuenta): Promise<EstadoSuspension> {
+  if (!(ROLES_SUSPENDIBLES as string[]).includes(rol)) return SIN_SUSPENSION;
+  const { data, error } = await db.from('bitacora_acceso').select('evento, detalle').eq('rol', rol).in('evento', EVENTOS_SUSPENSION)
+    .order('fecha', { ascending: false }).order('id', { ascending: false }).limit(1);
+  // Si no se puede leer el estado, se niega el acceso (no se puede saltar la suspensión).
+  if (error) throw error;
+  const ultimo = data?.[0];
+  if (!ultimo || ultimo.evento !== 'suspension_activada') return SIN_SUSPENSION;
+  const hasta = /hasta=(\S+)/.exec(String(ultimo.detalle || ''))?.[1] ?? '';
+  const fin = Date.parse(hasta);
+  if (!Number.isFinite(fin)) return { activa: true, hasta: null, restanteMs: 0 }; // sin hora válida: solo el administrador la levanta
+  const restante = fin - Date.now();
+  if (restante > 0) return { activa: true, hasta: new Date(fin).toISOString(), restanteMs: restante };
+  await registrarEvento(db, { rol, evento: 'suspension_finalizada', detalle: 'Terminó el tiempo configurado: acceso restablecido automáticamente' });
+  return SIN_SUSPENSION;
 }
 
 /**

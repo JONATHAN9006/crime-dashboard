@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, MapPin, ShieldAlert } from 'lucide-react';
+import { PantallaSuspension } from './PantallaSuspension';
 import { consultarEnlace, ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
 
 // Puerta de entrada de los enlaces /interno y /piloto: nada del dashboard
@@ -9,8 +10,12 @@ import { consultarEnlace, ingresar, leerSesionGuardada, obtenerUbicacion, rolDel
 // sesión sigue abierta y la cuenta activa; si no, se cierra.
 // El piloto, además, envía la ubicación del equipo (control complementario).
 
-const INTERVALO_VERIFICACION_MS = 5 * 60 * 1000;
 const esPiloto = () => rolDelEnlace() === 'piloto';
+// Interno se confirma cada minuto (así una suspensión se aplica pronto); el
+// piloto cada 5 (además pide la ubicación del equipo en cada verificación).
+const INTERVALO_VERIFICACION_MS = esPiloto() ? 5 * 60 * 1000 : 60 * 1000;
+// Mientras está suspendido se pregunta al servidor cada minuto si ya terminó.
+const INTERVALO_SUSPENSION_MS = 60 * 1000;
 
 interface ContextoCuenta { sesion: SesionCuenta; salir: () => void }
 const CuentaContext = createContext<ContextoCuenta | null>(null);
@@ -20,7 +25,8 @@ type Estado =
   | { fase: 'verificando' }
   | { fase: 'consultando'; aviso?: string; automatico: boolean }
   | { fase: 'login'; aviso?: string; abierto?: boolean }
-  | { fase: 'dentro'; sesion: SesionCuenta };
+  | { fase: 'dentro'; sesion: SesionCuenta }
+  | { fase: 'suspendido' };
 
 const MENSAJE_UBICACION: Record<string, string> = {
   denegada: 'El navegador tiene bloqueada la ubicación para este sitio. Actívala (ícono del candado junto a la dirección → Ubicación → Permitir) y vuelve a intentar.',
@@ -49,6 +55,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     (async () => {
       const r = await consultarEnlace();
       if (!vivo) return;
+      if (r.suspendido) { setEstado({ fase: 'suspendido' }); return; }
       if (!r.abierto) { setEstado({ fase: 'login', aviso }); return; }
       if (!automatico) { setEstado({ fase: 'login', aviso, abierto: true }); return; }
       const ubic = esPiloto() ? await obtenerUbicacion() : null;
@@ -56,6 +63,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
       if (!vivo) return;
       const s = leerSesionGuardada();
       if (ing.ok && s) { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); return; }
+      if (ing.motivo === 'suspendido') { setEstado({ fase: 'suspendido' }); return; }
       setEstado({ fase: 'login', abierto: true, aviso: ing.requiereUbicacion && ubic && 'error' in ubic ? `${ing.error} ${MENSAJE_UBICACION[ubic.error]}` : ing.error });
     })();
     return () => { vivo = false; };
@@ -66,6 +74,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     const r = await verificarSesion(s, ubic);
     if (r.ok) return true;
     if (r.sinConexion) return true; // sin internet un momento: no se cierra
+    if (r.motivo === 'suspendido') { sesionRef.current = null; setEstado({ fase: 'suspendido' }); return false; }
     cerrarCon(r.error || 'La sesión se cerró.');
     return false;
   }, [cerrarCon]);
@@ -97,12 +106,36 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     return () => { window.clearInterval(id); window.clearTimeout(vence); document.removeEventListener('visibilitychange', alVolver); };
   }, [estado, verificar, cerrarCon]);
 
+  // Una consulta de datos rechazada por suspensión lleva a la pantalla de
+  // inmediato (sin esperar la verificación periódica).
+  useEffect(() => {
+    const alSuspender = () => { sesionRef.current = null; setEstado({ fase: 'suspendido' }); };
+    window.addEventListener('mepoy-suspendido', alSuspender);
+    return () => window.removeEventListener('mepoy-suspendido', alSuspender);
+  }, []);
+
+  // Suspendido: cada minuto se pregunta al servidor; cuando el administrador
+  // la levanta o termina el tiempo, se vuelve a entrar (con la sesión
+  // guardada, si la había, o con el ingreso normal del enlace).
+  useEffect(() => {
+    if (estado.fase !== 'suspendido') return;
+    let vivo = true;
+    const revisar = async () => {
+      const r = await consultarEnlace();
+      if (!vivo || !r.ok || r.suspendido) return;
+      setEstado(leerSesionGuardada() ? { fase: 'verificando' } : { fase: 'consultando', automatico: true });
+    };
+    const id = window.setInterval(revisar, INTERVALO_SUSPENSION_MS);
+    return () => { vivo = false; window.clearInterval(id); };
+  }, [estado.fase]);
+
   const salir = useCallback(() => {
     const s = sesionRef.current;
     cerrarCon('Sesión cerrada.');
     salirCuenta(s);
   }, [cerrarCon]);
 
+  if (estado.fase === 'suspendido') return <PantallaSuspension />;
   if (estado.fase === 'dentro') {
     return <CuentaContext.Provider value={{ sesion: estado.sesion, salir }}>{children}</CuentaContext.Provider>;
   }
@@ -121,6 +154,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
       aviso={estado.aviso}
       abierto={!!estado.abierto}
       onIngreso={(s) => { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); }}
+      onSuspendido={() => setEstado({ fase: 'suspendido' })}
     />
   );
 }
@@ -144,7 +178,7 @@ function Fondo({ children }: { children: ReactNode }) {
   );
 }
 
-function FormularioIngreso({ aviso, abierto, onIngreso }: { aviso?: string; abierto: boolean; onIngreso: (s: SesionCuenta) => void }) {
+function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido }: { aviso?: string; abierto: boolean; onIngreso: (s: SesionCuenta) => void; onSuspendido: () => void }) {
   const [usuario, setUsuario] = useState('');
   const [clave, setClave] = useState('');
   const [verClave, setVerClave] = useState(false);
@@ -165,6 +199,7 @@ function FormularioIngreso({ aviso, abierto, onIngreso }: { aviso?: string; abie
     setPaso('listo');
     const s = leerSesionGuardada();
     if (r.ok && s) { onIngreso(s); return; }
+    if (r.motivo === 'suspendido') { onSuspendido(); return; }
     setClave('');
     setError(r.requiereUbicacion && ubic && 'error' in ubic ? `${r.error} ${MENSAJE_UBICACION[ubic.error]}` : (r.error || 'No fue posible ingresar.'));
   }

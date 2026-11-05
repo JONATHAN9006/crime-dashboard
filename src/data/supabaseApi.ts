@@ -20,6 +20,10 @@ export async function llamarDatos(cuerpo: Record<string, unknown>): Promise<any>
   const texto = await r.text().catch(() => '');
   let j: any = null;
   try { j = JSON.parse(texto); } catch { /* respuesta no JSON (p. ej. función no publicada o respuesta demasiado grande) */ }
+  // Enlace suspendido temporalmente: la puerta muestra la pantalla de servicio no disponible.
+  if (j && j.motivo === 'suspendido') {
+    try { window.dispatchEvent(new CustomEvent('mepoy-suspendido')); } catch { /* sin ventana */ }
+  }
   if (!r.ok || !j || !j.ok) {
     // Diagnóstico en la consola (F12): estado HTTP y motivo, sin datos sensibles.
     console.error(`[Datos] ${String(cuerpo.accion)} ${String(cuerpo.dataset ?? '')} → HTTP ${r.status}`, j ? (j.motivo || j.detalle || j.error) : texto.slice(0, 200));

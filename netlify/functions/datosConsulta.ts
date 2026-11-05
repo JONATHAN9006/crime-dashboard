@@ -74,6 +74,7 @@ export const handler: Handler = async (event) => {
   });
   try {
     const { motivo, rol, ambito } = await resolverRol(db, c.token);
+    if (motivo === 'suspendido') return resp({ ok: false, motivo, error: 'La plataforma se encuentra temporalmente fuera de servicio.' }, 403);
     if (motivo || !rol) return resp({ ok: false, motivo, error: 'Sesión no válida. Vuelve a ingresar.' }, 401);
     const dataset = texto(c.dataset, 60) ?? 'delictividad';
     const permitidos = DATASETS_POR_ROL[rol];

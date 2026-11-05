@@ -18,8 +18,8 @@ import type { Handler } from '@netlify/functions';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'node:crypto';
 import {
-  esRolSesion, firmarTokenSesion, hashClave, leerAmbito, leerTokenSesion, registrarEvento, tokenAdminValido,
-  validarSesion, verificarClave, type RolCuenta, type RolSesion,
+  esRolSesion, estadoSuspension, EVENTOS_SUSPENSION, firmarTokenSesion, hashClave, leerAmbito, leerTokenSesion, registrarEvento, ROLES_SUSPENDIBLES,
+  tokenAdminValido, validarSesion, verificarClave, type RolCuenta, type RolSesion,
 } from '../lib/sesionesAcceso';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -32,6 +32,7 @@ const EN_LINEA_MS = 7 * 60 * 1000;
 const MAX_FALLIDOS = 5;
 const VENTANA_FALLIDOS_MS = 15 * 60 * 1000;
 const ROLES: RolCuenta[] = ['administrador', 'interno', 'piloto'];
+const MENSAJE_SUSPENDIDO = 'La plataforma se encuentra temporalmente fuera de servicio.';
 
 /** Contraseña aleatoria de 14 caracteres (sin letras que se confunden: 0/O, 1/l/I) con mayúscula, minúscula, número y símbolo. */
 function generarClaveSegura(): string {
@@ -99,6 +100,7 @@ export const handler: Handler = async (event) => {
       case 'admin_generar_clave':
       case 'admin_bitacora':
       case 'admin_bitacora_exportar':
+      case 'admin_suspension':
         if (!tokenAdminValido(c.adminToken)) return resp({ ok: false, motivo: 'admin', error: 'La sesión de administrador expiró. Vuelve a ingresar.' }, 401);
         return await admin(db, c);
       default:
@@ -127,6 +129,13 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   if ((count ?? 0) >= MAX_FALLIDOS) {
     await registrarEvento(db, { ...base, evento: 'bloqueado', detalle: 'Demasiados intentos fallidos' });
     return resp({ ok: false, error: 'Demasiados intentos fallidos. Espera 15 minutos o comunícate con el administrador.' });
+  }
+
+  // Enlace suspendido temporalmente: no se valida nada más ni se crea sesión.
+  const suspension = await estadoSuspension(db, rol);
+  if (suspension.activa) {
+    await registrarEvento(db, { ...base, evento: 'rechazado', detalle: 'Servicio temporalmente no disponible (suspensión activa)' });
+    return resp({ ok: false, motivo: 'suspendido', suspendido: true, error: MENSAJE_SUSPENDIDO });
   }
 
   const { data: cuenta, error } = await db.from('cuentas_acceso').select('*').eq('rol', rol).maybeSingle();
@@ -168,6 +177,8 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
 /** ¿El enlace tiene acceso directo? (cuenta activa y sin contraseña). No revela nada más. */
 async function enlace(db: SupabaseClient, c: Cuerpo) {
   if (!esRolSesion(c.rol)) return resp({ ok: false, error: 'Enlace no válido.' }, 400);
+  // Suspendido: solo eso se informa (ni si tiene contraseña ni nada más).
+  if ((await estadoSuspension(db, c.rol)).activa) return resp({ ok: true, abierto: false, suspendido: true });
   const { data: cuenta, error } = await db.from('cuentas_acceso').select('activo, clave_hash').eq('rol', c.rol).maybeSingle();
   if (error) throw error;
   return resp({ ok: true, abierto: !!cuenta && !!cuenta.activo && !cuenta.clave_hash });
@@ -181,8 +192,9 @@ async function verificar(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo:
     const error = v.motivo === 'expirada' ? 'La sesión expiró. Vuelve a ingresar.'
       : v.motivo === 'desactivado' ? 'Esta cuenta fue desactivada por el administrador.'
       : v.motivo === 'cerrada' ? 'El administrador cerró la sesión. Vuelve a ingresar.'
+      : v.motivo === 'suspendido' ? MENSAJE_SUSPENDIDO
       : 'Sesión no válida. Vuelve a ingresar.';
-    return resp({ ok: false, motivo: v.motivo, error });
+    return resp({ ok: false, motivo: v.motivo, suspendido: v.motivo === 'suspendido' || undefined, error });
   }
   const ubic = leerUbicacion(c);
   if (t.r === 'piloto' && EXIGIR_UBICACION_PILOTO && ubic) {
@@ -221,6 +233,24 @@ async function evento(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: st
 async function admin(db: SupabaseClient, c: Cuerpo) {
   if (c.accion === 'admin_bitacora' || c.accion === 'admin_bitacora_exportar') return consultarBitacora(db, c);
   const rol = String(c.rol || '') as RolCuenta;
+  // Suspensión temporal del enlace (solo /interno): 2 o 3 horas, o levantarla.
+  // No toca datos, cuentas, contraseñas ni sesiones.
+  if (c.accion === 'admin_suspension') {
+    if (!(ROLES_SUSPENDIBLES as string[]).includes(rol)) return resp({ ok: false, error: 'Esta cuenta no admite suspensión temporal.' }, 400);
+    const actual = await estadoSuspension(db, rol);
+    if (c.activar) {
+      const horas = Number(c.horas);
+      if (horas !== 2 && horas !== 3) return resp({ ok: false, error: 'Duración no válida (2 o 3 horas).' }, 400);
+      const hasta = new Date(Date.now() + horas * 3600000).toISOString();
+      const { error } = await db.from('bitacora_acceso').insert({ rol, evento: 'suspension_activada', detalle: `${actual.activa ? 'Suspensión renovada' : 'Servicio temporalmente no disponible'} por ${horas} horas · hasta=${hasta}` });
+      if (error) throw error;
+      return resp({ ok: true, suspension: await estadoSuspension(db, rol) });
+    }
+    if (!actual.activa) return resp({ ok: true, suspension: actual });
+    const { error } = await db.from('bitacora_acceso').insert({ rol, evento: 'suspension_desactivada', detalle: 'El administrador restableció el acceso manualmente' });
+    if (error) throw error;
+    return resp({ ok: true, suspension: await estadoSuspension(db, rol) });
+  }
   if (c.accion === 'admin_clave') {
     if (!ROLES.includes(rol)) return resp({ ok: false, error: 'Cuenta no válida.' }, 400);
     const nueva = String(c.nuevaClave ?? '');
@@ -291,6 +321,8 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
   if (e1) throw e1;
   if (e2) throw e2;
   if (e3) throw e3;
+  const suspensiones = new Map<string, Awaited<ReturnType<typeof estadoSuspension>>>();
+  for (const r of ROLES_SUSPENDIBLES) suspensiones.set(r, await estadoSuspension(db, r));
   const ahora = Date.now();
   const ultimos = new Map<string, string>();
   const { data: ingresos } = await db.from('bitacora_acceso').select('rol, fecha').eq('evento', 'ingreso').order('fecha', { ascending: false }).limit(200);
@@ -317,6 +349,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
         ultimoIngreso: ultimos.get(r) ?? null,
         claveActualizada: claveCambio.get(r) ?? null,
         enlace: r === 'administrador' ? '/' : `/${r}`,
+        suspension: suspensiones.get(r) ?? null,
       };
     }),
     bitacora: bitacora || [],
@@ -331,11 +364,12 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
 // Tipos de evento (columna `evento`):
 //   ingreso · fallido · rechazado · bloqueado · salida · expirada · cerrada ·
 //   seguridad · admin (histórico, antes de la clasificación) ·
-//   sensible_clave · sensible_estado · sensible_territorio · sensible_sesiones
+//   sensible_clave · sensible_estado · sensible_territorio · sensible_sesiones ·
+//   suspension_activada · suspension_desactivada · suspension_finalizada
 const EV_SENSIBLES = ['sensible_clave', 'sensible_estado', 'sensible_territorio', 'sensible_sesiones'];
 const EV_FALLIDOS = ['fallido', 'rechazado', 'bloqueado'];
-const EV_EXITOSOS = ['ingreso', 'salida', 'expirada', 'cerrada', 'admin', ...EV_SENSIBLES];
-const EV_ADMIN = ['admin', ...EV_SENSIBLES];
+const EV_EXITOSOS = ['ingreso', 'salida', 'expirada', 'cerrada', 'admin', ...EV_SENSIBLES, ...EVENTOS_SUSPENSION];
+const EV_ADMIN = ['admin', ...EV_SENSIBLES, ...EVENTOS_SUSPENSION];
 const GRUPOS_TIPO: Record<string, string[]> = {
   ingreso: ['ingreso'],
   fallido: EV_FALLIDOS,

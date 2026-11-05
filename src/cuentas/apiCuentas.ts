@@ -60,11 +60,11 @@ function guardarSesion(s: SesionCuenta | null) {
 }
 
 /** ¿El enlace actual tiene acceso directo (cuenta sin contraseña)? */
-export async function consultarEnlace(): Promise<{ ok: boolean; abierto: boolean }> {
+export async function consultarEnlace(): Promise<{ ok: boolean; abierto: boolean; suspendido: boolean; sinConexion?: boolean }> {
   const rol = rolDelEnlace();
-  if (!rol) return { ok: false, abierto: false };
-  const r = await llamar<{ abierto?: boolean }>({ accion: 'enlace', rol });
-  return { ok: !!r.ok, abierto: !!r.abierto };
+  if (!rol) return { ok: false, abierto: false, suspendido: false };
+  const r = await llamar<{ abierto?: boolean; suspendido?: boolean }>({ accion: 'enlace', rol });
+  return { ok: !!r.ok, abierto: !!r.abierto, suspendido: !!r.suspendido, sinConexion: r.sinConexion };
 }
 
 export async function ingresar(usuario: string, clave: string, ubic: Ubicacion | null) {
@@ -77,8 +77,9 @@ export async function ingresar(usuario: string, clave: string, ubic: Ubicacion |
 }
 
 export async function verificarSesion(s: SesionCuenta, ubic: Ubicacion | null) {
-  const r = await llamar<{ ambito?: AmbitoConsulta }>({ accion: 'verificar', rol: s.rol, token: s.token, ...datosUbicacion(ubic), dispositivo: navigator.userAgent });
-  if (!r.ok && !r.sinConexion) guardarSesion(null);
+  const r = await llamar<{ ambito?: AmbitoConsulta; suspendido?: boolean }>({ accion: 'verificar', rol: s.rol, token: s.token, ...datosUbicacion(ubic), dispositivo: navigator.userAgent });
+  // Suspensión temporal: la sesión NO se borra (queda en pausa y sigue al terminar).
+  if (!r.ok && !r.sinConexion && r.motivo !== 'suspendido') guardarSesion(null);
   // El servidor confirma el ámbito en cada verificación (si el administrador lo cambió, se actualiza).
   if (r.ok && r.ambito) { const actual = leerSesionGuardada(); if (actual && actual.token === s.token && actual.ambito !== r.ambito) guardarSesion({ ...actual, ambito: r.ambito }); }
   return r;
@@ -127,7 +128,10 @@ export interface CuentaAcceso {
   ambito: AmbitoConsulta | null; sesionesActivas: number; ultimoIngreso: string | null; enlace: string;
   /** Último cambio de contraseña hecho desde el panel (si lo hubo). */
   claveActualizada?: string | null;
+  /** Suspensión temporal del enlace (solo /interno); la decide el servidor. */
+  suspension?: EstadoSuspension | null;
 }
+export interface EstadoSuspension { activa: boolean; hasta: string | null; restanteMs: number }
 export interface EventoBitacora { id: number; rol: string; fecha: string; evento: string; detalle: string | null; distancia_km: number | null; dispositivo: string | null; ip: string | null }
 export interface ResumenCuentas { cuentas: CuentaAcceso[]; bitacora: EventoBitacora[]; radioKm: number; exigeUbicacionPiloto: boolean }
 
@@ -148,3 +152,4 @@ export interface PaginaBitacora {
 export const adminBitacora = (f: FiltrosBitacora, pagina: number, porPagina: number) => conAdmin({ accion: 'admin_bitacora', ...f, pagina, porPagina }) as Promise<PaginaBitacora>;
 export const adminBitacoraExportar = (f: FiltrosBitacora) => conAdmin({ accion: 'admin_bitacora_exportar', ...f }) as Promise<{ ok: boolean; error?: string; filas?: EventoBitacora[]; total?: number; truncado?: boolean; desde?: string; hasta?: string }>;
 export const adminCerrarSesiones = (rol: RolSesion) => conAdmin({ accion: 'admin_cerrar', rol });
+export const adminSuspension = (rol: RolSesion, activar: boolean, horas?: 2 | 3) => conAdmin({ accion: 'admin_suspension', rol, activar, horas }) as Promise<{ ok: boolean; error?: string; suspension?: EstadoSuspension }>;

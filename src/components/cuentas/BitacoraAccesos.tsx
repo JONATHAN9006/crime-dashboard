@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowDown, ArrowUp, Ban, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock, Cog, Download,
+  ArrowDown, ArrowUp, Ban, Power, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock, Cog, Download,
   FileSpreadsheet, FileText, Filter, Info, KeyRound, ListFilter, Loader2, Lock, LogIn, LogOut, MapPinned, MinusCircle, MoreHorizontal, RefreshCw,
   Search, Shield, ShieldAlert, ShieldX, User, UserCog, Users, X, XCircle,
 } from 'lucide-react';
@@ -42,10 +42,18 @@ const EVENTOS: Record<string, { texto: string; Icono: typeof LogIn; tono: Tono; 
   sensible_estado: { texto: 'Estado de cuenta', Icono: UserCog, tono: 'naranja', sensible: true },
   sensible_territorio: { texto: 'Territorio', Icono: MapPinned, tono: 'naranja', sensible: true },
   sensible_sesiones: { texto: 'Sesiones', Icono: LogOut, tono: 'naranja', sensible: true },
+  suspension_activada: { texto: 'Servicio no disponible', Icono: Ban, tono: 'naranja', sensible: true },
+  suspension_desactivada: { texto: 'Acceso restablecido', Icono: Power, tono: 'naranja', sensible: true },
+  suspension_finalizada: { texto: 'Fin de suspensión', Icono: Power, tono: 'naranja', sensible: true },
 };
 const eventoDe = (e: string) => EVENTOS[e] ?? { texto: e, Icono: Info, tono: 'gris' as Tono };
 
-const EXITOSOS = new Set(['ingreso', 'salida', 'expirada', 'cerrada', 'admin', 'sensible_clave', 'sensible_estado', 'sensible_territorio', 'sensible_sesiones']);
+// «hasta=2026-11-04T18:41:00.000Z» (suspensión) → «hasta las 1:41 p. m. del 04 nov».
+const detalleLegible = (d: string | null) => (d ? d.replace(/hasta=(\S+)/, (_, iso: string) => {
+  const t = new Date(iso);
+  return Number.isNaN(t.getTime()) ? `hasta ${iso}` : `hasta las ${t.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' })} del ${t.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short' })}`;
+}) : d);
+const EXITOSOS = new Set(['ingreso', 'salida', 'expirada', 'cerrada', 'admin', 'sensible_clave', 'sensible_estado', 'sensible_territorio', 'sensible_sesiones', 'suspension_activada', 'suspension_desactivada', 'suspension_finalizada']);
 const FALLIDOS = new Set(['fallido', 'rechazado', 'bloqueado']);
 /** Resultado según el tipo de evento registrado (no hay una columna aparte de resultado). */
 function resultadoDe(e: string): { texto: string; tono: Tono; Icono: typeof CheckCircle2 } {
@@ -367,7 +375,7 @@ export function BitacoraAccesos({ rol, setRol }: { rol: RolCuenta | ''; setRol: 
                   <td className="whitespace-nowrap px-3 py-2.5 text-[#10233f]">{NOMBRE_ROL[f.rol] ?? f.rol}</td>
                   <td className="px-3 py-2.5"><Chip tono={ev.tono} Icono={ev.Icono} texto={ev.texto} extra={ev.sensible ? 'Sensible' : undefined} /></td>
                   <td className="max-w-[340px] px-3 py-2.5 text-slate-600">
-                    <span className="line-clamp-1" title={f.detalle ?? ''}>{f.detalle || (f.evento === 'ingreso' ? 'Inicio de sesión en el sistema' : '—')}</span>
+                    <span className="line-clamp-1" title={detalleLegible(f.detalle) ?? ''}>{detalleLegible(f.detalle) || (f.evento === 'ingreso' ? 'Inicio de sesión en el sistema' : '—')}</span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-slate-600">{f.ip || '—'}</td>
                   <td className="px-3 py-2.5"><Chip tono={res.tono} Icono={res.Icono} texto={res.texto} /></td>

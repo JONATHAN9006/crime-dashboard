@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, ClipboardList, Clock, Copy, Crown, Download, Eraser, Info, KeyRound, Link2, Loader2, LockKeyhole, MapPin, MapPinned,
-  MoreVertical, Power, RefreshCw, Search, Settings, ShieldAlert, ShieldX, Sparkles, User, UserCheck, UserX, Users, XCircle,
+  Ban, MoreVertical, Power, RefreshCw, Search, Settings, ShieldAlert, ShieldX, Sparkles, User, UserCheck, UserX, Users, XCircle,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { puedeDescargar } from '../utils/permisos';
 import clsx from 'clsx';
 import {
-  adminAsignarClave, adminCambiarAmbito, adminCambiarEstado, adminCerrarSesiones, adminGenerarClave, adminQuitarClave, adminResumen,
+  adminAsignarClave, adminCambiarAmbito, adminCambiarEstado, adminCerrarSesiones, adminGenerarClave, adminQuitarClave, adminResumen, adminSuspension,
   type CuentaAcceso, type EventoBitacora, type ResumenCuentas, type RolCuenta,
 } from '../cuentas/apiCuentas';
 import { BitacoraAccesos } from '../components/cuentas/BitacoraAccesos';
@@ -167,7 +167,49 @@ function FilaDato({ icono, etiqueta, children }: { icono: React.ReactNode; etiqu
   );
 }
 
-type Confirmacion = 'quitar' | 'generar' | 'revocar' | 'desactivar' | null;
+// Disponibilidad del enlace /interno: «Servicio temporalmente no disponible»
+// por 2 o 3 horas (el servidor guarda la hora de fin y la hace cumplir), o
+// restablecerlo antes. El contador de aquí es solo informativo.
+function BloqueSuspension({ c, ocupado, onSuspender, onRestablecer }: { c: CuentaAcceso; ocupado: boolean; onSuspender: (horas: 2 | 3) => void; onRestablecer: () => void }) {
+  const susp = c.suspension;
+  const [ahora, setAhora] = useState(() => Date.now());
+  const [base] = useState(() => Date.now());
+  useEffect(() => {
+    if (!susp?.activa) return;
+    const id = window.setInterval(() => setAhora(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [susp?.activa]);
+  const restanteMin = susp?.activa && susp.restanteMs > 0 ? Math.max(0, Math.ceil((susp.restanteMs - (ahora - base)) / 60000)) : null;
+  const btn = 'flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50';
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3" data-bloque-suspension>
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Disponibilidad del enlace</p>
+      {susp?.activa ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-[12.5px] text-rose-900">
+          <p className="flex items-center gap-1.5 font-bold"><Ban size={14} /> Servicio temporalmente no disponible</p>
+          <p className="mt-0.5 text-[12px]">
+            {susp.hasta ? <>Hasta las {new Date(susp.hasta).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' })}{restanteMin !== null && <> · quedan {restanteMin >= 60 ? `${Math.floor(restanteMin / 60)} h ${restanteMin % 60} min` : `${restanteMin} min`}</>}. Al terminar, el acceso vuelve solo.</> : 'Sin hora de fin: restablécelo manualmente.'}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={ocupado} onClick={onRestablecer} className={clsx(btn, 'border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50')}><Power size={14} /> Restablecer acceso ahora</button>
+            <button type="button" disabled={ocupado} onClick={() => onSuspender(2)} title="Vuelve a contar 2 horas desde ahora" className={clsx(btn, 'border-rose-200 bg-white text-rose-700 hover:bg-rose-100')}>Renovar 2 h</button>
+            <button type="button" disabled={ocupado} onClick={() => onSuspender(3)} title="Vuelve a contar 3 horas desde ahora" className={clsx(btn, 'border-rose-200 bg-white text-rose-700 hover:bg-rose-100')}>Renovar 3 h</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={ocupado || !c.existe} onClick={() => onSuspender(2)} className={clsx(btn, 'border-rose-300 bg-white text-rose-700 hover:bg-rose-50')}><Ban size={14} /> No disponible 2 h</button>
+            <button type="button" disabled={ocupado || !c.existe} onClick={() => onSuspender(3)} className={clsx(btn, 'border-rose-300 bg-white text-rose-700 hover:bg-rose-50')}><Ban size={14} /> No disponible 3 h</button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-400">Muestra «Servicio temporalmente no disponible» en {c.enlace} durante el tiempo elegido. No borra datos, cuentas ni sesiones; se registra en la bitácora.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+type Confirmacion = 'quitar' | 'generar' | 'revocar' | 'desactivar' | 'suspender2' | 'suspender3' | null;
 
 function TarjetaCuenta({ c, recargar, exigeUbicacion, radioKm, onVer }: { c: CuentaAcceso; recargar: () => void; exigeUbicacion: boolean; radioKm: number; onVer: () => void }) {
   const [editandoClave, setEditandoClave] = useState(false);
@@ -205,12 +247,15 @@ function TarjetaCuenta({ c, recargar, exigeUbicacion, radioKm, onVer }: { c: Cue
     generar: esAdmin ? '¿Generar una contraseña nueva para el administrador? Reemplaza la actual; guárdala antes de cerrar sesión.' : `¿Generar una contraseña nueva para «${NOMBRE_ROL[c.rol]}»? La anterior dejará de servir y se cerrarán sus sesiones.`,
     revocar: `¿Revocar las sesiones abiertas de «${NOMBRE_ROL[c.rol]}»? Tendrán que volver a ingresar; la contraseña no cambia.`,
     desactivar: `¿Desactivar la cuenta «${NOMBRE_ROL[c.rol]}»? Nadie podrá ingresar por ${c.enlace} hasta que la actives de nuevo.`,
+    suspender2: `¿Poner ${c.enlace} en «Servicio temporalmente no disponible» por 2 horas? Quien lo abra verá solo el aviso; al terminar el tiempo el acceso vuelve solo. No se borran datos, cuentas ni sesiones.`,
+    suspender3: `¿Poner ${c.enlace} en «Servicio temporalmente no disponible» por 3 horas? Quien lo abra verá solo el aviso; al terminar el tiempo el acceso vuelve solo. No se borran datos, cuentas ni sesiones.`,
   };
   function ejecutar(tipo: Exclude<Confirmacion, null>) {
     setConfirmar(null);
     if (tipo === 'quitar') accion(() => adminQuitarClave(c.rol), esAdmin ? 'Contraseña del panel quitada: vuelve a la de Netlify.' : 'Contraseña quitada: el enlace entra de forma directa, sin usuario ni contraseña.');
     else if (tipo === 'generar') accion(async () => { const r = await adminGenerarClave(c.rol); if (r.ok && r.clave) { setGenerada(r.clave); setCopiadaClave(false); } return r; }, 'Contraseña nueva generada.');
     else if (tipo === 'revocar') accion(() => adminCerrarSesiones(c.rol as 'interno' | 'piloto'), 'Sesiones revocadas.');
+    else if (tipo === 'suspender2' || tipo === 'suspender3') accion(() => adminSuspension('interno', true, tipo === 'suspender2' ? 2 : 3), `Servicio no disponible por ${tipo === 'suspender2' ? 2 : 3} horas.`);
     else accion(() => adminCambiarEstado(c.rol as 'interno' | 'piloto', false), 'Cuenta desactivada.');
   }
 
@@ -336,12 +381,16 @@ function TarjetaCuenta({ c, recargar, exigeUbicacion, radioKm, onVer }: { c: Cue
         )}
       </div>
 
+      {c.rol === 'interno' && (
+        <BloqueSuspension c={c} ocupado={ocupado} onSuspender={(h) => abrir(h === 2 ? 'suspender2' : 'suspender3')} onRestablecer={() => accion(() => adminSuspension('interno', false), 'Acceso restablecido.')} />
+      )}
+
       {confirmar && (
-        <div className={clsx('mt-3 rounded-lg border p-2.5 text-[12px]', confirmar === 'generar' ? 'border-teal-200 bg-teal-50 text-teal-900' : confirmar === 'revocar' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-rose-200 bg-rose-50 text-rose-900')}>
+        <div className={clsx('mt-3 rounded-lg border p-2.5 text-[12px]', confirmar === 'generar' ? 'border-teal-200 bg-teal-50 text-teal-900' : confirmar === 'revocar' || confirmar === 'suspender2' || confirmar === 'suspender3' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-rose-200 bg-rose-50 text-rose-900')}>
           <p className="flex items-start gap-1.5 font-semibold"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {TEXTO_CONFIRMAR[confirmar]}</p>
           <div className="mt-2 flex gap-1.5">
-            <button type="button" disabled={ocupado} onClick={() => ejecutar(confirmar)} className={clsx('rounded-lg px-3 py-1 text-[12px] font-bold text-white disabled:opacity-50', confirmar === 'generar' ? 'bg-[#116762] hover:bg-[#0f5f57]' : confirmar === 'revocar' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700')}>
-              {{ quitar: 'Sí, quitar', generar: 'Sí, generar', revocar: 'Sí, revocar', desactivar: 'Sí, desactivar' }[confirmar]}
+            <button type="button" disabled={ocupado} onClick={() => ejecutar(confirmar)} className={clsx('rounded-lg px-3 py-1 text-[12px] font-bold text-white disabled:opacity-50', confirmar === 'generar' ? 'bg-[#116762] hover:bg-[#0f5f57]' : confirmar === 'revocar' || confirmar === 'suspender2' || confirmar === 'suspender3' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700')}>
+              {{ quitar: 'Sí, quitar', generar: 'Sí, generar', revocar: 'Sí, revocar', desactivar: 'Sí, desactivar', suspender2: 'Sí, suspender 2 h', suspender3: 'Sí, suspender 3 h' }[confirmar]}
             </button>
             <button type="button" onClick={() => setConfirmar(null)} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-[12px] font-semibold text-slate-600">Cancelar</button>
           </div>
