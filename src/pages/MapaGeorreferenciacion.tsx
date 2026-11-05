@@ -80,6 +80,34 @@ function contarFeatures(geojson: any): number {
   return geojson.features?.length || 0;
 }
 
+// Barrio que trae un punto de otra fuente (IRISP1, RNMC, Operatividad…) en su fila.
+function barrioDeFila(fila: Record<string, any> | undefined): string {
+  return String(fila?.BARRIO ?? fila?.BARRIO_HECHOS ?? fila?.Barrio ?? fila?.BARRIO_HECHO ?? '');
+}
+// ¿Es una capa de polígonos de barrios? (misma regla que el resto del mapa)
+function esCapaDeBarrios(capa: { dimension?: string | null; nombre: string }, campo: string | null | undefined): boolean {
+  return capa.dimension === 'barrioHecho' || /barrio/i.test(capa.nombre) || (campo != null && /BARRIO/i.test(campo));
+}
+// Nombre del barrio de un polígono (por el campo de unión o, si no, por la
+// primera propiedad BARRIO/NOMBRE).
+function nombreBarrioDeFeature(f: any, campo: string | null | undefined): string | null {
+  const props = f?.properties ?? {};
+  const v = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /BARRIO|NOMBRE/i.test(k))?.[1];
+  return v == null ? null : String(v);
+}
+// Caja envolvente [minLon, minLat, maxLon, maxLat] de un polígono GeoJSON.
+function cajaDeFeature(f: any): [number, number, number, number] | null {
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  const pila: any[] = [f?.geometry?.coordinates];
+  while (pila.length) {
+    const x = pila.pop();
+    if (!Array.isArray(x)) continue;
+    if (typeof x[0] === 'number' && typeof x[1] === 'number') { a = Math.min(a, x[0]); b = Math.min(b, x[1]); c = Math.max(c, x[0]); d = Math.max(d, x[1]); continue; }
+    for (const y of x) pila.push(y);
+  }
+  return Number.isFinite(a) ? [a, b, c, d] : null;
+}
+
 function extraerFeatures(geojson: any): any[] {
   return Array.isArray(geojson) ? geojson.flatMap((g) => g.features || []) : geojson?.features || [];
 }
@@ -722,7 +750,7 @@ function MapaGeorreferenciacionContenido() {
   // ahora viven en utils/fechaPunto.ts — compartidas con Microgerencia,
   // ver import arriba.)
 
-  const [filteredRecords, registrosSinFiltroBarrio] = useMemo(() => {
+  const [filteredRecords] = useMemo(() => {
     // El CAI se compara normalizado (mismo criterio de formatoCaiCanonico +
     // normalizar) porque la opción elegida es el nombre CANÓNICO, mientras
     // que el registro puede traer una variante con espacios/mayúsculas
@@ -739,9 +767,10 @@ function MapaGeorreferenciacionContenido() {
       inicio: (() => { const [a, m, d] = p.fechaInicial.split('-').map(Number); const [h, mi] = (p.horaInicial || '00:00').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
       fin: (() => { const [a, m, d] = p.fechaFinal.split('-').map(Number); const [h, mi] = (p.horaFinal || '23:59').split(':').map(Number); return new Date(a, m - 1, d, h, mi, 0, 0); })(),
     }));
-    // Mismo filtro con o sin la condición de Barrio: la versión SIN barrio
-    // alimenta el Top 3 / Top 5 de flechas, para que elegir barrios en el
-    // filtro los AGREGUE a las flechas sin esconder los del Top.
+    // Filtro territorial ESTRICTO: con barrios elegidos, un registro entra
+    // solo si su barrio (homologado) es uno de ellos (unión entre barrios) Y
+    // cumple todos los demás filtros. Este conjunto alimenta TODAS las capas
+    // de delitos del mapa: puntos, calor, rótulos, conteos y tarjetas.
     const cumple = (r: CrimeRecord, ignorar: ReadonlySet<string> = SIN_IGNORAR) =>
       (!idsFiltrosAdicionales || idsFiltrosAdicionales.has(r.__id)) &&
       (ignorar.has('anio') || filtrosMapa.anio.length === 0 || (r.anio !== null && filtrosMapa.anio.includes(String(r.anio)))) &&
@@ -762,12 +791,7 @@ function MapaGeorreferenciacionContenido() {
         fh.setHours(r.hora ?? 0, 0, 0, 0);
         return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
       })());
-    const filtrar = (ignorarBarrio: boolean) => {
-      const ignorar = ignorarBarrio ? new Set(['barrioHecho']) : SIN_IGNORAR;
-      return records.filter((r) => cumple(r, ignorar));
-    };
-    const conBarrio = filtrar(false);
-    return [conBarrio, filtrosMapa.barrioHecho.length > 0 ? filtrar(true) : conBarrio, cumple] as const;
+    return [records.filter((r) => cumple(r)), cumple] as const;
   }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, idsFiltrosAdicionales]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
@@ -1382,7 +1406,7 @@ function MapaGeorreferenciacionContenido() {
   // barrios solo los AGREGA a los señalados (flechas) sobre el calor de
   // siempre — así el calor nunca «desaparece» al sumar barrios.
   const puntosDelitosDesdeRegistros = useMemo(
-    (): CapaPuntos['puntos'] => registrosSinFiltroBarrio
+    (): CapaPuntos['puntos'] => filteredRecords
       .filter((r) => esCoordenadaValida(r.lat, r.lon) && dentroDeMepoy(r.lat, r.lon) && (!esPiloto || puntoEnPopayan(r.lat, r.lon)))
       .map((r) => ({
         lat: r.lat as number,
@@ -1392,8 +1416,41 @@ function MapaGeorreferenciacionContenido() {
         estacionCorta: r.estacion,
         caiCorto: r.cai && r.cai !== 'NO REPORTADO' ? r.cai : null,
       })),
-    [registrosSinFiltroBarrio],
+    [filteredRecords],
   );
+
+  // ── Filtro territorial ESTRICTO por barrio ───────────────────────────────
+  // Con barrios elegidos, TODAS las capas que representan registros usan
+  // solo esos barrios (unión entre barrios; Y con los demás filtros):
+  //   · Delitos: por su campo BARRIO homologado (filteredRecords).
+  //   · Otras fuentes (IRISP1, RNMC, Operatividad, MACRI): por su campo de
+  //     barrio si coincide con un barrio conocido; si no lo traen, por
+  //     punto-en-polígono con los polígonos de los barrios elegidos.
+  // Un registro nunca se reasigna a otro barrio por sus coordenadas.
+  const barriosElegidosNorm = useMemo(() => new Set(filtrosMapa.barrioHecho.map((b) => normalizarNombre(b))), [filtrosMapa.barrioHecho]);
+  const poligonosTodosBarrios = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id) ?? null;
+      if (!esCapaDeBarrios(capa, campo)) continue;
+      for (const f of extraerFeatures(capa.geojson)) {
+        const nombre = nombreBarrioDeFeature(f, campo);
+        if (nombre != null && !m.has(normalizarNombre(nombre))) m.set(normalizarNombre(nombre), f);
+      }
+    }
+    return m;
+  }, [capas, camposUnionAutoDetectados]);
+  const poligonosElegidos = useMemo(
+    () => [...barriosElegidosNorm].map((n) => poligonosTodosBarrios.get(n)).filter(Boolean).map((f) => ({ f, caja: cajaDeFeature(f) })),
+    [barriosElegidosNorm, poligonosTodosBarrios],
+  );
+  const puntoEnBarriosElegidos = (lat: number, lon: number) => poligonosElegidos.some(({ f, caja }) =>
+    (!caja || (lon >= caja[0] && lon <= caja[2] && lat >= caja[1] && lat <= caja[3])) && puntoEnFeatureGeoJSON(lon, lat, f));
+  const perteneceABarriosElegidos = (p: { lat: number; lon: number; fila?: Record<string, any> }) => {
+    const propio = normalizarNombre(barrioDeFila(p.fila));
+    if (propio && poligonosTodosBarrios.has(propio)) return barriosElegidosNorm.has(propio);
+    return puntoEnBarriosElegidos(p.lat, p.lon);
+  };
 
   const capasPuntosProcesadas = useMemo(() => {
     // Ventanas del análisis multifecha, en el mismo formato que el resto
@@ -1454,7 +1511,6 @@ function MapaGeorreferenciacionContenido() {
         // o ZONA no se descarta: se vuelve a generar al recargar los datos.
         if (esExacto && filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
         if (esExacto && filters.cuadrante.length > 0 && 'ZONA' in p.fila && !filters.cuadrante.includes(String(p.fila.ZONA ?? ''))) return false;
-        // (El Barrio no recorta el calor: solo agrega barrios señalados.)
         // Operatividad: CAI (inferido por su cuadrante), Zona de Atención
         // (su cuadrante) y su categoría. La matriz de Operatividad no trae
         // barrio, así que el filtro de Barrio no puede aplicarse a ella.
@@ -1505,6 +1561,8 @@ function MapaGeorreferenciacionContenido() {
           if (!fechaPunto) return false;
           if (!ventanasPeriodos.some((v) => fechaPunto >= v.inicio && fechaPunto <= v.fin)) return false;
         }
+        // Barrios elegidos: solo los puntos de esos barrios (ver arriba).
+        if (barriosElegidosNorm.size > 0 && !perteneceABarriosElegidos(p)) return false;
         return true;
       });
 
@@ -1542,7 +1600,7 @@ function MapaGeorreferenciacionContenido() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, puntosDelitosDesdeRegistros, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad]);
+  }, [capasPuntos, puntosDelitosDesdeRegistros, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad, barriosElegidosNorm, poligonosElegidos, poligonosTodosBarrios]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -1602,11 +1660,18 @@ function MapaGeorreferenciacionContenido() {
   const puntosDelBarrioSeleccionado = useMemo(() => {
     // Con uno o VARIOS barrios elegidos, el mapa se encuadra en sus casos.
     if (filtrosMapa.barrioHecho.length === 0) return [];
-    const barriosNorm = new Set(filtrosMapa.barrioHecho.map((b) => normalizar(b)));
-    const todosLosPuntos = capasPuntosProcesadas.filter(({ capa }) => capa.visible).flatMap(({ puntosFiltrados }) => puntosFiltrados);
-    return todosLosPuntos.filter((p) => Object.values(p.fila).some((v) => barriosNorm.has(normalizar(String(v ?? '')))));
+    // Todos los elegidos tienen polígono: se encuadra su extensión (no se
+    // vuelve a mover al cambiar delito o fecha).
+    if (poligonosElegidos.length === barriosElegidosNorm.size) {
+      const cajas = poligonosElegidos.map(({ caja }) => caja).filter((c): c is [number, number, number, number] => !!c);
+      if (cajas.length > 0) return [
+        { lat: Math.min(...cajas.map((c) => c[1])), lon: Math.min(...cajas.map((c) => c[0])) },
+        { lat: Math.max(...cajas.map((c) => c[3])), lon: Math.max(...cajas.map((c) => c[2])) },
+      ];
+    }
+    return capasPuntosProcesadas.filter(({ capa }) => capa.visible && capa.tipo === 'delitos').flatMap(({ puntosFiltrados }) => puntosFiltrados.map((p) => ({ lat: p.lat, lon: p.lon })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtrosMapa.barrioHecho.join(','), capasPuntosProcesadas]);
+  }, [filtrosMapa.barrioHecho.join(','), poligonosElegidos, barriosElegidosNorm, capasPuntosProcesadas]);
 
   const puntosDelitosVisibles = useMemo(
     () => capasPuntosProcesadas
@@ -1675,23 +1740,10 @@ function MapaGeorreferenciacionContenido() {
   const [cantidadFlechasBarrio, setCantidadFlechasBarrio] = useState<0 | 3 | 5>(3);
   // Polígonos de barrio (si hay una capa de barrios cargada en el mapa),
   // por nombre normalizado — solo para ubicar mejor la flecha.
-  const poligonosBarrio = useMemo(() => {
-    const m = new Map<string, any>();
-    for (const capa of capas) {
-      const campo = camposUnionAutoDetectados.get(capa.id) ?? null;
-      const esCapaBarrios = capa.dimension === 'barrioHecho' || /barrio/i.test(capa.nombre) || (campo != null && /BARRIO/i.test(campo));
-      if (!esCapaBarrios) continue;
-      for (const f of extraerFeatures(capa.geojson)) {
-        const props = f?.properties ?? {};
-        const clave = campo && props[campo] != null ? props[campo] : Object.entries(props).find(([k]) => /BARRIO|NOMBRE/i.test(k))?.[1];
-        if (clave != null) m.set(normalizarNombre(clave), f);
-      }
-    }
-    return m;
-  }, [capas, camposUnionAutoDetectados]);
+  const poligonosBarrio = poligonosTodosBarrios;
   const registrosParaFlechas = useMemo(
-    () => (pantallaCompleta && seleccionDelitos ? registrosSinFiltroBarrio.filter((r) => r.delito === seleccionDelitos) : registrosSinFiltroBarrio),
-    [registrosSinFiltroBarrio, pantallaCompleta, seleccionDelitos],
+    () => (pantallaCompleta && seleccionDelitos ? filteredRecords.filter((r) => r.delito === seleccionDelitos) : filteredRecords),
+    [filteredRecords, pantallaCompleta, seleccionDelitos],
   );
   // Barrios agregados a las flechas = los elegidos en el filtro "Barrio" de
   // "Filtros de visualización" (no hay una segunda lista aparte).
@@ -1857,6 +1909,25 @@ function MapaGeorreferenciacionContenido() {
   // Estilo de cada polígono EN PANTALLA — una sola función para el mapa y
   // para las descargas, así la imagen descargada conserva los mismos
   // colores (CAI, intensidad por casos, selección) que se ven en pantalla.
+  // Con barrios elegidos, la capa de barrios se dibuja SOLO con sus polígonos.
+  const geojsonEnPantalla = useMemo(() => {
+    const m = new Map<string, unknown>();
+    if (barriosElegidosNorm.size === 0) return m;
+    for (const capa of capas) {
+      const campo = camposUnionAutoDetectados.get(capa.id) ?? null;
+      if (!esCapaDeBarrios(capa, campo)) continue;
+      const features = extraerFeatures(capa.geojson).filter((f) => { const n = nombreBarrioDeFeature(f, campo); return n != null && barriosElegidosNorm.has(normalizarNombre(n)); });
+      m.set(capa.id, { type: 'FeatureCollection', features });
+    }
+    return m;
+  }, [capas, camposUnionAutoDetectados, barriosElegidosNorm]);
+  // Capas tal como se ven: la de barrios ya recortada a los elegidos. La usan
+  // los polígonos, sus nombres, el minimapa y las descargas (una sola fuente).
+  const capasEnPantalla = useMemo(
+    () => capas.map((c) => (geojsonEnPantalla.has(c.id) ? { ...c, geojson: geojsonEnPantalla.get(c.id) as typeof c.geojson } : c)),
+    [capas, geojsonEnPantalla],
+  );
+
   function estiloPoligonoEnPantalla(capa: CapaGeografica, feature: any) {
     const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
     const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
@@ -1865,7 +1936,8 @@ function MapaGeorreferenciacionContenido() {
     // Resalta TODOS los polígonos que correspondan al CAI, la
     // Estación o el Cuadrante filtrados arriba — no solo el que
     // se haya seleccionado con un clic puntual.
-    const esSeleccionadaPorFiltro = campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false;
+    const esSeleccionadaPorFiltro = (campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false)
+      || (barriosElegidosNorm.size > 0 && geojsonEnPantalla.has(capa.id));
     const opacidadPoligono = opacidades.poligono / 100;
     if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
       return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 * opacidadPoligono };
@@ -1896,7 +1968,7 @@ function MapaGeorreferenciacionContenido() {
    *  no son el verde genérico): colores de CAI, intensidad y selección. */
   function rellenosParaExportar(): { anillos: [number, number][][]; color: string; opacidad: number }[] {
     const out: { anillos: [number, number][][]; color: string; opacidad: number }[] = [];
-    for (const capa of capas) {
+    for (const capa of capasEnPantalla) {
       if (!capa.visible) continue;
       for (const f of extraerFeatures(capa.geojson)) {
         const e = estiloPoligonoEnPantalla(capa, f);
@@ -2125,7 +2197,7 @@ function MapaGeorreferenciacionContenido() {
         for (const [lon, lat] of an) { if (lon < x0) x0 = lon; if (lon > x1) x1 = lon; if (lat < y0) y0 = lat; if (lat > y1) y1 = lat; }
         return x1 >= oeste && x0 <= este && y1 >= sur && y0 <= norte;
       };
-      const anillosCapasParaRecorte = capas
+      const anillosCapasParaRecorte = capasEnPantalla
         .filter((c) => c.visible)
         .flatMap((c) => extraerFeatures(c.geojson).flatMap((f) => extraerAnillosDeFeature(f)))
         .filter(dentroDeVistaRecorte);
@@ -2264,7 +2336,7 @@ function MapaGeorreferenciacionContenido() {
   // Mismos rótulos con flecha que los barrios de Delitos (misma cantidad 3/5
   // y misma lógica), cada fuente con su propio color de contorno. Se calculan
   // con los MISMOS puntos que se dibujan (ya filtrados).
-  const barrioDePunto = (p: { fila?: Record<string, any> }) => String(p.fila?.BARRIO ?? p.fila?.BARRIO_HECHOS ?? p.fila?.Barrio ?? p.fila?.BARRIO_HECHO ?? '');
+  const barrioDePunto = (p: { fila?: Record<string, any> }) => barrioDeFila(p.fila);
   const flechasDeFuente = (puntos: { lat: number; lon: number; fila?: Record<string, any> }[]) =>
     cantidadFlechasBarrio === 0 || puntos.length === 0 ? [] : calcularTopBarrios(
       puntos.map((p) => ({ barrioHecho: barrioDePunto(p), lat: p.lat, lon: p.lon, cantidad: 1 })),
@@ -2337,12 +2409,34 @@ function MapaGeorreferenciacionContenido() {
     return filtrosPrincipales.anio.length >= 2 ? [...filtrosPrincipales.anio].map(Number).sort((a, b) => a - b) : [];
   }, [periodos, filtrosPrincipales.anio]);
   const rankingBarrios = useMemo(() => {
-    const total = registrosSinFiltroBarrio.length;
-    const filas = agruparPor(registrosSinFiltroBarrio, (r) => r.barrioHecho)
+    const total = filteredRecords.length;
+    const filas = agruparPor(filteredRecords, (r) => r.barrioHecho)
       .filter((f) => esBarrioReal(f.key))
       .map((f) => ({ key: f.key, casos: f.casos, aportePct: total > 0 ? (f.casos / total) * 100 : 0 }));
-    return agregarCasosPorAnio(filas, registrosSinFiltroBarrio, (r) => r.barrioHecho, aniosTarjetas);
-  }, [registrosSinFiltroBarrio, aniosTarjetas]);
+    return agregarCasosPorAnio(filas, filteredRecords, (r) => r.barrioHecho, aniosTarjetas);
+  }, [filteredRecords, aniosTarjetas]);
+
+  // Integridad por barrio elegido: casos reales (registros filtrados), los que
+  // se dibujan (coordenada válida), sin coordenadas, y los que tienen
+  // coordenadas FUERA del polígono de su propio barrio (se informan, no se
+  // reasignan).
+  const integridadBarrios = useMemo(() => {
+    if (filtrosMapa.barrioHecho.length === 0) return [];
+    return filtrosMapa.barrioHecho.map((barrio) => {
+      const clave = normalizarNombre(barrio);
+      const poligono = poligonosTodosBarrios.get(clave);
+      let casos = 0, enMapa = 0, sinCoord = 0, fuera = 0;
+      for (const r of filteredRecords) {
+        if (normalizarNombre(r.barrioHecho) !== clave) continue;
+        casos++;
+        if (!(esCoordenadaValida(r.lat, r.lon) && dentroDeMepoy(r.lat, r.lon) && (!esPiloto || puntoEnPopayan(r.lat, r.lon)))) { sinCoord++; continue; }
+        enMapa++;
+        if (poligono && !puntoEnFeatureGeoJSON(r.lon as number, r.lat as number, poligono)) fuera++;
+      }
+      return { barrio, casos, enMapa, sinCoord, fuera, conPoligono: !!poligono };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrosMapa.barrioHecho, filteredRecords, poligonosTodosBarrios]);
   const rankingDelitos = useMemo(
     () => agregarCasosPorAnio(conAporte(agruparPor(filteredRecords, (r) => r.delito).filter((f) => esValorReal(f.key))), filteredRecords, (r) => r.delito, aniosTarjetas),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2604,6 +2698,7 @@ function MapaGeorreferenciacionContenido() {
   const todasVisibles = fuentesCargadas.length > 0 && fuentesCargadas.every((f) => fuenteVisible(f.tipo));
   const totalEnMapa = FUENTES_EVENTOS.reduce((a, f) => a + (fuenteVisible(f.tipo) ? enMapaPorFuente[f.tipo] : 0), 0);
   const capasVisiblesPoligono = capas.filter((c) => c.visible);
+  const capasVisiblesEnPantalla = capasEnPantalla.filter((c) => c.visible);
   const columnasMapa = `${gestorAbierto ? '300px' : '46px'} minmax(0,1fr)`;
   const [pestanaPanel, setPestanaPanel] = useState<'capas' | 'apariencia'>('capas');
   const [pestanaApariencia, setPestanaApariencia] = useState<'calor' | 'puntos' | 'poligonos'>('calor');
@@ -2953,7 +3048,27 @@ function MapaGeorreferenciacionContenido() {
                         <button key={valor} type="button" onClick={() => setCantidadFlechasBarrio(valor)} className={clsx('rounded-md px-2 py-1 text-[11.5px] font-semibold', cantidadFlechasBarrio === valor ? 'bg-[#116762] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>{texto}</button>
                       ))}
                     </div>
-                    <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">Para señalar más barrios, elíjalos en el filtro Barrio: se suman al Top. Los rótulos se pueden arrastrar.</p>
+                    <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">{barriosManuales.length > 0 ? 'Con barrios elegidos en el filtro Barrio, el mapa muestra solo esos barrios: puntos, calor, rótulos y polígonos.' : 'Al elegir barrios en el filtro Barrio, el mapa muestra solo esos barrios.'} Los rótulos se pueden arrastrar.</p>
+                    {integridadBarrios.length > 0 && (
+                      <div className="mt-2 overflow-hidden rounded-lg border border-slate-200" data-integridad-barrios>
+                        <table className="w-full text-[10.5px]">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr><th className="px-1.5 py-1 text-left font-semibold">Barrio</th><th className="px-1 py-1 text-right font-semibold" title="Registros reales con los filtros activos">Casos</th><th className="px-1 py-1 text-right font-semibold" title="Con coordenadas válidas: se dibujan">En mapa</th><th className="px-1.5 py-1 text-right font-semibold" title="Coordenadas fuera del polígono de su propio barrio (no se reasignan)">Fuera</th></tr>
+                          </thead>
+                          <tbody>
+                            {integridadBarrios.map((f) => (
+                              <tr key={f.barrio} className="border-t border-slate-100 text-slate-700">
+                                <td className="max-w-[90px] truncate px-1.5 py-1" title={f.barrio}>{f.barrio}</td>
+                                <td className="px-1 py-1 text-right font-bold tabular-nums">{f.casos.toLocaleString('es-CO')}</td>
+                                <td className="px-1 py-1 text-right tabular-nums" title={f.sinCoord ? `${f.sinCoord} sin coordenadas válidas` : undefined}>{f.enMapa.toLocaleString('es-CO')}</td>
+                                <td className={clsx('px-1.5 py-1 text-right tabular-nums', f.fuera > 0 && 'font-semibold text-amber-700')}>{f.conPoligono ? f.fuera.toLocaleString('es-CO') : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p className="border-t border-slate-100 px-1.5 py-1 text-[10px] leading-snug text-slate-400">«Fuera»: coordenadas fuera del polígono de su barrio registrado; se muestran según su barrio, sin reasignar. «—»: sin polígono cargado.</p>
+                      </div>
+                    )}
                     {flechasBarrios.some((f) => f.manual) && (
                       <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
                         {flechasBarrios.filter((f) => f.manual).map((f) => (
@@ -3147,7 +3262,7 @@ function MapaGeorreferenciacionContenido() {
             <ZoomSliderControl />
             <LimitarAPopayan />
             <ScaleControl position="bottomleft" imperial={false} />
-            <EtiquetasZonas capas={capasVisiblesPoligono} camposUnion={camposUnionAutoDetectados} satelital={tipoMapa !== 'mapa'} />
+            <EtiquetasZonas capas={capasVisiblesEnPantalla} camposUnion={camposUnionAutoDetectados} satelital={tipoMapa !== 'mapa'} />
             <AjustarTamanoAlCambiarPantallaCompleta activo={pantallaCompleta} />
             <CapturarInstanciaDeMapa mapaRef={mapaRef} />
             <SeleccionPorClicEnMapa
@@ -3199,6 +3314,7 @@ function MapaGeorreferenciacionContenido() {
             )}
             {capas.filter((c) => c.visible).map((capa) => {
               const conteos = capa.dimension ? conteosPorDimension[capa.dimension] : null;
+              const datosCapa = geojsonEnPantalla.get(capa.id) ?? capa.geojson;
               const maxCasos = conteos ? maxDe([...Array.from(conteos.values()), 0]) : 0;
 
               function estiloFeature(feature: any) {
@@ -3222,8 +3338,8 @@ function MapaGeorreferenciacionContenido() {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}`}
-                  data={capa.geojson as any}
+                  key={`${capa.id}-${[...barriosElegidosNorm].join('|')}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}`}
+                  data={datosCapa as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
                 />
@@ -3533,7 +3649,7 @@ function MapaGeorreferenciacionContenido() {
                   ningún desplazamiento de la página. */}
               {!esPiloto && (
                 <div className="absolute bottom-8 right-[76px] z-[1000]">
-                  <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesPoligono} />
+                  <MiniMapaGeneral mapaRef={mapaRef} tipoMapa={tipoMapa} capas={capasVisiblesEnPantalla} />
                 </div>
               )}
 
