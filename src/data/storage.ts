@@ -122,6 +122,7 @@ export async function borrarCopiasConsulta() {
   try {
     const db = await getDb();
     const claves = await db.getAllKeys(STORE_RECORDS);
-    for (const k of claves) if (String(k).startsWith('consulta:')) await db.delete(STORE_RECORDS, k);
+    // «consulta:» = copia del enlace de consulta; «sinc:» = copias sincronizadas por diferencias.
+    for (const k of claves) if (String(k).startsWith('consulta:') || String(k).startsWith('sinc:')) await db.delete(STORE_RECORDS, k);
   } catch { /* nada que borrar */ }
 }

@@ -4,6 +4,7 @@ import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { tokenSesionActual } from '../cuentas/apiCuentas';
 import { recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
 import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
+import { getDb, STORE_RECORDS } from './db';
 
 // ── LECTURA: siempre por el servidor, nunca directo a la base ──────────────
 // La base ya no tiene lectura pública. Todas las lecturas (delitos, RNMC,
@@ -59,7 +60,7 @@ async function conReintentos<T>(fn: () => Promise<T>, intentos = 3): Promise<T> 
 // forma de llave (RNMC, IRISP1, MACRI…).
 const PARALELAS = 4;
 const CORTES_LLAVE = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'S'];
-async function descargarPorLlave<T>(dataset: string, campo: 'registros' | 'filas', total: number | null, progreso: boolean): Promise<T[]> {
+async function descargarPorLlave<T>(dataset: string, campo: 'registros' | 'filas', total: number | null, progreso: boolean, extra: Record<string, unknown> = {}): Promise<T[]> {
   const ventanas: [string | null, string | null][] = [[null, CORTES_LLAVE[0]]];
   for (let i = 0; i < CORTES_LLAVE.length - 1; i++) ventanas.push([CORTES_LLAVE[i], CORTES_LLAVE[i + 1]]);
   ventanas.push([CORTES_LLAVE[CORTES_LLAVE.length - 1], null]);
@@ -73,7 +74,7 @@ async function descargarPorLlave<T>(dataset: string, campo: 'registros' | 'filas
       const lote: T[] = [];
       let despuesDe: string | null = null;
       for (let vuelta = 0; vuelta < 5000; vuelta++) {
-        const cuerpo: Record<string, unknown> = { accion: 'registros', dataset, desdeClave, hastaClave, despuesDe };
+        const cuerpo: Record<string, unknown> = { accion: 'registros', dataset, desdeClave, hastaClave, despuesDe, ...extra };
         const j = await conReintentos(() => llamarDatos(cuerpo)) as Record<string, unknown> & { siguiente: string | null };
         const items = (j[campo] as T[]) || [];
         lote.push(...items);
@@ -91,9 +92,110 @@ async function descargarPorLlave<T>(dataset: string, campo: 'registros' | 'filas
   return porVentana.flat();
 }
 
-/** Dataset completo como filas {id_identidad, datos} (administrador e interno). */
+// ── Copia local SINCRONIZADA (administrador e interno) ─────────────────────
+// Para gastar menos tráfico de Supabase (egress): en vez de bajar el dataset
+// COMPLETO cada vez, se guarda una copia en este navegador y solo se piden
+// las diferencias:
+//   1. Fecha de actualización + conteo iguales a los de la copia → no se baja nada.
+//   2. Si cambió: solo las filas modificadas desde la última vez («cambios»,
+//      con 10 minutos de margen), y si el conteo no cuadra, solo las LLAVES
+//      para quitar las que se borraron en el servidor.
+//   3. Si algo no cuadra al final (o no hay copia) → descarga completa, como antes.
+// La copia nunca se usa si su conteo no coincide EXACTO con el del servidor.
+// Se borra al cerrar sesión (ver borrarCopiasConsulta).
+type Fila = { id_identidad: string; datos: any };
+interface CopiaSinc { v: 1; filas: [string, any][]; sello: string | null; conteo: number; marca: string | null }
+const claveSinc = (dataset: string) => `sinc:${obtenerModoAcceso()}:${dataset}`;
+const MARGEN_CAMBIOS_MS = 10 * 60 * 1000;
+
+async function leerCopiaSinc(dataset: string): Promise<CopiaSinc | null> {
+  try {
+    const c = (await (await getDb()).get(STORE_RECORDS, claveSinc(dataset))) as CopiaSinc | undefined;
+    return c && c.v === 1 && Array.isArray(c.filas) ? c : null;
+  } catch { return null; }
+}
+async function guardarCopiaSinc(dataset: string, copia: CopiaSinc) {
+  try { await (await getDb()).put(STORE_RECORDS, copia, claveSinc(dataset)); } catch { /* sin espacio: la próxima vez se descarga */ }
+}
+async function llavesServidor(dataset: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  let despuesDe: string | null = null;
+  for (let vuelta = 0; vuelta < 2000; vuelta++) {
+    const j = await conReintentos(() => llamarDatos({ accion: 'ids', dataset, despuesDe })) as { ids: string[]; siguiente: string | null };
+    for (const id of j.ids || []) ids.add(id);
+    if (!j.siguiente) break;
+    despuesDe = j.siguiente;
+  }
+  return ids;
+}
+const aFilas = (pares: [string, any][]): Fila[] => pares.map(([id_identidad, datos]) => ({ id_identidad, datos }));
+
+/** Último resultado de la sincronización (para la consola: F12 → «[Copia local]»). */
+function informar(dataset: string, modo: string, bajadas: number, total: number) {
+  console.info(`[Copia local] ${dataset}: ${modo} — ${bajadas.toLocaleString('es-CO')} fila(s) descargada(s) de ${total.toLocaleString('es-CO')}.`);
+}
+
+export async function leerDatasetSincronizado(dataset: string, progreso = false): Promise<Fila[]> {
+  const [metaJ, conteoJ] = await Promise.all([
+    conReintentos(() => llamarDatos({ accion: 'meta', dataset })),
+    conReintentos(() => llamarDatos({ accion: 'conteo', dataset })),
+  ]);
+  const sello: string | null = metaJ.ultimaActualizacion ?? null;
+  let conteo = Number(conteoJ.total) || 0;
+  const copia = await leerCopiaSinc(dataset);
+
+  // 1. Nada cambió.
+  if (copia && copia.sello === sello && copia.conteo === conteo && copia.filas.length === conteo) {
+    informar(dataset, 'sin cambios', 0, conteo);
+    return aFilas(copia.filas);
+  }
+  // 2. Solo las diferencias.
+  if (copia && copia.marca && conteo > 0) {
+    try {
+      const { marca } = await conReintentos(() => llamarDatos({ accion: 'marca', dataset })) as { marca: string | null };
+      const desdeMarca = new Date(Date.parse(copia.marca) - MARGEN_CAMBIOS_MS).toISOString();
+      const cambios = await descargarPorLlave<Fila>(dataset, 'filas', null, false, { accion: 'cambios', desdeMarca });
+      const mapa = new Map<string, any>(copia.filas);
+      for (const f of cambios) mapa.set(f.id_identidad, f.datos);
+      let llaves = 0;
+      if (mapa.size !== conteo) {
+        const enServidor = await llavesServidor(dataset);
+        llaves = enServidor.size;
+        for (const k of [...mapa.keys()]) if (!enServidor.has(k)) mapa.delete(k);
+      }
+      if (mapa.size === conteo) {
+        const filas = [...mapa.entries()];
+        await guardarCopiaSinc(dataset, { v: 1, filas, sello, conteo, marca: marca ?? copia.marca });
+        informar(dataset, llaves ? `solo cambios (+ ${llaves.toLocaleString('es-CO')} llaves para detectar borrados)` : 'solo cambios', cambios.length, conteo);
+        return aFilas(filas);
+      }
+      console.warn(`[Copia local] ${dataset}: la copia no cuadró (${mapa.size} de ${conteo}); se descarga completa.`);
+    } catch (e) {
+      console.warn(`[Copia local] ${dataset}: no se pudo actualizar por diferencias; se descarga completa.`, e);
+    }
+  }
+  // 3. Completa (con la marca tomada ANTES de empezar, para no perder lo que cambie durante la descarga).
+  for (let intento = 1; intento <= 3; intento++) {
+    const { marca } = await conReintentos(() => llamarDatos({ accion: 'marca', dataset })).catch(() => ({ marca: null })) as { marca: string | null };
+    const filas = await descargarPorLlave<Fila>(dataset, 'filas', progreso ? conteo : null, progreso);
+    const mapa = new Map<string, any>(filas.map((f) => [f.id_identidad, f.datos]));
+    if (mapa.size === conteo) {
+      const pares = [...mapa.entries()];
+      await guardarCopiaSinc(dataset, { v: 1, filas: pares, sello, conteo, marca });
+      informar(dataset, 'descarga completa', pares.length, conteo);
+      return aFilas(pares);
+    }
+    console.warn(`[Backend central] Descarga incompleta de ${dataset} (intento ${intento}): ${mapa.size} de ${conteo} registros. Se repite.`);
+    if (intento === 3) throw new Error(`La descarga quedó incompleta (${mapa.size} de ${conteo} registros). Intenta «Sincronizar» de nuevo en un momento.`);
+    await new Promise((r) => setTimeout(r, 1500));
+    conteo = Number((await conReintentos(() => llamarDatos({ accion: 'conteo', dataset }))).total) || 0;
+  }
+  return [];
+}
+
+/** Dataset completo como filas {id_identidad, datos} (administrador e interno), vía la copia sincronizada. */
 export async function leerDatasetCompleto(dataset: string): Promise<{ id_identidad: string; datos: any }[]> {
-  return descargarPorLlave<{ id_identidad: string; datos: any }>(dataset, 'filas', null, false);
+  return leerDatasetSincronizado(dataset);
 }
 
 /** Filas puntuales: por sufijo de la llave (p. ej. "#meta") o por lista de llaves. */
@@ -138,22 +240,11 @@ export async function descargarRegistrosSupabase(_url: string, _anonKey: string,
     const items = await descargarPorLlave<any>(dataset, 'registros', ultimoConteoServidor, true);
     return items.flatMap((d) => (!restringir ? [filaADistancia(d)] : registroEnPopayan(d) ? [filaADistancia(recortarCoordenadasPiloto(d))] : []));
   }
-  // Administrador e interno: registros completos, verificados contra el
-  // CONTEO EXACTO del servidor (si alguien sube información justo en medio,
-  // se repite).
-  for (let intento = 1; intento <= 3; intento++) {
-    const { total } = await conReintentos(() => llamarDatos({ accion: 'conteo', dataset })) as { total: number };
-    const esperado = Number(total) || 0;
-    const filas = await descargarPorLlave<{ id_identidad: string; datos: any }>(dataset, 'filas', dataset === 'delictividad' ? esperado : null, dataset === 'delictividad');
-    const porId = new Map<string, CrimeRecord>();
-    for (const f of filas) porId.set(f.id_identidad, filaADistancia(f.datos));
-    if (dataset === 'delictividad') ultimoConteoServidor = esperado;
-    if (porId.size === esperado) return Array.from(porId.values());
-    console.warn(`[Backend central] Descarga incompleta (intento ${intento}): ${porId.size} de ${esperado} registros. Se repite.`);
-    if (intento === 3) throw new Error(`La descarga quedó incompleta (${porId.size} de ${esperado} registros). Intenta «Sincronizar» de nuevo en un momento.`);
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-  return [];
+  // Administrador e interno: copia sincronizada (solo las diferencias),
+  // siempre verificada contra el CONTEO EXACTO del servidor.
+  const filas = await leerDatasetSincronizado(dataset, dataset === 'delictividad');
+  if (dataset === 'delictividad') ultimoConteoServidor = filas.length;
+  return filas.map((f) => filaADistancia(f.datos));
 }
 
 /** Conteo exacto de filas en el servidor (petición liviana, sin datos). */

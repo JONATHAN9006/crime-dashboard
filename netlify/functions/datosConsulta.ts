@@ -34,7 +34,7 @@ const DATASETS_POR_ROL: Record<RolCuenta, string[]> = {
   interno: ['delictividad', 'rnmc', 'irisp1', 'macri', 'macri_seguimiento', 'capas_geo'],
   piloto: ['delictividad', 'capas_geo'],
 };
-const ACCIONES = ['meta', 'conteo', 'registros', 'filas', 'capas_fichas', 'capa'];
+const ACCIONES = ['meta', 'conteo', 'registros', 'filas', 'capas_fichas', 'capa', 'marca', 'cambios', 'ids'];
 
 /** Redondea coordenadas a 6 decimales (~0,1 m): mismas formas, mucho menos peso. */
 function redondearCoordenadas(g: unknown): unknown {
@@ -97,6 +97,32 @@ export const handler: Handler = async (event) => {
       return resp({ ok: true, total: count ?? 0, ambito: rol === 'piloto' ? ambito : null });
     }
     if (accion === 'capas_fichas' || accion === 'capa') return await capas(db, c, accion, soloPopayan);
+    // ── Descarga INCREMENTAL (administrador e interno) ──────────────────
+    // Para no volver a bajar el dataset completo con cada carga nueva:
+    //   marca   → hora de la última modificación de una fila del dataset;
+    //   cambios → solo las filas modificadas DESPUÉS de una hora dada;
+    //   ids     → solo las llaves (para detectar filas borradas).
+    // El piloto sigue con su descarga liviana y recortada de siempre.
+    if (accion === 'marca' || accion === 'cambios' || accion === 'ids') {
+      if (rol === 'piloto') return resp({ ok: false, error: 'Operación no autorizada.' }, 403);
+      if (accion === 'marca') {
+        const { data, error } = await db.from('crime_records').select('actualizado_en').eq('dataset', dataset).order('actualizado_en', { ascending: false }).limit(1);
+        if (error) throw error;
+        return resp({ ok: true, marca: (data?.[0] as { actualizado_en?: string } | undefined)?.actualizado_en ?? null });
+      }
+      if (accion === 'ids') {
+        const despuesDe = texto(c.despuesDe);
+        let q = db.from('crime_records').select('id_identidad').eq('dataset', dataset);
+        if (despuesDe) q = q.gt('id_identidad', despuesDe);
+        const { data, error } = await q.order('id_identidad', { ascending: true }).limit(TAMANO_PAGINA);
+        if (error) throw error;
+        const ids = (data || []).map((f) => (f as { id_identidad: string }).id_identidad);
+        return resp({ ok: true, ids, siguiente: ids.length === TAMANO_PAGINA ? ids[ids.length - 1] : null });
+      }
+      const desdeMarca = texto(c.desdeMarca, 40);
+      if (!desdeMarca || Number.isNaN(Date.parse(desdeMarca))) return resp({ ok: false, error: 'Falta la hora de referencia.' }, 400);
+      return await registros(db, c, dataset, rol, soloPopayan, desdeMarca);
+    }
     if (accion === 'filas') {
       // Lecturas puntuales (fichas de capas por sufijo, partes por id, o un
       // dataset pequeño completo como Plan Candado). Solo administrador/interno.
@@ -124,7 +150,7 @@ export const handler: Handler = async (event) => {
 //  · desdeClave (incluida) / hastaClave (excluida): la ventana que pide el
 //    navegador (varias ventanas van en paralelo sin pisarse);
 //  · despuesDe: última llave ya recibida dentro de la ventana.
-async function registros(db: SupabaseClient, c: Record<string, unknown>, dataset: string, rol: RolCuenta, soloPopayan: boolean) {
+async function registros(db: SupabaseClient, c: Record<string, unknown>, dataset: string, rol: RolCuenta, soloPopayan: boolean, desdeMarca: string | null = null) {
   const desdeClave = texto(c.desdeClave);
   const hastaClave = texto(c.hastaClave);
   const despuesDe = texto(c.despuesDe);
@@ -136,6 +162,7 @@ async function registros(db: SupabaseClient, c: Record<string, unknown>, dataset
     if (desdeClave) q = q.gte('id_identidad', desdeClave);
     if (despuesDe) q = q.gt('id_identidad', despuesDe);
     if (hastaClave) q = q.lt('id_identidad', hastaClave);
+    if (desdeMarca) q = q.gt('actualizado_en', desdeMarca);
     return q.order('id_identidad', { ascending: true }).limit(TAMANO_PAGINA);
   };
   let { data, error } = await pedir(liviano ? 'crime_records_ligero' : 'crime_records');
