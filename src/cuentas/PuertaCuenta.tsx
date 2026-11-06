@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, MapPin, ShieldAlert } from 'lucide-react';
+import { Loader2, LockKeyhole, MapPin } from 'lucide-react';
+import { AvisoIngreso, BotonIngresar, CampoClave, CampoUsuario, FilaRecordar, MarcoIngreso, recordarUsuario, usuarioRecordado } from '../components/acceso/PantallaIngreso';
 import { PantallaSuspension } from './PantallaSuspension';
 import { consultarEnlace, ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
 
@@ -160,28 +161,14 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
 }
 
 function Fondo({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-[radial-gradient(circle_at_top,#116762_0%,#0a3d39_45%,#10233f_100%)] px-4 py-8">
-      <div className="w-full max-w-[400px] rounded-2xl bg-white p-6 shadow-2xl sm:p-7">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white p-[2px] shadow ring-2 ring-[#e3f2ef]">
-            <img src="/assets/escudo-sidebar.png" alt="Escudo Policía Nacional" className="h-full w-full object-contain" draggable={false} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[17px] font-bold leading-tight text-[#10233f]">Análisis Delictivo</p>
-            <p className="text-[12.5px] text-slate-500">{esPiloto() ? 'MEPOY — Acceso piloto (consulta)' : 'MEPOY — Acceso interno'}</p>
-          </div>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+  return <MarcoIngreso subtitulo={esPiloto() ? 'Acceso piloto de consulta al Sistema Integral de Información Policial –' : 'Acceda al Sistema Integral de Información Policial –'}>{children}</MarcoIngreso>;
 }
 
 function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido }: { aviso?: string; abierto: boolean; onIngreso: (s: SesionCuenta) => void; onSuspendido: () => void }) {
-  const [usuario, setUsuario] = useState('');
+  const ambito = esPiloto() ? 'piloto' : 'interno';
+  const [usuario, setUsuario] = useState(() => usuarioRecordado(ambito));
+  const [recordar, setRecordar] = useState(() => !!usuarioRecordado(ambito));
   const [clave, setClave] = useState('');
-  const [verClave, setVerClave] = useState(false);
   const [paso, setPaso] = useState<'listo' | 'ubicando' | 'validando'>('listo');
   const [error, setError] = useState<string | null>(null);
 
@@ -198,7 +185,7 @@ function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido }: { aviso?
     const r = await ingresar(abierto ? '' : usuario.trim(), abierto ? '' : clave, ubic);
     setPaso('listo');
     const s = leerSesionGuardada();
-    if (r.ok && s) { onIngreso(s); return; }
+    if (r.ok && s) { if (!abierto) recordarUsuario(ambito, recordar ? usuario.trim() : null); onIngreso(s); return; }
     if (r.motivo === 'suspendido') { onSuspendido(); return; }
     setClave('');
     setError(r.requiereUbicacion && ubic && 'error' in ubic ? `${r.error} ${MENSAJE_UBICACION[ubic.error]}` : (r.error || 'No fue posible ingresar.'));
@@ -207,58 +194,20 @@ function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido }: { aviso?
   const ocupado = paso !== 'listo';
   return (
     <Fondo>
-      <form onSubmit={enviar} className="space-y-4">
-        {aviso && (
-          <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[12.5px] text-amber-800">
-            <ShieldAlert size={15} className="mt-[1px] shrink-0" /> {aviso}
-          </p>
-        )}
+      <form onSubmit={enviar} className="space-y-5">
+        {aviso && <AvisoIngreso texto={aviso} />}
         {abierto ? (
-          <p className="rounded-lg border border-[#cfe8e2] bg-[#eef8f5] p-2.5 text-[12.5px] text-[#0b4a46]">Este enlace tiene acceso directo: no necesita usuario ni contraseña.</p>
+          <AvisoIngreso tono="info" texto="Este enlace tiene acceso directo: no necesita usuario ni contraseña." />
         ) : (<>
-        <label className="block">
-          <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Usuario</span>
-          <input
-            type="text"
-            value={usuario}
-            onChange={(e) => setUsuario(e.target.value)}
-            disabled={ocupado}
-            placeholder="Tu usuario"
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[12.5px] font-semibold text-[#10233f]">Contraseña</span>
-          <div className="relative">
-            <input
-              type={verClave ? 'text' : 'password'}
-              value={clave}
-              onChange={(e) => setClave(e.target.value)}
-              disabled={ocupado}
-              autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 pr-10 text-[14px] text-[#10233f] focus:border-[#116762] focus:outline-none focus:ring-2 focus:ring-[#116762]/20"
-            />
-            <button type="button" onClick={() => setVerClave((v) => !v)} aria-label={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'} className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-slate-400 hover:text-[#10233f]">
-              {verClave ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </label>
+          <CampoUsuario valor={usuario} onCambio={setUsuario} deshabilitado={ocupado} />
+          <CampoClave valor={clave} onCambio={setClave} deshabilitado={ocupado} />
+          <FilaRecordar recordar={recordar} onRecordar={setRecordar} ayudaClave="Solicite al administrador del S2IP que le genere una nueva contraseña desde «Cuentas de acceso»." />
         </>)}
-        {error && <p className="rounded-lg bg-rose-50 p-2.5 text-[12.5px] text-rose-700">{error}</p>}
-        <button
-          type="submit"
-          disabled={ocupado}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#10233f] px-4 py-2.5 text-[14px] font-bold text-white hover:bg-[#1c3557] disabled:opacity-70"
-        >
-          {ocupado ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-          {paso === 'ubicando' ? 'Obteniendo ubicación…' : paso === 'validando' ? 'Validando…' : 'Ingresar'}
-        </button>
-        <div className="space-y-1.5 border-t border-slate-100 pt-3 text-[11.5px] leading-snug text-slate-500">
-          {esPiloto() && <p className="flex items-start gap-1.5"><MapPin size={13} className="mt-[1px] shrink-0 text-[#116762]" /> Se solicitará la ubicación del equipo.</p>}
-          <p className="flex items-start gap-1.5"><LockKeyhole size={13} className="mt-[1px] shrink-0 text-[#116762]" /> {esPiloto() ? 'Solo consulta y visualización.' : 'Acceso interno autorizado.'} La cuenta la administra el administrador del sistema.</p>
+        {error && <AvisoIngreso texto={error} tono="error" />}
+        <BotonIngresar ocupado={ocupado} textoOcupado={paso === 'ubicando' ? 'Obteniendo ubicación…' : 'Validando…'} />
+        <div className="space-y-1 text-center text-[12px] text-slate-500">
+          {esPiloto() && <p className="flex items-center justify-center gap-1.5"><MapPin size={13} className="text-[#159089]" /> Se solicitará la ubicación del equipo.</p>}
+          <p className="flex items-center justify-center gap-1.5"><LockKeyhole size={13} className="text-[#159089]" /> {esPiloto() ? 'Solo consulta y visualización.' : 'Acceso interno autorizado.'} La cuenta la gestiona el administrador del sistema.</p>
         </div>
       </form>
     </Fondo>
