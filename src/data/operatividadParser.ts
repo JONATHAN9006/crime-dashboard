@@ -118,7 +118,19 @@ export function esArchivoOperatividad(headers: string[]): boolean {
   return limpios.includes('OPERATIVIDAD') && limpios.includes('DELITO_ASOCIADO');
 }
 
-function mapearFilas(filas: Record<string, unknown>[]): OperatividadRecord[] {
+// Registros que NO se cargan en la operatividad (sin aviso): no corresponden
+// a la MEPOY. 165934079 = incautación de ~2,5 t de marihuana que no realizó
+// la Policía Metropolitana de Popayán y alteraba el total de droga.
+const OBJECTID_EXCLUIDOS = new Set(['165934079']);
+const objectIdDe = (v: unknown): string => {
+  const t = String(v ?? '').trim();
+  const n = Number(t.replace(',', '.'));
+  return t !== '' && Number.isFinite(n) && Number.isInteger(n) ? String(n) : t;
+};
+const excluida = (fila: Record<string, unknown>) => OBJECTID_EXCLUIDOS.has(objectIdDe(fila['OBJECTID']));
+
+function mapearFilas(filasTodas: Record<string, unknown>[]): OperatividadRecord[] {
+  const filas = filasTodas.filter((f) => !excluida(f));
   return filas.map((fila, indice) => {
     const fecha = parsearFecha(fila['FECHA_HECHO']);
     const anio = fecha ? fecha.getFullYear() : numeroONull(fila['ANIO']);
@@ -173,7 +185,9 @@ export async function parsearOperatividad(file: File): Promise<{ registros: Oper
 
 /** Vuelve a interpretar registros ya guardados a partir de su fila original (aplica las reglas de lectura actuales). */
 export function reinterpretarOperatividad(guardados: OperatividadRecord[]): OperatividadRecord[] {
-  return guardados.map((r) => (r.raw ? { ...mapearFilas([r.raw])[0], __id: r.__id } : r));
+  return guardados
+    .filter((r) => !OBJECTID_EXCLUIDOS.has(objectIdDe(r.raw?.OBJECTID ?? r.__id)))
+    .map((r) => (r.raw ? { ...mapearFilas([r.raw])[0], __id: r.__id } : r));
 }
 
 // Para cuando el CSV viene del backend central (ver remoteApi.ts) — mismo
