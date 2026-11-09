@@ -148,7 +148,8 @@ function mapearFilas(filas: Record<string, unknown>[]): OperatividadRecord[] {
       claseBien: limpiarYFormatear(campo(fila, ['CLASE_BIEN'], /^CLASE_?(DE_)?BIEN/)),
       marca: limpiarYFormatear(fila['MARCA']),
       circunstanciaCaptura: limpiarYFormatear(campo(fila, ['CIRCUSNTANCIA_CAPTURA', 'CIRCUNSTANCIA_CAPTURA'], /^CIRCU[A-Z]*_?(DE_)?CAPTURA/)),
-      situacionJuridica: limpiarYFormatear(campo(fila, ['SITUACION_JURIDICA'], /SITUACION_?JURIDICA/)),
+      // La matriz oficial la trae como «SITUA_JURID»; otras versiones como «SITUACIÓN JURÍDICA».
+      situacionJuridica: limpiarYFormatear(campo(fila, ['SITUACION_JURIDICA', 'SITUA_JURID'], /SITUA(CION)?_?JURID(ICA)?/)),
       valor: numeroONull(fila['VALOR']),
       ciudad: limpiarYFormatear(fila['CIUDAD']),
       paisPersona: limpiarYFormatear(fila['PAIS_PERSONA']),

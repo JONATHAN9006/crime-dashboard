@@ -27,6 +27,8 @@ const COLUMN_MAP: Record<string, string[]> = {
   barrioHecho: ['BARRIOS_HECHO', 'BARRIO-CIUDAD', 'Barrio Hecho Final', 'BARRIO_HECHO'],
   zona: ['ZONA', 'ZONA2', 'Zona Final'],
   claseSitio: ['CLASE_SITIO', 'Clase Sitio Final'],
+  movilAgresor: ['MOVIL_AGRESOR', 'MOVIL AGRESOR', 'Móvil Agresor', 'Movil Agresor'],
+  movilVictima: ['MOVIL_VICTIMA', 'MOVIL VICTIMA', 'Móvil Víctima', 'Movil Victima'],
   genero: ['GENERO', 'Genero Final'],
   grupoEdad: ['GRUPO EDAD LEY', 'Grupo Edad Ley Final'],
   edad: ['EDAD'],
@@ -125,6 +127,23 @@ function clean(v: unknown): string {
   const s = String(v).trim().replace(/\s+/g, ' ');
   if (s === '' || /^null$/i.test(s) || s === '-' || s === '#N/A' || /^<nulo>$/i.test(s)) return '';
   return s;
+}
+
+// Móvil del agresor / de la víctima: «PASAJERO MOTOCICLETA» → «Pasajero
+// Motocicleta»; vacío → «NO REPORTADO» (mismo criterio que las demás categorías).
+export function formatearMovil(v: unknown): string {
+  const c = normalizeCategoria(String(v ?? ''));
+  if (c === 'NO REPORTADO') return c;
+  return c.toLowerCase().replace(/(^|\s)(\S)/g, (_m, a: string, b: string) => a + b.toUpperCase());
+}
+// Registros guardados antes de existir el campo: se toma de la fila original.
+function movilDeRaw(raw: Record<string, string> | undefined, claves: string[]): string {
+  if (!raw) return 'NO REPORTADO';
+  for (const k of Object.keys(raw)) {
+    const n = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]+/g, '_');
+    if (claves.includes(n)) return formatearMovil(raw[k]);
+  }
+  return 'NO REPORTADO';
 }
 
 function normalizeCategoria(v: string): string {
@@ -599,6 +618,8 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
       })(),
       zona: normalizeCategoria(findColumn(row, COLUMN_MAP.zona)).toUpperCase() || 'NO REPORTADO',
       claseSitio: canonizarConTabla(normalizeCategoria(findColumn(row, COLUMN_MAP.claseSitio)), MAPA_CLASE_SITIO, MAPA_CLASE_SITIO_SIN_TILDES),
+      movilAgresor: formatearMovil(findColumn(row, COLUMN_MAP.movilAgresor)),
+      movilVictima: formatearMovil(findColumn(row, COLUMN_MAP.movilVictima)),
 
       genero: normalizeCategoria(findColumn(row, COLUMN_MAP.genero)),
       grupoEdad: normalizeCategoria(findColumn(row, COLUMN_MAP.grupoEdad)).replace(/\s+/g, ' ').trim(),
@@ -761,9 +782,12 @@ export function renormalizarCamposParametrizados(records: CrimeRecord[]): CrimeR
     const modalidad = canonizarConTabla(r.modalidad, MAPA_MODALIDAD, MAPA_MODALIDAD_SIN_TILDES);
     const claseSitio = canonizarConTabla(r.claseSitio, MAPA_CLASE_SITIO, MAPA_CLASE_SITIO_SIN_TILDES);
     const causaLesion = canonizarConTabla(r.causaLesion, MAPA_CAUSA_LESION, MAPA_CAUSA_LESION_SIN_TILDES);
-    if (cai === r.cai && barrioHecho === r.barrioHecho && armas === r.armas && modalidad === r.modalidad && claseSitio === r.claseSitio && causaLesion === r.causaLesion) {
+    const movilAgresor = r.movilAgresor ?? movilDeRaw(r.raw, ['MOVIL_AGRESOR']);
+    const movilVictima = r.movilVictima ?? movilDeRaw(r.raw, ['MOVIL_VICTIMA']);
+    if (cai === r.cai && barrioHecho === r.barrioHecho && armas === r.armas && modalidad === r.modalidad && claseSitio === r.claseSitio && causaLesion === r.causaLesion
+      && movilAgresor === r.movilAgresor && movilVictima === r.movilVictima) {
       return r;
     }
-    return { ...r, cai, barrioHecho, armas, modalidad, claseSitio, causaLesion };
+    return { ...r, cai, barrioHecho, armas, modalidad, claseSitio, causaLesion, movilAgresor, movilVictima };
   });
 }

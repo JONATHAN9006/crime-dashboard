@@ -8,7 +8,7 @@ import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria, form
 import { aplicarFiltros } from '../utils/filters';
 import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral, useProyeccion } from '../hooks/useComparativoHomologo';
 import { useKpis } from '../hooks/useKpis';
-import { agruparPor, totalCasos, formatPct } from '../utils/aggregations';
+import { agruparPor, totalCasos, formatPct, DIAS_ORDEN_DOMINGO } from '../utils/aggregations';
 import { Card, PageHeader } from '../components/ui/Card';
 import { ComponenteBloqueado } from '../components/ui/ComponenteBloqueado';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
@@ -25,7 +25,7 @@ import { agregarCasosPorAnio } from '../utils/casosPorAnio';
 import { ComportamientoDelDelito } from '../components/analitica/ComportamientoDelDelito';
 import { TendenciaDiariaChart } from '../components/charts/TendenciaDiariaChart';
 import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations';
-import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays, ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
+import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays, ArrowUpToLine, ArrowDownToLine, Bike, Footprints } from 'lucide-react';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
 
 const OPCIONES_TOP = [
@@ -72,6 +72,8 @@ export function AnalisisUnidad() {
   const [topArma, setTopArma] = useState(10);
   const [topModalidad, setTopModalidad] = useState(10);
   const [topClaseSitio, setTopClaseSitio] = useState(10);
+  const [topMovilAgresor, setTopMovilAgresor] = useState(10);
+  const [topMovilVictima, setTopMovilVictima] = useState(10);
   const [topCausaLesion, setTopCausaLesion] = useState(10);
 
   // ── Migrado de la antigua página "Indicadores" (fusionada aquí) ──────
@@ -109,7 +111,8 @@ export function AnalisisUnidad() {
   // los 23 años de histórico en una sola gráfica de "día de la semana"
   // (bug real, confirmado: los totales por día sumaban ~103.000 casos en
   // vez de los ~10.000 esperados para un solo año).
-  const diaSemana = useTendenciaDiaSemana(recsVista);
+  // Semana de domingo a sábado: así se mide la estadística institucional.
+  const diaSemana = useTendenciaDiaSemana(recsVista, DIAS_ORDEN_DOMINGO);
 
   // Incluye TAMBIÉN el año anterior (no solo el actual) — necesario para
   // poder comparar, día a día, el mismo periodo contra el año pasado dentro
@@ -200,6 +203,8 @@ export function AnalisisUnidad() {
   const cmpArma = useComparativoCategoria(ventanaVista, (r) => r.armas, 10);
   const cmpModalidad = useComparativoCategoria(ventanaVista, (r) => r.modalidad, 10);
   const cmpClaseSitio = useComparativoCategoria(ventanaVista, (r) => r.claseSitio, 10);
+  const cmpMovilAgresor = useComparativoCategoria(ventanaVista, (r) => r.movilAgresor ?? 'NO REPORTADO', 12);
+  const cmpMovilVictima = useComparativoCategoria(ventanaVista, (r) => r.movilVictima ?? 'NO REPORTADO', 12);
   const cmpCausaLesion = useComparativoCategoria(ventanaVista, (r) => r.causaLesion, 10);
   // Comparativo por delito, filtrado a EXACTAMENTE los delitos que estén
   // seleccionados en el filtro principal — se acomoda solo, sin necesidad de
@@ -542,6 +547,16 @@ export function AnalisisUnidad() {
               </Card>
             </div>
 
+            {/* ── FILA 4b: Móvil agresor | Móvil víctima (columnas MOVIL_AGRESOR / MOVIL_VICTIMA) ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
+              <Card className="h-full" title="Móvil agresor" subtitle={`Top ${topMovilAgresor}, ${etiquetaVigencia}`} descargable="movil-agresor" icono={ico(Bike)} claseTitulo={T} actions={<SelectorTop valor={topMovilAgresor} onChange={(v) => setTopMovilAgresor(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpMovilAgresor, topMovilAgresor), (r) => r.movilAgresor ?? 'NO REPORTADO')} anios={aniosTabla} cabeza="Móvil agresor" onClick={(key) => drillDown('movilAgresor', key)} seleccionados={(filters.movilAgresor ?? []) as string[]} />
+              </Card>
+              <Card className="h-full" title="Móvil víctima" subtitle={`Top ${topMovilVictima}, ${etiquetaVigencia}`} descargable="movil-victima" icono={ico(Footprints)} claseTitulo={T} actions={<SelectorTop valor={topMovilVictima} onChange={(v) => setTopMovilVictima(v!)} />}>
+                <RankingAporte data={conAnios(ranking(cmpMovilVictima, topMovilVictima), (r) => r.movilVictima ?? 'NO REPORTADO')} anios={aniosTabla} cabeza="Móvil víctima" onClick={(key) => drillDown('movilVictima', key)} seleccionados={(filters.movilVictima ?? []) as string[]} />
+              </Card>
+            </div>
+
             {/* ── FILA 5: Zonas | Género | Grupo de edad | Día de la semana | Concentración horaria ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3 2xl:grid-cols-[0.8fr_0.8fr_0.8fr_1.4fr_2.2fr]">
               <Card className="h-full 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]">
@@ -553,7 +568,7 @@ export function AnalisisUnidad() {
               <Card className="h-full 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
                 <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
               </Card>
-              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de lunes a domingo" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de domingo a sábado" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
                 <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={10.5} espaciadoCategoria={0.32} ocultarEjeY abreviarEtiquetas ocultarLeyendaBarras lineaReferencia="tendencia" />
               </Card>
               <Card

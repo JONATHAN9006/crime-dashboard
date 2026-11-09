@@ -41,6 +41,8 @@ export function aplicarFiltros(records: CrimeRecord[], f: FilterState): CrimeRec
     if (!matchMulti(r.armas, f.armas)) return false;
     if (!matchMulti(r.modalidad, f.modalidad)) return false;
     if (!matchMulti(r.claseSitio, f.claseSitio)) return false;
+    if (!matchMulti(r.movilAgresor ?? 'NO REPORTADO', f.movilAgresor ?? [])) return false;
+    if (!matchMulti(r.movilVictima ?? 'NO REPORTADO', f.movilVictima ?? [])) return false;
     if (!matchMulti(r.causaLesion, f.causaLesion)) return false;
     if (!matchMulti(r.grupoEdad, f.grupoEdad)) return false;
     if (!matchMulti(r.franjaHoraria, f.franjaHoraria)) return false;

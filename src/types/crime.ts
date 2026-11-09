@@ -44,6 +44,10 @@ export interface CrimeRecord {
   barrioHecho: string;
   zona: string; // URBANO / RURAL
   claseSitio: string;
+  /** Móvil del agresor y de la víctima (columnas MOVIL_AGRESOR / MOVIL_VICTIMA).
+   *  Opcionales: los registros guardados antes de este campo lo toman de «raw». */
+  movilAgresor?: string;
+  movilVictima?: string;
 
   // Demográfico
   genero: string;
@@ -102,6 +106,8 @@ export interface FilterState {
   armas: string[];
   modalidad: string[];
   claseSitio: string[];
+  movilAgresor: string[];
+  movilVictima: string[];
   causaLesion: string[];
   grupoEdad: string[];
   franjaHoraria: string[];
@@ -146,6 +152,8 @@ export const emptyFilterState: FilterState = {
   armas: [],
   modalidad: [],
   claseSitio: [],
+  movilAgresor: [],
+  movilVictima: [],
   causaLesion: [],
   grupoEdad: [],
   franjaHoraria: [],

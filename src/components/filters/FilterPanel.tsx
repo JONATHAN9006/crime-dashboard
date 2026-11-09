@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity, Building2, CalendarCheck, CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock, Crosshair, Database,
-  FileText, Filter, Hourglass, House, Map as MapIcon, MapPin, MapPinned, RotateCcw, SlidersHorizontal, Store, Target,
+  FileText, Filter, Hourglass, House, Map as MapIcon, MapPin, MapPinned, RotateCcw, SlidersHorizontal, Store, Target, Bike, Footprints,
   ShieldCheck, Users, UsersRound, X,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
@@ -41,6 +41,8 @@ export const CAMPOS_ADICIONALES: { key: CampoFiltro; label: string; getter: (r: 
   { key: 'armas', label: 'Arma', getter: (r) => r.armas },
   { key: 'modalidad', label: 'Modalidad', getter: (r) => r.modalidad },
   { key: 'claseSitio', label: 'Clase de sitio', getter: (r) => r.claseSitio },
+  { key: 'movilAgresor', label: 'Móvil agresor', getter: (r) => r.movilAgresor ?? 'NO REPORTADO' },
+  { key: 'movilVictima', label: 'Móvil víctima', getter: (r) => r.movilVictima ?? 'NO REPORTADO' },
   { key: 'causaLesion', label: 'Causa de lesión', getter: (r) => r.causaLesion },
   { key: 'grupoEdad', label: 'Grupo de edad', getter: (r) => r.grupoEdad },
 ];
@@ -372,6 +374,8 @@ export function FilterPanel() {
                 {campo('armas', <Crosshair size={18} />, 'mas')}
                 {campo('modalidad', <Target size={18} />, 'mas')}
                 {campo('claseSitio', <Store size={18} />, 'mas')}
+                {campo('movilAgresor', <Bike size={18} />, 'mas')}
+                {campo('movilVictima', <Footprints size={18} />, 'mas')}
                 {campo('causaLesion', <Activity size={18} />, 'mas')}
                 {campo('grupoEdad', <UsersRound size={18} />, 'mas')}
               </div>
@@ -386,7 +390,7 @@ export function FilterPanel() {
 type Categoria = 'fecha' | 'multifecha' | 'ubicacion' | 'delito' | 'mas';
 const ORDEN_CATS: Categoria[] = ['fecha', 'ubicacion', 'delito', 'mas', 'multifecha'];
 // «Más filtros»: todos los adicionales MENOS el CAI (ya está en Ubicación geográfica).
-const CAMPOS_MAS: CampoFiltro[] = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad'];
+const CAMPOS_MAS: CampoFiltro[] = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'movilAgresor', 'movilVictima', 'causaLesion', 'grupoEdad'];
 
 function EncabezadoSeccion({ icono, titulo, descripcion, tono }: { icono: ReactNode; titulo: string; descripcion: string; tono: string }) {
   return (

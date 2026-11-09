@@ -19,16 +19,16 @@ export function useTendenciaMensual(records: CrimeRecord[]) {
   }, [records]);
 }
 
-export function useTendenciaDiaSemana(records: CrimeRecord[]) {
+export function useTendenciaDiaSemana(records: CrimeRecord[], orden: string[] = DIAS_ORDEN) {
   return useMemo(() => {
     const map = new Map<string, number>();
-    for (const dia of DIAS_ORDEN) map.set(dia, 0);
+    for (const dia of orden) map.set(dia, 0);
     for (const r of records) {
       if (!r.diaSemana) continue;
       map.set(r.diaSemana, (map.get(r.diaSemana) || 0) + 1);
     }
-    return DIAS_ORDEN.map((dia) => ({ dia: dia.charAt(0) + dia.slice(1).toLowerCase(), casos: map.get(dia) || 0 }));
-  }, [records]);
+    return orden.map((dia) => ({ dia: dia.charAt(0) + dia.slice(1).toLowerCase(), casos: map.get(dia) || 0 }));
+  }, [records, orden]);
 }
 
 export function useDistribucionHoraria(records: CrimeRecord[]) {

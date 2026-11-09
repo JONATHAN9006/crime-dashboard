@@ -97,6 +97,8 @@ export const MESES_NOMBRES = [
 ];
 
 export const DIAS_ORDEN = ['LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO', 'DOMINGO'];
+// Semana estadística institucional (así se mide a la MEPOY): domingo a sábado.
+export const DIAS_ORDEN_DOMINGO = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
 
 export function uniqueSorted(records: CrimeRecord[], getter: (r: CrimeRecord) => string): string[] {
   const set = new Set<string>();

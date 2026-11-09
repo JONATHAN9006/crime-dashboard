@@ -699,7 +699,7 @@ function MapaGeorreferenciacionContenido() {
   // clase de sitio, franja, turno…): también recortan el mapa. Se resuelven
   // con la MISMA función del dashboard (aplicarFiltros) y se guardan como el
   // conjunto de registros que los cumplen. null = ninguno activo.
-  const CAMPOS_ADICIONALES_MAPA = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'causaLesion', 'grupoEdad', 'franjaHoraria', 'turno', 'diaSemana', 'diaMes', 'horaExacta'] as const;
+  const CAMPOS_ADICIONALES_MAPA = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'movilAgresor', 'movilVictima', 'causaLesion', 'grupoEdad', 'franjaHoraria', 'turno', 'diaSemana', 'diaMes', 'horaExacta'] as const;
   const idsFiltrosAdicionales = useMemo(() => {
     const activos = CAMPOS_ADICIONALES_MAPA.filter((k) => (filtrosPrincipales[k] ?? []).length > 0);
     if (activos.length === 0) return null;
@@ -2567,7 +2567,7 @@ function MapaGeorreferenciacionContenido() {
   const quitarFiltroMapa = (clave: keyof typeof FILTROS_MAPA_VACIOS) =>
     setFiltrosMapa((prev) => ({ ...prev, [clave]: FILTROS_MAPA_VACIOS[clave] }));
   const ETIQUETA_ADICIONAL: Record<(typeof CAMPOS_ADICIONALES_MAPA)[number], string> = {
-    zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio', causaLesion: 'Causa de lesión',
+    zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio', movilAgresor: 'Móvil agresor', movilVictima: 'Móvil víctima', causaLesion: 'Causa de lesión',
     grupoEdad: 'Grupo de edad', franjaHoraria: 'Franja', turno: 'Turno', diaSemana: 'Día de la semana', diaMes: 'Día del mes', horaExacta: 'Hora',
   };
   const resumirLista = (v: string[]) => (v.length <= 2 ? v.join(', ') : `${v.slice(0, 2).join(', ')} +${v.length - 2}`);
