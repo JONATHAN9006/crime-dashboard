@@ -547,32 +547,33 @@ export function AnalisisUnidad() {
               </Card>
             </div>
 
-            {/* ── FILA 4b: Móvil agresor | Móvil víctima (columnas MOVIL_AGRESOR / MOVIL_VICTIMA) ── */}
-            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-              <Card className="h-full" title="Móvil agresor" subtitle={`Top ${topMovilAgresor}, ${etiquetaVigencia}`} descargable="movil-agresor" icono={ico(Bike)} claseTitulo={T} actions={<SelectorTop valor={topMovilAgresor} onChange={(v) => setTopMovilAgresor(v!)} />}>
+            {/* ── FILA 5: Móvil agresor | Móvil víctima | Zonas | Género | Grupo de edad (una sola fila) ──
+                 Las dos tablas de móvil llevan un poco más de ancho porque traen columnas por año. */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-6 2xl:grid-cols-[1.3fr_1.3fr_0.85fr_0.85fr_0.85fr]">
+              <Card className="h-full xl:col-span-3 2xl:col-span-1" title="Móvil agresor" subtitle={`Top ${topMovilAgresor}, ${etiquetaVigencia}`} descargable="movil-agresor" icono={ico(Bike)} claseTitulo={T} actions={<SelectorTop valor={topMovilAgresor} onChange={(v) => setTopMovilAgresor(v!)} />}>
                 <RankingAporte data={conAnios(ranking(cmpMovilAgresor, topMovilAgresor), (r) => r.movilAgresor ?? 'NO REPORTADO')} anios={aniosTabla} cabeza="Móvil agresor" onClick={(key) => drillDown('movilAgresor', key)} seleccionados={(filters.movilAgresor ?? []) as string[]} />
               </Card>
-              <Card className="h-full" title="Móvil víctima" subtitle={`Top ${topMovilVictima}, ${etiquetaVigencia}`} descargable="movil-victima" icono={ico(Footprints)} claseTitulo={T} actions={<SelectorTop valor={topMovilVictima} onChange={(v) => setTopMovilVictima(v!)} />}>
+              <Card className="h-full xl:col-span-3 2xl:col-span-1" title="Móvil víctima" subtitle={`Top ${topMovilVictima}, ${etiquetaVigencia}`} descargable="movil-victima" icono={ico(Footprints)} claseTitulo={T} actions={<SelectorTop valor={topMovilVictima} onChange={(v) => setTopMovilVictima(v!)} />}>
                 <RankingAporte data={conAnios(ranking(cmpMovilVictima, topMovilVictima), (r) => r.movilVictima ?? 'NO REPORTADO')} anios={aniosTabla} cabeza="Móvil víctima" onClick={(key) => drillDown('movilVictima', key)} seleccionados={(filters.movilVictima ?? []) as string[]} />
+              </Card>
+              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={urbanoRural} total={total(urbanoRural)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Distribución por género" descargable="distribucion-genero" icono={ico(Users)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGenero)} colores={COLORES_DONA} compacta />
+              </Card>
+              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
               </Card>
             </div>
 
-            {/* ── FILA 5: Zonas | Género | Grupo de edad | Día de la semana | Concentración horaria ── */}
-            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3 2xl:grid-cols-[0.8fr_0.8fr_0.8fr_1.4fr_2.2fr]">
-              <Card className="h-full 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <Top5Dona filas={urbanoRural} total={total(urbanoRural)} colores={COLORES_DONA} compacta />
-              </Card>
-              <Card className="h-full 2xl:col-span-1" title="Distribución por género" descargable="distribucion-genero" icono={ico(Users)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <Top5Dona filas={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGenero)} colores={COLORES_DONA} compacta />
-              </Card>
-              <Card className="h-full 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
-              </Card>
-              <Card className="h-full md:col-span-3 2xl:col-span-1" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de domingo a sábado" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={10.5} espaciadoCategoria={0.32} ocultarEjeY abreviarEtiquetas ocultarLeyendaBarras lineaReferencia="tendencia" />
+            {/* ── FILA 6: Casos por día de la semana | Concentración horaria (mitad y mitad) ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+              <Card className="h-full" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de domingo a sábado" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={46} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarEjeY ocultarLeyendaBarras lineaReferencia="tendencia" />
               </Card>
               <Card
-                className="h-full md:col-span-3 2xl:col-span-1"
+                className="h-full"
                 title="Concentración horaria"
                 subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Las 3 horas con más casos se resaltan · línea naranja: promedio de 3 horas (franjas de mayor actividad)'}
                 descargable="concentracion-horaria"
@@ -586,7 +587,7 @@ export function AnalisisUnidad() {
                   </div>
                 }
               >
-                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={220} resaltarMaximo resaltarTopN={3} colorPorBarra tamanoEtiqueta={9} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad ? undefined : 'promedio3'} />
+                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={26} tamanoEtiqueta={10} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad ? undefined : 'promedio3'} />
               </Card>
             </div>
           </>
