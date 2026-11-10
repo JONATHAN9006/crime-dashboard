@@ -10,6 +10,7 @@ import { cargarDatosGuardados, guardarDatos, limpiarDatos, cargarCopiaConsulta, 
 import { leerSesionGuardada } from '../cuentas/apiCuentas';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo, detectarRepetidosPorContenido } from '../data/datasetOps';
 import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
+import { municipioDe } from '../utils/municipio';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarRegistrosSupabase, consultarMetaSupabase, contarRegistrosSupabase, conteoUltimaDescarga, subirRegistrosSupabase, borrarRegistrosSupabase } from '../data/supabaseApi';
@@ -829,6 +830,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return operatividadVisibles.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if ((filters.municipio ?? []).length > 0 && !filters.municipio.includes(municipioDe(r))) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
       if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;

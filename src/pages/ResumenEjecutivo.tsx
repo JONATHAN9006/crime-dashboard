@@ -19,6 +19,7 @@ import type { CrimeRecord } from '../types/crime';
 import { agruparPor, formatNumero, formatDecimal } from '../utils/aggregations';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
 import { IndicadorVigencia } from '../components/filters/IndicadorVigencia';
+import { municipioDe } from '../utils/municipio';
 
 // Botón tipo checkbox/pill para los filtros AUMENTO (rojo) / DISMINUCIÓN
 // (verde) del encabezado de "Comparativo de delitos". Puramente visual —
@@ -161,6 +162,7 @@ export function ResumenEjecutivo() {
     const base = operatividadRecords.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if ((filters.municipio ?? []).length > 0 && !filters.municipio.includes(municipioDe(r))) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
       if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;

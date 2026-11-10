@@ -73,6 +73,7 @@ export function descargarInformePdf(a: AnalisisEstructurado, c: ContextoAgenteIA
   const f = c.filtros;
   const filtros = [
     f.delito.length ? `Delito: ${f.delito.join(', ')}` : 'Delito: todos',
+    (f.municipio ?? []).length ? `Municipio: ${(f.municipio ?? []).join(', ')}` : '',
     f.estacion.length ? `Estación: ${f.estacion.join(', ')}` : '',
     f.cuadrante.length ? `Zona de atención: ${f.cuadrante.join(', ')}` : '',
     f.barrioHecho.length ? `Barrio: ${f.barrioHecho.join(', ')}` : '',

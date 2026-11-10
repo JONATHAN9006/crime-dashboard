@@ -14,6 +14,7 @@ export function restringirCapasPuntosAPopayan(capas: CapaPuntos[]): CapaPuntos[]
   return capas.map((c) => ({ ...c, puntos: (c.puntos ?? []).filter((p) => puntoEnPopayan(p?.lat, p?.lon)) }));
 }
 import { MAPA_DELITO_IDX, MAPA_ESTACION_IDX, MAPA_BARRIO_IDX, normalizarClave } from './db2Transform';
+import { municipioDe } from '../utils/municipio';
 
 export interface PuntoGeo {
   lat: number;
@@ -400,7 +401,7 @@ export async function sincronizarCapaDelitosDesdeRecords(records: {
 // en Mapa/Georreferenciación en cuanto ese archivo trae Latitud/Longitud,
 // sin necesidad de cargarla aparte con "Cargar capa".
 export async function sincronizarCapaOperatividadDesdeRecords(records: {
-  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; cuadrante: string; fecha: Date | null; categoria: string; barrioHecho?: string;
+  lat: number | null; lon: number | null; delitoAsociado: string; estacion: string; cuadrante: string; fecha: Date | null; categoria: string; barrioHecho?: string; raw?: Record<string, string>;
 }[], cuadranteACai?: Map<string, string>): Promise<void> {
   // Coordenada utilizable: numérica, finita, distinta de (0,0) y dentro de
   // Colombia (el mismo recuadro que usa construirPuntos para las demás
@@ -416,7 +417,7 @@ export async function sincronizarCapaOperatividadDesdeRecords(records: {
   const puntos: PuntoGeo[] = conCoordenadas.map((r) => ({
     lat: r.lat as number,
     lon: r.lon as number,
-    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria, CUADRANTE: r.cuadrante, BARRIO: r.barrioHecho ?? '' },
+    fila: { FECHA_HECHO: r.fecha, DELITO: r.delitoAsociado, ESTACION: r.estacion, OPERATIVIDAD: r.categoria, CUADRANTE: r.cuadrante, BARRIO: r.barrioHecho ?? '', MUNICIPIO: municipioDe(r) },
     delitoCorto: r.delitoAsociado,
     estacionCorta: r.estacion,
     // CAI inferido cruzando el cuadrante con Delictividad (Operatividad no

@@ -22,6 +22,7 @@ function Fila({ icono, etiqueta, children }: { icono: ReactNode; etiqueta: strin
 export function ContextoAnalisisIA({ contexto }: { contexto: ContextoAgenteIA }) {
   const { periodoActual, periodoComparativo, indicadores, filtros } = contexto;
   const chips = [
+    ...(filtros.municipio ?? []).map((v: string) => `Municipio: ${v}`),
     ...filtros.estacion.map((v) => `Estación: ${v}`),
     ...filtros.cuadrante.map((v) => `Zona: ${v}`),
     ...filtros.barrioHecho.map((v) => `Barrio: ${v}`),

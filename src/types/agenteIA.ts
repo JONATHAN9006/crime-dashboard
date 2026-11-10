@@ -23,6 +23,7 @@ export interface MensajeChat {
 export interface ContextoAgenteIA {
   filtros: {
     delito: string[];
+    municipio?: string[];
     estacion: string[];
     cuadrante: string[]; // "Zonas de Atención" en la barra lateral
     barrioHecho: string[];

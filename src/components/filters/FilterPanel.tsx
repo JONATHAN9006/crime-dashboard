@@ -8,6 +8,7 @@ import { useData } from '../../context/DataContext';
 import type { CrimeRecord, FilterState } from '../../types/crime';
 import { aplicarFiltros, contarFiltrosActivos } from '../../utils/filters';
 import { uniqueSorted } from '../../utils/aggregations';
+import { municipioDe } from '../../utils/municipio';
 import { MultiSelect } from './MultiSelect';
 import { SelectorVigencias, periodosIniciales } from '../multifecha/SelectorVigencias';
 import { SelectorFuentesMicrogerencia } from '../microgerencia/SelectorFuentesMicrogerencia';
@@ -23,6 +24,7 @@ type CampoActualizable = Exclude<keyof FilterState, 'fechaInicial' | 'fechaFinal
 // mismas etiquetas que ve el usuario aquí, sin definir una segunda lista
 // que se pueda desincronizar de esta.
 export const CAMPOS_PRINCIPALES: { key: CampoFiltro; label: string; getter: (r: CrimeRecord) => string }[] = [
+  { key: 'municipio', label: 'Municipio', getter: (r) => municipioDe(r) },
   { key: 'estacion', label: 'Estación', getter: (r) => r.estacion },
   { key: 'delito', label: 'Delito', getter: (r) => r.delito },
   { key: 'cuadrante', label: 'Zonas de Atención', getter: (r) => r.cuadrante },
@@ -186,7 +188,7 @@ export function FilterPanel() {
   const vigenciasMf = new Set(periodos.map((p) => p.fechaInicial.slice(0, 4)).filter(Boolean)).size;
   const conteos: Record<Categoria, number> = {
     fecha: n('anio') + n('mes') + (filters.fechaInicial || filters.fechaFinal ? 1 : 0) + n('franjaHoraria') + n('turno') + n('diaSemana') + n('diaMes') + n('horaExacta'),
-    ubicacion: n('estacion') + n('cuadrante') + n('cai') + n('barrioHecho'),
+    ubicacion: n('municipio') + n('estacion') + n('cuadrante') + n('cai') + n('barrioHecho'),
     delito: n('delito') + (categoriaOperatividadSel.length > 0 ? 1 : 0),
     mas: CAMPOS_MAS.reduce((a, k) => a + n(k), 0),
     multifecha: vigenciasMf,
@@ -350,7 +352,8 @@ export function FilterPanel() {
               </div>
             )}
             {categoria === 'ubicacion' && (
-              <div className="grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 rounded-b-xl bg-white p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                {campo('municipio', <MapPinned size={18} />, 'ubicacion')}
                 {campo('estacion', <Building2 size={18} />, 'ubicacion')}
                 {campo('cuadrante', <MapIcon size={18} />, 'ubicacion')}
                 {campo('cai', <ShieldCheck size={18} />, 'ubicacion')}

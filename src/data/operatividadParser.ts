@@ -127,7 +127,8 @@ const objectIdDe = (v: unknown): string => {
   const n = Number(t.replace(',', '.'));
   return t !== '' && Number.isFinite(n) && Number.isInteger(n) ? String(n) : t;
 };
-const excluida = (fila: Record<string, unknown>) => OBJECTID_EXCLUIDOS.has(objectIdDe(fila['OBJECTID']));
+// El encabezado puede venir como «OBJECTID», «OBJECTID *», «ObjectId»…
+const excluida = (fila: Record<string, unknown>) => OBJECTID_EXCLUIDOS.has(objectIdDe(campo(fila, ['OBJECTID'], /^OBJECTID/)));
 
 function mapearFilas(filasTodas: Record<string, unknown>[]): OperatividadRecord[] {
   const filas = filasTodas.filter((f) => !excluida(f));
@@ -186,7 +187,7 @@ export async function parsearOperatividad(file: File): Promise<{ registros: Oper
 /** Vuelve a interpretar registros ya guardados a partir de su fila original (aplica las reglas de lectura actuales). */
 export function reinterpretarOperatividad(guardados: OperatividadRecord[]): OperatividadRecord[] {
   return guardados
-    .filter((r) => !OBJECTID_EXCLUIDOS.has(objectIdDe(r.raw?.OBJECTID ?? r.__id)))
+    .filter((r) => !(r.raw ? excluida(r.raw) : false) && !OBJECTID_EXCLUIDOS.has(objectIdDe(r.__id)))
     .map((r) => (r.raw ? { ...mapearFilas([r.raw])[0], __id: r.__id } : r));
 }
 

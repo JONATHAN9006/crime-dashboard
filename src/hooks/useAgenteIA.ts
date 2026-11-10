@@ -11,6 +11,7 @@ import { formatFecha } from '../utils/aggregations';
 import { ejecutarHerramientaSobreContexto, ESQUEMAS_HERRAMIENTAS } from '../services/agenteIATools';
 import { enviarMensajeAgente, agenteIAEstaConfigurado } from '../services/agenteIA';
 import type { ContextoAgenteIA, MensajeChat, ResultadoHerramienta } from '../types/agenteIA';
+import { municipioDe } from '../utils/municipio';
 
 const LIMITE_CATEGORIAS = 10;
 
@@ -53,6 +54,7 @@ export function useAgenteIA() {
     const base = operatividadRecords.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if ((filters.municipio ?? []).length > 0 && !filters.municipio.includes(municipioDe(r))) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
       if (filters.barrioHecho.length > 0 && !filters.barrioHecho.includes(r.barrioHecho)) return false;
@@ -104,6 +106,7 @@ export function useAgenteIA() {
     return {
       filtros: {
         delito: filters.delito,
+        municipio: filters.municipio ?? [],
         estacion: filters.estacion,
         cuadrante: filters.cuadrante,
         barrioHecho: filters.barrioHecho,

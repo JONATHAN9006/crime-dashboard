@@ -81,6 +81,7 @@ function periodoTexto(c: ContextoAgenteIA) {
 function filtrosTexto(c: ContextoAgenteIA): string {
   const f = c.filtros;
   const partes = [
+    (f.municipio ?? []).length ? `municipio ${(f.municipio ?? []).join(', ')}` : '',
     f.estacion.length ? `estación ${f.estacion.join(', ')}` : '',
     f.cuadrante.length ? `zona ${f.cuadrante.join(', ')}` : '',
     f.barrioHecho.length ? `barrio ${f.barrioHecho.join(', ')}` : '',

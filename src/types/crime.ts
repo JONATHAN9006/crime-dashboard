@@ -96,6 +96,8 @@ export interface DataQuality {
 }
 
 export interface FilterState {
+  /** Municipio (deducido de la estación o de la coordenada; ver utils/municipio.ts). */
+  municipio: string[];
   estacion: string[];
   cai: string[];
   cuadrante: string[];
@@ -142,6 +144,7 @@ export interface PeriodoAnalisis {
 }
 
 export const emptyFilterState: FilterState = {
+  municipio: [],
   estacion: [],
   cai: [],
   cuadrante: [],

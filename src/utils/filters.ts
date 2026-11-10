@@ -1,4 +1,5 @@
 import type { CrimeRecord, FilterState, PeriodoAnalisis } from '../types/crime';
+import { municipioDe } from './municipio';
 
 function matchMulti(value: string, selected: string[]): boolean {
   return selected.length === 0 || selected.includes(value);
@@ -31,6 +32,7 @@ export function aplicarFiltros(records: CrimeRecord[], f: FilterState): CrimeRec
   if (fechaFin) fechaFin.setHours(23, 59, 59, 999);
 
   return records.filter((r) => {
+    if ((f.municipio ?? []).length > 0 && !f.municipio.includes(municipioDe(r))) return false;
     if (!matchMulti(r.estacion, f.estacion)) return false;
     if (!matchMulti(r.cai, f.cai)) return false;
     if (!matchMulti(r.cuadrante, f.cuadrante)) return false;

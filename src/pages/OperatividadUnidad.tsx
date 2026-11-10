@@ -185,6 +185,7 @@ export function OperatividadUnidad() {
 
   const filtrosActivos = [
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
+    (filters.municipio ?? []).length > 0 && `Municipio: ${filters.municipio.join(', ')}`,
     filters.estacion.length > 0 && `Estación: ${filters.estacion.join(', ')}`,
     filters.cuadrante.length > 0 && `Zona de Atención: ${filters.cuadrante.join(', ')}`,
     filters.barrioHecho.length > 0 && `Barrio: ${filters.barrioHecho.join(', ')}`,

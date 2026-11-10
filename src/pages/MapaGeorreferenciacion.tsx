@@ -56,6 +56,7 @@ import { restringirCapasAPopayan } from '../data/geoStorage';
 import { restringirCapasPuntosAPopayan } from '../data/puntosStorage';
 import { puntoEnPopayan } from '../utils/territorioPiloto';
 import { dentroDeMepoy } from '../utils/jurisdiccionMepoy';
+import { municipioDe } from '../utils/municipio';
 // La vista 3D (MapLibre GL) solo se descarga cuando alguien la abre.
 
 // Corrige las rutas de los íconos por defecto de Leaflet (problema conocido con bundlers).
@@ -699,7 +700,7 @@ function MapaGeorreferenciacionContenido() {
   // clase de sitio, franja, turno…): también recortan el mapa. Se resuelven
   // con la MISMA función del dashboard (aplicarFiltros) y se guardan como el
   // conjunto de registros que los cumplen. null = ninguno activo.
-  const CAMPOS_ADICIONALES_MAPA = ['zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'movilAgresor', 'movilVictima', 'causaLesion', 'grupoEdad', 'franjaHoraria', 'turno', 'diaSemana', 'diaMes', 'horaExacta'] as const;
+  const CAMPOS_ADICIONALES_MAPA = ['municipio', 'zona', 'genero', 'armas', 'modalidad', 'claseSitio', 'movilAgresor', 'movilVictima', 'causaLesion', 'grupoEdad', 'franjaHoraria', 'turno', 'diaSemana', 'diaMes', 'horaExacta'] as const;
   const idsFiltrosAdicionales = useMemo(() => {
     const activos = CAMPOS_ADICIONALES_MAPA.filter((k) => (filtrosPrincipales[k] ?? []).length > 0);
     if (activos.length === 0) return null;
@@ -1517,6 +1518,7 @@ function MapaGeorreferenciacionContenido() {
         if (capa.tipo === 'operatividad') {
           if (filtroCategoriaOperatividad.length > 0 && !filtroCategoriaOperatividad.includes(String(p.fila.OPERATIVIDAD ?? ''))) return false;
           if (filters.estacion.length > 0 && p.estacionCorta && !filters.estacion.includes(p.estacionCorta)) return false;
+          if ((filtrosPrincipales.municipio ?? []).length > 0 && !filtrosPrincipales.municipio.includes(String(p.fila.MUNICIPIO ?? '') || municipioDe({ estacion: p.estacionCorta, lat: p.lat, lon: p.lon }))) return false;
           if (filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
           if (filters.cuadrante.length > 0 && 'CUADRANTE' in p.fila && !cuadrantesPermitidosNorm.has(normalizar(String(p.fila.CUADRANTE ?? '')))) return false;
         }
@@ -1600,7 +1602,7 @@ function MapaGeorreferenciacionContenido() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, puntosDelitosDesdeRegistros, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad, barriosElegidosNorm, poligonosElegidos, poligonosTodosBarrios]);
+  }, [capasPuntos, puntosDelitosDesdeRegistros, filtrosPrincipales.municipio, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad, barriosElegidosNorm, poligonosElegidos, poligonosTodosBarrios]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,
@@ -2567,7 +2569,7 @@ function MapaGeorreferenciacionContenido() {
   const quitarFiltroMapa = (clave: keyof typeof FILTROS_MAPA_VACIOS) =>
     setFiltrosMapa((prev) => ({ ...prev, [clave]: FILTROS_MAPA_VACIOS[clave] }));
   const ETIQUETA_ADICIONAL: Record<(typeof CAMPOS_ADICIONALES_MAPA)[number], string> = {
-    zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio', movilAgresor: 'Móvil agresor', movilVictima: 'Móvil víctima', causaLesion: 'Causa de lesión',
+    municipio: 'Municipio', zona: 'Zona', genero: 'Género', armas: 'Arma', modalidad: 'Modalidad', claseSitio: 'Clase de sitio', movilAgresor: 'Móvil agresor', movilVictima: 'Móvil víctima', causaLesion: 'Causa de lesión',
     grupoEdad: 'Grupo de edad', franjaHoraria: 'Franja', turno: 'Turno', diaSemana: 'Día de la semana', diaMes: 'Día del mes', horaExacta: 'Hora',
   };
   const resumirLista = (v: string[]) => (v.length <= 2 ? v.join(', ') : `${v.slice(0, 2).join(', ')} +${v.length - 2}`);
