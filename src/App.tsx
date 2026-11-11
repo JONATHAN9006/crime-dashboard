@@ -151,7 +151,7 @@ export default function App() {
     </DataProvider>
   );
   // TRES enlaces, cada uno con su propia pantalla de ingreso validada en el
-  // servidor: "/" administrador, "/interno" y "/piloto". Nada del dashboard
+  // servidor: "/" administrador, RUTA_INTERNO (config/rutasAcceso.ts) y "/piloto". Nada del dashboard
   // (ni los datos) se carga antes de ingresar.
   if (modoAcceso === 'interno' || modoAcceso === 'piloto') return <PuertaCuenta>{app}</PuertaCuenta>;
   return <PuertaAdmin>{app}</PuertaAdmin>;

@@ -1,5 +1,5 @@
 // Cliente de las cuentas de acceso del S2IP (netlify/functions/accesoCuentas.ts).
-// Tres cuentas, tres enlaces: administrador "/", interno "/interno", piloto "/piloto".
+// Tres cuentas, tres enlaces: administrador "/", interno RUTA_INTERNO (config/rutasAcceso.ts), piloto "/piloto".
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { borrarCopiasConsulta } from '../data/storage';
 
@@ -60,11 +60,11 @@ function guardarSesion(s: SesionCuenta | null) {
 }
 
 /** ¿El enlace actual tiene acceso directo (cuenta sin contraseña)? */
-export async function consultarEnlace(): Promise<{ ok: boolean; abierto: boolean; suspendido: boolean; sinConexion?: boolean }> {
+export async function consultarEnlace(): Promise<{ ok: boolean; abierto: boolean; suspendido: boolean; desactivado: boolean; sinConexion?: boolean }> {
   const rol = rolDelEnlace();
-  if (!rol) return { ok: false, abierto: false, suspendido: false };
-  const r = await llamar<{ abierto?: boolean; suspendido?: boolean }>({ accion: 'enlace', rol });
-  return { ok: !!r.ok, abierto: !!r.abierto, suspendido: !!r.suspendido, sinConexion: r.sinConexion };
+  if (!rol) return { ok: false, abierto: false, suspendido: false, desactivado: false };
+  const r = await llamar<{ abierto?: boolean; suspendido?: boolean; desactivado?: boolean }>({ accion: 'enlace', rol });
+  return { ok: !!r.ok, abierto: !!r.abierto, suspendido: !!r.suspendido, desactivado: !!r.desactivado, sinConexion: r.sinConexion };
 }
 
 export async function ingresar(usuario: string, clave: string, ubic: Ubicacion | null) {

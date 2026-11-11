@@ -167,7 +167,7 @@ function FilaDato({ icono, etiqueta, children }: { icono: React.ReactNode; etiqu
   );
 }
 
-// Disponibilidad del enlace /interno: «Servicio temporalmente no disponible»
+// Disponibilidad del enlace interno (RUTA_INTERNO): «Servicio temporalmente no disponible»
 // por 2 o 3 horas (el servidor guarda la hora de fin y la hace cumplir), o
 // restablecerlo antes. El contador de aquí es solo informativo.
 function BloqueSuspension({ c, ocupado, onSuspender, onRestablecer }: { c: CuentaAcceso; ocupado: boolean; onSuspender: (horas: 2 | 3) => void; onRestablecer: () => void }) {

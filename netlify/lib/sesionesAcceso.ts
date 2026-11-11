@@ -4,7 +4,7 @@
 //
 // TRES cuentas, TRES enlaces — nada más:
 //   · administrador → "/"        (token propio firmado por accesoAdmin)
-//   · interno       → "/interno" (sesión en sesiones_acceso)
+//   · interno       → RUTA_INTERNO de src/config/rutasAcceso.ts (sesión en sesiones_acceso)
 //   · piloto        → "/piloto"  (sesión en sesiones_acceso)
 // Las cuentas viven en la tabla cuentas_acceso, cuya llave primaria es el
 // ROL con una restricción que solo admite esos tres valores: la base no

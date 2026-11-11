@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Loader2, LockKeyhole, MapPin } from 'lucide-react';
 import { AvisoIngreso, BotonIngresar, CampoClave, CampoUsuario, FilaRecordar, MarcoIngreso, recordarUsuario, usuarioRecordado } from '../components/acceso/PantallaIngreso';
 import { PantallaSuspension } from './PantallaSuspension';
+import { PaginaNoDisponible } from './PaginaNoDisponible';
 import { consultarEnlace, ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
 
 // Puerta de entrada de los enlaces /interno y /piloto: nada del dashboard
@@ -17,6 +18,9 @@ const esPiloto = () => rolDelEnlace() === 'piloto';
 const INTERVALO_VERIFICACION_MS = esPiloto() ? 5 * 60 * 1000 : 60 * 1000;
 // Mientras está suspendido se pregunta al servidor cada minuto si ya terminó.
 const INTERVALO_SUSPENSION_MS = 60 * 1000;
+// Cuenta desactivada: se pregunta cada 20 s (y al volver a la pestaña) para
+// que, al activarla, el enlace vuelva enseguida.
+const INTERVALO_DESACTIVADA_MS = 20 * 1000;
 
 interface ContextoCuenta { sesion: SesionCuenta; salir: () => void }
 const CuentaContext = createContext<ContextoCuenta | null>(null);
@@ -27,7 +31,8 @@ type Estado =
   | { fase: 'consultando'; aviso?: string; automatico: boolean }
   | { fase: 'login'; aviso?: string; abierto?: boolean }
   | { fase: 'dentro'; sesion: SesionCuenta }
-  | { fase: 'suspendido' };
+  | { fase: 'suspendido' }
+  | { fase: 'desactivado' };
 
 const MENSAJE_UBICACION: Record<string, string> = {
   denegada: 'El navegador tiene bloqueada la ubicación para este sitio. Actívala (ícono del candado junto a la dirección → Ubicación → Permitir) y vuelve a intentar.',
@@ -56,6 +61,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     (async () => {
       const r = await consultarEnlace();
       if (!vivo) return;
+      if (r.desactivado) { setEstado({ fase: 'desactivado' }); return; }
       if (r.suspendido) { setEstado({ fase: 'suspendido' }); return; }
       if (!r.abierto) { setEstado({ fase: 'login', aviso }); return; }
       if (!automatico) { setEstado({ fase: 'login', aviso, abierto: true }); return; }
@@ -64,6 +70,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
       if (!vivo) return;
       const s = leerSesionGuardada();
       if (ing.ok && s) { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); return; }
+      if (ing.motivo === 'desactivado') { setEstado({ fase: 'desactivado' }); return; }
       if (ing.motivo === 'suspendido') { setEstado({ fase: 'suspendido' }); return; }
       setEstado({ fase: 'login', abierto: true, aviso: ing.requiereUbicacion && ubic && 'error' in ubic ? `${ing.error} ${MENSAJE_UBICACION[ubic.error]}` : ing.error });
     })();
@@ -76,6 +83,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     if (r.ok) return true;
     if (r.sinConexion) return true; // sin internet un momento: no se cierra
     if (r.motivo === 'suspendido') { sesionRef.current = null; setEstado({ fase: 'suspendido' }); return false; }
+    if (r.motivo === 'desactivado') { sesionRef.current = null; setEstado({ fase: 'desactivado' }); return false; }
     cerrarCon(r.error || 'La sesión se cerró.');
     return false;
   }, [cerrarCon]);
@@ -123,11 +131,28 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     let vivo = true;
     const revisar = async () => {
       const r = await consultarEnlace();
-      if (!vivo || !r.ok || r.suspendido) return;
+      if (!vivo || !r.ok) return;
+      if (r.desactivado) { setEstado({ fase: 'desactivado' }); return; }
+      if (r.suspendido) return;
       setEstado(leerSesionGuardada() ? { fase: 'verificando' } : { fase: 'consultando', automatico: true });
     };
     const id = window.setInterval(revisar, INTERVALO_SUSPENSION_MS);
     return () => { vivo = false; window.clearInterval(id); };
+  }, [estado.fase]);
+
+  // Desactivada: cuando el administrador la activa, se vuelve al ingreso.
+  useEffect(() => {
+    if (estado.fase !== 'desactivado') return;
+    let vivo = true;
+    const revisar = async () => {
+      const r = await consultarEnlace();
+      if (!vivo || !r.ok || r.desactivado) return;
+      setEstado(r.suspendido ? { fase: 'suspendido' } : { fase: 'consultando', automatico: true });
+    };
+    const id = window.setInterval(revisar, INTERVALO_DESACTIVADA_MS);
+    const alVolver = () => { if (document.visibilityState === 'visible') revisar(); };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => { vivo = false; window.clearInterval(id); document.removeEventListener('visibilitychange', alVolver); };
   }, [estado.fase]);
 
   const salir = useCallback(() => {
@@ -136,18 +161,18 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     salirCuenta(s);
   }, [cerrarCon]);
 
+  if (estado.fase === 'desactivado') return <PaginaNoDisponible />;
   if (estado.fase === 'suspendido') return <PantallaSuspension />;
   if (estado.fase === 'dentro') {
     return <CuentaContext.Provider value={{ sesion: estado.sesion, salir }}>{children}</CuentaContext.Provider>;
   }
   if (estado.fase === 'verificando' || estado.fase === 'consultando') {
+    // Fondo blanco y neutro: si el enlace resulta desactivado, no alcanza a
+    // verse ni el logotipo ni la foto.
     return (
-      <Fondo>
-        <div className="flex flex-col items-center gap-3 py-6 text-[#10233f]">
-          <Loader2 size={28} className="animate-spin text-[#116762]" />
-          <p className="text-sm font-semibold">Verificando acceso…</p>
-        </div>
-      </Fondo>
+      <div className="flex min-h-[100dvh] items-center justify-center bg-white">
+        <Loader2 size={26} className="animate-spin text-slate-300" aria-label="Verificando acceso" />
+      </div>
     );
   }
   return (
@@ -156,6 +181,7 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
       abierto={!!estado.abierto}
       onIngreso={(s) => { sesionRef.current = s; setEstado({ fase: 'dentro', sesion: s }); }}
       onSuspendido={() => setEstado({ fase: 'suspendido' })}
+      onDesactivado={() => setEstado({ fase: 'desactivado' })}
     />
   );
 }
@@ -164,7 +190,7 @@ function Fondo({ children }: { children: ReactNode }) {
   return <MarcoIngreso subtitulo={esPiloto() ? 'Acceso piloto de consulta al Sistema Integral de Información Policial –' : 'Acceda al Sistema Integral de Información Policial –'}>{children}</MarcoIngreso>;
 }
 
-function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido }: { aviso?: string; abierto: boolean; onIngreso: (s: SesionCuenta) => void; onSuspendido: () => void }) {
+function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido, onDesactivado }: { aviso?: string; abierto: boolean; onIngreso: (s: SesionCuenta) => void; onSuspendido: () => void; onDesactivado: () => void }) {
   const ambito = esPiloto() ? 'piloto' : 'interno';
   const [usuario, setUsuario] = useState(() => usuarioRecordado(ambito));
   const [recordar, setRecordar] = useState(() => !!usuarioRecordado(ambito));
@@ -187,6 +213,7 @@ function FormularioIngreso({ aviso, abierto, onIngreso, onSuspendido }: { aviso?
     const s = leerSesionGuardada();
     if (r.ok && s) { if (!abierto) recordarUsuario(ambito, recordar ? usuario.trim() : null); onIngreso(s); return; }
     if (r.motivo === 'suspendido') { onSuspendido(); return; }
+    if (r.motivo === 'desactivado') { onDesactivado(); return; }
     setClave('');
     setError(r.requiereUbicacion && ubic && 'error' in ubic ? `${r.error} ${MENSAJE_UBICACION[ubic.error]}` : (r.error || 'No fue posible ingresar.'));
   }

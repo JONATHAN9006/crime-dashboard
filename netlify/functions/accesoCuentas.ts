@@ -21,6 +21,7 @@ import {
   esRolSesion, estadoSuspension, EVENTOS_SUSPENSION, firmarTokenSesion, hashClave, leerAmbito, leerTokenSesion, registrarEvento, ROLES_SUSPENDIBLES,
   tokenAdminValido, validarSesion, verificarClave, type RolCuenta, type RolSesion,
 } from '../lib/sesionesAcceso';
+import { RUTA_INTERNO, RUTA_PILOTO } from '../../src/config/rutasAcceso';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -151,7 +152,7 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
   }
   if (!cuenta.activo) {
     await registrarEvento(db, { ...base, evento: 'rechazado', detalle: 'Cuenta desactivada' });
-    return resp({ ok: false, error: 'Esta cuenta está desactivada. Comunícate con el administrador.' });
+    return resp({ ok: false, motivo: 'desactivado', desactivado: true, error: 'Esta cuenta está desactivada. Comunícate con el administrador.' });
   }
   if (rol === 'piloto' && EXIGIR_UBICACION_PILOTO) {
     if (!ubic) {
@@ -177,10 +178,13 @@ async function login(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo: str
 /** ¿El enlace tiene acceso directo? (cuenta activa y sin contraseña). No revela nada más. */
 async function enlace(db: SupabaseClient, c: Cuerpo) {
   if (!esRolSesion(c.rol)) return resp({ ok: false, error: 'Enlace no válido.' }, 400);
-  // Suspendido: solo eso se informa (ni si tiene contraseña ni nada más).
-  if ((await estadoSuspension(db, c.rol)).activa) return resp({ ok: true, abierto: false, suspendido: true });
   const { data: cuenta, error } = await db.from('cuentas_acceso').select('activo, clave_hash').eq('rol', c.rol).maybeSingle();
   if (error) throw error;
+  // Cuenta desactivada por el administrador: el enlace muestra solo
+  // «Página no disponible» (nada más se informa).
+  if (cuenta && !cuenta.activo) return resp({ ok: true, abierto: false, desactivado: true });
+  // Suspendido: solo eso se informa (ni si tiene contraseña ni nada más).
+  if ((await estadoSuspension(db, c.rol)).activa) return resp({ ok: true, abierto: false, suspendido: true });
   return resp({ ok: true, abierto: !!cuenta && !!cuenta.activo && !cuenta.clave_hash });
 }
 
@@ -194,7 +198,7 @@ async function verificar(db: SupabaseClient, c: Cuerpo, ip: string, dispositivo:
       : v.motivo === 'cerrada' ? 'El administrador cerró la sesión. Vuelve a ingresar.'
       : v.motivo === 'suspendido' ? MENSAJE_SUSPENDIDO
       : 'Sesión no válida. Vuelve a ingresar.';
-    return resp({ ok: false, motivo: v.motivo, suspendido: v.motivo === 'suspendido' || undefined, error });
+    return resp({ ok: false, motivo: v.motivo, suspendido: v.motivo === 'suspendido' || undefined, desactivado: v.motivo === 'desactivado' || undefined, error });
   }
   const ubic = leerUbicacion(c);
   if (t.r === 'piloto' && EXIGIR_UBICACION_PILOTO && ubic) {
@@ -348,7 +352,7 @@ async function admin(db: SupabaseClient, c: Cuerpo) {
         sesionesActivas: (sesiones || []).filter((s) => s.rol === r && ahora - new Date(s.ultima_actividad).getTime() < EN_LINEA_MS).length,
         ultimoIngreso: ultimos.get(r) ?? null,
         claveActualizada: claveCambio.get(r) ?? null,
-        enlace: r === 'administrador' ? '/' : `/${r}`,
+        enlace: r === 'administrador' ? '/' : r === 'interno' ? RUTA_INTERNO : RUTA_PILOTO,
         suspension: suspensiones.get(r) ?? null,
       };
     }),
