@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Loader2, LockKeyhole, MapPin } from 'lucide-react';
 import { AvisoIngreso, BotonIngresar, CampoClave, CampoUsuario, FilaRecordar, MarcoIngreso, recordarUsuario, usuarioRecordado } from '../components/acceso/PantallaIngreso';
-import { PantallaSuspension } from './PantallaSuspension';
 import { PaginaNoDisponible } from './PaginaNoDisponible';
 import { consultarEnlace, ingresar, leerSesionGuardada, obtenerUbicacion, rolDelEnlace, salirCuenta, verificarSesion, type SesionCuenta, type Ubicacion } from './apiCuentas';
 
@@ -161,8 +160,9 @@ export function PuertaCuenta({ children }: { children: ReactNode }) {
     salirCuenta(s);
   }, [cerrarCon]);
 
-  if (estado.fase === 'desactivado') return <PaginaNoDisponible />;
-  if (estado.fase === 'suspendido') return <PantallaSuspension />;
+  // Cuenta desactivada o enlace suspendido: la misma página en blanco
+  // «Página no disponible» en el enlace interno y en el piloto.
+  if (estado.fase === 'desactivado' || estado.fase === 'suspendido') return <PaginaNoDisponible />;
   if (estado.fase === 'dentro') {
     return <CuentaContext.Provider value={{ sesion: estado.sesion, salir }}>{children}</CuentaContext.Provider>;
   }
