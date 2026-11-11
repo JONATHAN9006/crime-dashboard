@@ -345,3 +345,56 @@ export async function borrarRegistrosSupabase(
   const ids = criterio.idsABorrar ?? [];
   for (let i = 0; i < ids.length; i += 2000) await enviar({ idsABorrar: ids.slice(i, i + 2000) });
 }
+
+// ── Subida por diferencias ──────────────────────────────────────────────
+// Antes, «reemplazar el año» borraba TODO el año en el servidor y lo volvía
+// a subir completo. Cada registro quedaba con fecha de cambio nueva y TODOS
+// los navegadores tenían que descargar el año entero otra vez (minutos de
+// «cargando información» y mucho consumo de Supabase). Ahora solo se suben
+// los registros nuevos o que cambiaron, y se borran solo los que ya no
+// vienen en el archivo. El resultado en el servidor es el mismo.
+const ordenarClaves = (v: unknown): unknown => {
+  if (Array.isArray(v)) return v.map(ordenarClaves);
+  if (v && typeof v === 'object') {
+    const salida: Record<string, unknown> = {};
+    for (const k of Object.keys(v as Record<string, unknown>).sort()) salida[k] = ordenarClaves((v as Record<string, unknown>)[k]);
+    return salida;
+  }
+  return v;
+};
+/** Huella del contenido del registro, sin el OBJECTID (el origen lo renumera en cada exportación). */
+function huellaRegistro(r: unknown): string {
+  const plano = JSON.parse(JSON.stringify(r)) as Record<string, any>;
+  if (plano.raw && typeof plano.raw === 'object') {
+    for (const k of Object.keys(plano.raw)) if (/^OBJECTID/i.test(k.trim())) delete plano.raw[k];
+  }
+  return JSON.stringify(ordenarClaves(plano));
+}
+
+export async function planSubidaPorDiferencias(
+  nuevos: CrimeRecord[],
+  anios: number[],
+  dataset: DatasetRemoto = 'delictividad',
+): Promise<{ subir: CrimeRecord[]; borrarIds: string[] } | null> {
+  if (esPiloto()) return null;
+  // Referencia: la copia sincronizada (espejo exacto de lo que hay en el
+  // servidor). Debe coincidir llave por llave con el servidor; si no, se usa
+  // el reemplazo completo de siempre (más lento, pero seguro).
+  const copia = await leerCopiaSinc(dataset);
+  if (!copia || copia.filas.length === 0) return null;
+  const enServidor = await llavesServidor(dataset);
+  const previos = new Map<string, any>(copia.filas);
+  if (enServidor.size !== previos.size) return null;
+  for (const id of enServidor) if (!previos.has(id)) return null;
+
+  const enAnios = (anio: unknown) => typeof anio === 'number' && anios.includes(anio);
+  const nuevosAnio = nuevos.filter((r) => enAnios(r.anio));
+  const idsNuevos = new Set(nuevosAnio.map((r) => r.__id));
+  const subir = nuevosAnio.filter((r) => {
+    const antes = previos.get(r.__id);
+    return !antes || huellaRegistro(antes) !== huellaRegistro(r);
+  });
+  const borrarIds: string[] = [];
+  for (const [id, datos] of previos) if (enAnios(datos?.anio) && !idsNuevos.has(id)) borrarIds.push(id);
+  return { subir, borrarIds };
+}

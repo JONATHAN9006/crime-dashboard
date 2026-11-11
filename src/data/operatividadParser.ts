@@ -130,8 +130,27 @@ const objectIdDe = (v: unknown): string => {
 // El encabezado puede venir como «OBJECTID», «OBJECTID *», «ObjectId»…
 const excluida = (fila: Record<string, unknown>) => OBJECTID_EXCLUIDOS.has(objectIdDe(campo(fila, ['OBJECTID'], /^OBJECTID/)));
 
+// El OBJECTID cambia en cada exportación, así que el registro se reconoce
+// también por su CONTENIDO (no cambia): 2.563.000 g de marihuana del
+// 28/10/2026 en Bella Vista. En la matriz aparece dos veces (Incautación
+// droga y Mercancía incautada); ninguna de las dos se carga.
+const sinTildesMayus = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+const HUELLAS_EXCLUIDAS = [
+  { claseBien: 'MARIHUANA', cantidad: 2563000, barrio: 'BELLA VISTA', fechas: ['2026-10-27', '2026-10-28'] },
+];
+const fechaIso = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '');
+function excluidaPorContenido(r: OperatividadRecord): boolean {
+  return HUELLAS_EXCLUIDAS.some((h) => r.cantidad === h.cantidad
+    && sinTildesMayus(r.claseBien).includes(h.claseBien)
+    && sinTildesMayus(r.barrioHecho) === h.barrio
+    && h.fechas.includes(fechaIso(r.fecha)));
+}
+
 function mapearFilas(filasTodas: Record<string, unknown>[]): OperatividadRecord[] {
-  const filas = filasTodas.filter((f) => !excluida(f));
+  return mapearFilasSinExcluir(filasTodas.filter((f) => !excluida(f))).filter((r) => !excluidaPorContenido(r));
+}
+
+function mapearFilasSinExcluir(filas: Record<string, unknown>[]): OperatividadRecord[] {
   return filas.map((fila, indice) => {
     const fecha = parsearFecha(fila['FECHA_HECHO']);
     const anio = fecha ? fecha.getFullYear() : numeroONull(fila['ANIO']);
@@ -188,7 +207,8 @@ export async function parsearOperatividad(file: File): Promise<{ registros: Oper
 export function reinterpretarOperatividad(guardados: OperatividadRecord[]): OperatividadRecord[] {
   return guardados
     .filter((r) => !(r.raw ? excluida(r.raw) : false) && !OBJECTID_EXCLUIDOS.has(objectIdDe(r.__id)))
-    .map((r) => (r.raw ? { ...mapearFilas([r.raw])[0], __id: r.__id } : r));
+    .map((r) => (r.raw ? { ...mapearFilasSinExcluir([r.raw])[0], __id: r.__id } : r))
+    .filter((r) => !excluidaPorContenido(r));
 }
 
 // Para cuando el CSV viene del backend central (ver remoteApi.ts) — mismo

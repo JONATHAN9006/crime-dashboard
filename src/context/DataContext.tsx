@@ -13,7 +13,7 @@ import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { municipioDe } from '../utils/municipio';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
-import { descargarRegistrosSupabase, consultarMetaSupabase, contarRegistrosSupabase, conteoUltimaDescarga, subirRegistrosSupabase, borrarRegistrosSupabase } from '../data/supabaseApi';
+import { descargarRegistrosSupabase, consultarMetaSupabase, contarRegistrosSupabase, conteoUltimaDescarga, subirRegistrosSupabase, borrarRegistrosSupabase, planSubidaPorDiferencias } from '../data/supabaseApi';
 // Operatividad sigue en el backend de Apps Script/Drive de siempre — no se
 // migró a Supabase todavía (ver operatividadBackendUrl en config.ts).
 import { descargarCsvRemoto, consultarMetaRemota, subirCsvRemoto } from '../data/remoteApi';
@@ -326,6 +326,31 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // cualquier duda → descarga completa, como siempre
         }
+        // Hay cambios en el servidor, pero este navegador ya tiene una copia:
+        // se muestra AL INSTANTE y la actualización se trae en segundo plano
+        // (solo lo que cambió). Antes la pantalla quedaba en «Cargando
+        // información» hasta terminar la descarga.
+        if (!ES_PILOTO) {
+          try {
+            const guardado = await cargarDatosGuardados();
+            if (guardado && guardado.records.length > 0) {
+              if (cancelado) return;
+              const registros = excluirDelitosOmitidos(guardado.records);
+              const cols = registros.length ? Object.keys(registros[0].raw || {}) : [];
+              setRecords(registros);
+              setLastColumns(cols);
+              setMeta(construirMeta(
+                registros, guardado.meta.nombreArchivo, new Date(guardado.meta.ultimaActualizacion), cols,
+                guardado.meta.fechaMaxParametro ? new Date(guardado.meta.fechaMaxParametro) : null,
+              ));
+              setLoading(false);
+              void cargarDesdeBackend();
+              return;
+            }
+          } catch {
+            // sin copia → descarga normal
+          }
+        }
         const ok = await cargarDesdeBackend();
         if (ok) {
           if (!cancelado) setLoading(false);
@@ -535,7 +560,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             return { ...resumen, sincronizado: false, errorSincronizacion: 'No se sincronizó con el servidor central: falta la clave de actualización.' };
           }
           try {
-            const res = await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, registrosParaSincronizar, usuario || 'No identificado', undefined, forzar, resumen.aniosReemplazados);
+            // Reemplazo de año: solo lo nuevo o modificado (ver planSubidaPorDiferencias).
+            const plan = resumen.aniosReemplazados && resumen.aniosReemplazados.length > 0
+              ? await planSubidaPorDiferencias(registrosFinales, resumen.aniosReemplazados).catch(() => null)
+              : null;
+            if (plan) {
+              console.info(`[Subida] Por diferencias: ${plan.subir.length} registro(s) nuevos o modificados y ${plan.borrarIds.length} que ya no vienen en el archivo.`);
+              if (plan.borrarIds.length > 0) await borrarRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, usuario || 'No identificado', { idsABorrar: plan.borrarIds });
+            }
+            const res = plan
+              ? (plan.subir.length > 0
+                ? await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, plan.subir, usuario || 'No identificado', undefined, forzar)
+                : { ok: true, mensaje: 'El servidor ya tenía esta información.', fecha: new Date().toISOString() })
+              : await subirRegistrosSupabase(FUNCION_SUBIR_REGISTROS, token, registrosParaSincronizar, usuario || 'No identificado', undefined, forzar, resumen.aniosReemplazados);
             if (!res.ok) {
               // Nota: con Supabase (upsert por registro individual) ya no
               // existe la carrera de "quién sube de último pisa todo el
