@@ -98,6 +98,7 @@ interface DataContextValue {
 }
 
 import { excluirDelitosOmitidos, DELITOS_EXCLUIDOS_CANONICOS } from '../utils/delitosExcluidos';
+import { esListaReducida } from '../data/clavesIdentidad';
 import { obtenerModoAcceso } from '../utils/modoAcceso';
 import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 import { operatividadEnPopayan, recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
@@ -442,7 +443,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         if (parsed.columnasFaltantes.length > 0) {
           return { error: `El archivo no puede ser procesado porque faltan las columnas requeridas: ${parsed.columnasFaltantes.join(', ')}.` };
         }
-        const columnasNuevas = calcularColumnasNuevas(lastColumns, parsed.columnasDetectadas);
+        // Con datos del servidor, «raw» trae solo las columnas que usa el
+        // dashboard: no se reportan como «nuevas» las demás columnas del Excel.
+        const columnasNuevas = esListaReducida(lastColumns) ? [] : calcularColumnasNuevas(lastColumns, parsed.columnasDetectadas);
 
         // Cada carga queda "marcada" con su propio lote (archivo, fecha,
         // usuario) — así, si se sube algo por error, se puede deshacer esa

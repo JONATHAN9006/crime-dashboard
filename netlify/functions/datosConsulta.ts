@@ -19,7 +19,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolverRol, type RolCuenta } from '../lib/sesionesAcceso';
-import { rawMinimo } from '../../src/data/clavesIdentidad';
+import { rawMinimo, rawDashboard } from '../../src/data/clavesIdentidad';
 import { recortarCoordenadasPiloto, registroEnPopayan, restringirGeojsonAPopayan, territorioPilotoValido } from '../../src/utils/territorioPiloto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -165,8 +165,11 @@ async function registros(db: SupabaseClient, c: Record<string, unknown>, dataset
     if (desdeMarca) q = q.gt('actualizado_en', desdeMarca);
     return q.order('id_identidad', { ascending: true }).limit(TAMANO_PAGINA);
   };
-  let { data, error } = await pedir(liviano ? 'crime_records_ligero' : 'crime_records');
-  if (liviano && error && /crime_records_ligero|does not exist|schema cache|not find/i.test(error.message || '')) ({ data, error } = await pedir('crime_records'));
+  // Administrador/interno: vista de CONSULTA (raw solo con las columnas que
+  // usa el dashboard; ver supabase/vista_consulta.sql) — sale de Supabase
+  // cerca de la mitad de información. Si la vista aún no existe, la tabla.
+  let { data, error } = await pedir(liviano ? 'crime_records_ligero' : 'crime_records_consulta');
+  if (error && /crime_records_(ligero|consulta)|does not exist|schema cache|not find/i.test(error.message || '')) ({ data, error } = await pedir('crime_records'));
   if (error) throw error;
   const filas = (data || []) as { id_identidad: string; datos: Record<string, unknown> }[];
   const salida: unknown[] = [];
@@ -176,7 +179,8 @@ async function registros(db: SupabaseClient, c: Record<string, unknown>, dataset
   for (const f of filas) {
     let item: unknown = null;
     if (!liviano) {
-      item = { id_identidad: f.id_identidad, datos: f.datos };
+      const d = f.datos;
+      item = { id_identidad: f.id_identidad, datos: d && typeof d === 'object' && d.raw && typeof d.raw === 'object' ? { ...d, raw: rawDashboard(d.raw) } : d };
     } else if (!soloPopayan || registroEnPopayan(f.datos as { lat?: unknown; lon?: unknown; estacion?: unknown })) {
       // Sin el lote de carga y con solo las columnas originales de la identidad.
       const { loteId: _a, loteArchivo: _b, loteFecha: _c, loteUsuario: _d, raw, ...sinRaw } = soloPopayan ? recortarCoordenadasPiloto(f.datos) : f.datos;

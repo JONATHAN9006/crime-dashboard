@@ -5,6 +5,7 @@ import { tokenSesionActual } from '../cuentas/apiCuentas';
 import { recortarCoordenadasPiloto, registroEnPopayan } from '../utils/territorioPiloto';
 import { restriccionPopayanActiva } from '../utils/restriccionTerritorial';
 import { getDb, STORE_RECORDS } from './db';
+import { rawDashboard } from './clavesIdentidad';
 
 // ── LECTURA: siempre por el servidor, nunca directo a la base ──────────────
 // La base ya no tiene lectura pública. Todas las lecturas (delitos, RNMC,
@@ -362,12 +363,13 @@ const ordenarClaves = (v: unknown): unknown => {
   }
   return v;
 };
-/** Huella del contenido del registro, sin el OBJECTID (el origen lo renumera en cada exportación). */
+/** Huella del contenido del registro (sin OBJECTID: el origen lo renumera en cada exportación y no está en las columnas que viajan). */
 function huellaRegistro(r: unknown): string {
   const plano = JSON.parse(JSON.stringify(r)) as Record<string, any>;
-  if (plano.raw && typeof plano.raw === 'object') {
-    for (const k of Object.keys(plano.raw)) if (/^OBJECTID/i.test(k.trim())) delete plano.raw[k];
-  }
+  // Solo las columnas originales que viajan del servidor (las demás ya
+  // están procesadas en los campos del registro); así una copia reducida y
+  // un archivo completo con el mismo contenido dan la misma huella.
+  if (plano.raw && typeof plano.raw === 'object') plano.raw = rawDashboard(plano.raw);
   return JSON.stringify(ordenarClaves(plano));
 }
 
