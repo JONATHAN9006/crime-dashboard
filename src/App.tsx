@@ -24,6 +24,7 @@ import { DASHBOARD_ACCESS } from './config/dashboardAccess';
 import { AccesosCuentas } from './pages/AccesosCuentas';
 import { PlanCandado2026 } from './pages/PlanCandado2026';
 import { PuertaCuenta } from './cuentas/PuertaCuenta';
+import { PaginaNoDisponible } from './cuentas/PaginaNoDisponible';
 import { PuertaAdmin } from './admin/PuertaAdmin';
 import { tieneAcceso } from './utils/permisos';
 
@@ -128,9 +129,14 @@ function Shell() {
 }
 
 export default function App() {
-  // Cualquier ruta que no sea uno de los tres enlaces (p. ej. las antiguas
-  // /jefe o /cai) se lleva a "/" (ingreso del administrador).
-  if (!rutaValida()) window.history.replaceState(null, '', '/');
+  // Cualquier ruta que no sea uno de los tres enlaces (p. ej. la antigua
+  // /interno, o /jefe y /cai) muestra solo «Página no disponible»: no abre
+  // el ingreso ni, con una sesión guardada, el dashboard.
+  if (!rutaValida()) return <PaginaNoDisponible />;
+  return <AppEnlaceValido />;
+}
+
+function AppEnlaceValido() {
   const modoAcceso = obtenerModoAcceso();
   const accesoAnalistaIA = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].analistaIA;
   // Capas geográficas compartidas (shapefiles que cargaron otros equipos):
