@@ -312,7 +312,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const copiaCompleta = conteoServidor != null && conteoCopia != null && conteoCopia === conteoServidor;
             if (copiaCompleta && metaRemota?.ultimaActualizacion && metaRemota.ultimaActualizacion === sello && guardado && guardado.records.length > 0) {
               if (cancelado) return;
-              const registros = excluirDelitosOmitidos(guardado.records);
+              const registros = excluirDelitosOmitidos(renormalizarCamposParametrizados(guardado.records));
               const cols = registros.length ? Object.keys(registros[0].raw || {}) : [];
               setRecords(registros);
               setLastColumns(cols);
@@ -336,7 +336,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const guardado = await cargarDatosGuardados();
             if (guardado && guardado.records.length > 0) {
               if (cancelado) return;
-              const registros = excluirDelitosOmitidos(guardado.records);
+              const registros = excluirDelitosOmitidos(renormalizarCamposParametrizados(guardado.records));
               const cols = registros.length ? Object.keys(registros[0].raw || {}) : [];
               setRecords(registros);
               setLastColumns(cols);
@@ -373,7 +373,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const guardado = await cargarDatosGuardados();
         if (guardado && guardado.records.length > 0) {
           if (cancelado) return;
-          const registrosFiltrados = excluirDelitosOmitidos(guardado.records);
+          const registrosFiltrados = excluirDelitosOmitidos(renormalizarCamposParametrizados(guardado.records));
           setRecords(registrosFiltrados);
           const cols = registrosFiltrados.length ? Object.keys(registrosFiltrados[0].raw) : [];
           setLastColumns(cols);
