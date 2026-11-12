@@ -2,10 +2,11 @@ import { BannerTemporada, TelaranaEsquina } from '../components/temporada/Decora
 import { useTemporada } from '../config/temporadas';
 import { useMemo, useState } from 'react';
 import { maxDe } from '../utils/mathSeguro';
+import { GRUPOS_CICLO_VIDA } from '../utils/cicloVida';
 import { useData } from '../context/DataContext';
 import {
   Bike, Boxes, Building2, Car, ChartPie, ClipboardList, Clock, Crosshair, FileBadge, Gavel, Globe, House,
-  Layers, Leaf, MapPin, Package, PackageCheck, Scale, Shapes, Tags, TrendingUp, UserCheck, type LucideIcon,
+  Layers, Leaf, MapPin, Package, PackageCheck, Scale, Shapes, Tags, TrendingUp, UserCheck, UserRound, Users, type LucideIcon,
   Target,
 } from 'lucide-react';
 import { formatDecimal, formatNumero } from '../utils/aggregations';
@@ -77,6 +78,7 @@ export function OperatividadUnidad() {
   const [topPaisPersona, setTopPaisPersona] = useState<ValorTop>(10);
   const [topPermisoArma, setTopPermisoArma] = useState<ValorTop>(10);
   const [topSituacionJuridica, setTopSituacionJuridica] = useState<ValorTop>(10);
+  const [topGenero, setTopGenero] = useState<ValorTop>(10);
   const [unidadDroga, setUnidadDroga] = useState<UnidadDroga>('g');
 
   // Por defecto (sin ningún año elegido en el filtro general), se muestra
@@ -114,6 +116,8 @@ export function OperatividadUnidad() {
     ciudad: { etiqueta: 'Ciudad', valor: (r: Rec) => r.ciudad },
     pais: { etiqueta: 'País', valor: (r: Rec) => r.paisPersona },
     situacion: { etiqueta: 'Situación jurídica', valor: (r: Rec) => r.situacionJuridica },
+    genero: { etiqueta: 'Género', valor: (r: Rec) => r.genero ?? '' },
+    grupoEdad: { etiqueta: 'Grupo de edad', valor: (r: Rec) => r.grupoEdad ?? '' },
   } as const;
   type CampoSel = keyof typeof CAMPOS_SEL;
   const [seleccion, setSeleccion] = useState<Partial<Record<CampoSel, string>>>({});
@@ -182,6 +186,14 @@ export function OperatividadUnidad() {
   const porPermisoArma = rankear((r) => r.permisoArma.replace(/_/g, ' '), topPermisoArma, armas);
   const porSituacionJuridica = rankear((r) => r.situacionJuridica, topSituacionJuridica, capturas);
   const haySituacionJuridica = porSituacionJuridica.length > 0;
+  // Perfil de los capturados: género y grupo de edad (ciclo de vida desde la
+  // EDAD de la matriz; en el orden del ciclo de vida, no por cantidad).
+  const porGenero = rankear((r) => r.genero ?? '', topGenero, capturas);
+  const porGrupoEdad = (() => {
+    const conteo = new Map(contarOperatividad(capturas, (r) => r.grupoEdad || 'NO REPORTADO').map((d) => [d.key, d.casos] as const));
+    return conAporte(GRUPOS_CICLO_VIDA.filter((g) => (conteo.get(g) ?? 0) > 0).map((g) => ({ key: g, casos: conteo.get(g)! })));
+  })();
+  const hayPerfilCapturados = porGenero.length > 0 || porGrupoEdad.length > 0;
 
   const filtrosActivos = [
     filters.delito.length > 0 && `Delito: ${filters.delito.join(', ')}`,
@@ -352,6 +364,14 @@ export function OperatividadUnidad() {
             )}
             {haySituacionJuridica && tarjeta('Situación jurídica de los capturados', 'operatividad-situacion-juridica', Gavel, porSituacionJuridica, { valor: topSituacionJuridica, set: setTopSituacionJuridica }, 'situacion')}
           </div>
+
+          {/* FILA 7 — Perfil de los capturados: género y grupo de edad */}
+          {hayPerfilCapturados && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {tarjeta('Género de los capturados', 'operatividad-genero', Users, porGenero, { valor: topGenero, set: setTopGenero }, 'genero')}
+              {tarjeta('Grupo de edad de los capturados', 'operatividad-grupo-edad', UserRound, porGrupoEdad, undefined, 'grupoEdad')}
+            </div>
+          )}
         </>
       )}
     </div>

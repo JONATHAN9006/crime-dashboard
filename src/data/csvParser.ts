@@ -3,6 +3,7 @@ import type { CrimeRecord } from '../types/crime';
 import { esSerieExcelPlausible, convertirSerieExcelAFecha } from './excelSerial';
 import { MAPA_DELITO, MAPA_ESTACION, MAPA_CAI, MAPA_BARRIO, MAPA_ARMAS, MAPA_MODALIDAD, MAPA_CLASE_SITIO, MAPA_CAUSA_LESION } from './db2Mapeos';
 import { mapearCuadrante } from './db2Transform';
+import { grupoCicloVida } from '../utils/cicloVida';
 
 // Columnas mínimas para poder procesar un archivo. Se acepta CUALQUIERA de los
 // dos formatos: el histórico (FECHA_HECHO/DELITOS/CANTIDAD) o el formato oficial
@@ -622,7 +623,9 @@ export function procesarFilas(rowsCrudas: Record<string, string>[], fieldsCrudos
       movilVictima: formatearMovil(findColumn(row, COLUMN_MAP.movilVictima)),
 
       genero: normalizeCategoria(findColumn(row, COLUMN_MAP.genero)),
-      grupoEdad: normalizeCategoria(findColumn(row, COLUMN_MAP.grupoEdad)).replace(/\s+/g, ' ').trim(),
+      // Grupo de edad por ciclo de vida desde la EDAD (utils/cicloVida.ts); si
+      // no hay edad, la columna de grupo si el archivo la trae.
+      grupoEdad: grupoCicloVida(edad) ?? normalizeCategoria(findColumn(row, COLUMN_MAP.grupoEdad)).replace(/\s+/g, ' ').trim(),
       edad,
 
       lat: (() => {
@@ -784,10 +787,12 @@ export function renormalizarCamposParametrizados(records: CrimeRecord[]): CrimeR
     const causaLesion = canonizarConTabla(r.causaLesion, MAPA_CAUSA_LESION, MAPA_CAUSA_LESION_SIN_TILDES);
     const movilAgresor = r.movilAgresor ?? movilDeRaw(r.raw, ['MOVIL_AGRESOR']);
     const movilVictima = r.movilVictima ?? movilDeRaw(r.raw, ['MOVIL_VICTIMA']);
-    if (cai === r.cai && barrioHecho === r.barrioHecho && armas === r.armas && modalidad === r.modalidad && claseSitio === r.claseSitio && causaLesion === r.causaLesion
+    // Registros ya guardados: el grupo de edad se recalcula desde la edad.
+    const grupoEdad = grupoCicloVida(r.edad) ?? r.grupoEdad;
+    if (grupoEdad === r.grupoEdad && cai === r.cai && barrioHecho === r.barrioHecho && armas === r.armas && modalidad === r.modalidad && claseSitio === r.claseSitio && causaLesion === r.causaLesion
       && movilAgresor === r.movilAgresor && movilVictima === r.movilVictima) {
       return r;
     }
-    return { ...r, cai, barrioHecho, armas, modalidad, claseSitio, causaLesion, movilAgresor, movilVictima };
+    return { ...r, cai, barrioHecho, armas, modalidad, claseSitio, causaLesion, movilAgresor, movilVictima, grupoEdad };
   });
 }

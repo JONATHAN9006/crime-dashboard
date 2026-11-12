@@ -44,6 +44,11 @@ export interface OperatividadRecord {
   marca: string;
   circunstanciaCaptura: string;
   situacionJuridica: string;
+  /** Género de la persona (capturas). */
+  genero: string;
+  edad: number | null;
+  /** Ciclo de vida desde la edad (utils/cicloVida.ts). */
+  grupoEdad: string;
   valor: number | null;
   // Agregados a pedido explícito — nombres de columna supuestos
   // (CIUDAD, PAIS_PERSONA, PERMISO_ARMA); si el archivo real las trae con

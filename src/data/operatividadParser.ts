@@ -3,6 +3,9 @@ import type { OperatividadRecord } from '../types/operatividad';
 import { MAPA_DELITO, MAPA_ESTACION } from './db2Mapeos';
 import { mapearCuadrante } from './db2Transform';
 import { formatoTitulo } from './csvParser';
+import { grupoCicloVida } from '../utils/cicloVida';
+
+const edadValida = (n: number | null) => (n != null && n >= 0 && n <= 120 ? n : null);
 
 const NOMBRES_MES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -182,6 +185,9 @@ function mapearFilasSinExcluir(filas: Record<string, unknown>[]): OperatividadRe
       circunstanciaCaptura: limpiarYFormatear(campo(fila, ['CIRCUSNTANCIA_CAPTURA', 'CIRCUNSTANCIA_CAPTURA'], /^CIRCU[A-Z]*_?(DE_)?CAPTURA/)),
       // La matriz oficial la trae como «SITUA_JURID»; otras versiones como «SITUACIÓN JURÍDICA».
       situacionJuridica: limpiarYFormatear(campo(fila, ['SITUACION_JURIDICA', 'SITUA_JURID'], /SITUA(CION)?_?JURID(ICA)?/)),
+      genero: limpiarYFormatear(campo(fila, ['GENERO', 'SEXO'], /^(GENERO|SEXO)/)),
+      edad: edadValida(numeroONull(campo(fila, ['EDAD'], /^EDAD$/))),
+      grupoEdad: grupoCicloVida(edadValida(numeroONull(campo(fila, ['EDAD'], /^EDAD$/)))) ?? '',
       valor: numeroONull(fila['VALOR']),
       ciudad: limpiarYFormatear(fila['CIUDAD']),
       paisPersona: limpiarYFormatear(fila['PAIS_PERSONA']),
