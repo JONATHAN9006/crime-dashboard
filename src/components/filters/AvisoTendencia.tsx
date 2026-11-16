@@ -18,7 +18,7 @@ export function AvisoTendencia() {
     <div className={`mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 text-[12.5px] ${tono}`} role="status" data-aviso-tendencia>
       <span className="flex items-center gap-1.5 font-bold">
         {aumento && <TrendingUp size={14} />}{disminucion && <TrendingDown size={14} />}
-        Mostrando solo delitos {texto} ({lista.length})
+        Mostrando solo delitos {texto} ({lista.length}) · también Operatividad por delito asociado
       </span>
       <span className="min-w-0 flex-1 truncate opacity-80" title={lista.join(', ')}>{lista.length ? lista.join(' · ') : 'ningún delito cumple con los filtros actuales'}</span>
       <button

@@ -26,7 +26,7 @@ const LIMITE_CATEGORIAS = 10;
  * igual, sin ningún cambio.
  */
 export function useAgenteIA() {
-  const { records, recordsBase, filteredRecords, filters, meta, operatividadRecords } = useData();
+  const { records, recordsBase, filteredRecords, filters, meta, operatividadRecords, delitosTendencia } = useData();
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
   const cmpGeneral = useComparativoGeneral(ventana);
   const cmpDelito = useComparativoCategoria(ventana, (r) => r.delito, LIMITE_CATEGORIAS);
@@ -54,6 +54,7 @@ export function useAgenteIA() {
     const base = operatividadRecords.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      if (delitosTendencia && !delitosTendencia.has(r.delitoAsociado)) return false;
       if ((filters.municipio ?? []).length > 0 && !filters.municipio.includes(municipioDe(r))) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
@@ -77,7 +78,7 @@ export function useAgenteIA() {
         };
       }),
     };
-  }, [operatividadRecords, filters]);
+  }, [operatividadRecords, filters, delitosTendencia]);
 
   // Mensual "actual vs anterior" simplificado (mes -> valor por vigencia) —
   // se arma aquí mismo con un agrupamiento simple sobre recsActual/recsAnterior,

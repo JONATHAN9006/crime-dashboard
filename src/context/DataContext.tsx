@@ -909,6 +909,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return operatividadVisibles.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      // Filtro Aumento/Disminución: por el DELITO ASOCIADO de la operatividad.
+      if (delitosTendencia && !delitosTendencia.has(r.delitoAsociado)) return false;
       if ((filters.municipio ?? []).length > 0 && !filters.municipio.includes(municipioDe(r))) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
@@ -920,7 +922,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (filters.fechaFinal && (!r.fecha || r.fecha > new Date(filters.fechaFinal + 'T23:59:59'))) return false;
       return true;
     });
-  }, [operatividadVisibles, filters]);
+  }, [operatividadVisibles, filters, delitosTendencia]);
 
   const value: DataContextValue = {
     records: registrosVisibles,

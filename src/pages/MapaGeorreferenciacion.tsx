@@ -1519,6 +1519,8 @@ function MapaGeorreferenciacionContenido() {
         // barrio, así que el filtro de Barrio no puede aplicarse a ella.
         if (capa.tipo === 'operatividad') {
           if (filtroCategoriaOperatividad.length > 0 && !filtroCategoriaOperatividad.includes(String(p.fila.OPERATIVIDAD ?? ''))) return false;
+          // Filtro Aumento/Disminución: por el delito asociado.
+          if (delitosTendencia && !delitosTendencia.has(String(p.fila.DELITO ?? ''))) return false;
           if (filters.estacion.length > 0 && p.estacionCorta && !filters.estacion.includes(p.estacionCorta)) return false;
           if ((filtrosPrincipales.municipio ?? []).length > 0 && !filtrosPrincipales.municipio.includes(String(p.fila.MUNICIPIO ?? '') || municipioDe({ estacion: p.estacionCorta, lat: p.lat, lon: p.lon }))) return false;
           if (filters.cai.length > 0 && !caiPermitidosNorm.has(normalizar(formatoCaiCanonico(p.caiCorto ?? '')))) return false;
@@ -1604,7 +1606,7 @@ function MapaGeorreferenciacionContenido() {
 
       return { capa, puntosFiltrados, ordenDelitos, resumenEstado, resumenExistencia, todosLosDelitosCortos };
     });
-  }, [capasPuntos, puntosDelitosDesdeRegistros, filtrosPrincipales.municipio, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad, barriosElegidosNorm, poligonosElegidos, poligonosTodosBarrios]);
+  }, [capasPuntos, puntosDelitosDesdeRegistros, filtrosPrincipales.municipio, delitosTendencia, filters.anio, filters.mes, filters.delito, filters.estacion, filters.cai, filters.cuadrante, filters.barrioHecho, filters.fechaInicial, filters.fechaFinal, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, filtroCategoriaOperatividad, barriosElegidosNorm, poligonosElegidos, poligonosTodosBarrios]);
 
   // Puntos de cada fuente que están efectivamente visibles en el mapa AHORA
   // MISMO (capa encendida + filtros aplicados) — SIEMPRE separados entre sí,

@@ -56,7 +56,7 @@ export function ResumenEjecutivo() {
   // Resumen trabaja con los datos SIN el filtro Aumento/Disminución y lo
   // aplica él mismo (igual que siempre); el filtro ahora es GLOBAL: vive en
   // DataContext y restringe también las demás páginas y el mapa.
-  const { records, filteredRecordsSinTendencia: filteredRecords, recordsBaseSinTendencia: recordsBase, filters, meta, operatividadRecords, periodos, cargandoOperatividad, tendenciaDelitos, setTendenciaDelitos } = useData();
+  const { records, filteredRecordsSinTendencia: filteredRecords, recordsBaseSinTendencia: recordsBase, filters, meta, operatividadRecords, periodos, cargandoOperatividad, tendenciaDelitos, setTendenciaDelitos, delitosTendencia } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
@@ -167,6 +167,8 @@ export function ResumenEjecutivo() {
     const base = operatividadRecords.filter((r) => {
       if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
       if (filters.delito.length > 0 && !filters.delito.includes(r.delitoAsociado)) return false;
+      // Filtro Aumento/Disminución: por el delito asociado.
+      if (delitosTendencia && !delitosTendencia.has(r.delitoAsociado)) return false;
       if ((filters.municipio ?? []).length > 0 && !filters.municipio.includes(municipioDe(r))) return false;
       if (filters.estacion.length > 0 && !filters.estacion.includes(r.estacion)) return false;
       if (filters.cuadrante.length > 0 && !filters.cuadrante.includes(r.cuadrante)) return false;
@@ -174,7 +176,7 @@ export function ResumenEjecutivo() {
       return true;
     });
     return construirTablaOperatividad(base, ventanaOpTabla);
-  }, [operatividadRecords, filters, ventanaOpTabla]);
+  }, [operatividadRecords, filters, ventanaOpTabla, delitosTendencia]);
 
   // Cuadrantes y barrios críticos: del MISMO periodo que el resto del
   // Resumen (vigencia actual con los filtros), sin "No reportado" ni
