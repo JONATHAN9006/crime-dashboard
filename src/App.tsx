@@ -25,6 +25,7 @@ import { AccesosCuentas } from './pages/AccesosCuentas';
 import { PlanCandado2026 } from './pages/PlanCandado2026';
 import { PuertaCuenta } from './cuentas/PuertaCuenta';
 import { PaginaNoDisponible } from './cuentas/PaginaNoDisponible';
+import { AvisoTendencia } from './components/filters/AvisoTendencia';
 import { PuertaAdmin } from './admin/PuertaAdmin';
 import { tieneAcceso } from './utils/permisos';
 
@@ -119,6 +120,7 @@ function Shell() {
                   el resto de los módulos los sigue usando exactamente igual
                   que siempre. */}
               {records.length > 0 && !PAGINAS_SIN_FILTRO_GENERAL.includes(paginaSegura) && <FilterPanel />}
+              {records.length > 0 && <AvisoTendencia />}
               <Pagina />
             </div>
           )}

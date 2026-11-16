@@ -86,7 +86,7 @@ const ATAJOS: { id: string; texto: string; n: number | 'todos' }[] = [
 ];
 
 export function SelectorVigencias({ compacto = false }: { compacto?: boolean }) {
-  const { periodos, setPeriodos, meta, records, filters, setFilters } = useData();
+  const { periodos, setPeriodos, meta, records, filters, setFilters, delitosTendencia } = useData();
   // Con vigencias activas, el tiempo lo definen sus rangos: Año y Mes se limpian.
   const hayVigencias = periodos.length > 0;
   useEffect(() => {
@@ -113,7 +113,7 @@ export function SelectorVigencias({ compacto = false }: { compacto?: boolean }) 
   const reciente = aniosVista[aniosVista.length - 1];
 
   // ── Conteos REALES (filtros globales actuales, sin fecha/año/mes) ──────
-  const base = useMemo(() => aplicarFiltros(records, { ...filters, fechaInicial: null, fechaFinal: null, anio: [], mes: [] }), [records, filters]);
+  const base = useMemo(() => aplicarFiltros(records, { ...filters, fechaInicial: null, fechaFinal: null, anio: [], mes: [] }).filter((r) => !delitosTendencia || delitosTendencia.has(r.delito)), [records, filters, delitosTendencia]);
   const conteos = useMemo(() => {
     const ventanas = new Map<number, { id: string; ini: number; fin: number }[]>();
     for (const a of aniosVista) {

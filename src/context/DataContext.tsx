@@ -11,6 +11,7 @@ import { leerSesionGuardada } from '../cuentas/apiCuentas';
 import { fusionarRegistros, construirMeta, calcularColumnasNuevas, derivarCaiDesdeCuadrante, eliminarDuplicadosPorIdentidadCruda, reemplazarAniosDelArchivo, detectarRepetidosPorContenido } from '../data/datasetOps';
 import { sincronizarCapaOperatividadDesdeRecords } from '../data/puntosStorage';
 import { municipioDe } from '../utils/municipio';
+import { useVentanaComparativa, useComparativoCategoria } from '../hooks/useComparativoHomologo';
 import { aplicarFiltros, aplicarFiltrosConPeriodos } from '../utils/filters';
 import { obtenerConfig } from '../config';
 import { descargarRegistrosSupabase, consultarMetaSupabase, contarRegistrosSupabase, conteoUltimaDescarga, subirRegistrosSupabase, borrarRegistrosSupabase, planSubidaPorDiferencias } from '../data/supabaseApi';
@@ -84,6 +85,14 @@ interface DataContextValue {
   remoteMeta: { ultimaActualizacion: string | null; ultimoUsuario: string | null } | null;
   sincronizar: () => Promise<void>;
   recordsBase: CrimeRecord[];
+  /** Filtro global AUMENTO / DISMINUCIÓN (botones de «Comparativo de delitos» en Resumen). */
+  tendenciaDelitos: { aumento: boolean; disminucion: boolean };
+  setTendenciaDelitos: (t: { aumento: boolean; disminucion: boolean }) => void;
+  /** Delitos que quedan con ese filtro (null = sin restricción). */
+  delitosTendencia: Set<string> | null;
+  /** Igual que filteredRecords / recordsBase pero SIN el filtro Aumento/Disminución (lo usa Resumen para clasificar). */
+  filteredRecordsSinTendencia: CrimeRecord[];
+  recordsBaseSinTendencia: CrimeRecord[];
   actualizacionDisponible: boolean; // true brevemente justo después de una sincronización automática (para mostrar un aviso tipo "toast")
   descartarAvisoActualizacion: () => void;
   // Dataset de OPERATIVIDAD — separado del de delictividad, con su propia
@@ -662,7 +671,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setFilters(emptyFilterState);
   }, []);
 
-  const clearFilters = useCallback(() => setFilters(emptyFilterState), []);
+  // Filtro global Aumento/Disminución (ver más abajo, delitosTendencia).
+  const [tendenciaDelitos, setTendenciaDelitos] = useState({ aumento: false, disminucion: false });
+  // «Limpiar filtros» también quita el filtro Aumento/Disminución.
+  const clearFilters = useCallback(() => { setFilters(emptyFilterState); setTendenciaDelitos({ aumento: false, disminucion: false }); }, []);
 
   // Clic en una barra/fila = filtrar por ese valor; un SEGUNDO clic sobre
   // el mismo valor lo quita y la información vuelve a mostrarse completa
@@ -700,15 +712,42 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Cuando no hay periodos de análisis activos, esto es EXACTAMENTE
   // aplicarFiltros(registrosVisibles, filters) de siempre — el modo de una
   // sola fecha no cambia en nada (ver aplicarFiltrosConPeriodos).
-  const filteredRecords = useMemo(() => aplicarFiltrosConPeriodos(registrosVisibles, filters, periodos), [registrosVisibles, filters, periodos]);
+  const filteredRecordsSinTendencia = useMemo(() => aplicarFiltrosConPeriodos(registrosVisibles, filters, periodos), [registrosVisibles, filters, periodos]);
 
   // Filtrado por todos los criterios EXCEPTO año/mes/fecha: sirve de base para
   // los comparativos homólogos (año actual vs. año anterior), que necesitan
   // definir su propia ventana de fechas independientemente del filtro de fecha
   // literal aplicado al resto del dashboard.
-  const recordsBase = useMemo(
+  const recordsBaseSinTendencia = useMemo(
     () => aplicarFiltros(registrosVisibles, { ...filters, anio: [], mes: [], fechaInicial: null, fechaFinal: null }),
     [registrosVisibles, filters],
+  );
+
+  // ── Filtro global AUMENTO / DISMINUCIÓN ──────────────────────────────
+  // Se activa con los botones de «Comparativo de delitos» (Resumen) y
+  // restringe TODO el dashboard (Delictividad por unidad, últimas 4
+  // semanas, matriz de calor, mapa…) a los delitos que aumentaron o
+  // disminuyeron. La clasificación es EXACTAMENTE la de esa tabla (mismos
+  // hooks y mismos datos: año anterior vs. actual, a la fecha) y se
+  // recalcula sola si cambian los demás filtros.
+  const ventanaTendencia = useVentanaComparativa(recordsBaseSinTendencia, filters, records, meta?.fechaMaxParametro);
+  const comparativoTendencia = useComparativoCategoria(ventanaTendencia, (r) => r.delito);
+  const delitosTendencia = useMemo<Set<string> | null>(() => {
+    if (!tendenciaDelitos.aumento && !tendenciaDelitos.disminucion) return null;
+    const permitidos = new Set<string>();
+    for (const fila of comparativoTendencia) {
+      if (tendenciaDelitos.aumento && fila.diferencia > 0) permitidos.add(fila.key);
+      if (tendenciaDelitos.disminucion && fila.diferencia < 0) permitidos.add(fila.key);
+    }
+    return permitidos;
+  }, [comparativoTendencia, tendenciaDelitos]);
+  const filteredRecords = useMemo(
+    () => (delitosTendencia ? filteredRecordsSinTendencia.filter((r) => delitosTendencia.has(r.delito)) : filteredRecordsSinTendencia),
+    [filteredRecordsSinTendencia, delitosTendencia],
+  );
+  const recordsBase = useMemo(
+    () => (delitosTendencia ? recordsBaseSinTendencia.filter((r) => delitosTendencia.has(r.delito)) : recordsBaseSinTendencia),
+    [recordsBaseSinTendencia, delitosTendencia],
   );
 
   // ── Dataset de OPERATIVIDAD ──────────────────────────────────────────
@@ -906,6 +945,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     remoteMeta,
     sincronizar,
     recordsBase,
+    tendenciaDelitos,
+    setTendenciaDelitos,
+    delitosTendencia,
+    filteredRecordsSinTendencia,
+    recordsBaseSinTendencia,
     actualizacionDisponible,
     operatividadRecords: operatividadVisibles,
     filteredOperatividadRecords,

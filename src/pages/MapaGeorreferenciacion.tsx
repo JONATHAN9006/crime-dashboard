@@ -657,7 +657,7 @@ export function MapaGeorreferenciacion() {
 
 function MapaGeorreferenciacionContenido() {
   const esPiloto = esPerfilPilotoActual();
-  const { records, periodos, filters: filtrosPrincipales, setFilters, clearFilters, meta, remoteMeta } = useData();
+  const { records, periodos, delitosTendencia, filters: filtrosPrincipales, setFilters, clearFilters, meta, remoteMeta } = useData();
 
   // Filtros PROPIOS de este módulo — independientes del filtro general del
   // dashboard (que aquí ni siquiera se muestra). Empiezan vacíos siempre
@@ -773,6 +773,8 @@ function MapaGeorreferenciacionContenido() {
     // cumple todos los demás filtros. Este conjunto alimenta TODAS las capas
     // de delitos del mapa: puntos, calor, rótulos, conteos y tarjetas.
     const cumple = (r: CrimeRecord, ignorar: ReadonlySet<string> = SIN_IGNORAR) =>
+      // Filtro global AUMENTO / DISMINUCIÓN (botones de Resumen).
+      (!delitosTendencia || delitosTendencia.has(r.delito)) &&
       (!idsFiltrosAdicionales || idsFiltrosAdicionales.has(r.__id)) &&
       (ignorar.has('anio') || filtrosMapa.anio.length === 0 || (r.anio !== null && filtrosMapa.anio.includes(String(r.anio)))) &&
       (ignorar.has('mes') || filtrosMapa.mes.length === 0 || (r.mes !== null && filtrosMapa.mes.includes(String(r.mes)))) &&
@@ -793,7 +795,7 @@ function MapaGeorreferenciacionContenido() {
         return ventanasPeriodos.some((v) => fh >= v.inicio && fh <= v.fin);
       })());
     return [records.filter((r) => cumple(r)), cumple] as const;
-  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, idsFiltrosAdicionales]);
+  }, [records, filtrosMapa, periodos, fechaInicialGlobal, fechaFinalGlobal, limiteVigenciaActual, idsFiltrosAdicionales, delitosTendencia]);
 
   // Opciones disponibles para cada filtro — SOLO valores que de verdad
   // existen en los datos cargados (nunca una lista vacía ni inventada).

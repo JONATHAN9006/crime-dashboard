@@ -53,15 +53,20 @@ function FiltroTendenciaBoton({ activo, color, icono, etiqueta, onClick }: {
 }
 
 export function ResumenEjecutivo() {
-  const { records, filteredRecords, recordsBase, filters, meta, operatividadRecords, periodos, cargandoOperatividad } = useData();
+  // Resumen trabaja con los datos SIN el filtro Aumento/Disminución y lo
+  // aplica él mismo (igual que siempre); el filtro ahora es GLOBAL: vive en
+  // DataContext y restringe también las demás páginas y el mapa.
+  const { records, filteredRecordsSinTendencia: filteredRecords, recordsBaseSinTendencia: recordsBase, filters, meta, operatividadRecords, periodos, cargandoOperatividad, tendenciaDelitos, setTendenciaDelitos } = useData();
 
   // Filtro AUMENTO / DISMINUCIÓN — se activa desde el encabezado de
   // "Comparativo de delitos" y funciona como filtro GLOBAL de toda la
   // página Resumen (ver "delitosPermitidos" más abajo): ninguno activo
   // significa "sin restricción", igual que antes de que existiera esta
   // función.
-  const [aumentoActivo, setAumentoActivo] = useState(false);
-  const [disminucionActivo, setDisminucionActivo] = useState(false);
+  const aumentoActivo = tendenciaDelitos.aumento;
+  const disminucionActivo = tendenciaDelitos.disminucion;
+  const setAumentoActivo = (f: (v: boolean) => boolean) => setTendenciaDelitos({ ...tendenciaDelitos, aumento: f(aumentoActivo) });
+  const setDisminucionActivo = (f: (v: boolean) => boolean) => setTendenciaDelitos({ ...tendenciaDelitos, disminucion: f(disminucionActivo) });
 
   // "Total general de casos": siempre la vigencia MÁS RECIENTE (2026 al
   // momento de escribir esto, calculado dinámicamente para que siga siendo

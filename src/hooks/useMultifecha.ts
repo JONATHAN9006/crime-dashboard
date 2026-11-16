@@ -49,11 +49,12 @@ export function variacionPct(primera: number, ultima: number): number | null {
 }
 
 export function useMultifecha() {
-  const { records, filters, periodos, drillDown } = useData();
+  const { records, filters, periodos, drillDown, delitosTendencia } = useData();
 
   const base = useMemo(
-    () => aplicarFiltros(records, { ...filters, fechaInicial: null, fechaFinal: null, anio: [], mes: [] }),
-    [records, filters],
+    () => aplicarFiltros(records, { ...filters, fechaInicial: null, fechaFinal: null, anio: [], mes: [] })
+      .filter((r) => !delitosTendencia || delitosTendencia.has(r.delito)),
+    [records, filters, delitosTendencia],
   );
 
   const vigencias: VigenciaMF[] = useMemo(() => {
