@@ -101,8 +101,8 @@ export function marcasEjeValores(valores: number[]): number[] {
 
 // Etiqueta de barra sin choques: las dos barras de un grupo se separan
 // hacia afuera cuando sus alturas son parecidas.
-interface EtiquetaProps { x?: number | string; y?: number | string; width?: number | string; value?: unknown }
-function EtiquetaBarra({ x, y, width, value, lado, tam = 17 }: EtiquetaProps & { lado: 'izq' | 'der'; tam?: number }) {
+export interface EtiquetaProps { x?: number | string; y?: number | string; width?: number | string; value?: unknown }
+export function EtiquetaBarra({ x, y, width, value, lado, tam = 17 }: EtiquetaProps & { lado: 'izq' | 'der'; tam?: number }) {
   if (value == null) return null;
   const nx = Number(x), ny = Number(y), w = Number(width);
   const texto = formatNumero(Number(value));
