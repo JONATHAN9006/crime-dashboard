@@ -188,7 +188,12 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     delitos: e.delitos, anio: e.anio, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null, barrios: [],
   }), [e.delitos, e.anio, e.fechaInicial, e.fechaFinal]);
   const datos = useMicrogerencia(ajustes);
-  const datosOperatividad = useMicrogerenciaOperatividad();
+  // Operatividad con el MISMO periodo y los mismos delitos (asociados) de la lámina de Delictividad.
+  const ajustesOp = useMemo(() => ({
+    delitos: e.delitos,
+    periodo: datos ? { inicio: datos.actualInicio, fin: datos.actualFin } : null,
+  }), [e.delitos, datos?.actualInicio, datos?.actualFin]); // eslint-disable-line react-hooks/exhaustive-deps
+  const datosOperatividad = useMicrogerenciaOperatividad(ajustesOp);
 
   // Catálogos reales (de los datos cargados, nunca inventados).
   const catalogo = useMemo(() => {
@@ -204,13 +209,16 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
   const arbol = useMemo(() => (datos ? construirArbol(datos) : []), [datos]);
   const hojas = useMemo(() => nodosDelInforme(arbol, e.hojas), [arbol, e.hojas]);
 
-  // Secciones del informe: Delictividad y, si se eligió, Operatividad (mismas unidades).
+  // Secciones del informe, CONSECUTIVAS por unidad: Delictividad de la
+  // unidad y enseguida su Operatividad (General, General; Norte, Norte…).
   const secciones = useMemo<SeccionTerritorial[]>(() => {
     const out: SeccionTerritorial[] = [];
-    if (datos && e.fuentes.includes('delictividad')) out.push(...seccionesDelInforme(datos, hojas.map((h) => h.nodo)));
-    if (datosOperatividad && e.fuentes.includes('operatividad')) {
-      const nodosOp = hojas.map((h) => nodoOperatividadEquivalente(datosOperatividad, h.nodo.nombre)).filter((n): n is NodoMicrogerencia => n !== null);
-      out.push(...seccionesDelInforme(datosOperatividad, nodosOp, 'operatividad'));
+    for (const h of hojas) {
+      if (datos && e.fuentes.includes('delictividad')) out.push(...seccionesDelInforme(datos, [h.nodo]));
+      if (datosOperatividad && e.fuentes.includes('operatividad')) {
+        const nodoOp = h.tipo === 'general' ? datosOperatividad.general : nodoOperatividadEquivalente(datosOperatividad, h.nodo.nombre);
+        if (nodoOp) out.push(...seccionesDelInforme(datosOperatividad, [nodoOp], 'operatividad'));
+      }
     }
     return out;
   }, [datos, datosOperatividad, hojas, e.fuentes]);
@@ -276,25 +284,30 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     }
   }
 
-  /** Imagen PNG de la PRIMERA hoja (la lámina principal del informe). */
+  /** Imagen PNG de la lámina principal (primera hoja) de CADA fuente elegida. */
   async function descargarImagen() {
-    const primera = secciones.find((s) => !s.sinInformacion);
-    if (!primera) { setGenerando('error'); setMensajeGeneracion('No hay una hoja con información para la imagen.'); return; }
+    const principales = (['delictividad', 'operatividad'] as const)
+      .map((f) => secciones.find((s) => s.fuente === f && !s.sinInformacion))
+      .filter((s): s is SeccionTerritorial => !!s);
+    if (principales.length === 0) { setGenerando('error'); setMensajeGeneracion('No hay una hoja con información para la imagen.'); return; }
     setGenerando('generando');
-    setMensajeGeneracion(`Preparando la imagen de ${primera.unidad}…`);
+    setMensajeGeneracion(`Preparando ${principales.length === 1 ? 'la imagen' : 'las imágenes'}…`);
     try {
-      const [png] = await capturarLaminas([primera], 5, [], undefined, 'png');
-      if (!png) throw new Error('No se pudo dibujar la hoja.');
-      const url = URL.createObjectURL(await (await fetch(png)).blob());
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${nombreBase}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      const pngs = await capturarLaminas(principales, 5, [], undefined, 'png');
+      for (const [i, png] of pngs.entries()) {
+        if (!png) continue;
+        const url = URL.createObjectURL(await (await fetch(png)).blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${nombreBase}${principales[i].fuente === 'operatividad' ? '_Operatividad' : ''}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        await new Promise((r) => setTimeout(r, 350)); // el navegador acepta mejor descargas seguidas con una pausa
+      }
       setGenerando('listo');
-      setMensajeGeneracion(`Imagen descargada: ${primera.unidad}.`);
+      setMensajeGeneracion(`Imagen${principales.length === 1 ? '' : 'es'} descargada${principales.length === 1 ? '' : 's'}: ${principales.map((s) => `${s.unidad} (${s.fuente === 'operatividad' ? 'Operatividad' : 'Delictividad'})`).join(' y ')}.`);
     } catch (err) {
       setGenerando('error');
       setMensajeGeneracion(err instanceof Error ? err.message : 'No se pudo generar la imagen.');
@@ -596,7 +609,7 @@ function PasoResumen({ e, irA, datos, secciones, generando, mensaje }: {
         {secciones.map((s, i) => (
           <li key={`${s.fuente}-${s.unidad}-${i}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-[12.5px] ${s.sinInformacion ? 'border-dashed border-slate-300 bg-slate-50 text-slate-500' : 'border-slate-200 bg-white'}`}>
             <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#e3f2ef] px-1.5 text-[11px] font-bold text-[#0f5f57]">{i + 1}</span>
-            <span className="min-w-0 flex-1 font-bold text-[#10233f]">{s.unidad}<span className="ml-2 font-normal text-slate-500">{s.fuente === 'operatividad' ? 'Consolidado operativo' : 'Consolidado delictivo'}</span></span>
+            <span className="min-w-0 flex-1 font-bold text-[#10233f]">{s.unidad}<span className="ml-2 font-normal text-slate-500">{s.fuente === 'operatividad' ? 'Operatividad institucional' : 'Consolidado delictivo'}</span></span>
             {s.sinInformacion ? <span>Sin registros: no se genera</span> : (
               <>
                 <span className="text-slate-500">{s.datos.anioAnterior}: <strong className="text-[#10233f]">{formatNumero(s.nodo.fecha2025)}</strong></span>
@@ -610,7 +623,7 @@ function PasoResumen({ e, irA, datos, secciones, generando, mensaje }: {
         {e.fuentes.includes('rnmc') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Anexo: resumen de RNMC</li>}
         {secciones.length === 0 && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad')) && <li className="text-[12.5px] text-rose-600">No hay hojas con esta selección.</li>}
       </ol>
-      <p className="text-[11.5px] text-slate-500">«Descargar imagen» guarda la primera hoja como PNG; «Generar PDF» arma el informe completo.</p>
+      <p className="text-[11.5px] text-slate-500">«Descargar imagen» guarda en PNG la primera hoja de cada fuente elegida; «Generar PDF» arma el informe completo.</p>
 
       {generando && (
         <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-[13px] font-semibold ${generando === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : generando === 'listo' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-[#159089]/30 bg-[#e3f2ef] text-[#0f5f57]'}`} role="status" data-estado-generacion={generando}>

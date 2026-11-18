@@ -25,18 +25,18 @@ import { nombreVisibleUnidad } from '../../data/microgerencia';
 
 export const ANCHO = 1672;
 export const ALTO = 941;
-const FUENTE = "'Roboto Condensed Variable', 'Roboto Condensed', 'Arial Narrow', sans-serif";
-const C = {
+export const FUENTE = "'Roboto Condensed Variable', 'Roboto Condensed', 'Arial Narrow', sans-serif";
+export const C = {
   verdeOscuro: '#0b3d2c', verde: '#0e5a3c', verdeMedio: '#16714b', verdeVivo: '#23a347', lima: '#8cc63f',
   texto: '#1e2a33', gris2025: '#c9cdd1', azul: '#2f6fe0', rojo: '#e3262f', verdeDif: '#1f9a4a',
   borde: '#dde3e6', rosa: '#fde9eb', rosaBorde: '#f4b9bf', mentaKpi: '#e1f3e4', mentaBorde: '#9ccfa6',
 };
-const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+export const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const TRIM_CORTOS = ['1er Trim.', '2do Trim.', '3er Trim.', '4to Trim.'];
 
-const signo = (n: number) => (n > 0 ? '+' : '');
-const pct1 = (p: number | null) => (p === null ? 'Nuevo' : `${signo(p)}${formatDecimal(p, 1)}%`);
+export const signo = (n: number) => (n > 0 ? '+' : '');
+export const pct1 = (p: number | null) => (p === null ? 'Nuevo' : `${signo(p)}${formatDecimal(p, 1)}%`);
 const pct0 = (p: number | null) => (p === null ? 'Nuevo' : `${signo(p)}${Math.round(p)}%`);
 const colDif = (n: number) => (n > 0 ? C.rojo : n < 0 ? C.verdeDif : '#8a949b');
 
@@ -59,7 +59,7 @@ export function opcionesCobertura(datos: DatosMicrogerencia): OpcionCobertura[] 
 }
 
 /** Subunidades de la tabla central (MEPOY General → sus 5 estaciones). */
-function subunidades(nodo: NodoMicrogerencia, esGeneral: boolean): { titulo: string; singular: string; filas: NodoMicrogerencia[] } {
+export function subunidades(nodo: NodoMicrogerencia, esGeneral: boolean): { titulo: string; singular: string; filas: NodoMicrogerencia[] } {
   if (esGeneral) {
     const estaciones = nodo.hijos.flatMap((d) => d.hijos);
     if (estaciones.length > 0) return { titulo: 'Estaciones', singular: 'Estación', filas: estaciones };
@@ -72,7 +72,7 @@ function subunidades(nodo: NodoMicrogerencia, esGeneral: boolean): { titulo: str
   return { titulo: 'Zonas de atención', singular: 'Zona', filas };
 }
 
-const nombreCorto = (n: string) => nombreVisibleUnidad(n.replace(/\s*\(Operatividad\)$/, '').replace(/^Operatividad\s+—\s+Consolidado$/, 'MEPOY General')).replace(/^Estación\s+/i, 'Est. ').replace(/\s+—\s+Consolidado$/, '');
+export const nombreCorto = (n: string) => nombreVisibleUnidad(n.replace(/\s*\(Operatividad\)$/, '').replace(/^Operatividad\s+—\s+Consolidado$/, 'MEPOY General')).replace(/^Estación\s+/i, 'Est. ').replace(/\s+—\s+Consolidado$/, '');
 
 // Eje Y con marcas «redondas» (0, 200, 400… como en la lámina de referencia).
 function pasoBonito(max: number, marcas = 6): number {
@@ -81,7 +81,7 @@ function pasoBonito(max: number, marcas = 6): number {
   const n = bruto / mag;
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
 }
-function techoBonito(max: number): number {
+export function techoBonito(max: number): number {
   const paso = pasoBonito(max);
   return Math.ceil(Math.max(1, max) / paso) * paso;
 }
@@ -95,7 +95,7 @@ function marcasEje(filas: Record<string, unknown>[]): number[] {
   return salida;
 }
 
-function marcasEjeValores(valores: number[]): number[] {
+export function marcasEjeValores(valores: number[]): number[] {
   return marcasEje(valores.map((v) => ({ '0000': v })));
 }
 
@@ -132,7 +132,7 @@ function analisisTrimestral(nodo: NodoMicrogerencia, trim: { i: number; dif: num
 }
 
 // ── Piezas ─────────────────────────────────────────────────────────────
-function Panel({ x, y, w, h, children }: { x: number; y: number; w: number; h: number; children: React.ReactNode }) {
+export function Panel({ x, y, w, h, children }: { x: number; y: number; w: number; h: number; children: React.ReactNode }) {
   return (
     <section
       className="absolute flex flex-col overflow-hidden rounded-[14px] bg-white"
@@ -143,7 +143,7 @@ function Panel({ x, y, w, h, children }: { x: number; y: number; w: number; h: n
   );
 }
 
-function TituloPanel({ icono: Icono, children, derecha }: { icono: typeof BarChart3; children: React.ReactNode; derecha?: React.ReactNode }) {
+export function TituloPanel({ icono: Icono, children, derecha }: { icono: typeof BarChart3; children: React.ReactNode; derecha?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 px-4 pt-3">
       <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full text-white" style={{ background: C.verde }}><Icono size={20} strokeWidth={2.4} /></span>
@@ -153,7 +153,7 @@ function TituloPanel({ icono: Icono, children, derecha }: { icono: typeof BarCha
   );
 }
 
-function Leyenda({ items }: { items: { color: string; texto: string; linea?: boolean }[] }) {
+export function Leyenda({ items }: { items: { color: string; texto: string; linea?: boolean }[] }) {
   return (
     <div className="flex items-center gap-4 text-[15px]" style={{ color: C.texto }}>
       {items.map((it) => (
@@ -199,6 +199,48 @@ function CajaDif({ valor }: { valor: number | null }) {
   );
 }
 
+// ── Encabezado y pie comunes (Delictividad y Operatividad) ─────────────
+export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente }: { titulo: string; periodo: string; corte: string; cobertura: string; fuente: string }) {
+  return (
+    <div className="absolute left-0 top-0 h-[108px] w-full overflow-hidden" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro} 0%, #0d4733 45%, #0b3d2c 100%)` }}>
+      <div className="absolute top-0 h-full" style={{ left: 600, width: 880, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(40px 0,100% 0,100% 100%,0 100%)' }} />
+      <div className="absolute top-0 h-full" style={{ left: 596, width: 14, background: C.lima, clipPath: 'polygon(40px 0,54px 0,14px 100%,0 100%)', transform: 'translateX(-14px)' }} />
+      <div className="absolute top-0 h-full" style={{ left: 618, width: 60, background: C.lima, opacity: 0.85, clipPath: 'polygon(40px 0,46px 0,6px 100%,0 100%)' }} />
+      <div className="absolute bottom-0 left-0 h-[3px] w-full" style={{ background: `linear-gradient(90deg, transparent, ${C.lima} 30%, ${C.lima} 70%, transparent)`, opacity: 0.6 }} />
+      <span className="absolute flex h-[88px] w-[88px] items-center justify-center rounded-full bg-white p-[3px] shadow-[0_0_0_3px_rgba(255,255,255,0.25)]" style={{ left: 44, top: 8 }}>
+        <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full rounded-full object-contain" />
+      </span>
+      <div className="absolute" style={{ left: 146, top: 10 }}>
+        <div className="leading-[1.12] text-white">
+          <p className="text-[27px] font-bold tracking-[0.2px]">POLICÍA NACIONAL DE COLOMBIA</p>
+          <p className="text-[21.5px] font-bold">POLICÍA METROPOLITANA DE POPAYÁN – MEPOY</p>
+        </div>
+      </div>
+      <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14, fontSize: titulo.length > 24 ? 33 : 38 }}>
+        MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{titulo}</span>
+      </h2>
+      <div className="absolute flex items-center gap-7 whitespace-nowrap text-[17px] text-white" style={{ left: 310, top: 79 }}>
+        <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {periodo}</span>
+        <span className="flex items-center gap-2"><BarChart3 size={20} /> Corte de información: {fechaLarga(corte)}</span>
+        <span className="flex items-center gap-2"><MapPin size={20} /> Cobertura: {cobertura}</span>
+        <span className="flex items-center gap-2"><Database size={20} /> Fuente: {fuente}</span>
+      </div>
+      <img src="/assets/popayan-territorio-seguro-blanco.png" alt="Popayán Territorio Seguro" className="absolute h-[104px] w-auto" style={{ right: 36, top: 2 }} />
+    </div>
+  );
+}
+
+export function PieLamina({ fuente }: { fuente: string }) {
+  return (
+    <div className="absolute bottom-0 left-0 flex h-[58px] w-full items-center justify-between overflow-hidden pl-5" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro}, #0d4433 55%, ${C.verdeOscuro})` }}>
+      <div className="absolute top-0 h-full" style={{ left: 860, width: 820, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(60px 0,100% 0,100% 100%,0 100%)' }} />
+      <div className="absolute top-0 h-full" style={{ left: 838, width: 80, background: C.lima, clipPath: 'polygon(60px 0,70px 0,10px 100%,0 100%)' }} />
+      <p className="relative text-[17px] text-white"><strong>Fuente:</strong> {fuente}. Información sujeta a variación.</p>
+      <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[56px] w-auto" />
+    </div>
+  );
+}
+
 // Textos según la fuente (mismo diseño para Delictividad y Operatividad).
 export type FuenteLamina = 'delictividad' | 'operatividad';
 const TEXTOS: Record<FuenteLamina, { consolidado: string; historico: string; total: string; mensual: string; top: string; columna: string; densidad: string }> = {
@@ -210,15 +252,15 @@ const TEXTOS: Record<FuenteLamina, { consolidado: string; historico: string; tot
 // Proporción de la caja del mapa en la lámina (ancho / alto).
 const ASPECTO_MAPA = 292 / 214;
 
-function MapaCobertura({ nodo, esGeneral, delitos, barrios, inicio, fin, fuente }: {
-  fuente: FuenteLamina; nodo: NodoMicrogerencia; esGeneral: boolean; delitos: string | readonly string[] | null; barrios: readonly string[]; inicio: string; fin: string;
+export function MapaCobertura({ nodo, esGeneral, delitos, barrios, inicio, fin, fuente, aspecto = ASPECTO_MAPA }: {
+  aspecto?: number; fuente: FuenteLamina; nodo: NodoMicrogerencia; esGeneral: boolean; delitos: string | readonly string[] | null; barrios: readonly string[]; inicio: string; fin: string;
 }) {
   const [estado, setEstado] = useState<{ img?: string; cargando: boolean }>({ cargando: true });
-  const clave = `${fuente}|${nodo.nombre}|${nodo.estacion ?? ''}|${String(delitos)}|${barrios.join(',')}|${inicio}|${fin}`;
+  const clave = `${aspecto}|${fuente}|${nodo.nombre}|${nodo.estacion ?? ''}|${String(delitos)}|${barrios.join(',')}|${inicio}|${fin}`;
   useEffect(() => {
     let vivo = true;
     setEstado({ cargando: true });
-    generarImagenMapaLaminaNodo(nodo, esGeneral, delitos, inicio, fin, { aspecto: ASPECTO_MAPA, ancho: 1000, barrios: barrios.length ? barrios : undefined }, fuente === 'operatividad' ? 'operatividad' : undefined)
+    generarImagenMapaLaminaNodo(nodo, esGeneral, delitos, inicio, fin, { aspecto, ancho: 1000, barrios: barrios.length ? barrios : undefined }, fuente === 'operatividad' ? 'operatividad' : undefined)
       .then((img) => { if (vivo) setEstado({ img, cargando: false }); })
       .catch(() => { if (vivo) setEstado({ cargando: false }); });
     return () => { vivo = false; };
@@ -402,36 +444,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   return (
           <div ref={refLienzo} data-informe-microgerencia className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
 
-            {/* ── ENCABEZADO ─────────────────────────────────────────── */}
-            <div className="absolute left-0 top-0 h-[108px] w-full overflow-hidden" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro} 0%, #0d4733 45%, #0b3d2c 100%)` }}>
-              {/* panel central inclinado */}
-              <div className="absolute top-0 h-full" style={{ left: 600, width: 880, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(40px 0,100% 0,100% 100%,0 100%)' }} />
-              {/* franjas lima */}
-              <div className="absolute top-0 h-full" style={{ left: 596, width: 14, background: C.lima, clipPath: 'polygon(40px 0,54px 0,14px 100%,0 100%)', transform: 'translateX(-14px)' }} />
-              <div className="absolute top-0 h-full" style={{ left: 618, width: 60, background: C.lima, opacity: 0.85, clipPath: 'polygon(40px 0,46px 0,6px 100%,0 100%)' }} />
-              <div className="absolute bottom-0 left-0 h-[3px] w-full" style={{ background: `linear-gradient(90deg, transparent, ${C.lima} 30%, ${C.lima} 70%, transparent)`, opacity: 0.6 }} />
-
-              <span className="absolute flex h-[88px] w-[88px] items-center justify-center rounded-full bg-white p-[3px] shadow-[0_0_0_3px_rgba(255,255,255,0.25)]" style={{ left: 44, top: 8 }}>
-                <img src="/assets/escudo-policia.png" alt="Escudo Policía Nacional" className="h-full w-full rounded-full object-contain" />
-              </span>
-              <div className="absolute" style={{ left: 146, top: 10 }}>
-                <div className="leading-[1.12] text-white">
-                  <p className="text-[27px] font-bold tracking-[0.2px]">POLICÍA NACIONAL DE COLOMBIA</p>
-                  <p className="text-[21.5px] font-bold">POLICÍA METROPOLITANA DE POPAYÁN – MEPOY</p>
-                </div>
-              </div>
-
-              <h2 className="absolute whitespace-nowrap text-[38px] font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14 }}>
-                MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{T.consolidado}</span>
-              </h2>
-              <div className="absolute flex items-center gap-7 whitespace-nowrap text-[17px] text-white" style={{ left: 310, top: 79 }}>
-                <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {rangoMeses} {A}</span>
-                <span className="flex items-center gap-2"><BarChart3 size={20} /> Corte de información: {fechaLarga(corte)}</span>
-                <span className="flex items-center gap-2"><MapPin size={20} /> Cobertura: {esGeneral ? 'MEPOY (Popayán)' : tituloNodo}</span>
-                <span className="flex items-center gap-2"><Database size={20} /> Fuente: Aplicativo Los Andes</span>
-              </div>
-              <img src="/assets/popayan-territorio-seguro-blanco.png" alt="Popayán Territorio Seguro" className="absolute h-[104px] w-auto" style={{ right: 36, top: 2 }} />
-            </div>
+            <EncabezadoLamina titulo={T.consolidado} periodo={`${rangoMeses} ${A}`} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
 
             {/* ── FILA 1 · KPI ───────────────────────────────────────── */}
             <div className="absolute flex items-center gap-4 overflow-hidden text-white" style={{ left: 20, top: 122, width: 362, height: 100, background: `linear-gradient(90deg, ${C.verde}, ${C.verdeMedio})`, clipPath: 'polygon(0 0,100% 0,calc(100% - 26px) 100%,0 100%)', borderRadius: '14px 0 0 14px' }}>
@@ -724,13 +737,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               </div>
             </Panel>
 
-            {/* ── PIE ────────────────────────────────────────────────── */}
-            <div className="absolute bottom-0 left-0 flex h-[58px] w-full items-center justify-between overflow-hidden pl-5" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro}, #0d4433 55%, ${C.verdeOscuro})` }}>
-              <div className="absolute top-0 h-full" style={{ left: 860, width: 820, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(60px 0,100% 0,100% 100%,0 100%)' }} />
-              <div className="absolute top-0 h-full" style={{ left: 838, width: 80, background: C.lima, clipPath: 'polygon(60px 0,70px 0,10px 100%,0 100%)' }} />
-              <p className="relative text-[17px] text-white"><strong>Fuente:</strong> Aplicativo Los Andes. Información sujeta a variación.</p>
-              <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[56px] w-auto" />
-            </div>
+            <PieLamina fuente="Aplicativo Los Andes" />
           </div>
   );
 });

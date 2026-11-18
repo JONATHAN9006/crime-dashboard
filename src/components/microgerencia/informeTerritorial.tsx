@@ -10,6 +10,7 @@ import { flushSync } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import type { DatosMicrogerencia, NodoMicrogerencia } from '../../data/microgerencia';
 import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import { LaminaOperatividad } from './LaminaOperatividad';
 import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
 export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad';
@@ -78,7 +79,9 @@ export async function capturarLaminas(
       if (s.sinInformacion) { salida.push(null); continue; }
       let el: HTMLDivElement | null = null;
       flushSync(() => {
-        raiz.render(<LaminaMicrogerencia key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} fuente={s.fuente} nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={s.fuente === 'delictividad' ? barrios : []} />);
+        raiz.render(s.fuente === 'operatividad'
+          ? <LaminaOperatividad key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} />
+          : <LaminaMicrogerencia key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} fuente={s.fuente} nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={barrios} />);
       });
       // Las gráficas miden su caja en el siguiente cuadro.
       await new Promise((r) => setTimeout(r, 380));

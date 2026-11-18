@@ -41,6 +41,8 @@ export interface NodoMicrogerencia {
   tipo?: 'general' | 'distrito' | 'estacion' | 'cai' | 'zona' | 'barrio' | 'delito';
   /** Histórico anual (años reales disponibles; el año actual es el acumulado a la fecha). */
   historico?: { anio: number; casos: number; parcial: boolean }[];
+  /** Solo Operatividad: detalle para la lámina «Operatividad institucional» (ventana comparable). */
+  operativo?: DetalleOperativo;
   /** Barrios con más casos en el año actual a la fecha (solo nodos territoriales). */
   barrios?: { nombre: string; casos: number }[];
 }
@@ -85,4 +87,16 @@ export interface AjustesMicrogerencia {
 /** Nombre para mostrar de una unidad (la estación de Sotará tiene sede en Paispamba). */
 export function nombreVisibleUnidad(nombre: string): string {
   return nombre.replace(/Estación Sotara\b/g, 'Estación Paispamba').replace(/\bE-Sotara\b/g, 'E-Paispamba');
+}
+
+/** Detalle de Operatividad de una unidad (mismas reglas de conteo de «Operatividad por Unidad»). */
+export interface DetalleOperativo {
+  /** Gramos de droga en el periodo comparable de cada año (la droga es cantidad, no procedimientos). */
+  drogaG2025: number;
+  drogaG2026: number;
+  drogaPorClase: { nombre: string; valor: number }[];
+  capturasPorDelito: { nombre: string; valor: number }[];
+  circunstancia: { nombre: string; valor: number }[];
+  genero: { nombre: string; valor: number }[];
+  grupoEdad: { nombre: string; valor: number }[];
 }

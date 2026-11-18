@@ -1,9 +1,10 @@
-import { cuentaComoOperatividad } from '../utils/operatividadConteo';
+import { agruparCircunstancia, contarOperatividad, cuentaComoOperatividad, gramosDroga, sumarDroga, tipoOperatividad } from '../utils/operatividadConteo';
+import { GRUPOS_CICLO_VIDA } from '../utils/cicloVida';
 import { useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import type { OperatividadRecord } from '../types/operatividad';
 import { formatFecha } from '../utils/aggregations';
-import type { DatosMicrogerencia, NodoMicrogerencia, PuntoMes, PuntoTrimestre } from '../data/microgerencia';
+import type { DatosMicrogerencia, DetalleOperativo, NodoMicrogerencia, PuntoMes, PuntoTrimestre } from '../data/microgerencia';
 
 // Mismas estaciones y mismos nombres que useMicrogerencia.ts (Delictividad)
 // — Operatividad usa las mismas 5 estaciones (confirmado: mismos nombres de
@@ -36,26 +37,49 @@ const TRIMESTRES: { etiqueta: string; meses: number[] }[] = [
  * sobre cualquier registro con fecha/año, para poder reutilizarla aquí con
  * OperatividadRecord en vez de CrimeRecord.
  */
-function construirVentana(registros: OperatividadRecord[]) {
+function construirVentana(registros: OperatividadRecord[], periodo?: { inicio: string; fin: string } | null) {
   const conFecha = registros.filter((r) => r.fecha) as (OperatividadRecord & { fecha: Date })[];
   if (conFecha.length === 0) return null;
   const fechaMax = conFecha.reduce((max, r) => (r.fecha > max ? r.fecha : max), conFecha[0].fecha);
-  const anioActual = fechaMax.getFullYear();
+  // Asistente: el MISMO periodo de la lámina de Delictividad.
+  const aFecha = (iso: string, finDia = false) => { const [a, m, d] = iso.split('-').map(Number); return finDia ? new Date(a, m - 1, d, 23, 59, 59) : new Date(a, m - 1, d); };
+  const fin = periodo ? aFecha(periodo.fin, true) : fechaMax;
+  const anioActual = fin.getFullYear();
   const anioAnterior = anioActual - 1;
-  const actualInicio = new Date(anioActual, 0, 1);
-  const actualFin = fechaMax;
-  const anteriorInicio = new Date(anioAnterior, 0, 1);
-  const anteriorFin = new Date(anioAnterior, fechaMax.getMonth(), fechaMax.getDate());
+  const actualInicio = periodo ? aFecha(periodo.inicio) : new Date(anioActual, 0, 1);
+  // Corte real: el último dato dentro del periodo (no una fecha sin información).
+  const actualFin = periodo ? conFecha.reduce<Date>((max, r) => (r.fecha <= fin && r.fecha > max ? r.fecha : max), actualInicio) : fechaMax;
+  const anteriorInicio = new Date(anioAnterior, actualInicio.getMonth(), actualInicio.getDate());
+  const anteriorFin = new Date(anioAnterior, actualFin.getMonth(), actualFin.getDate(), 23, 59, 59);
   const diasTranscurridos = Math.max(1, Math.round((actualFin.getTime() - actualInicio.getTime()) / 86400000) + 1);
 
   const recsActual = conFecha.filter((r) => r.fecha >= actualInicio && r.fecha <= actualFin);
   const recsAnterior = conFecha.filter((r) => r.fecha >= anteriorInicio && r.fecha <= anteriorFin);
   const recsAnioAnteriorCompleto = conFecha.filter((r) => r.anio === anioAnterior);
-  return { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior, actualInicio, actualFin };
+  return { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior, actualInicio, actualFin, anteriorInicio, anteriorFin };
 }
 
-export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
-  const { filteredOperatividadRecords, records } = useData();
+/**
+ * Ajustes del asistente de Microgerencia: delitos asociados y el periodo de
+ * la lámina de Delictividad. Sin ajustes, se usa todo como siempre (filtros
+ * generales del dashboard y su propia fecha de corte).
+ */
+export interface AjustesOperatividad { delitos: string[]; periodo: { inicio: string; fin: string } | null }
+
+export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | null): DatosMicrogerencia | null {
+  const { filteredOperatividadRecords: filtradosDashboard, operatividadRecords, filters, records } = useData();
+  // Con ajustes: la parte territorial la maneja el árbol del asistente, así
+  // que solo se aplican el delito asociado elegido y los filtros propios de
+  // Operatividad (categoría, zona urbana/rural).
+  const filteredOperatividadRecords = useMemo(() => {
+    if (!ajustes) return filtradosDashboard;
+    return operatividadRecords.filter((r) => {
+      if (ajustes.delitos.length > 0 && !ajustes.delitos.includes(r.delitoAsociado)) return false;
+      if ((filters.categoriaOperatividad ?? []).length > 0 && !filters.categoriaOperatividad.includes(r.categoria)) return false;
+      if (filters.zona.length > 0 && !filters.zona.includes(r.zona)) return false;
+      return true;
+    });
+  }, [ajustes, filtradosDashboard, operatividadRecords, filters.categoriaOperatividad, filters.zona]);
 
   // Operatividad no trae una columna de CAI propia — pero SÍ trae
   // cuadrante, con el MISMO formato de código que Delictividad
@@ -77,9 +101,30 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
   return useMemo(() => {
     // Conteo oficial: solo los registros que cuentan (la droga va por cantidad, aparte).
     const contables = filteredOperatividadRecords.filter(cuentaComoOperatividad);
-    const ventana = construirVentana(contables);
+    const ventana = construirVentana(contables, ajustes?.periodo);
     if (!ventana) return null;
     const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
+    // Todos los registros (incluida la droga, que va por cantidad) en cada periodo.
+    const enRango = (r: OperatividadRecord, a: Date, b: Date) => !!r.fecha && r.fecha >= a && r.fecha <= b;
+    const todosActual = filteredOperatividadRecords.filter((r) => enRango(r, ventana.actualInicio, ventana.actualFin));
+    const todosAnterior = filteredOperatividadRecords.filter((r) => enRango(r, ventana.anteriorInicio, ventana.anteriorFin));
+    const lista = (filas: { key: string; casos: number }[]) => filas.filter((f) => f.key && !/^no reportad/i.test(f.key)).map((f) => ({ nombre: f.key, valor: f.casos }));
+
+    /** Detalle de la lámina de Operatividad (periodo comparable del año actual). */
+    function detalleOperativo(pred: (r: OperatividadRecord) => boolean): DetalleOperativo {
+      const act = todosActual.filter(pred);
+      const capt = act.filter((r) => tipoOperatividad(r.categoria) === 'capturas');
+      const edades = new Map(contarOperatividad(capt, (r) => r.grupoEdad || '').map((d) => [d.key, d.casos] as const));
+      return {
+        drogaG2026: act.reduce((a, r) => a + gramosDroga(r), 0),
+        drogaG2025: todosAnterior.filter(pred).reduce((a, r) => a + gramosDroga(r), 0),
+        drogaPorClase: lista(sumarDroga(act, (r) => r.claseBien || 'Sin clase')),
+        capturasPorDelito: lista(contarOperatividad(capt, (r) => r.delitoAsociado || '')),
+        circunstancia: lista(contarOperatividad(capt, (r) => agruparCircunstancia(r.circunstanciaCaptura))),
+        genero: lista(contarOperatividad(capt, (r) => r.genero ?? '')),
+        grupoEdad: GRUPOS_CICLO_VIDA.filter((g) => (edades.get(g) ?? 0) > 0).map((g) => ({ nombre: g, valor: edades.get(g)! })),
+      };
+    }
     const totalGeneralFecha2026 = recsActual.length;
 
     function calcularTrimestresYMeses(pred: (r: OperatividadRecord) => boolean) {
@@ -143,7 +188,8 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
           { anio: anioActual, casos: fecha2026, parcial: ventana!.actualFin < new Date(anioActual, 11, 31) },
         ];
       }
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: categoriasDelNodo, hijos, barrios, historico };
+      const operativo = incluirCategorias ? detalleOperativo(pred) : undefined;
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: categoriasDelNodo, hijos, barrios, historico, operativo };
     }
 
     function caisDe(estacion: string): NodoMicrogerencia[] {
@@ -161,6 +207,12 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
     const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => ({ ...calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)), tipo: 'estacion' as const, estacion: est }));
     const distrito2 = { ...calcularNodo('Distrito Dos (Operatividad)', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2), tipo: 'distrito' as const };
     const general = { ...calcularNodo('Operatividad — Consolidado', () => true, [distrito1, distrito2]), tipo: 'general' as const };
+    // Zonas de atención (mismo vocabulario de Delictividad: el cuadrante).
+    const zonas: NodoMicrogerencia[] = [];
+    for (const est of [...ESTACIONES_DISTRITO_1, ...ESTACIONES_DISTRITO_2]) {
+      const nombresZona = Array.from(new Set([...recsActual, ...recsAnterior].filter((r) => r.estacion === est && r.cuadrante && r.cuadrante !== 'No Reportado').map((r) => r.cuadrante))).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+      for (const z of nombresZona) zonas.push({ ...calcularNodo(`${z} (Operatividad)`, (r) => r.estacion === est && r.cuadrante === z), tipo: 'zona' as const, estacion: est });
+    }
     const fechaCorte = (() => {
       const d = ventana.actualFin;
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -173,7 +225,7 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
       actualFin: ventana.actualFin.toISOString().slice(0, 10),
       anioActual, anioAnterior,
       delitoFiltrado: null, fechaCorte,
-      general, distrito1, distrito2, delitos: general.delitos,
+      general, distrito1, distrito2, delitos: general.delitos, zonas,
     };
-  }, [filteredOperatividadRecords]);
+  }, [filteredOperatividadRecords, ajustes?.periodo?.inicio, ajustes?.periodo?.fin]); // eslint-disable-line react-hooks/exhaustive-deps
 }

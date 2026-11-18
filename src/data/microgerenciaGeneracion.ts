@@ -42,7 +42,8 @@ export function nodoOperatividadEquivalente(datosOperatividad: DatosMicrogerenci
     const cai = estacion.hijos.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
     if (cai) return cai;
   }
-  return null;
+  // Zona de atención (mismo nombre de cuadrante en ambas fuentes).
+  return datosOperatividad.zonas?.find((z) => z.nombre === `${nombreDelictividad} (Operatividad)`) ?? null;
 }
 
 /** Tarjetas de Operatividad para los mismos nodos elegidos en Delictividad (con su mapa). */
