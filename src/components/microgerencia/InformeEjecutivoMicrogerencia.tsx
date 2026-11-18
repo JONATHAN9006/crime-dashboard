@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import '@fontsource-variable/roboto-condensed/index.css';
 import {
-  Area, Bar, BarChart, CartesianGrid, ComposedChart, LabelList, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
   BarChart3, CalendarDays, ChevronDown, Database, FileImage, FileText, Landmark, LineChart as IconoLinea,
@@ -13,7 +13,6 @@ import {
   esNombreDeCai, esNombreDeEstacion,
 } from '../../data/microgerenciaMapas';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
-import { hallazgosNodo, notaCalidadDato } from '../../data/microgerenciaTextos';
 import { nombreVisibleUnidad } from '../../data/microgerencia';
 
 // ───────────────────────────────────────────────────────────────────────
@@ -98,6 +97,42 @@ function marcasEje(filas: Record<string, unknown>[]): number[] {
   return salida;
 }
 
+function marcasEjeValores(valores: number[]): number[] {
+  return marcasEje(valores.map((v) => ({ '0000': v })));
+}
+
+// Etiqueta de barra sin choques: las dos barras de un grupo se separan
+// hacia afuera cuando sus alturas son parecidas.
+interface EtiquetaProps { x?: number | string; y?: number | string; width?: number | string; value?: unknown }
+function EtiquetaBarra({ x, y, width, value, lado }: EtiquetaProps & { lado: 'izq' | 'der' }) {
+  if (value == null) return null;
+  const nx = Number(x), ny = Number(y), w = Number(width);
+  const texto = formatNumero(Number(value));
+  const ancho = texto.length * 9.2;
+  // Si el texto es más ancho que la barra, se corre hacia afuera del grupo.
+  const desplaza = ancho > w + 4 ? (ancho - w) / 2 + 1 : 0;
+  const cx = nx + w / 2 + (lado === 'izq' ? -desplaza : desplaza);
+  return <text x={cx} y={ny - 6} textAnchor="middle" style={{ fontSize: 17, fontWeight: 700, fill: '#1e2a33', fontFamily: FUENTE }}>{texto}</text>;
+}
+
+/** Texto ejecutivo del comportamiento trimestral (con advertencia del trimestre incompleto). */
+function analisisTrimestral(nodo: NodoMicrogerencia, trim: { i: number; dif: number | null; pct: number | null; parcial: boolean; futuro: boolean; sub: string }[], rango: string, A: number, P: number): string {
+  const ord = ['1er', '2do', '3er', '4to'];
+  const completos = trim.filter((t) => !t.parcial && !t.futuro && t.dif != null);
+  const partes: string[] = [];
+  partes.push(`En el periodo ${rango} ${A} se registra ${nodo.dif > 0 ? 'un incremento' : nodo.dif < 0 ? 'una reducción' : 'una variación'} de ${signo(nodo.dif)}${formatNumero(nodo.dif)} casos (${pct1(nodo.pct)}) frente al mismo periodo de ${P}.`);
+  const alza = [...completos].filter((t) => (t.dif ?? 0) > 0).sort((a, b) => (b.dif ?? 0) - (a.dif ?? 0))[0];
+  const baja = [...completos].filter((t) => (t.dif ?? 0) < 0).sort((a, b) => (a.dif ?? 0) - (b.dif ?? 0))[0];
+  if (alza) partes.push(`El mayor aumento se presenta en el ${ord[alza.i]} trimestre (${signo(alza.dif!)}${formatNumero(alza.dif!)}; ${pct1(alza.pct)})${baja ? '' : '.'}`);
+  if (baja) partes.push(`${alza ? 'y' : 'La'} mayor disminución en el ${ord[baja.i]} trimestre (${formatNumero(baja.dif!)}; ${pct1(baja.pct)}).`);
+  if (!alza && !baja && completos.length) partes.push('Los trimestres cerrados no presentan variación.');
+  const parcial = trim.find((t) => t.parcial && t.dif != null);
+  if (parcial) {
+    partes.push(`El ${ord[parcial.i]} trimestre ${parcial.sub ? `${parcial.sub} ` : ''}está incompleto: su diferencia de ${signo(parcial.dif!)}${formatNumero(parcial.dif!)} casos (${pct1(parcial.pct)}) frente al trimestre completo de ${P} se asocia al corte parcial de la información y no constituye una ${parcial.dif! < 0 ? 'disminución' : 'variación'} confirmada.`);
+  }
+  return partes.join(' ').replace(') y ', ') y ').replace(/\)\s+y mayor/, '), y la mayor');
+}
+
 // ── Piezas ─────────────────────────────────────────────────────────────
 function Panel({ x, y, w, h, children }: { x: number; y: number; w: number; h: number; children: React.ReactNode }) {
   return (
@@ -168,10 +203,10 @@ function CajaDif({ valor }: { valor: number | null }) {
 
 // ── Mapa (misma imagen real que usa el PDF de Microgerencia) ────────────
 function MapaCobertura({ nodo, esGeneral, delitoFiltrado, inicio, fin }: {
-  nodo: NodoMicrogerencia; esGeneral: boolean; delitoFiltrado: string | null; inicio: string; fin: string;
+  nodo: NodoMicrogerencia; esGeneral: boolean; delitoFiltrado: string | readonly string[] | null; inicio: string; fin: string;
 }) {
   const [estado, setEstado] = useState<{ img?: string; cargando: boolean }>({ cargando: true });
-  const clave = `${nodo.nombre}|${delitoFiltrado}|${inicio}|${fin}`;
+  const clave = `${nodo.nombre}|${String(delitoFiltrado)}|${inicio}|${fin}`;
   useEffect(() => {
     let vivo = true;
     setEstado({ cargando: true });
@@ -190,7 +225,7 @@ function MapaCobertura({ nodo, esGeneral, delitoFiltrado, inicio, fin }: {
     return () => { vivo = false; };
   }, [clave]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (estado.cargando) return <div className="flex h-full items-center justify-center text-slate-400"><Loader2 size={26} className="animate-spin" /></div>;
+  if (estado.cargando) return <div data-mapa-cargando className="flex h-full items-center justify-center text-slate-400"><Loader2 size={26} className="animate-spin" /></div>;
   if (!estado.img) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 px-3 text-center text-[14px]" style={{ color: C.verde }}>
@@ -238,8 +273,18 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
   const proyDif = Math.round(nodo.difConAnioAnterior);
   const proyPct = nodo.total2025 > 0 ? (proyDif / nodo.total2025) * 100 : null;
 
-  const datosTrim = nodo.trimestres.map((t, i) => ({ nombre: TRIM_CORTOS[i], [P]: t.anio2025, [A]: t.anio2026, dif: t.dif }));
-  const datosMes = nodo.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.anio2025, [A]: m.anio2026, dif: m.dif }));
+  // Periodos sin consolidar: después del corte NO hay dato (no es «0»).
+  const diaCorte = Number(corte.split('-')[2]);
+  const mesParcial = diaCorte < new Date(A, mesCorte + 1, 0).getDate();
+  const trimCorte = Math.floor(mesCorte / 3);
+  const trimParcial = mesParcial || mesCorte % 3 !== 2;
+  const datosTrim = nodo.trimestres.map((t, i) => {
+    const futuro = i > trimCorte;
+    const pct = !futuro && t.anio2025 > 0 ? (t.dif / t.anio2025) * 100 : null;
+    return { i, nombre: TRIM_CORTOS[i], sub: i === trimCorte && trimParcial ? `(Ene – ${MESES_CORTOS[mesCorte]})`.replace('Ene', MESES_CORTOS[i * 3]) : '', [P]: t.anio2025, [A]: futuro ? null : t.anio2026, dif: futuro ? null : t.dif, pct, parcial: i === trimCorte && trimParcial, futuro };
+  });
+  const datosMes = nodo.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.anio2025, [A]: i > mesCorte ? null : m.anio2026, dif: i > mesCorte ? null : m.dif, parcial: i === mesCorte && mesParcial }));
+  const historico = (nodo.historico ?? []).map((h) => ({ anio: String(h.anio), casos: h.casos, parcial: h.parcial, actual: h.anio === A }));
 
   const barrios = (nodo.barrios ?? []).slice(0, topBarrios);
   const top10 = [...nodo.delitos].sort((a, b) => b.fecha2026 - a.fecha2026).slice(0, 10);
@@ -249,7 +294,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
   const totDif = tot.b - tot.a;
   const totPct = tot.a > 0 ? (totDif / tot.a) * 100 : null;
 
-  const hallazgos = useMemo(() => hallazgosNodo(nodo, A, P, corte), [nodo, A, P, corte]);
+  const analisisTrim = useMemo(() => analisisTrimestral(nodo, datosTrim, rangoMeses, A, P), [nodo, datosTrim, rangoMeses, A, P]);
 
   async function exportar(tipo: 'png' | 'pdf') {
     if (!refLienzo.current) return;
@@ -258,6 +303,9 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
     try {
       setEscala(1); // se captura a tamaño real
       await new Promise((r) => setTimeout(r, 120));
+      // Esperar a que el mapa y las imágenes terminen de dibujarse.
+      for (let i = 0; i < 60 && refLienzo.current.querySelector('[data-mapa-cargando]'); i++) await new Promise((r) => setTimeout(r, 250));
+      await Promise.all(Array.from(refLienzo.current.querySelectorAll('img')).map((img) => (img.complete ? null : img.decode().catch(() => null))));
       // Lienzo fijo: lo dibuja el propio navegador (html-to-image, vía SVG),
       // así la exportación queda idéntica a la pantalla: fuente, franjas
       // inclinadas y colores incluidos.
@@ -274,11 +322,12 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
         setTimeout(() => URL.revokeObjectURL(url), 2000);
       } else {
         const { jsPDF } = await import('jspdf');
-        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-        const ap = pdf.internal.pageSize.getWidth();
-        const hp = pdf.internal.pageSize.getHeight();
-        const k = Math.min(ap / lienzo.width, hp / lienzo.height);
-        pdf.addImage(lienzo.toDataURL('image/jpeg', 0.93), 'JPEG', (ap - lienzo.width * k) / 2, (hp - lienzo.height * k) / 2, lienzo.width * k, lienzo.height * k);
+        // Hoja horizontal con la MISMA proporción de la lámina (ancho A4):
+        // sin franjas blancas arriba ni abajo.
+        const anchoMm = 297;
+        const altoMm = (anchoMm * ALTO) / ANCHO;
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [anchoMm, altoMm] });
+        pdf.addImage(lienzo.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, anchoMm, altoMm);
         pdf.save(`${nombre}.pdf`);
       }
     } finally {
@@ -361,34 +410,48 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
             <Kpi x={1465} w={187} icono={BarChart3} etiqueta={`Proy. vs ${P}`} valor={<span className="block text-[32px] leading-[1.05]">{signo(proyDif)}{formatNumero(proyDif)}<span className="block text-[27px]">({pct1(proyPct)})</span></span>} tono={proyDif > 0 ? 'rosa' : 'blanco'} />
 
             {/* ── FILA 2 ─────────────────────────────────────────────── */}
-            <Panel x={20} y={236} w={528} h={252}>
-              <TituloPanel icono={BarChart3} derecha={<Leyenda items={[{ color: C.gris2025, texto: String(P) }, { color: C.verde, texto: String(A) }]} />}>Comparativo trimestral</TituloPanel>
-              <div className="relative flex-1">
-                <div className="absolute left-[58px] right-[10px] top-[6px] grid grid-cols-4 text-center">
-                  {datosTrim.map((t) => <div key={t.nombre}><CajaDif valor={t.dif} /></div>)}
-                </div>
+            <Panel x={14} y={232} w={573} h={270}>
+              <TituloPanel
+                icono={BarChart3}
+                derecha={(
+                  <div className="rounded-[6px] px-2 py-[2px] text-center text-[14.5px] font-bold leading-[1.15]" style={{ color: C.rojo, border: `1.5px solid ${C.rojo}`, background: '#fff5f5' }}>
+                    Δ {A} vs {P}
+                    <span className="block" style={{ color: colDif(nodo.dif) }}>{signo(nodo.dif)}{formatNumero(nodo.dif)} casos | {pct1(nodo.pct)}</span>
+                  </div>
+                )}
+              ><span className="italic">Histórico del comportamiento delictivo</span></TituloPanel>
+              <div className="relative min-h-0 flex-1 px-1">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={datosTrim} margin={{ top: 46, right: 10, left: 4, bottom: 2 }} barGap={2} barCategoryGap="22%">
+                  <ComposedChart data={historico} margin={{ top: 26, right: 14, left: 2, bottom: 0 }} barCategoryGap="14%">
                     <CartesianGrid vertical={false} stroke="#edf0f1" />
-                    <XAxis dataKey="nombre" tick={{ ...ejeY, fontSize: 16 }} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} />
-                    <YAxis width={54} tick={ejeY} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(v) => formatNumero(v)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEje(datosTrim)} allowDecimals={false} />
+                    <XAxis dataKey="anio" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={40}
+                      tick={({ x, y, payload }: { x?: number | string; y?: number | string; payload?: { value: string } }) => {
+                        const h = historico.find((d) => d.anio === payload?.value);
+                        return (
+                          <g transform={`translate(${x},${y})`}>
+                            <text dy={14} textAnchor="middle" style={{ fontSize: 15, fontWeight: 700, fill: C.texto, fontFamily: FUENTE }}>{payload?.value}</text>
+                            {h?.parcial && <text dy={28} textAnchor="middle" style={{ fontSize: 11.5, fill: C.texto, fontFamily: FUENTE }}>(Ene–{MESES_CORTOS[mesCorte]})</text>}
+                          </g>
+                        );
+                      }} />
+                    <YAxis width={56} tick={ejeY} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(v) => formatNumero(v)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEjeValores(historico.map((h) => h.casos))} allowDecimals={false} />
                     <Tooltip contentStyle={tip} formatter={(v) => formatNumero(Number(v))} />
-                    <Bar dataKey={String(P)} fill={C.gris2025} isAnimationActive={false}>
-                      <LabelList dataKey={String(P)} position="top" style={{ fontSize: 17, fill: C.texto, fontWeight: 700, fontFamily: FUENTE }} formatter={(v: unknown) => formatNumero(Number(v))} />
+                    <Bar dataKey="casos" name="Total delitos" isAnimationActive={false}>
+                      {historico.map((h) => <Cell key={h.anio} fill={h.actual ? C.verde : '#8fcf9a'} />)}
+                      <LabelList dataKey="casos" position="top" offset={9} style={{ fontSize: 17, fill: C.texto, fontWeight: 700, fontFamily: FUENTE }} formatter={(v: unknown) => formatNumero(Number(v))} />
                     </Bar>
-                    <Bar dataKey={String(A)} fill={C.verde} isAnimationActive={false}>
-                      <LabelList dataKey={String(A)} position="top" style={{ fontSize: 17, fill: C.texto, fontWeight: 700, fontFamily: FUENTE }} formatter={(v: unknown) => formatNumero(Number(v))} />
-                    </Bar>
-                  </BarChart>
+                    <Line type="linear" dataKey="casos" name="Tendencia anual" stroke={C.azul} strokeWidth={2.4} dot={{ r: 4.5, fill: '#fff', stroke: C.azul, strokeWidth: 2.2 }} isAnimationActive={false} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
+              <div className="flex justify-center pb-1"><Leyenda items={[{ color: '#8fcf9a', texto: 'Total delitos' }, { color: C.azul, texto: 'Tendencia anual', linea: true }]} /></div>
             </Panel>
 
-            <Panel x={560} y={236} w={588} h={252}>
+            <Panel x={598} y={232} w={540} h={270}>
               <TituloPanel icono={IconoLinea} derecha={<Leyenda items={[{ color: C.azul, texto: String(P), linea: true }, { color: C.verdeVivo, texto: String(A), linea: true }]} />}>Distribución mensual de delitos</TituloPanel>
-              <div className="h-[132px] pr-2">
+              <div className="h-[130px] pr-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={datosMes} margin={{ top: 8, right: 8, left: 2, bottom: 0 }}>
+                  <ComposedChart data={datosMes} margin={{ top: 10, right: 12, left: 2, bottom: 0 }}>
                     <defs>
                       <linearGradient id="mg-area-2025" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={C.azul} stopOpacity={0.22} />
@@ -398,23 +461,24 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
                     <CartesianGrid vertical={false} stroke="#edf0f1" />
                     <XAxis dataKey="nombre" hide />
                     <YAxis width={52} tick={{ ...ejeY, fontSize: 13 }} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(v) => formatNumero(v)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEje(datosMes)} allowDecimals={false} />
-                    <Tooltip contentStyle={tip} formatter={(v) => formatNumero(Number(v))} />
+                    <Tooltip contentStyle={tip} formatter={(v) => (v == null ? 'Sin consolidar' : formatNumero(Number(v)))} />
                     <Area type="monotone" dataKey={String(P)} stroke={C.azul} strokeWidth={2.4} fill="url(#mg-area-2025)" dot={{ r: 4, fill: '#fff', stroke: C.azul, strokeWidth: 2 }} isAnimationActive={false} />
-                    <Line type="monotone" dataKey={String(A)} stroke={C.verdeVivo} strokeWidth={2.8} dot={{ r: 4.5, fill: '#fff', stroke: C.verdeVivo, strokeWidth: 2.2 }} isAnimationActive={false} />
+                    <Line type="monotone" dataKey={String(A)} stroke={C.verdeVivo} strokeWidth={2.8} connectNulls={false} dot={{ r: 4.5, fill: '#fff', stroke: C.verdeVivo, strokeWidth: 2.2 }} isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <table className="mx-3 border-collapse text-center text-[15px] leading-[19px]" style={{ width: 'calc(100% - 24px)' }}>
-                <thead><tr><th className="w-[52px]" />{datosMes.map((m) => <th key={m.nombre} className="pb-0.5 font-bold">{m.nombre}</th>)}</tr></thead>
+              <table className="mx-3 border-collapse text-center text-[15px] leading-[20px]" style={{ width: 'calc(100% - 24px)' }}>
+                <thead><tr><th className="w-[52px]" />{datosMes.map((m) => <th key={m.nombre} className="pb-0.5 font-bold">{m.nombre}{m.parcial ? '*' : ''}</th>)}</tr></thead>
                 <tbody>
                   <tr style={{ background: '#e7effc' }}><th className="rounded-l-md py-0.5 font-bold" style={{ color: C.azul }}>{P}</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5">{formatNumero(Number(m[P]))}</td>)}</tr>
-                  <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md py-0.5 font-bold" style={{ color: C.verdeDif }}>{A}</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5">{formatNumero(Number(m[A]))}</td>)}</tr>
-                  <tr><th className="py-0.5 font-bold">Dif.</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5 font-bold" style={{ color: colDif(m.dif) }}>{signo(m.dif)}{formatNumero(m.dif)}</td>)}</tr>
+                  <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md py-0.5 font-bold" style={{ color: C.verdeDif }}>{A}</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5" style={{ color: m[A] == null ? '#a3acb2' : undefined }}>{m[A] == null ? '—' : formatNumero(Number(m[A]))}</td>)}</tr>
+                  <tr><th className="py-0.5 font-bold">Dif.</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5 font-bold" style={{ color: m.dif == null ? '#a3acb2' : colDif(m.dif) }}>{m.dif == null ? '—' : `${signo(m.dif)}${formatNumero(m.dif)}`}</td>)}</tr>
                 </tbody>
               </table>
+              {(mesParcial || mesCorte < 11) && <p className="mt-0.5 px-3 text-[11px] leading-tight text-slate-500">{mesParcial ? `* ${MESES_LARGOS[mesCorte]} parcial (hasta el ${diaCorte}). ` : ''}{mesCorte < 11 ? '«—» = sin información consolidada aún.' : ''}</p>}
             </Panel>
 
-            <Panel x={1160} y={236} w={492} h={252}>
+            <Panel x={1148} y={232} w={512} h={270}>
               <TituloPanel
                 icono={MapPin}
                 derecha={(
@@ -432,37 +496,38 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
                   </div>
                 )}
               >Distribución territorial</TituloPanel>
-              <div className="flex flex-1 gap-2 px-3 pb-2 pt-1">
-                <div className="flex w-[236px] shrink-0 flex-col">
-                  <div className="min-h-0 flex-1">
-                    <MapaCobertura nodo={nodo} esGeneral={esGeneral} delitoFiltrado={datos.delitoFiltrado} inicio={datos.actualInicio} fin={datos.actualFin} />
-                  </div>
-                  <div className="mx-auto mt-1 w-[150px] text-[14px]">
-                    <p className="font-bold">Densidad delictiva</p>
-                    <div className="h-[14px] rounded-[3px]" style={{ background: 'linear-gradient(90deg,#3cb44b,#a6d84a,#f7e33b,#f59a2b,#e3262f)' }} />
-                    <div className="flex justify-between font-bold"><span>Baja</span><span>Alta</span></div>
-                  </div>
+              <div className="relative min-h-0 flex-1">
+                {/* Mapa: ocupa la mayor parte del panel */}
+                <div className="absolute" style={{ left: 6, top: 2, width: 292, bottom: 6 }}>
+                  <MapaCobertura nodo={nodo} esGeneral={esGeneral} delitoFiltrado={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : datos.delitoFiltrado} inicio={datos.actualInicio} fin={datos.actualFin} />
                 </div>
-                <div className="mt-1 flex-1 self-start overflow-hidden rounded-[8px] border" style={{ borderColor: C.borde }}>
-                  <p className="px-2.5 py-1 text-[16px] font-bold text-white" style={{ background: C.verde }}>Top {topBarrios} barrios ({A})</p>
-                  {barrios.length === 0 ? <p className="px-2.5 py-2 text-[14px] text-slate-500">Sin barrios reportados.</p> : (
-                    <ol className="px-2 py-1">
-                      {barrios.map((b, i) => (
-                        <li key={b.nombre} className="flex items-center gap-2 py-[3px] text-[16px]">
-                          <span className="flex h-[21px] w-[21px] shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: C.verdeVivo }}>{i + 1}</span>
-                          <span className="min-w-0 flex-1 truncate">{b.nombre}</span>
-                          <span className="tabular-nums">{formatNumero(b.casos)}</span>
-                          <span className="w-[54px] text-right tabular-nums">({formatDecimal(nodo.fecha2026 > 0 ? (b.casos / nodo.fecha2026) * 100 : 0, 1)}%)</span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
+                <div className="absolute flex flex-col gap-1.5" style={{ left: 302, right: 8, top: 0 }}>
+                  <div className="overflow-hidden rounded-[8px] border bg-white" style={{ borderColor: C.borde }}>
+                    <p className="px-2.5 py-[3px] text-[15px] font-bold text-white" style={{ background: C.verde }}>Top {topBarrios} barrios ({A})</p>
+                    {barrios.length === 0 ? <p className="px-2.5 py-2 text-[14px] text-slate-500">Sin barrios reportados.</p> : (
+                      <ol className="px-1.5 py-0.5">
+                        {barrios.map((b, i) => (
+                          <li key={b.nombre} className="flex items-center gap-1 py-[1px] text-[14.5px]">
+                            <span className="flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full text-[12.5px] font-bold text-white" style={{ background: C.verdeVivo }}>{i + 1}</span>
+                            <span className="min-w-0 flex-1 truncate" title={b.nombre}>{b.nombre}</span>
+                            <span className="tabular-nums">{formatNumero(b.casos)}</span>
+                            <span className="w-[44px] text-right text-[13px] tabular-nums">({formatDecimal(nodo.fecha2026 > 0 ? (b.casos / nodo.fecha2026) * 100 : 0, 1)}%)</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                  <div className="rounded-[8px] border bg-white px-2.5 py-1 text-[14px]" style={{ borderColor: C.borde }}>
+                    <p className="font-bold leading-tight">Densidad delictiva</p>
+                    <div className="mt-0.5 h-[11px] rounded-[3px]" style={{ background: 'linear-gradient(90deg,#22b33a,#a6d84a,#f7e33b,#f59a2b,#e3262f)' }} />
+                    <div className="flex justify-between text-[13px] font-bold leading-tight"><span>Baja</span><span>Alta</span></div>
+                  </div>
                 </div>
               </div>
             </Panel>
 
             {/* ── FILA 3 ─────────────────────────────────────────────── */}
-            <Panel x={20} y={502} w={592} h={356}>
+            <Panel x={12} y={512} w={574} h={346}>
               <TituloPanel icono={ShieldCheck}>Top 10 delitos <span className="text-[17px] font-normal">(consolidado)</span></TituloPanel>
               <table className="mx-4 mt-2 border-collapse text-[16.5px]" style={{ width: 'calc(100% - 32px)' }}>
                 <thead>
@@ -494,7 +559,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
               </table>
             </Panel>
 
-            <Panel x={624} y={502} w={508} h={356}>
+            <Panel x={597} y={512} w={494} h={346}>
               <TituloPanel icono={Landmark}>{sub.filas.length ? `${sub.titulo} (${esGeneral ? 'MEPOY – General' : tituloNodo})` : 'Unidades territoriales'}</TituloPanel>
               {sub.filas.length === 0 ? (
                 <p className="px-4 py-8 text-center text-[16px] text-slate-500">Esta cobertura no tiene subunidades para comparar.</p>
@@ -553,30 +618,58 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
               )}
             </Panel>
 
-            <Panel x={1142} y={502} w={510} h={356}>
-              <TituloPanel icono={FileText}>Principales hallazgos <span className="text-[19px] font-normal">(análisis ejecutivo)</span></TituloPanel>
-              <div className="flex flex-1 flex-col gap-[7px] px-3 pb-3 pt-2">
-                {hallazgos.map((h, i) => (
-                  <div key={h.titulo} className="flex items-center gap-3 rounded-[10px] border bg-white px-3 py-[7px]" style={{ borderColor: C.borde }}>
-                    <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full text-[22px] font-bold text-white" style={{ background: C.verdeVivo }}>{i + 1}</span>
-                    <p className="text-[14.5px] leading-[1.25]"><strong>{h.titulo}:</strong> {h.texto}</p>
-                  </div>
-                ))}
-                <div className="mt-auto flex items-center gap-3 rounded-[10px] px-3 py-2.5" style={{ background: '#fbf3df', border: '1px solid #efe0b8' }}>
-                  <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: '#b07a1e', color: '#b07a1e' }}><Info size={22} strokeWidth={2.6} /></span>
-                  <p className="text-[13.5px] leading-[1.25]">
-                    <strong>Nota sobre la calidad del dato:</strong>{' '}
-                    {notaCalidadDato(A, corte)}
-                  </p>
+            <Panel x={1102} y={512} w={558} h={346}>
+              <TituloPanel icono={BarChart3}>Comportamiento trimestral <span className="text-[17px] font-normal">(principales hallazgos)</span></TituloPanel>
+              <div className="flex justify-end px-4"><Leyenda items={[{ color: C.gris2025, texto: String(P) }, { color: C.verde, texto: String(A) }]} /></div>
+              <div className="relative min-h-0 flex-1">
+                <div className="absolute grid grid-cols-4 text-center" style={{ left: 64, right: 12, top: 2 }}>
+                  {datosTrim.map((t) => (
+                    <div key={t.nombre} className="flex justify-center">
+                      {t.dif == null ? <span className="text-[13px] text-slate-400">—</span> : (
+                        <span className="rounded-[5px] px-1.5 text-center text-[14px] font-bold leading-[1.1]" style={{ color: colDif(t.dif), border: `1.5px solid ${colDif(t.dif)}`, background: t.dif > 0 ? '#fff1f2' : t.dif < 0 ? '#ecf8ef' : '#fff' }}>
+                          {signo(t.dif)}{formatNumero(t.dif)}{t.parcial ? '*' : ''}
+                          <span className="block text-[11.5px]">({pct1(t.pct)})</span>
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={datosTrim} margin={{ top: 58, right: 12, left: 8, bottom: 0 }} barGap={4} barCategoryGap="20%">
+                    <CartesianGrid vertical={false} stroke="#edf0f1" />
+                    <XAxis dataKey="nombre" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={42}
+                      tick={({ x, y, payload }: { x?: number | string; y?: number | string; payload?: { value: string } }) => {
+                        const t = datosTrim.find((d) => d.nombre === payload?.value);
+                        return (
+                          <g transform={`translate(${x},${y})`}>
+                            <text dy={15} textAnchor="middle" style={{ fontSize: 16, fill: C.texto, fontFamily: FUENTE }}>{payload?.value}</text>
+                            {t?.sub && <text dy={31} textAnchor="middle" style={{ fontSize: 14, fill: C.texto, fontFamily: FUENTE }}>{t.sub}</text>}
+                          </g>
+                        );
+                      }} />
+                    <YAxis width={56} tick={ejeY} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(v) => formatNumero(v)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEje(datosTrim)} allowDecimals={false} />
+                    <Tooltip contentStyle={tip} formatter={(v) => (v == null ? 'Sin consolidar' : formatNumero(Number(v)))} />
+                    <Bar dataKey={String(P)} fill={C.gris2025} isAnimationActive={false}>
+                      <LabelList dataKey={String(P)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="izq" />} />
+                    </Bar>
+                    <Bar dataKey={String(A)} fill={C.verde} isAnimationActive={false}>
+                      <LabelList dataKey={String(A)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="der" />} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mx-3 mb-2.5 mt-1 flex items-start gap-2.5 rounded-[10px] px-3 py-2" style={{ background: '#fbf3df', border: '1px solid #efe0b8' }}>
+                <span className="mt-0.5 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: '#b07a1e', color: '#b07a1e' }}><Info size={18} strokeWidth={2.6} /></span>
+                <p className="text-[13.5px] leading-[1.25]"><strong>Análisis trimestral:</strong> {analisisTrim}</p>
               </div>
             </Panel>
 
             {/* ── PIE ────────────────────────────────────────────────── */}
-            <div className="absolute bottom-0 left-0 flex h-[62px] w-full items-center justify-between overflow-hidden pl-8" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro}, #0e4a36 60%, ${C.verdeOscuro})` }}>
-              <div className="absolute top-0 h-full" style={{ left: 600, width: 260, background: 'rgba(255,255,255,0.04)', clipPath: 'polygon(40px 0,100% 0,calc(100% - 40px) 100%,0 100%)' }} />
-              <p className="relative text-[17px] text-white">Fuente: Aplicativo Los Andes. Información sujeta a variación.</p>
-              <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[58px] w-auto" />
+            <div className="absolute bottom-0 left-0 flex h-[58px] w-full items-center justify-between overflow-hidden pl-5" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro}, #0d4433 55%, ${C.verdeOscuro})` }}>
+              <div className="absolute top-0 h-full" style={{ left: 860, width: 820, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(60px 0,100% 0,100% 100%,0 100%)' }} />
+              <div className="absolute top-0 h-full" style={{ left: 838, width: 80, background: C.lima, clipPath: 'polygon(60px 0,70px 0,10px 100%,0 100%)' }} />
+              <p className="relative text-[17px] text-white"><strong>Fuente:</strong> Aplicativo Los Andes. Información sujeta a variación.</p>
+              <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[56px] w-auto" />
             </div>
           </div>
         </div>

@@ -39,6 +39,8 @@ export interface NodoMicrogerencia {
   estacion?: string;
   /** Tipo de nodo (para armar la selección territorial del asistente). */
   tipo?: 'general' | 'distrito' | 'estacion' | 'cai' | 'zona' | 'delito';
+  /** Histórico anual (años reales disponibles; el año actual es el acumulado a la fecha). */
+  historico?: { anio: number; casos: number; parcial: boolean }[];
   /** Barrios con más casos en el año actual a la fecha (solo nodos territoriales). */
   barrios?: { nombre: string; casos: number }[];
 }
