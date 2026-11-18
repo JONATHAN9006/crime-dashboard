@@ -14,11 +14,82 @@ import { generarDataUrlPoligonoAislado, type OpcionesPoligonoAislado } from '../
  * y el MISMO mapa de calor (Kernel) — en la proporción exacta de la caja.
  * Puede además acotar los puntos a una zona de atención o a unos barrios.
  */
-export interface EstiloMapaLamina { aspecto: number; ancho?: number; zona?: string; barrios?: readonly string[]; rellenoGris?: boolean }
+export interface EstiloMapaLamina { aspecto: number; ancho?: number; zona?: string; barrios?: readonly string[] }
+
+// ── Estilo que el usuario dejó en «Mapa / Georreferenciación» ──────────
+// (se guarda en este navegador): paleta del calor, colores de CAI y capas
+// «colorear por casos». La lámina dibuja el mapa con ESOS mismos colores.
+const PALETA_CALOR: { id: string; hex: string }[] = [
+  { id: 'verde', hex: '#22c55e' }, { id: 'verde-lima', hex: '#a3e635' }, { id: 'amarillo', hex: '#facc15' },
+  { id: 'naranja', hex: '#f97316' }, { id: 'rojo', hex: '#dc2626' },
+];
+const PALETA_CAI_DEFECTO = ['#3b82f6', '#ef4444', '#22c55e', '#a855f7', '#f97316', '#14b8a6', '#eab308', '#ec4899'];
+function leerLocal<T>(clave: string, defecto: T): T {
+  try { const v = JSON.parse(localStorage.getItem(clave) || 'null'); return (v ?? defecto) as T; } catch { return defecto; }
+}
+/** Igual a la escala de «colorear por casos» de la pantalla del mapa. */
+function colorPorIntensidad(valor: number, max: number): string {
+  if (max === 0 || valor === 0) return '#eef2f0';
+  const i = valor / max;
+  if (i < 0.2) return '#c7ecd3';
+  if (i < 0.4) return '#8fd6a3';
+  if (i < 0.6) return '#f5d949';
+  if (i < 0.8) return '#f2a340';
+  return '#d92b2b';
+}
+const normEspacios = (v: unknown) => normalizar(v).replace(/\s+/g, ' ');
+
+async function estiloUsuario(features: any[], puntos: any[]) {
+  const ids = leerLocal<string[]>('mepoy-paleta-calor-delitos', PALETA_CALOR.map((o) => o.id));
+  const colores = PALETA_CALOR.map((o) => (ids.includes(o.id) ? o.hex : null));
+  const coloresCai = leerLocal<Record<string, string>>('mepoy-colores-cai', {});
+  let colorearCai = false;
+  try { colorearCai = localStorage.getItem('mepoy-colorear-zonas-cai') === '1'; } catch { /* sin almacenamiento */ }
+
+  // Capa de origen de cada polígono (por sus propiedades).
+  const capas = await cargarCapas();
+  const capaDe = new Map<string, (typeof capas)[number]>();
+  for (const c of capas) for (const f of extraerFeatures(c.geojson)) capaDe.set(JSON.stringify(f?.properties ?? {}), c);
+
+  // Conteos por dimensión con los MISMOS puntos del mapa.
+  const valorPunto = (p: any, dim: string) => dim === 'estacion' ? p.estacionCorta : dim === 'cuadrante' ? p.fila?.ZONA : p.fila?.BARRIO;
+  const conteos = new Map<string, Map<string, number>>();
+  const conteoDe = (dim: string) => {
+    let m = conteos.get(dim);
+    if (!m) { m = new Map(); for (const p of puntos) { const k = normEspacios(valorPunto(p, dim)); if (k) m.set(k, (m.get(k) ?? 0) + 1); } conteos.set(dim, m); }
+    return m;
+  };
+  const nombreCaiDe = (f: any): string | null => {
+    for (const v of Object.values(f?.properties ?? {})) if (typeof v === 'string' && /^CAI\s+\S/i.test(v.trim())) return v.trim();
+    return null;
+  };
+  const caisOrdenados = Array.from(new Set(features.map(nombreCaiDe).filter((x): x is string => !!x))).sort((a, b) => {
+    const na = Number(a.match(/\d+/)?.[0]), nb = Number(b.match(/\d+/)?.[0]);
+    return !isNaN(na) && !isNaN(nb) && na !== nb ? na - nb : a.localeCompare(b);
+  });
+  const rellenos: { anillos: [number, number][][]; color: string; opacidad: number }[] = [];
+  for (const f of features) {
+    const capa = capaDe.get(JSON.stringify(f?.properties ?? {}));
+    if (capa?.colorearPorCasos && capa.dimension && capa.campoUnion) {
+      const m = conteoDe(capa.dimension);
+      const max = Math.max(0, ...m.values());
+      rellenos.push({ anillos: extraerAnillosDeFeature(f), color: colorPorIntensidad(m.get(normEspacios(f?.properties?.[capa.campoUnion])) ?? 0, max), opacidad: 0.65 });
+      continue;
+    }
+    const cai = colorearCai ? nombreCaiDe(f) : null;
+    if (cai) {
+      const clave = Object.keys(coloresCai).find((k) => normEspacios(k) === normEspacios(cai));
+      const color = clave ? coloresCai[clave] : PALETA_CAI_DEFECTO[Math.max(0, caisOrdenados.indexOf(cai)) % PALETA_CAI_DEFECTO.length];
+      rellenos.push({ anillos: extraerAnillosDeFeature(f), color, opacidad: 0.25 });
+    }
+  }
+  return { colores, rellenos };
+}
 
 async function renderizarMapa(estilo: EstiloMapaLamina | undefined, op: OpcionesPoligonoAislado): Promise<string> {
   if (!estilo) return generarDataUrlPoligonoAislado(op);
   const feats: any[] = op.feature?.type === 'FeatureCollection' ? op.feature.features ?? [] : [op.feature];
+  const usuario = await estiloUsuario(feats, op.puntos as any[]).catch(() => null);
   return generarDataUrlPoligonoAislado({
     ...op,
     margen: 0.05,
@@ -26,9 +97,11 @@ async function renderizarMapa(estilo: EstiloMapaLamina | undefined, op: Opciones
     anchoLienzo: estilo.ancho ?? 900,
     mostrarCalles: true,
     fondoCompleto: true,
-    opacidadPoligono: 0,
-    // General: cada polígono en gris claro, como en la pantalla del mapa.
-    rellenos: estilo.rellenoGris ? feats.map((f) => ({ anillos: extraerAnillosDeFeature(f), color: '#9aa5ab', opacidad: 0.32 })) : [],
+    // Igual que la pantalla: relleno verde suave en cada polígono, encima
+    // los colores que el usuario configuró y el calor con SU paleta.
+    opacidadPoligono: 0.15,
+    opacidadCalor: 0.88,
+    ...(usuario ? { colores: usuario.colores, rellenos: usuario.rellenos } : {}),
   });
 }
 import { MAPA_ESTACION, MAPA_CAI, MAPA_CUADRANTE } from './db2Mapeos';
@@ -857,7 +930,7 @@ export async function generarImagenMapaLaminaNodo(
 ): Promise<string | undefined> {
   // Operatividad nombra sus nodos con «(Operatividad)» al final.
   const nombre = nodo.nombre.replace(/\s*\(Operatividad\)$/, '');
-  if (esGeneral) return generarImagenMapaGeneral(delitos, inicio, fin, tipoCapa, { ...estilo, rellenoGris: true });
+  if (esGeneral) return generarImagenMapaGeneral(delitos, inicio, fin, tipoCapa, estilo);
   if (nombre === 'Distrito Uno' || nombre === 'Distrito Dos') return generarImagenMapaDistrito(nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitos, inicio, fin, tipoCapa, estilo);
   if (nodo.tipo === 'zona' && nodo.estacion) return generarImagenMapaEstacion(nodo.estacion, delitos, inicio, fin, tipoCapa, { ...estilo, zona: nombre });
   if (nodo.tipo === 'barrio') {

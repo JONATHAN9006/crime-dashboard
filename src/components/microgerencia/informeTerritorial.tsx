@@ -13,7 +13,6 @@ import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExt
 import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
 export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad';
-const ORDEN_GRUPOS: GrupoSeccion[] = ['Microgerencia general', 'Distritos', 'Estaciones', 'Zonas de atención', 'CAI', 'Barrios', 'Operatividad'];
 
 export interface SeccionTerritorial {
   grupo: GrupoSeccion;
@@ -37,7 +36,7 @@ function grupoDe(nodo: NodoMicrogerencia, datos: DatosMicrogerencia): GrupoSecci
   return 'Estaciones';
 }
 
-/** Secciones del informe, ordenadas General → Distritos → Estaciones → Zonas → CAI → Barrios, sin repetir unidades. */
+/** Secciones del informe (una por unidad, sin repetir), en el orden recibido. */
 export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrogerencia[], fuente: FuenteLamina = 'delictividad'): SeccionTerritorial[] {
   const vistos = new Set<NodoMicrogerencia>();
   const salida: SeccionTerritorial[] = [];
@@ -51,10 +50,9 @@ export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrog
       sinInformacion: nodo.fecha2026 === 0 && nodo.fecha2025 === 0 && nodo.total2025 === 0,
     });
   }
-  return salida
-    .map((s, i) => ({ s, i }))
-    .sort((a, b) => ORDEN_GRUPOS.indexOf(a.s.grupo) - ORDEN_GRUPOS.indexOf(b.s.grupo) || a.i - b.i)
-    .map(({ s }) => s);
+  // Mismo orden en que se eligieron las hojas (General → Distrito →
+  // Estación → sus CAI → sus zonas).
+  return salida;
 }
 
 /**
@@ -64,6 +62,7 @@ export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrog
 export async function capturarLaminas(
   secciones: SeccionTerritorial[], topBarrios: 3 | 5, barrios: readonly string[],
   alAvanzar?: (hecho: number, total: number, unidad: string) => void,
+  formato: 'jpeg' | 'png' = 'jpeg',
 ): Promise<(string | null)[]> {
   const caja = document.createElement('div');
   caja.setAttribute('aria-hidden', 'true');
@@ -71,7 +70,7 @@ export async function capturarLaminas(
   document.body.appendChild(caja);
   const raiz = createRoot(caja);
   // Muchas láminas: un poco menos de resolución para que el PDF no pese demasiado.
-  const resolucion = secciones.length > 12 ? 1.5 : 2;
+  const resolucion = formato === 'png' ? 2 : secciones.length > 12 ? 1.5 : 2;
   const salida: (string | null)[] = [];
   try {
     for (const [i, s] of secciones.entries()) {
@@ -85,7 +84,7 @@ export async function capturarLaminas(
       await new Promise((r) => setTimeout(r, 380));
       if (!el) { salida.push(null); continue; }
       const lienzo = await capturarLamina(el, resolucion);
-      salida.push(lienzo.toDataURL('image/jpeg', 0.86));
+      salida.push(formato === 'png' ? lienzo.toDataURL('image/png') : lienzo.toDataURL('image/jpeg', 0.86));
     }
   } finally {
     raiz.unmount();
