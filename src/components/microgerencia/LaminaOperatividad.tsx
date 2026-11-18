@@ -119,7 +119,7 @@ function MiniTabla({ P, A, t, a, b, formato = formatNumero }: { P: number; A: nu
       {[[`Total ${P}`, t], [String(P), a], [String(A), b]].map(([et, v]) => (
         <div key={String(et)} className="px-2 py-0">
           <p className="whitespace-nowrap text-[12.5px] font-semibold">{et}</p>
-          <p className="text-[18px] font-bold tabular-nums">{formato(Number(v))}</p>
+          <p className="text-[21px] font-bold leading-tight tabular-nums">{formato(Number(v))}</p>
         </div>
       ))}
     </div>
@@ -234,7 +234,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
             {[{ titulo: 'Sin permiso', icono: XCircle, fila: sinPermiso, color: '#1d4ed8' }, { titulo: 'Con permiso', icono: CheckCircle2, fila: conPermiso, color: '#16a34a' }].map((s) => (
               <div key={s.titulo} className="flex items-center gap-2 rounded-[10px] px-2 py-1" style={{ background: '#f4f7f6' }}>
                 <s.icono size={30} strokeWidth={2.2} className="shrink-0" style={{ color: s.color }} />
-                <p className="w-[92px] shrink-0 text-[17.5px] font-bold leading-tight">{s.titulo}</p>
+                <p className="w-[96px] shrink-0 text-[19px] font-bold leading-tight">{s.titulo}</p>
                 {s.fila ? <MiniTabla P={P} A={A} t={s.fila.t} a={s.fila.a} b={s.fila.b} /> : <p className="flex-1 text-[14px] text-slate-500">Sin registros en la matriz.</p>}
                 {s.fila && pillArma(s.fila)}
               </div>
@@ -245,13 +245,13 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
         <Caja x={1124} y={252} w={536} h={198}>
           <TituloBanda icono={Gavel}>Circunstancia de captura</TituloBanda>
           {circ.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin registros en el periodo.</p> : (
-            <table className="mx-2.5 mt-1.5 border-collapse text-[15px]" style={{ width: 'calc(100% - 20px)' }}>
-              <thead><tr className="text-[14px] font-bold"><th className="px-1 text-left">Circunstancia</th><th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th><th className="text-right">Dif.</th><th className="text-right">Variación</th><th className="w-[120px]" /></tr></thead>
+            <table className="mx-2.5 mt-1.5 border-collapse text-[16.5px]" style={{ width: 'calc(100% - 20px)' }}>
+              <thead><tr className="text-[14.5px] font-bold"><th className="px-1 text-left">Circunstancia</th><th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th><th className="text-right">Dif.</th><th className="text-right">Variación</th><th className="w-[120px]" /></tr></thead>
               <tbody>
                 {circ.slice(0, 3).map((f) => {
                   const d = f.b - f.a;
                   return (
-                    <tr key={f.nombre} style={{ height: 32 }}>
+                    <tr key={f.nombre} style={{ height: 36 }}>
                       <td className="px-1">{f.nombre}</td>
                       <td className="text-right font-bold tabular-nums">{formatNumero(f.t)}</td>
                       <td className="text-right font-bold tabular-nums">{formatNumero(f.a)}</td>
@@ -306,7 +306,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <TablaTriple titulo="Categoría" filas={categorias.slice(0, 7)} total={totalOp} etiquetaTotal="Total operatividad" P={P} A={A} tam={13} anchoNombre={150} alto={19} color={(i) => PALETA_CAT[i % PALETA_CAT.length]} />
+              <TablaTriple titulo="Categoría" filas={categorias.slice(0, 7)} total={totalOp} etiquetaTotal="Total operatividad" P={P} A={A} tam={13.5} anchoNombre={150} alto={19} color={(i) => PALETA_CAT[i % PALETA_CAT.length]} />
             </div>
           </div>
         </Caja>
@@ -316,7 +316,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           {capt5.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin capturas en el periodo.</p> : (
             <div className="px-3 pt-2">
               {capt5.map((f) => (
-                <div key={f.nombre} className="flex items-center gap-2 text-[15px]" style={{ height: 24 }}>
+                <div key={f.nombre} className="flex items-center gap-2 text-[16px]" style={{ height: 25 }}>
                   <span className="w-[150px] shrink-0 truncate" title={f.nombre}>{f.nombre}</span>
                   <span className="h-[15px] flex-1"><span className="block h-full rounded-[2px]" style={{ width: `${Math.max(3, (f.b / Math.max(1, capt5[0].b)) * 100)}%`, background: '#22a33a' }} /></span>
                   <span className="w-[48px] text-right font-bold tabular-nums">{formatNumero(f.b)}</span>
@@ -375,7 +375,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturas" P={P} A={A} tam={13.5} anchoNombre={170} alto={19} />
+              <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturas" P={P} A={A} tam={edad.length > 4 ? 13 : 14.5} anchoNombre={170} alto={edad.length > 4 ? 16.5 : 21} />
             </div>
           </div>
         </Caja>
@@ -415,12 +415,12 @@ function TarjetaKpiConEtiquetas({ x, w, icono: Icono, titulo, color, t, a, b, P,
       <div className="mx-1.5 mt-1 grid grid-cols-3 divide-x divide-slate-300 text-center leading-tight">
         {[[`Total ${P}`, t], [String(P), a], [String(A), b]].map(([et, v]) => (
           <div key={String(et)} className="px-0.5">
-            <p className="text-[12.5px] font-semibold">{et}</p>
-            <p className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: largo ? 12 : 17 }}>{formato(Number(v))}</p>
+            <p className="text-[13px] font-semibold">{et}</p>
+            <p className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: largo ? 12.5 : 21 }}>{formato(Number(v))}</p>
           </div>
         ))}
       </div>
-      <span className="mx-2 mb-1.5 mt-auto flex items-center justify-center gap-0.5 whitespace-nowrap rounded-full py-[2px] font-bold" style={{ background: '#e4f6dc', color: '#14532d', fontSize: largo ? 14.5 : 18 }}>
+      <span className="mx-2 mb-1.5 mt-auto flex items-center justify-center gap-0.5 whitespace-nowrap rounded-full py-[2px] font-bold" style={{ background: '#e4f6dc', color: '#14532d', fontSize: largo ? 15 : 20 }}>
         {a > 0 ? <>{dif < 0 ? <ChevronDown size={17} strokeWidth={3} /> : <ChevronUp size={17} strokeWidth={3} />}{signo(dif)}{formato(dif)} ({pct(p)})</> : (b > 0 ? 'Sin periodo comparable' : 'Sin registros')}
       </span>
     </div>

@@ -195,15 +195,28 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     delitosAnalisis: [],
   }));
 
+  // Marcar TODOS los delitos equivale a no filtrar (así no se pierden los
+  // registros con delito «NO REPORTADO» ni cambian los totales del dashboard).
+  const totalDelitosCatalogo = useMemo(() => new Set(registrosVisibles.map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')).size, [registrosVisibles]);
+  const delitosFiltro = useMemo(() => (e.delitos.length >= totalDelitosCatalogo ? [] : e.delitos), [e.delitos, totalDelitosCatalogo]);
   const ajustes = useMemo<AjustesMicrogerencia>(() => ({
-    delitos: e.delitos, anio: e.anio, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null, barrios: [],
-  }), [e.delitos, e.anio, e.fechaInicial, e.fechaFinal]);
+    delitos: delitosFiltro, anio: e.anio, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null, barrios: [],
+  }), [delitosFiltro, e.anio, e.fechaInicial, e.fechaFinal]);
   const datos = useMicrogerencia(ajustes);
-  // Operatividad con el MISMO periodo y los mismos delitos (asociados) de la lámina de Delictividad.
+  // Operatividad: por defecto usa SU PROPIO corte (la última fecha cargada
+  // en la matriz de Operatividad), igual que el módulo «Operatividad por
+  // Unidad»; antes tomaba el corte de Delictividad y dejaba por fuera los
+  // registros de Operatividad posteriores a ese día. Solo si el usuario
+  // elige un año o fechas en el asistente se usa ese mismo periodo.
+  const periodoElegido = !!(e.anio || e.fechaInicial || e.fechaFinal);
+  // Operatividad NO se recorta por los delitos de Delictividad: su «delito
+  // asociado» tiene otro vocabulario (Tráfico de estupefacientes,
+  // Receptación…) y se perdían capturas y TODA la droga. Va completa, igual
+  // que el módulo «Operatividad por Unidad».
   const ajustesOp = useMemo(() => ({
-    delitos: e.delitos,
-    periodo: datos ? { inicio: datos.actualInicio, fin: datos.actualFin } : null,
-  }), [e.delitos, datos?.actualInicio, datos?.actualFin]); // eslint-disable-line react-hooks/exhaustive-deps
+    delitos: [] as string[],
+    periodo: periodoElegido && datos ? { inicio: datos.actualInicio, fin: datos.actualFin } : null,
+  }), [periodoElegido, datos?.actualInicio, datos?.actualFin]); // eslint-disable-line react-hooks/exhaustive-deps
   const datosOperatividad = useMicrogerenciaOperatividad(ajustesOp);
 
   // Catálogos reales (de los datos cargados, nunca inventados).
