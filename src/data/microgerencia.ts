@@ -35,6 +35,8 @@ export interface NodoMicrogerencia {
   // los propios nodos de delito (evita anidar delito-dentro-de-delito).
   delitos: NodoMicrogerencia[];
   hijos: NodoMicrogerencia[];
+  /** Barrios con más casos en el año actual a la fecha (solo nodos territoriales). */
+  barrios?: { nombre: string; casos: number }[];
 }
 
 export interface DatosMicrogerencia {
@@ -47,6 +49,8 @@ export interface DatosMicrogerencia {
   actualFin: string;
   anioActual: number;
   anioAnterior: number;
+  /** Corte real de la información (último día con datos del año actual). */
+  fechaCorte?: string;
   delitoFiltrado: string | null;
   general: NodoMicrogerencia;
   distrito1: NodoMicrogerencia;

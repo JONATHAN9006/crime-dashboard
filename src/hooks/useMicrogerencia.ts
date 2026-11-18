@@ -76,14 +76,24 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       const difConAnioAnterior = terminaAnio - total2025;
       const { trimestres, meses } = calcularTrimestresYMeses(pred);
       let delitosDelNodo: NodoMicrogerencia[] = [];
+      let barrios: { nombre: string; casos: number }[] | undefined;
       if (incluirDelitos) {
+        // Barrios más afectados (año actual a la fecha) — para «Distribución territorial».
+        const conteoBarrio = new Map<string, number>();
+        for (const r of recsActual) {
+          if (!pred(r)) continue;
+          const b = (r.barrioHecho ?? '').trim();
+          if (!b || /^no reportad/i.test(b) || /^sin /i.test(b)) continue;
+          conteoBarrio.set(b, (conteoBarrio.get(b) ?? 0) + 1);
+        }
+        barrios = Array.from(conteoBarrio, ([nombre, casos]) => ({ nombre, casos })).sort((a, b) => b.casos - a.casos).slice(0, 10);
         const universo = [...recsActual, ...recsAnterior].filter(pred);
         const nombresDelitosNodo = Array.from(new Set(universo.map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')));
         delitosDelNodo = nombresDelitosNodo
           .map((delito) => calcularNodo(delito, (r) => pred(r) && r.delito === delito, [], false))
           .sort((a, b) => b.fecha2026 - a.fecha2026);
       }
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: delitosDelNodo, hijos };
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: delitosDelNodo, hijos, barrios };
     }
 
     function cuadrantesDe(estacion: string, caiFiltro: string | null): NodoMicrogerencia[] {
@@ -118,6 +128,11 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
       actualInicio: ventana.actualInicio.toISOString().slice(0, 10),
       actualFin: ventana.actualFin.toISOString().slice(0, 10),
       anioActual, anioAnterior,
+      fechaCorte: (() => {
+        const ts = recsActual.reduce((m, r) => (r.fecha && r.fecha.getTime() > m ? r.fecha.getTime() : m), 0);
+        const d = ts > 0 ? new Date(ts) : ventana.actualFin;
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      })(),
       delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
       general, distrito1, distrito2, delitos,
     };

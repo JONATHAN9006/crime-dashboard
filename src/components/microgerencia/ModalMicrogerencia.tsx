@@ -11,6 +11,7 @@ import { cargarComparendos } from '../../data/rnmcStorage';
 import { useData } from '../../context/DataContext';
 import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
+import { InformeEjecutivoMicrogerencia } from './InformeEjecutivoMicrogerencia';
 
 function formatearPct(n: number | null): string {
   if (n === null) return 'N/A';
@@ -170,7 +171,7 @@ function NodoCompleto({ nodo, profundidad, ruta, seleccionados, onAlternarSelecc
   );
 }
 
-type Vista = 'general' | 'distrito1' | 'distrito2' | 'delitos';
+type Vista = 'informe' | 'general' | 'distrito1' | 'distrito2' | 'delitos';
 
 function CheckboxVista({ etiqueta, activo, onClick }: { etiqueta: string; activo: boolean; onClick: () => void }) {
   return (
@@ -195,6 +196,7 @@ function aplanarArbol(nodo: NodoMicrogerencia, ruta: string): [string, NodoMicro
 }
 
 const TITULOS_VISTA: Record<Vista, string> = {
+  informe: 'Informe ejecutivo',
   general: 'MEPOY General — Consolidado',
   distrito1: 'Distrito Uno',
   distrito2: 'Distrito Dos',
@@ -203,7 +205,10 @@ const TITULOS_VISTA: Record<Vista, string> = {
 
 export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCerrar: () => void; fuentesAdicionales?: FuenteMicrogerencia[] }) {
   const datos = useMicrogerencia();
-  const [vista, setVista] = useState<Vista>('general');
+  // El informe ejecutivo (consolidado delictivo) es la vista inicial; las
+  // pestañas de árbol y su PDF se conservan tal cual.
+  const [vista, setVista] = useState<Vista>('informe');
+  const [cobertura, setCobertura] = useState('');
   const [seleccionados, setSeleccionados] = useState<Map<string, NodoMicrogerencia>>(new Map());
   const [generandoPdf, setGenerandoPdf] = useState(false);
   // Antes se llamaban DESPUÉS del "if (!datos) return" de abajo: si el modal
@@ -430,7 +435,7 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+      <div className={`flex max-h-[94vh] w-full flex-col overflow-hidden rounded-xl bg-white shadow-2xl ${vista === 'informe' ? 'max-w-[1560px]' : 'max-w-6xl'}`}>
         <div className="flex items-center justify-between border-b border-slate-200 bg-brand-green px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/95 p-1">
@@ -447,13 +452,20 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3">
+          <CheckboxVista etiqueta="Informe ejecutivo" activo={vista === 'informe'} onClick={() => setVista('informe')} />
           <CheckboxVista etiqueta="MEPOY General" activo={vista === 'general'} onClick={() => setVista('general')} />
           <CheckboxVista etiqueta="Distrito Uno" activo={vista === 'distrito1'} onClick={() => setVista('distrito1')} />
           <CheckboxVista etiqueta="Distrito Dos" activo={vista === 'distrito2'} onClick={() => setVista('distrito2')} />
           <CheckboxVista etiqueta="Delitos" activo={vista === 'delitos'} onClick={() => setVista('delitos')} />
         </div>
 
-        <div className="flex-1 overflow-auto px-5 py-4">
+        {vista === 'informe' && (
+          <div className="flex-1 overflow-auto px-2 py-3 sm:px-4">
+            <InformeEjecutivoMicrogerencia datos={datos} cobertura={cobertura || datos.general.nombre} onCobertura={setCobertura} />
+          </div>
+        )}
+
+        <div className={`flex-1 overflow-auto px-5 py-4 ${vista === 'informe' ? 'hidden' : ''}`}>
           <p className="mb-3 text-xs text-slate-400">
             Calculado en vivo a partir de la misma información cargada en el dashboard, respetando el filtro de Delito activo — independiente del resto de los filtros de la barra lateral. Marca el <CheckSquare size={11} className="inline text-brand-green" /> de cualquier fila para elegir exactamente qué incluir en el PDF (puedes combinar filas de distintas pestañas).
           </p>
@@ -487,7 +499,7 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
+        <div className={`flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3 ${vista === 'informe' ? 'hidden' : ''}`}>
           <p className="text-xs text-slate-400">
             {seleccionados.size > 0 ? `${seleccionados.size} elemento(s) seleccionado(s) para el PDF` : `Sin selección — el PDF incluirá "${TITULOS_VISTA[vista]}" completo`}
           </p>

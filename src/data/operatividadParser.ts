@@ -140,6 +140,9 @@ const excluida = (fila: Record<string, unknown>) => OBJECTID_EXCLUIDOS.has(objec
 const sinTildesMayus = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
 const HUELLAS_EXCLUIDAS = [
   { claseBien: 'MARIHUANA', cantidad: 2563000, barrio: 'BELLA VISTA', fechas: ['2026-10-27', '2026-10-28'] },
+  // 945.600 g del 13/11/2026, Grupo de Investigación Judicial, Vía Popayán–Coconuco
+  // (el cuadro oficial no lo suma así; excluido por solicitud del usuario).
+  { claseBien: 'MARIHUANA', cantidad: 945600, barrio: 'VIA POPAYAN-COCONUCO', fechas: ['2026-11-12', '2026-11-13'] },
 ];
 const fechaIso = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '');
 function excluidaPorContenido(r: OperatividadRecord): boolean {
