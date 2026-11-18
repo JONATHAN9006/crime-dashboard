@@ -13,6 +13,8 @@ import {
   esNombreDeCai, esNombreDeEstacion,
 } from '../../data/microgerenciaMapas';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
+import { hallazgosNodo, notaCalidadDato } from '../../data/microgerenciaTextos';
+import { nombreVisibleUnidad } from '../../data/microgerencia';
 
 // ───────────────────────────────────────────────────────────────────────
 // INFORME EJECUTIVO de Microgerencia — «MICROGERENCIA | CONSOLIDADO
@@ -73,7 +75,7 @@ function subunidades(nodo: NodoMicrogerencia, esGeneral: boolean): { titulo: str
   return { titulo: 'Zonas de atención', singular: 'Zona', filas };
 }
 
-const nombreCorto = (n: string) => n.replace(/^Estación\s+/i, 'Est. ').replace(/\s+—\s+Consolidado$/, '');
+const nombreCorto = (n: string) => nombreVisibleUnidad(n).replace(/^Estación\s+/i, 'Est. ').replace(/\s+—\s+Consolidado$/, '');
 
 // Eje Y con marcas «redondas» (0, 200, 400… como en la lámina de referencia).
 function pasoBonito(max: number, marcas = 6): number {
@@ -247,29 +249,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
   const totDif = tot.b - tot.a;
   const totPct = tot.a > 0 ? (totDif / tot.a) * 100 : null;
 
-  const hallazgos = useMemo(() => {
-    const lista: { titulo: string; texto: string }[] = [];
-    const sentido = nodo.dif > 0 ? 'un incremento' : nodo.dif < 0 ? 'una reducción' : 'una variación';
-    lista.push({
-      titulo: 'Comportamiento general',
-      texto: `En el periodo analizado (${rangoMeses.toLowerCase()} ${A}) se registran ${formatNumero(nodo.fecha2026)} delitos, con ${sentido} de ${signo(nodo.dif)}${formatNumero(nodo.dif)} casos (${pct0(nodo.pct)}) frente a ${P}.`,
-    });
-    if (top10.length > 0) {
-      const [d1, d2] = top10;
-      lista.push({
-        titulo: 'Delitos de mayor participación',
-        texto: `${d1.nombre} (${formatNumero(d1.fecha2026)}; ${pct0(d1.pct)})${d2 ? ` y ${d2.nombre} (${formatNumero(d2.fecha2026)}; ${pct0(d2.pct)}) concentran` : ' concentra'} la mayor variación absoluta.`,
-      });
-    }
-    lista.push({
-      titulo: 'Tendencia y proyección',
-      texto: `De mantenerse la tendencia actual, se proyecta un total de ${formatNumero(Math.round(nodo.terminaAnio))} delitos en ${A}, lo que representa ${signo(proyDif)}${formatNumero(proyDif)} casos (${pct1(proyPct)}) frente al total de ${P}.`,
-    });
-    return lista;
-  }, [nodo, top10, rangoMeses, A, P, proyDif, proyPct]);
-
-  const mesesSinCierre = MESES_LARGOS.slice(mesCorte + 1);
-  const textoMesesNota = mesesSinCierre.length === 0 ? '' : mesesSinCierre.length === 1 ? mesesSinCierre[0] : `${mesesSinCierre.slice(0, -1).join(', ')} y ${mesesSinCierre[mesesSinCierre.length - 1]}`;
+  const hallazgos = useMemo(() => hallazgosNodo(nodo, A, P, corte), [nodo, A, P, corte]);
 
   async function exportar(tipo: 'png' | 'pdf') {
     if (!refLienzo.current) return;
@@ -586,9 +566,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
                   <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: '#b07a1e', color: '#b07a1e' }}><Info size={22} strokeWidth={2.6} /></span>
                   <p className="text-[13.5px] leading-[1.25]">
                     <strong>Nota sobre la calidad del dato:</strong>{' '}
-                    {textoMesesNota
-                      ? <>Los valores en cero (0) de {textoMesesNota} de {A} pueden corresponder a información pendiente de reporte o no consolidada, y no deben interpretarse como una reducción confirmada del delito.</>
-                      : <>La información de {A} está completa hasta el {fechaLarga(corte)}; las cifras pueden variar por reportes pendientes o depuración.</>}
+                    {notaCalidadDato(A, corte)}
                   </p>
                 </div>
               </div>

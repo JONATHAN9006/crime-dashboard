@@ -336,7 +336,7 @@ async function construirEstacionesRuralesDesdeJurisdiccion(cortas: readonly stri
   return null;
 }
 
-async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'delitos' | 'operatividad' | 'rnmc') {
+async function obtenerPuntosFiltrados(delitoFiltrado: string | readonly string[] | null, estacionCorta?: string | readonly string[], caiCorto?: string, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'delitos' | 'operatividad' | 'rnmc') {
   let capasPuntos = await cargarCapasPuntos();
   if (capasPuntos.length === 0) {
     await new Promise((r) => setTimeout(r, 400));
@@ -357,7 +357,8 @@ async function obtenerPuntosFiltrados(delitoFiltrado: string | null, estacionCor
   let resultado = capasPuntos
     .filter((c) => c.tipo === tipo)
     .flatMap((c) => c.puntos)
-    .filter((p) => !delitoFiltrado || p.delitoCorto === delitoFiltrado)
+    // Uno o varios delitos (lista vacía = todos).
+    .filter((p) => !delitoFiltrado || (typeof delitoFiltrado === 'string' ? p.delitoCorto === delitoFiltrado : delitoFiltrado.length === 0 || delitoFiltrado.includes(p.delitoCorto ?? '')))
     .filter((p) => !estacionCorta || (typeof estacionCorta === 'string' ? p.estacionCorta === estacionCorta : estacionCorta.includes(p.estacionCorta ?? '')))
     .filter((p) => !caiCorto || p.caiCorto === caiCorto);
 
@@ -444,7 +445,7 @@ async function obtenerAnillosInternos(featureOColeccion: any, capaContornoId: st
 }
 
 
-export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
+export async function generarImagenMapaGeneral(delitoFiltrado: string | readonly string[] | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     // Prioridad 1: construir el contorno UNIENDO los CAI 1-10 (confiables,
     // ya confirmados) — evita depender de una capa de Estación aparte,
@@ -522,7 +523,7 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | null, fe
 }
 
 /** Imagen de UNA estación específica (ej. "E-Norte") — para los nodos de Distrito/Estación. Incluye las líneas internas de CAI. */
-export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
+export async function generarImagenMapaEstacion(nombreEstacionCorta: string, delitoFiltrado: string | readonly string[] | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     // Misma prioridad que en generarImagenMapaGeneral: construir el
     // contorno de la Estación uniendo sus propios CAI (Norte = CAI 1-4,
@@ -621,7 +622,7 @@ export async function generarImagenMapaEstacion(nombreEstacionCorta: string, del
  * polígonos de la capa de jurisdicción). Los puntos del mapa de calor son
  * solo los de las estaciones de ese distrito.
  */
-export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
+export async function generarImagenMapaDistrito(distrito: 'UNO' | 'DOS', delitoFiltrado: string | readonly string[] | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   const nombreNodo = distrito === 'UNO' ? 'Distrito Uno' : 'Distrito Dos';
   const clave = tipoCapa ? `${nombreNodo} (${tipoCapa === 'operatividad' ? 'Operatividad' : 'RNMC'})` : nombreNodo;
   try {
@@ -774,7 +775,7 @@ export async function generarImagenesParaNodosOperatividad(nodos: NodoMicrogeren
 }
 
 /** Imagen de UN CAI específico (ej. "CAI 4") — recortada solo a su propio polígono. */
-export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
+export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: string | readonly string[] | null, fechaInicial?: string | null, fechaFinal?: string | null, tipoCapa?: 'operatividad' | 'rnmc'): Promise<string | undefined> {
   try {
     const localizada = await localizarCapaDeCai();
     if (!localizada) {

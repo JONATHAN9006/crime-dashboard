@@ -3,11 +3,13 @@ import { useData } from '../context/DataContext';
 import { useVentanaComparativa } from './useComparativoHomologo';
 import type { CrimeRecord } from '../types/crime';
 import { formatFecha } from '../utils/aggregations';
-import type { DatosMicrogerencia, NodoMicrogerencia, PuntoMes, PuntoTrimestre } from '../data/microgerencia';
+import type { AjustesMicrogerencia, DatosMicrogerencia, NodoMicrogerencia, PuntoMes, PuntoTrimestre } from '../data/microgerencia';
+import { aplicarFiltros } from '../utils/filters';
+import type { FilterState } from '../types/crime';
 
-const ESTACIONES_DISTRITO_1 = ['E-Norte', 'E-Sur'] as const;
-const ESTACIONES_DISTRITO_2 = ['E-Timbio', 'E-Coconuco', 'E-Sotara'] as const;
-const NOMBRES_ESTACION: Record<string, string> = {
+export const ESTACIONES_DISTRITO_1 = ['E-Norte', 'E-Sur'] as const;
+export const ESTACIONES_DISTRITO_2 = ['E-Timbio', 'E-Coconuco', 'E-Sotara'] as const;
+export const NOMBRES_ESTACION: Record<string, string> = {
   'E-Norte': 'Estación Norte', 'E-Sur': 'Estación Sur',
   'E-Timbio': 'Estación Timbio', 'E-Coconuco': 'Estación Coconuco', 'E-Sotara': 'Estación Sotara',
 };
@@ -40,8 +42,27 @@ function ordenarCai(a: string, b: string): number {
  * Trimestres, Meses) en cada nivel — estación, CAI, zona de atención y
  * delito — para no perder esa estructura.
  */
-export function useMicrogerencia(): DatosMicrogerencia | null {
-  const { records, recordsBase, filters, meta } = useData();
+export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMicrogerencia | null {
+  const { records, recordsBase: recordsBaseDashboard, registrosVisibles, filters: filtrosDashboard, meta } = useData();
+  // Asistente: delitos, periodo y barrios propios; la parte territorial la
+  // maneja el árbol (Distrito/Estación/CAI/Zona), así que los filtros
+  // territoriales del dashboard no se aplican aquí. Los demás filtros del
+  // dashboard (armas, modalidad, hora…) se respetan como siempre.
+  const filters: FilterState = useMemo(() => (ajustes
+    ? {
+      ...filtrosDashboard,
+      delito: ajustes.delitos,
+      barrioHecho: ajustes.barrios,
+      municipio: [], estacion: [], cai: [], cuadrante: [],
+      anio: ajustes.anio ? [ajustes.anio] : [], mes: [],
+      fechaInicial: ajustes.fechaInicial, fechaFinal: ajustes.fechaFinal,
+    }
+    : filtrosDashboard), [ajustes, filtrosDashboard]);
+  const recordsBaseAjustada = useMemo(
+    () => (ajustes ? aplicarFiltros(registrosVisibles, { ...filters, anio: [], mes: [], fechaInicial: null, fechaFinal: null }) : null),
+    [ajustes, registrosVisibles, filters],
+  );
+  const recordsBase = recordsBaseAjustada ?? recordsBaseDashboard;
   const ventana = useVentanaComparativa(recordsBase, filters, records, meta?.fechaMaxParametro);
 
   return useMemo(() => {
@@ -93,28 +114,36 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
           .map((delito) => calcularNodo(delito, (r) => pred(r) && r.delito === delito, [], false))
           .sort((a, b) => b.fecha2026 - a.fecha2026);
       }
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: delitosDelNodo, hijos, barrios };
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: delitosDelNodo.map((d) => ({ ...d, tipo: 'delito' as const })), hijos, barrios };
     }
 
     function cuadrantesDe(estacion: string, caiFiltro: string | null): NodoMicrogerencia[] {
       const universo = recsActual.filter((r) => r.estacion === estacion && (!caiFiltro || r.cai === caiFiltro) && r.cuadrante && r.cuadrante !== 'No Reportado');
       const cuadrantes = Array.from(new Set(universo.map((r) => r.cuadrante))).sort((a, b) => a.localeCompare(b, 'es'));
-      return cuadrantes.map((cua) => calcularNodo(cua, (r) => r.estacion === estacion && r.cuadrante === cua && (!caiFiltro || r.cai === caiFiltro)));
+      return cuadrantes.map((cua) => ({ ...calcularNodo(cua, (r) => r.estacion === estacion && r.cuadrante === cua && (!caiFiltro || r.cai === caiFiltro)), estacion, tipo: 'zona' as const }));
     }
 
     function caisDe(estacion: string): NodoMicrogerencia[] {
       const universo = recsActual.filter((r) => r.estacion === estacion && r.cai && r.cai !== 'No Reportado');
       const cais = Array.from(new Set(universo.map((r) => r.cai))).sort(ordenarCai);
-      return cais.map((cai) => calcularNodo(cai, (r) => r.estacion === estacion && r.cai === cai, cuadrantesDe(estacion, cai)));
+      return cais.map((cai) => ({ ...calcularNodo(cai, (r) => r.estacion === estacion && r.cai === cai, cuadrantesDe(estacion, cai)), estacion, tipo: 'cai' as const }));
     }
 
-    const nodosDistrito1 = ESTACIONES_DISTRITO_1.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)));
-    const distrito1 = calcularNodo('Distrito Uno', (r) => (ESTACIONES_DISTRITO_1 as readonly string[]).includes(r.estacion), nodosDistrito1);
+    const nodosDistrito1 = ESTACIONES_DISTRITO_1.map((est) => ({ ...calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)), estacion: est, tipo: 'estacion' as const }));
+    const distrito1 = { ...calcularNodo('Distrito Uno', (r) => (ESTACIONES_DISTRITO_1 as readonly string[]).includes(r.estacion), nodosDistrito1), tipo: 'distrito' as const };
 
-    const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, cuadrantesDe(est, null)));
-    const distrito2 = calcularNodo('Distrito Dos', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2);
+    const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => ({ ...calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, cuadrantesDe(est, null)), estacion: est, tipo: 'estacion' as const }));
+    const distrito2 = { ...calcularNodo('Distrito Dos', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2), tipo: 'distrito' as const };
 
-    const general = calcularNodo('MEPOY General — Consolidado', () => true, [distrito1, distrito2]);
+    const general = { ...calcularNodo('MEPOY General — Consolidado', () => true, [distrito1, distrito2]), tipo: 'general' as const };
+
+    // Zonas de atención por estación (una por estación + zona, sin partir
+    // por CAI) — para la cobertura «Zonas de Atención» del asistente.
+    const zonas: NodoMicrogerencia[] = [...ESTACIONES_DISTRITO_1, ...ESTACIONES_DISTRITO_2].flatMap((est) => {
+      const nombres = Array.from(new Set([...recsActual, ...recsAnterior].filter((r) => r.estacion === est && r.cuadrante && r.cuadrante !== 'No Reportado').map((r) => r.cuadrante)))
+        .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+      return nombres.map((cua) => ({ ...calcularNodo(cua, (r) => r.estacion === est && r.cuadrante === cua), estacion: est, tipo: 'zona' as const }));
+    });
     const delitos = general.delitos;
 
     return {
@@ -134,8 +163,9 @@ export function useMicrogerencia(): DatosMicrogerencia | null {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       })(),
       delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
-      general, distrito1, distrito2, delitos,
+      general, distrito1, distrito2, delitos, zonas,
+      delitosSeleccionados: [...filters.delito],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ventana, filters.delito]);
+  }, [ventana, filters.delito, filters.barrioHecho]);
 }

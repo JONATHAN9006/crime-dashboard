@@ -35,6 +35,10 @@ export interface NodoMicrogerencia {
   // los propios nodos de delito (evita anidar delito-dentro-de-delito).
   delitos: NodoMicrogerencia[];
   hijos: NodoMicrogerencia[];
+  /** Código de estación del dataset (ej. "E-Norte") en nodos de estación, CAI y zona. */
+  estacion?: string;
+  /** Tipo de nodo (para armar la selección territorial del asistente). */
+  tipo?: 'general' | 'distrito' | 'estacion' | 'cai' | 'zona' | 'delito';
   /** Barrios con más casos en el año actual a la fecha (solo nodos territoriales). */
   barrios?: { nombre: string; casos: number }[];
 }
@@ -56,4 +60,25 @@ export interface DatosMicrogerencia {
   distrito1: NodoMicrogerencia;
   distrito2: NodoMicrogerencia;
   delitos: NodoMicrogerencia[];
+  /** Zonas de atención por estación (una por estación + zona, sin partir por CAI). */
+  zonas?: NodoMicrogerencia[];
+  /** Delitos seleccionados (lista completa) — para filtrar mapas. */
+  delitosSeleccionados?: string[];
+}
+
+/** Ajustes propios del asistente de Microgerencia sobre los filtros del dashboard. */
+export interface AjustesMicrogerencia {
+  /** Delitos (vacío = todos). */
+  delitos: string[];
+  /** Año de análisis (vacío = vigencia actual). */
+  anio: string;
+  fechaInicial: string | null;
+  fechaFinal: string | null;
+  /** Barrios (vacío = todos, como siempre). */
+  barrios: string[];
+}
+
+/** Nombre para mostrar de una unidad (la estación de Sotará tiene sede en Paispamba). */
+export function nombreVisibleUnidad(nombre: string): string {
+  return nombre.replace(/Estación Sotara\b/g, 'Estación Paispamba').replace(/\bE-Sotara\b/g, 'E-Paispamba');
 }

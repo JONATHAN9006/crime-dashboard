@@ -85,6 +85,8 @@ interface DataContextValue {
   remoteMeta: { ultimaActualizacion: string | null; ultimoUsuario: string | null } | null;
   sincronizar: () => Promise<void>;
   recordsBase: CrimeRecord[];
+  /** Registros que el dashboard puede mostrar (sin delitos excluidos; en piloto, solo Popayán), SIN ningún filtro. */
+  registrosVisibles: CrimeRecord[];
   /** Filtro global AUMENTO / DISMINUCIÓN (botones de «Comparativo de delitos» en Resumen). */
   tendenciaDelitos: { aumento: boolean; disminucion: boolean };
   setTendenciaDelitos: (t: { aumento: boolean; disminucion: boolean }) => void;
@@ -947,6 +949,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     remoteMeta,
     sincronizar,
     recordsBase,
+    registrosVisibles,
     tendenciaDelitos,
     setTendenciaDelitos,
     delitosTendencia,

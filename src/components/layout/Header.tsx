@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Menu, FolderOpen, Info, RefreshCw, Cloud, CloudOff, FileDown, X, Map as MapIcon } from 'lucide-react';
-import { SelectorFuentesMicrogerencia } from '../microgerencia/SelectorFuentesMicrogerencia';
+import { AsistenteMicrogerencia } from '../microgerencia/AsistenteMicrogerencia';
 import { obtenerModoAcceso } from '../../utils/modoAcceso';
 import { DASHBOARD_ACCESS } from '../../config/dashboardAccess';
 import { useData } from '../../context/DataContext';
@@ -101,7 +101,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
           </div>
         </div>
       </header>
-      {mostrarMicrogerencia && <SelectorFuentesMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
+      {mostrarMicrogerencia && <AsistenteMicrogerencia onCerrar={() => setMostrarMicrogerencia(false)} />}
       <UpdateDataModal abierto={modalAbierto} onCerrar={() => setModalAbierto(false)} />
     </>
   );

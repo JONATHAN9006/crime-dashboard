@@ -1,13 +1,11 @@
-import { agruparCircunstancia, cuentaComoOperatividad } from '../../utils/operatividadConteo';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Download, TrendingUp, TrendingDown, Minus, ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react';
 import type { NodoMicrogerencia } from '../../data/microgerencia';
 import { useMicrogerencia } from '../../hooks/useMicrogerencia';
-import { generarImagenMapaGeneral, generarImagenMapaDistrito, generarImagenMapaEstacion, generarImagenMapaCai, generarImagenMapaGeneralPorTipo, generarImagenesParaNodosOperatividad, esNombreDeEstacion, esNombreDeCai } from '../../data/microgerenciaMapas';
-import { generarPdfMicrogerencia, dibujarSeccionResumenSimple, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import { imagenesParaNodos, grupoOperatividad, paginaDetalleOperatividad, seccionRnmc } from '../../data/microgerenciaGeneracion';
+import { generarPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
-import { cargarComparendos } from '../../data/rnmcStorage';
 import { useData } from '../../context/DataContext';
 import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
@@ -239,168 +237,19 @@ export function ModalMicrogerencia({ onCerrar, fuentesAdicionales = [] }: { onCe
 
   const raizVistaActual = vista === 'general' ? datos.general : vista === 'distrito1' ? datos.distrito1 : vista === 'distrito2' ? datos.distrito2 : null;
 
-  // Genera el mapa real (calles + mapa de calor) para "MEPOY General"
-  // (todo Popayán), las estaciones (ej. "E-Norte") y, a pedido explícito,
-  // también cada CAI — antes se omitía a propósito por rendimiento
-  // (podían ser 10+ mapas más por PDF); ahora si el usuario lo pide, se
-  // genera igual, solo tarda un poco más en construirse.
-  async function generarImagenesParaNodos(nodos: NodoMicrogerencia[], delitoFiltrado: string | null): Promise<Map<string, string>> {
-    const mapa = new Map<string, string>();
-    // Mismo periodo ("año actual a la fecha") que usan todos los demás
-    // números de esta Microgerencia — antes el mapa de calor no recibía
-    // ninguna fecha y siempre usaba TODO el histórico, sin importar la
-    // vigencia que se estuviera mostrando.
-    const { actualInicio, actualFin } = datos!;
-    for (const nodo of nodos) {
-      if (nodo.nombre === 'MEPOY General — Consolidado') {
-        const img = await generarImagenMapaGeneral(delitoFiltrado, actualInicio, actualFin);
-        if (img) mapa.set(nodo.nombre, img);
-      } else if (nodo.nombre === 'Distrito Uno' || nodo.nombre === 'Distrito Dos') {
-        // Distrito Uno = Estación Norte + Sur; Distrito Dos = Timbío +
-        // Coconuco + Sotará — antes estos nodos no tenían ninguna lógica
-        // de mapa y salían siempre sin imagen.
-        const img = await generarImagenMapaDistrito(nodo.nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitoFiltrado, actualInicio, actualFin);
-        if (img) mapa.set(nodo.nombre, img);
-      } else if (esNombreDeEstacion(nodo.nombre)) {
-        const img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
-        if (img) mapa.set(nodo.nombre, img);
-      } else if (esNombreDeCai(nodo.nombre)) {
-        const img = await generarImagenMapaCai(nodo.nombre, delitoFiltrado, actualInicio, actualFin);
-        if (img) mapa.set(nodo.nombre, img);
-      }
-    }
-    return mapa;
-  }
-
-  // Secciones extra (Operatividad, RNMC) — una página resumen por fuente
-  // seleccionada en el paso anterior (SelectorFuentesMicrogerencia), cada
-  // una con sus propios totales, un par de rankings y su propio mapa
-  // general. Delictividad NO pasa por aquí — sigue su camino de siempre,
-  // con todo el árbol Distrito/Estación/CAI.
-  // Traduce el NOMBRE de un nodo de Delictividad al nodo EQUIVALENTE de
-  // Operatividad — a pedido explícito: si en Delictividad se elige
-  // "Distrito Uno" (o una Estación o un CAI puntual), Operatividad debe
-  // traer SOLO eso, no el árbol completo siempre. El nivel de CAI se
-  // resuelve cruzando el cuadrante de Operatividad con el CAI de
-  // Delictividad (ver useMicrogerenciaOperatividad.ts) — Operatividad no
-  // trae CAI como columna propia.
-  function nodoOperatividadEquivalente(nombreDelictividad: string): NodoMicrogerencia | null {
-    if (!datosOperatividad) return null;
-    if (nombreDelictividad === 'MEPOY General — Consolidado') return datosOperatividad.general;
-    if (nombreDelictividad === 'Distrito Uno') return datosOperatividad.distrito1;
-    if (nombreDelictividad === 'Distrito Dos') return datosOperatividad.distrito2;
-    const todasLasEstaciones = [...datosOperatividad.distrito1.hijos, ...datosOperatividad.distrito2.hijos];
-    const porEstacion = todasLasEstaciones.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
-    if (porEstacion) return porEstacion;
-    // Nivel de CAI — cruzado con Delictividad (ver useMicrogerenciaOperatividad.ts).
-    for (const estacion of todasLasEstaciones) {
-      const cai = estacion.hijos.find((n) => n.nombre === `${nombreDelictividad} (Operatividad)`);
-      if (cai) return cai;
-    }
-    return null;
-  }
-
-  // (datosOperatividad y filteredOperatividadRecords se leen arriba, antes
-  // del return temprano: los hooks deben llamarse siempre en el mismo orden.)
-
-  // Detalle propio de Operatividad que NO cabe en la tarjeta estándar de
-  // dibujarTarjetaNodo (pensada para delito/estación) — a pedido
-  // explícito: circunstancia de captura, clase/tipo de bien, marca,
-  // ciudad, país, permiso de arma, turno, zona y situación jurídica. Va
-  // como una página aparte, después del árbol Distrito/Estación.
-  function construirPaginaDetalleOperatividad(): SeccionExtraMicrogerencia | null {
-    if (!fuentesAdicionales.includes('operatividad') || filteredOperatividadRecords.length === 0) return null;
-    const rank = (campo: (r: typeof filteredOperatividadRecords[number]) => string) => {
-      const m = new Map<string, number>();
-      for (const r of filteredOperatividadRecords) {
-        if (!cuentaComoOperatividad(r)) continue; // conteo oficial; la droga va por cantidad
-        const v = campo(r);
-        if (v) m.set(v, (m.get(v) || 0) + 1);
-      }
-      return Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
-    };
-    const rankings = [
-      { titulo: 'Circunstancia de captura', filas: rank((r) => agruparCircunstancia(r.circunstanciaCaptura)) },
-      { titulo: 'Clase de bien', filas: rank((r) => r.claseBien) },
-      { titulo: 'Tipo de bien', filas: rank((r) => r.tipoBien) },
-      { titulo: 'Marca', filas: rank((r) => r.marca) },
-      { titulo: 'Ciudad', filas: rank((r) => r.ciudad) },
-      { titulo: 'País (persona)', filas: rank((r) => r.paisPersona) },
-      { titulo: 'Permiso de arma', filas: rank((r) => r.permisoArma) },
-      { titulo: 'Turno', filas: rank((r) => r.turno) },
-      { titulo: 'Zona', filas: rank((r) => r.zona) },
-      { titulo: 'Situación jurídica', filas: rank((r) => r.situacionJuridica) },
-    ].filter((r) => r.filas.length > 0);
-    if (rankings.length === 0) return null;
-    return {
-      alturaPagina: 80 + rankings.length * 42,
-      dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
-        titulo: 'Operatividad — Detalle',
-        subtitulo: `${filteredOperatividadRecords.length.toLocaleString('es-CO')} registro(s) — circunstancia, bienes, ubicación y situación jurídica`,
-        estadisticas: [],
-        rankings,
-      }),
-    };
-  }
-
-  // Operatividad — MISMA lógica de componentes que Delictividad: se arma
-  // el mismo tipo de árbol (general + Distrito Uno/Dos + sus estaciones,
-  // cada uno con su Top 10 de categorías, trimestres, meses y mapa propio
-  // — ver useMicrogerenciaOperatividad.ts) y se dibuja con la MISMA
-  // función de tarjeta (dibujarTarjetaNodo), así que sale con el mismo
-  // tamaño de hoja y el mismo diseño, sin ninguna lógica aparte.
-  async function construirGrupoOperatividad(nombresDelictividadSeleccionados: string[]): Promise<{ nodos: NodoMicrogerencia[]; imagenes: Map<string, string> } | null> {
-    if (!fuentesAdicionales.includes('operatividad') || !datosOperatividad) return null;
-    const nodos = nombresDelictividadSeleccionados
-      .map((nombre) => nodoOperatividadEquivalente(nombre))
-      .filter((n): n is NodoMicrogerencia => n !== null);
-    // Sin equivalentes (ej. todo lo elegido era a nivel de CAI, o no había
-    // Distrito/Estación/General en la selección) — no se agrega nada de
-    // Operatividad en vez de, por defecto, mandar el árbol completo.
-    if (nodos.length === 0) return null;
-    const imagenes = await generarImagenesParaNodosOperatividad(nodos, datosOperatividad.actualInicio, datosOperatividad.actualFin);
-    return { nodos, imagenes };
-  }
-
+  // Piezas compartidas con el asistente (ver data/microgerenciaGeneracion.ts).
+  const generarImagenesParaNodos = (nodos: NodoMicrogerencia[], _delito: string | null) => imagenesParaNodos(nodos, datos!.delitosSeleccionados?.length ? datos!.delitosSeleccionados : null, datos!.actualInicio, datos!.actualFin);
+  const construirGrupoOperatividad = (nombres: string[]) => (fuentesAdicionales.includes('operatividad') ? grupoOperatividad(datosOperatividad, nombres) : Promise.resolve(null));
   async function construirSeccionesExtra(): Promise<SeccionExtraMicrogerencia[]> {
     const secciones: SeccionExtraMicrogerencia[] = [];
-    const detalleOperatividad = construirPaginaDetalleOperatividad();
-    if (detalleOperatividad) secciones.push(detalleOperatividad);
-
-    if (fuentesAdicionales.includes('rnmc')) {
-      const guardado = await cargarComparendos();
-      const registros = guardado?.registros ?? [];
-      if (registros.length > 0) {
-        const porComportamiento = new Map<string, number>();
-        const porComuna = new Map<string, number>();
-        const porZona = new Map<string, number>();
-        for (const r of registros) {
-          if (r.articuloNumeral) porComportamiento.set(r.articuloNumeral, (porComportamiento.get(r.articuloNumeral) || 0) + 1);
-          if (r.comuna) porComuna.set(r.comuna, (porComuna.get(r.comuna) || 0) + 1);
-          if (r.zonaAtencionHechos) porZona.set(r.zonaAtencionHechos, (porZona.get(r.zonaAtencionHechos) || 0) + 1);
-        }
-        const rank = (m: Map<string, number>) => Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
-        const imagenMapa = await generarImagenMapaGeneralPorTipo('rnmc', ['#fbcfe8', '#f472b6', '#ec4899', '#831843']);
-        secciones.push({
-          alturaPagina: 190,
-          dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
-            titulo: 'RNMC — Registro Nacional de Medidas Correctivas',
-            subtitulo: `${registros.length.toLocaleString('es-CO')} comparendo(s)`,
-            estadisticas: [
-              { valor: String(registros.length), etiqueta: 'Comparendos' },
-              { valor: String(porComuna.size), etiqueta: 'Comunas' },
-              { valor: String(porZona.size), etiqueta: 'Zonas de atención' },
-            ],
-            rankings: [
-              { titulo: 'Comportamientos más registrados', filas: rank(porComportamiento) },
-              { titulo: 'Comunas con más comparendos', filas: rank(porComuna) },
-            ],
-            imagenMapa,
-          }),
-        });
-      }
+    if (fuentesAdicionales.includes('operatividad')) {
+      const detalle = paginaDetalleOperatividad(filteredOperatividadRecords);
+      if (detalle) secciones.push(detalle);
     }
-
+    if (fuentesAdicionales.includes('rnmc')) {
+      const rnmc = await seccionRnmc();
+      if (rnmc) secciones.push(rnmc);
+    }
     return secciones;
   }
 

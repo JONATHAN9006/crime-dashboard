@@ -4,7 +4,8 @@
 // Delitos | Distribución por mes) — cada uno con su propio color, tal como
 // se pidió — con letra más grande para que se lea bien impreso.
 import { jsPDF } from 'jspdf';
-import type { NodoMicrogerencia } from './microgerencia';
+import { nombreVisibleUnidad, type NodoMicrogerencia } from './microgerencia';
+import { hallazgosNodo, notaCalidadDato } from './microgerenciaTextos';
 import { obtenerMotivoSinMapa } from './microgerenciaMapas';
 
 // Vertical (Carta/A4 en pie) en vez de horizontal — a pedido explícito:
@@ -176,18 +177,67 @@ function altoTablaDelitos(cantidad: number, dim: Dimensiones): number {
   return dim.altoEncabezadoBloque + dim.altoFilaDelitos * cantidad + dim.altoMargenInferiorBloque;
 }
 
-function altoBandaTresColumnas(nodo: NodoMicrogerencia, dim: Dimensiones): number {
-  const altoMeses = dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 12 + dim.altoMargenInferiorBloque;
-  const altoTrimestres = dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 4 + dim.altoMargenInferiorBloque;
+/**
+ * Componentes que lleva cada tarjeta (asistente de Microgerencia). Sin
+ * opciones, el PDF sale EXACTAMENTE como siempre (todo menos los bloques
+ * nuevos de barrios, hallazgos y calidad del dato).
+ */
+export interface OpcionesPdfMicrogerencia {
+  metricas: boolean;
+  proyeccion: boolean;
+  trimestres: boolean;
+  meses: boolean;
+  delitos: boolean;
+  mapa: boolean;
+  topBarrios: 0 | 3 | 5;
+  hallazgos: boolean;
+  calidad: boolean;
+  /** Para los textos de hallazgos / calidad. */
+  anioActual?: number;
+  anioAnterior?: number;
+  fechaCorte?: string;
+  /** Líneas de la ficha del informe (fuentes, cobertura, periodo, delitos…), arriba de la primera página. */
+  ficha?: string[];
+}
+const OPCIONES_POR_DEFECTO: OpcionesPdfMicrogerencia = {
+  metricas: true, proyeccion: true, trimestres: true, meses: true, delitos: true, mapa: true, topBarrios: 0, hallazgos: false, calidad: false,
+};
+
+interface ColumnaBanda { tipo: 'col1' | 'meses' | 'mapa'; x: number; ancho: number }
+/** Columnas presentes en la banda (Trimestres+Delitos · Meses · Mapa), repartiendo el ancho entre las que haya. */
+function layoutBanda(nodo: NodoMicrogerencia, dim: Dimensiones, op: OpcionesPdfMicrogerencia): { columnas: ColumnaBanda[]; alto: number; altoCol1: number; altoMeses: number } {
+  const altoTrimestres = op.trimestres ? dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 4 + dim.altoMargenInferiorBloque : 0;
   // Columna 1 apila Trimestres + Top 10 delitos (no todos) — así nunca
   // queda desproporcionadamente más alta que Meses o el mapa.
-  const cantidadDelitosMostrados = Math.min(nodo.delitos.length, 10);
-  const altoColumna1 = altoTrimestres + dim.paddingTarjeta + altoTablaDelitos(cantidadDelitosMostrados, dim);
-  return Math.max(altoMeses, altoColumna1);
+  const cantidadDelitosMostrados = op.delitos ? Math.min(nodo.delitos.length, 10) : 0;
+  const altoDel = altoTablaDelitos(cantidadDelitosMostrados, dim);
+  const altoCol1 = altoTrimestres + (altoTrimestres && altoDel ? dim.paddingTarjeta : 0) + altoDel;
+  const altoMeses = op.meses ? dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 12 + dim.altoMargenInferiorBloque : 0;
+  const pesos: { tipo: ColumnaBanda['tipo']; peso: number }[] = [];
+  if (altoCol1 > 0) pesos.push({ tipo: 'col1', peso: 0.34 });
+  if (altoMeses > 0) pesos.push({ tipo: 'meses', peso: 0.26 });
+  if (op.mapa) pesos.push({ tipo: 'mapa', peso: 0.40 });
+  const total = pesos.reduce((a, p) => a + p.peso, 0) || 1;
+  const anchoDisponible = ANCHO_UTIL - dim.paddingTarjeta * Math.max(0, pesos.length - 1);
+  let x = MARGEN;
+  const columnas = pesos.map((p) => {
+    const ancho = (anchoDisponible * p.peso) / total;
+    const col = { tipo: p.tipo, x, ancho };
+    x += ancho + dim.paddingTarjeta;
+    return col;
+  });
+  let alto = Math.max(altoCol1, altoMeses);
+  if (op.mapa && alto === 0) alto = 95 * dim.escala; // solo mapa
+  return { columnas, alto, altoCol1, altoMeses };
 }
 
-function altoDeTarjeta(nodo: NodoMicrogerencia, dim: Dimensiones): number {
-  return dim.altoTituloTarjeta + dim.altoFilaMetricas + altoBandaTresColumnas(nodo, dim) + dim.paddingTarjeta * 3;
+function altoBloqueEjecutivo(op: OpcionesPdfMicrogerencia, dim: Dimensiones): number {
+  if (!op.topBarrios && !op.hallazgos && !op.calidad) return 0;
+  return 50 * dim.escala + dim.paddingTarjeta;
+}
+
+function altoDeTarjeta(nodo: NodoMicrogerencia, dim: Dimensiones, op: OpcionesPdfMicrogerencia = OPCIONES_POR_DEFECTO): number {
+  return dim.altoTituloTarjeta + (op.metricas ? dim.altoFilaMetricas : 0) + layoutBanda(nodo, dim, op).alto + altoBloqueEjecutivo(op, dim) + dim.paddingTarjeta * 3;
 }
 
 /**
@@ -293,7 +343,9 @@ export interface SeccionExtraMicrogerencia {
   dibujarContenido: (pdf: any, xInicio: number, yInicio: number, anchoUtil: number) => number;
 }
 
-export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>, seccionesExtra?: SeccionExtraMicrogerencia[]): Promise<void> {
+export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>, seccionesExtra?: SeccionExtraMicrogerencia[], opcionesPdf?: Partial<OpcionesPdfMicrogerencia>, nombreArchivo = 'microgerencia-mepoy.pdf'): Promise<void> {
+  const op: OpcionesPdfMicrogerencia = { ...OPCIONES_POR_DEFECTO, ...(opcionesPdf ?? {}) };
+  const ALTO_FICHA = op.ficha && op.ficha.length > 0 ? 8 + op.ficha.length * 4.6 : 0;
   const [encabezadoBase64, pieBase64] = await Promise.all([
     cargarImagenBase64('/assets/microgerencia-header.png'),
     cargarImagenBase64('/assets/microgerencia-footer.png'),
@@ -318,12 +370,15 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // terminara mucho antes, dejando un espacio en blanco grande entre el
   // contenido y el pie. Ahora la hoja termina justo donde termina el pie.
   function alturaYEscalaParaNodo(nodo: NodoMicrogerencia): { alturaPagina: number; escala: number } {
-    const alturaNatural = Y_TOPE_PAGINA_FRESCA + altoDeTarjeta(nodo, crearDimensiones(1)) + 6 + 8 + ALTO_FOOTER;
+    const extraFicha = nodo === nodos[0] ? ALTO_FICHA : 0;
+    const alturaNatural = Y_TOPE_PAGINA_FRESCA + extraFicha + altoDeTarjeta(nodo, crearDimensiones(1), op) + 6 + 8 + ALTO_FOOTER;
     if (alturaNatural <= MAX_ALTO_PAGINA) return { alturaPagina: alturaNatural, escala: 1 };
-    return { alturaPagina: MAX_ALTO_PAGINA, escala: 1 - (alturaNatural - MAX_ALTO_PAGINA) / altoDeTarjeta(nodo, crearDimensiones(1)) };
+    return { alturaPagina: MAX_ALTO_PAGINA, escala: 1 - (alturaNatural - MAX_ALTO_PAGINA) / altoDeTarjeta(nodo, crearDimensiones(1), op) };
   }
 
-  const primeraAltura = nodos.length > 0 ? alturaYEscalaParaNodo(nodos[0]) : { alturaPagina: MM_ALTO, escala: 1 };
+  // Sin tarjetas (ej. solo RNMC): la primera página es la de la primera sección extra.
+  const extrasIniciales = nodos.length === 0 && seccionesExtra && seccionesExtra.length > 0;
+  const primeraAltura = nodos.length > 0 ? alturaYEscalaParaNodo(nodos[0]) : { alturaPagina: extrasIniciales ? seccionesExtra![0].alturaPagina + ALTO_FICHA : MM_ALTO, escala: 1 };
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [MM_ANCHO, primeraAltura.alturaPagina] });
   let y = 0;
 
@@ -366,8 +421,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
       { etiqueta: 'DIF', valor: `${nodo.dif >= 0 ? '+' : ''}${formatearNumero(nodo.dif)}`, color: colorPorDif(nodo.dif) },
       { etiqueta: '%', valor: formatearPct(nodo.pct), color: colorPorDif(nodo.dif) },
       { etiqueta: 'APORTE %', valor: `${nodo.aportePct.toFixed(1)}%`, color: COLOR_TEXTO },
-      { etiqueta: 'PROYECTADO 2026', valor: formatearNumero(nodo.terminaAnio), color: COLOR_TEXTO },
-      { etiqueta: 'PROY. VS 2025', valor: `${difProyeccion >= 0 ? '+' : ''}${formatearNumero(difProyeccion)} (${pctProyeccion === null ? 'N/A' : `${pctProyeccion >= 0 ? '+' : ''}${pctProyeccion.toFixed(1)}%`})`, color: colorPorDif(difProyeccion) },
+      ...(op.proyeccion ? [
+        { etiqueta: 'PROYECTADO 2026', valor: formatearNumero(nodo.terminaAnio), color: COLOR_TEXTO },
+        { etiqueta: 'PROY. VS 2025', valor: `${difProyeccion >= 0 ? '+' : ''}${formatearNumero(difProyeccion)} (${pctProyeccion === null ? 'N/A' : `${pctProyeccion >= 0 ? '+' : ''}${pctProyeccion.toFixed(1)}%`})`, color: colorPorDif(difProyeccion) },
+      ] : []),
     ];
     const anchoColumna = ANCHO_UTIL / columnas.length;
     columnas.forEach((c, i) => {
@@ -556,6 +613,74 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     }
   }
 
+  // Bloque ejecutivo bajo la banda: Top barrios · Principales hallazgos ·
+  // Nota de calidad del dato (solo los que se eligieron en el asistente).
+  function dibujarBloqueEjecutivo(nodo: NodoMicrogerencia, dim: Dimensiones) {
+    const alto = 50 * dim.escala;
+    const partes: ('barrios' | 'hallazgos' | 'calidad')[] = [];
+    if (op.topBarrios) partes.push('barrios');
+    if (op.hallazgos) partes.push('hallazgos');
+    if (op.calidad) partes.push('calidad');
+    const pesos = { barrios: 0.28, hallazgos: 0.47, calidad: 0.25 };
+    const total = partes.reduce((a, p) => a + pesos[p], 0) || 1;
+    const anchoDisp = ANCHO_UTIL - dim.paddingTarjeta * (partes.length - 1);
+    let x = MARGEN;
+    const fs = 7.4 * dim.escala;
+    const altoLinea = fs * 0.43;
+    for (const parte of partes) {
+      const ancho = (anchoDisp * pesos[parte]) / total;
+      const fondo: [number, number, number] = parte === 'calidad' ? [251, 243, 223] : [236, 247, 240];
+      pdf.setFillColor(...fondo);
+      pdf.roundedRect(x, y, ancho, alto, 2, 2, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(BASE_FS.tituloBloque * dim.escala);
+      pdf.setTextColor(...(parte === 'calidad' ? [146, 94, 14] as [number, number, number] : COLOR_GREEN));
+      const titulo = parte === 'barrios' ? `TOP ${op.topBarrios} BARRIOS (${op.anioActual ?? ''})` : parte === 'hallazgos' ? 'PRINCIPALES HALLAZGOS' : 'CALIDAD DEL DATO';
+      pdf.text(titulo, x + dim.paddingTarjeta, y + 6 * dim.escala);
+      let fy = y + 11.5 * dim.escala;
+      pdf.setFontSize(fs);
+      if (parte === 'barrios') {
+        const lista = (nodo.barrios ?? []).slice(0, op.topBarrios);
+        if (lista.length === 0) {
+          pdf.setFont('helvetica', 'italic'); pdf.setTextColor(...COLOR_MUTED);
+          pdf.text('Sin barrios reportados en el periodo.', x + dim.paddingTarjeta, fy);
+        }
+        lista.forEach((b, i) => {
+          pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...COLOR_GREEN);
+          pdf.text(`${i + 1}.`, x + dim.paddingTarjeta, fy);
+          pdf.setFont('helvetica', 'normal'); pdf.setTextColor(...COLOR_TEXTO);
+          pdf.text(b.nombre, x + dim.paddingTarjeta + 5 * dim.escala, fy, { maxWidth: ancho * 0.55 });
+          pdf.setFont('helvetica', 'bold');
+          const pct = nodo.fecha2026 > 0 ? (b.casos / nodo.fecha2026) * 100 : 0;
+          pdf.text(`${formatearNumero(b.casos)} (${pct.toFixed(1)}%)`, x + ancho - dim.paddingTarjeta, fy, { align: 'right' });
+          fy += 6.5 * dim.escala;
+        });
+      } else if (parte === 'hallazgos') {
+        const items = hallazgosNodo(nodo, op.anioActual ?? new Date().getFullYear(), op.anioAnterior ?? new Date().getFullYear() - 1, op.fechaCorte ?? new Date().toISOString().slice(0, 10));
+        for (const [i, h] of items.entries()) {
+          const lineas: string[] = pdf.splitTextToSize(`${i + 1}. ${h.titulo}: ${h.texto}`, ancho - dim.paddingTarjeta * 2);
+          pdf.setFont('helvetica', 'normal'); pdf.setTextColor(...COLOR_TEXTO);
+          for (const linea of lineas) {
+            if (fy > y + alto - 2) break;
+            pdf.text(linea, x + dim.paddingTarjeta, fy);
+            fy += altoLinea + 0.4;
+          }
+          fy += 1.2 * dim.escala;
+        }
+      } else {
+        pdf.setFont('helvetica', 'normal'); pdf.setTextColor(...COLOR_TEXTO);
+        const texto = notaCalidadDato(op.anioActual ?? new Date().getFullYear(), op.fechaCorte ?? new Date().toISOString().slice(0, 10));
+        const lineas: string[] = pdf.splitTextToSize(texto, ancho - dim.paddingTarjeta * 2);
+        for (const linea of lineas) {
+          if (fy > y + alto - 2) break;
+          pdf.text(linea, x + dim.paddingTarjeta, fy);
+          fy += altoLinea + 0.4;
+        }
+      }
+      x += ancho + dim.paddingTarjeta;
+    }
+  }
+
   function dibujarTarjetaNodo(nodo: NodoMicrogerencia, imagenMapaDataUrl?: string) {
     // La tarjeta se dibuja SIEMPRE completa en una sola página — si a
     // tamaño normal (escala 1) no cabría en el espacio disponible, se
@@ -565,7 +690,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // "Distribución por mes" quedaba cortada antes de diciembre).
     const escala = alturaYEscalaPorNodo.get(nodo.nombre)!.escala;
     const dim = crearDimensiones(escala);
-    const altoTarjeta = altoDeTarjeta(nodo, dim);
+    const altoTarjeta = altoDeTarjeta(nodo, dim, op);
 
     pdf.setFillColor(...COLOR_TARJETA_FONDO);
     pdf.setDrawColor(226, 232, 240);
@@ -579,10 +704,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(BASE_FS.tituloTarjeta * dim.escala);
     pdf.setTextColor(...COLOR_GREEN);
-    pdf.text(nodo.nombre, MARGEN + dim.paddingTarjeta, y + 5.5 * dim.escala);
+    pdf.text(nombreVisibleUnidad(nodo.nombre), MARGEN + dim.paddingTarjeta, y + 5.5 * dim.escala);
     y += dim.altoTituloTarjeta;
 
-    dibujarMetricas(nodo, dim);
+    if (op.metricas) dibujarMetricas(nodo, dim);
     y += dim.paddingTarjeta / 2;
 
     // Columna 1: Trimestres arriba, Top 10 delitos debajo. Columna 2:
@@ -596,33 +721,37 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     // (nombre + 5 números) contra las 4 de Trimestres, así que necesita
     // más espacio; con el ancho anterior los números quedaban tan
     // apretados que se encimaban entre sí.
-    const anchoTrimestres = ANCHO_UTIL * 0.34;
-    const anchoTercera = ANCHO_UTIL * 0.40;
-    const anchoMeses = ANCHO_UTIL - anchoTrimestres - anchoTercera - dim.paddingTarjeta * 2;
-    const altoBanda = altoBandaTresColumnas(nodo, dim);
-
-    const xMeses = MARGEN + anchoTrimestres + dim.paddingTarjeta;
-    const xTercera = xMeses + anchoMeses + dim.paddingTarjeta;
-
-    const altoTrimestres = dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 4 + dim.altoMargenInferiorBloque;
-    dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, MARGEN, anchoTrimestres, altoTrimestres, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175], dim);
+    const banda = layoutBanda(nodo, dim, op);
+    const altoBanda = banda.alto;
     const yOriginal = y;
-    y += altoTrimestres + dim.paddingTarjeta;
-    // Debajo de Trimestres: Top 10 delitos (no todos) — así la columna 1
-    // nunca queda desproporcionadamente más alta que las otras dos.
-    const delitosTop10 = { ...nodo, delitos: nodo.delitos.slice(0, 10) };
-    dibujarBloqueDelitos(delitosTop10, MARGEN, anchoTrimestres, altoTablaDelitos(delitosTop10.delitos.length, dim), dim);
+    for (const col of banda.columnas) {
+      y = yOriginal;
+      if (col.tipo === 'col1') {
+        if (op.trimestres) {
+          const altoTrimestres = dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 4 + dim.altoMargenInferiorBloque;
+          dibujarBloqueTrimMes('TRIMESTRES', nodo.trimestres, col.x, col.ancho, altoTrimestres, COLOR_AZUL_CLARO, COLOR_AZUL_ALTERNO, [30, 64, 175], dim);
+          y += altoTrimestres + dim.paddingTarjeta;
+        }
+        if (op.delitos) {
+          // Top 10 delitos (no todos) — así la columna nunca queda
+          // desproporcionadamente más alta que las otras dos.
+          const delitosTop10 = { ...nodo, delitos: nodo.delitos.slice(0, 10) };
+          dibujarBloqueDelitos(delitosTop10, col.x, col.ancho, altoTablaDelitos(delitosTop10.delitos.length, dim), dim);
+        }
+      } else if (col.tipo === 'meses') {
+        // Su propia altura natural (12 filas fijas), nunca la de toda la banda.
+        dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, col.x, col.ancho, banda.altoMeses, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14], dim);
+      } else {
+        dibujarImagenMapaONodo(nodo, imagenMapaDataUrl, col.x, col.ancho, altoBanda, dim);
+      }
+    }
     y = yOriginal;
-
-    // "Distribución por mes" usa su propia altura natural (12 filas fijas)
-    // — NUNCA la altura compartida/estirada de toda la banda, que dejaba
-    // un espacio vacío feo debajo de diciembre cuando la columna de
-    // Delitos era más alta.
-    const altoMesesPropio = dim.altoEncabezadoBloque + dim.altoFilaTrimMes * 12 + dim.altoMargenInferiorBloque;
-    dibujarBloqueTrimMes('DISTRIBUCIÓN POR MES', nodo.meses, xMeses, anchoMeses, altoMesesPropio, COLOR_AMBAR_CLARO, COLOR_AMBAR_ALTERNO, [146, 64, 14], dim);
-    dibujarImagenMapaONodo(nodo, imagenMapaDataUrl, xTercera, anchoTercera, altoBanda, dim);
-
     y += altoBanda;
+    if (altoBloqueEjecutivo(op, dim) > 0) {
+      y += dim.paddingTarjeta;
+      dibujarBloqueEjecutivo(nodo, dim);
+      y += 50 * dim.escala;
+    }
     // Fuente/atribución — chica y discreta, debajo de cada tarjeta.
     pdf.setFont('helvetica', 'italic');
     pdf.setFontSize(6.5 * dim.escala);
@@ -652,10 +781,25 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   for (const nodo of nodos) {
     const original = imagenesPorNodo?.get(nodo.nombre);
     if (!original) continue;
+    if (!op.mapa) continue;
     const dim = crearDimensiones(alturaYEscalaPorNodo.get(nodo.nombre)!.escala);
-    const anchoTercera = ANCHO_UTIL * 0.40;
-    const altoBanda = altoBandaTresColumnas(nodo, dim);
-    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, anchoTercera - 8, altoBanda - 8));
+    const banda = layoutBanda(nodo, dim, op);
+    const colMapa = banda.columnas.find((c) => c.tipo === 'mapa');
+    if (!colMapa) continue;
+    imagenesAjustadas.set(nodo.nombre, await recortarImagenParaCobertura(original, colMapa.ancho - 8, banda.alto - 8));
+  }
+  if (ALTO_FICHA > 0 && op.ficha) {
+    pdf.setFillColor(236, 247, 240);
+    pdf.roundedRect(MARGEN - 5, y - 3, ANCHO_UTIL + 10, ALTO_FICHA - 2, 2.5, 2.5, 'F');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(10);
+    pdf.setTextColor(...COLOR_GREEN);
+    pdf.text('Configuración del informe', MARGEN, y + 2.5);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.2);
+    pdf.setTextColor(...COLOR_TEXTO);
+    op.ficha.forEach((linea, i) => pdf.text(linea, MARGEN, y + 7.5 + i * 4.6, { maxWidth: ANCHO_UTIL }));
+    y += ALTO_FICHA;
   }
   for (let i = 0; i < nodos.length; i++) {
     const nodo = nodos[i];
@@ -674,9 +818,11 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // Delictividad pero ANTES del pie (para que el pie, dibujado más abajo
   // sobre TODAS las páginas, también les llegue a estas).
   if (seccionesExtra) {
-    for (const seccion of seccionesExtra) {
-      pdf.addPage([MM_ANCHO, seccion.alturaPagina]);
-      dibujarEncabezadoPagina();
+    for (const [indice, seccion] of seccionesExtra.entries()) {
+      if (!(extrasIniciales && indice === 0)) {
+        pdf.addPage([MM_ANCHO, seccion.alturaPagina]);
+        dibujarEncabezadoPagina();
+      }
       const yFinal = seccion.dibujarContenido(pdf, MARGEN, y, ANCHO_UTIL);
       yFinalContenidoPorPagina.set(pdf.getNumberOfPages(), yFinal + 6);
     }
@@ -709,5 +855,63 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     fs.writeFileSync((globalThis as any).__TEST_OUTPUT_PATH__, Buffer.from(pdf.output('arraybuffer')));
     return;
   }
-  pdf.save('microgerencia-mepoy.pdf');
+  pdf.save(nombreArchivo);
+}
+
+/**
+ * «Tablas estadísticas» del asistente: una página con la tabla consolidada
+ * de TODAS las unidades del informe (mismas cifras de cada tarjeta).
+ */
+export function seccionTablaConsolidada(nodos: NodoMicrogerencia[], anioActual: number, anioAnterior: number): SeccionExtraMicrogerencia {
+  const ALTO_FILA = 6.4;
+  return {
+    alturaPagina: 70 + 18 + nodos.length * ALTO_FILA + 40,
+    dibujarContenido: (pdf, x, yInicio, ancho) => {
+      let y = yInicio;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(15);
+      pdf.setTextColor(...COLOR_GREEN);
+      pdf.text('Tabla estadística consolidada', x, y);
+      y += 5;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(...COLOR_MUTED);
+      pdf.text(`Unidades incluidas en este informe — ${anioAnterior} vs. ${anioActual} (a la fecha) y proyección`, x, y);
+      y += 7;
+      const cols = [
+        { t: 'Unidad', x: x + 2, a: 'left' as const },
+        { t: `Total ${anioAnterior}`, x: x + ancho * 0.46, a: 'right' as const },
+        { t: `${anioAnterior}`, x: x + ancho * 0.56, a: 'right' as const },
+        { t: `${anioActual}`, x: x + ancho * 0.66, a: 'right' as const },
+        { t: 'Dif.', x: x + ancho * 0.74, a: 'right' as const },
+        { t: 'Var. %', x: x + ancho * 0.84, a: 'right' as const },
+        { t: `Proy. ${anioActual}`, x: x + ancho - 2, a: 'right' as const },
+      ];
+      pdf.setFillColor(...COLOR_GREEN);
+      pdf.rect(x, y - 4.2, ancho, 6.4, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(255, 255, 255);
+      cols.forEach((c) => pdf.text(c.t, c.x, y, { align: c.a }));
+      y += ALTO_FILA;
+      nodos.forEach((n, i) => {
+        if (i % 2 === 0) { pdf.setFillColor(240, 247, 244); pdf.rect(x, y - 4.2, ancho, ALTO_FILA, 'F'); }
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(...COLOR_TEXTO);
+        pdf.text(nombreVisibleUnidad(n.nombre), cols[0].x, y, { maxWidth: ancho * 0.36 });
+        pdf.text(formatearNumero(n.total2025), cols[1].x, y, { align: 'right' });
+        pdf.text(formatearNumero(n.fecha2025), cols[2].x, y, { align: 'right' });
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(formatearNumero(n.fecha2026), cols[3].x, y, { align: 'right' });
+        pdf.setTextColor(...colorPorDif(n.dif));
+        pdf.text(`${n.dif >= 0 ? '+' : ''}${formatearNumero(n.dif)}`, cols[4].x, y, { align: 'right' });
+        pdf.text(formatearPct(n.pct), cols[5].x, y, { align: 'right' });
+        pdf.setTextColor(...COLOR_TEXTO);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(formatearNumero(n.terminaAnio), cols[6].x, y, { align: 'right' });
+        y += ALTO_FILA;
+      });
+      return y;
+    },
+  };
 }
