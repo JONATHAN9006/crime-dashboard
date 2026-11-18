@@ -9,17 +9,21 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import type { DatosMicrogerencia, NodoMicrogerencia } from '../../data/microgerencia';
+import { predicadoDeNodo } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
 import { LaminaOperatividad } from './LaminaOperatividad';
+import { LaminaDelito } from './LaminaDelito';
 import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
-export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad';
+export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad' | 'Delito';
 
 export interface SeccionTerritorial {
   grupo: GrupoSeccion;
   /** Datos de la fuente de esta sección (Delictividad u Operatividad). */
   datos: DatosMicrogerencia;
-  fuente: FuenteLamina;
+  fuente: FuenteLamina | 'delito';
+  /** Solo en «delito»: el delito analizado en la lámina. */
+  delito?: string;
   nodo: NodoMicrogerencia;
   esGeneral: boolean;
   /** Nombre de la unidad (zonas, CAI y barrios con su estación). */
@@ -35,6 +39,15 @@ function grupoDe(nodo: NodoMicrogerencia, datos: DatosMicrogerencia): GrupoSecci
   if (nodo.tipo === 'cai') return 'CAI';
   if (nodo.tipo === 'barrio') return 'Barrios';
   return 'Estaciones';
+}
+
+/** Lámina por delito de una unidad (vacía si el delito no tiene registros en los tres periodos). */
+export function seccionDelito(datos: DatosMicrogerencia, nodo: NodoMicrogerencia, delito: string): SeccionTerritorial {
+  const esGeneral = nodo === datos.general;
+  const reg = datos.registros;
+  const pred = esGeneral ? () => true : predicadoDeNodo(nodo);
+  const hay = !!reg && [reg.completo, reg.anterior, reg.actual].some((l) => l.some((r) => r.delito === delito && pred(r)));
+  return { grupo: 'Delito', datos, fuente: 'delito', delito, nodo, esGeneral, unidad: etiquetaUnidad(nodo, esGeneral), sinInformacion: !hay };
 }
 
 /** Secciones del informe (una por unidad, sin repetir), en el orden recibido. */
@@ -79,9 +92,11 @@ export async function capturarLaminas(
       if (s.sinInformacion) { salida.push(null); continue; }
       let el: HTMLDivElement | null = null;
       flushSync(() => {
-        raiz.render(s.fuente === 'operatividad'
+        raiz.render(s.fuente === 'delito' && s.delito
+          ? <LaminaDelito key={`${i}-${s.delito}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} delito={s.delito} />
+          : s.fuente === 'operatividad'
           ? <LaminaOperatividad key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} />
-          : <LaminaMicrogerencia key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} fuente={s.fuente} nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={barrios} />);
+          : <LaminaMicrogerencia key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} fuente="delictividad" nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={barrios} />);
       });
       // Las gráficas miden su caja en el siguiente cuadro.
       await new Promise((r) => setTimeout(r, 380));
@@ -244,7 +259,7 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
     pdf.addImage(img!, 'JPEG', 0, 0, PAG_W, PAG_H, undefined, 'FAST');
     // Rótulo de la sección (identifica la unidad aunque se imprima suelta).
     pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6.5);
-    pdf.text(`${s.grupo} · ${s.unidad} · Página ${paginaDe(i)}`, 140, PAG_H - 3.6, { align: 'right', maxWidth: 60 });
+    pdf.text(`${s.grupo}${s.delito ? ` ${s.delito}` : ""} · ${s.unidad} · Página ${paginaDe(i)}`, 140, PAG_H - 3.6, { align: 'right', maxWidth: 60 });
   });
 
   if (p.anexos && (anexosNodos.length || anexosExtras.length)) {

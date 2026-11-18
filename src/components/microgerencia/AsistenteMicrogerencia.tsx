@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle, ArrowLeft, ArrowRight, BarChart3, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight,
-  ClipboardList, Download, FileText, ImageDown, Info, Layers, Loader2, MapPin, Search, ShieldCheck, Trash2,
+  ChevronUp, ClipboardList, Download, FileText, ImageDown, Info, Layers, Loader2, MapPin, Search, ShieldCheck, Trash2,
   Users, X,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
@@ -13,7 +13,7 @@ import type { SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
 import { nodoOperatividadEquivalente, paginaDetalleOperatividad, seccionRnmc } from '../../data/microgerenciaGeneracion';
 import { fechaLargaIso } from '../../data/microgerenciaTextos';
 import { etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
-import { capturarLaminas, generarPdfTerritorial, seccionesDelInforme, type SeccionTerritorial } from './informeTerritorial';
+import { capturarLaminas, generarPdfTerritorial, seccionDelito, seccionesDelInforme, type SeccionTerritorial } from './informeTerritorial';
 import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
 import { formatNumero } from '../../utils/aggregations';
 
@@ -37,6 +37,8 @@ interface EstadoAsistente {
   fechaInicial: string;
   fechaFinal: string;
   delitos: string[];
+  /** Microgerencia por delito: una lámina por cada delito, en ESTE orden. */
+  delitosAnalisis: string[];
 }
 
 type Accion =
@@ -44,8 +46,9 @@ type Accion =
   | { tipo: 'fuente'; fuente: FuenteMicrogerencia }
   | { tipo: 'hoja'; clave: string }
   | { tipo: 'hojas'; valores: string[] }
-  | { tipo: 'lista'; campo: 'delitos'; valores: string[] }
-  | { tipo: 'alternar'; campo: 'delitos'; valor: string }
+  | { tipo: 'lista'; campo: 'delitos' | 'delitosAnalisis'; valores: string[] }
+  | { tipo: 'alternar'; campo: 'delitos' | 'delitosAnalisis'; valor: string }
+  | { tipo: 'mover'; valor: string; paso: -1 | 1 }
   | { tipo: 'periodo'; anio?: string; fechaInicial?: string; fechaFinal?: string };
 
 const ETIQUETA_ESTACION: Record<string, string> = {
@@ -65,6 +68,13 @@ function reducir(e: EstadoAsistente, a: Accion): EstadoAsistente {
       const actual = e[a.campo];
       return { ...e, [a.campo]: actual.includes(a.valor) ? actual.filter((v) => v !== a.valor) : [...actual, a.valor] };
     }
+    case 'mover': {
+      const l = [...e.delitosAnalisis];
+      const i = l.indexOf(a.valor), j = i + a.paso;
+      if (i < 0 || j < 0 || j >= l.length) return e;
+      [l[i], l[j]] = [l[j], l[i]];
+      return { ...e, delitosAnalisis: l };
+    }
     case 'periodo': return { ...e, ...(a.anio !== undefined ? { anio: a.anio } : {}), ...(a.fechaInicial !== undefined ? { fechaInicial: a.fechaInicial } : {}), ...(a.fechaFinal !== undefined ? { fechaFinal: a.fechaFinal } : {}) };
   }
 }
@@ -72,8 +82,8 @@ function reducir(e: EstadoAsistente, a: Accion): EstadoAsistente {
 const PASOS = ['Fuentes', 'Cobertura', 'Periodo y delitos', 'Resumen'];
 
 const FUENTES: { id: FuenteMicrogerencia; nombre: string; descripcion: string; icono: typeof BarChart3; disponible: boolean }[] = [
-  { id: 'delictividad', nombre: 'Delictividad', descripcion: 'Análisis del comportamiento delictivo, comparativos, tendencias y proyección.', icono: BarChart3, disponible: true },
-  { id: 'operatividad', nombre: 'Operatividad', descripcion: 'Resultados operativos, capturas, incautaciones y demás actividades institucionales.', icono: ShieldCheck, disponible: true },
+  { id: 'delictividad', nombre: 'Microgerencia delictiva', descripcion: 'Consolidado delictivo: comparativos, tendencias, territorio y proyección.', icono: BarChart3, disponible: true },
+  { id: 'operatividad', nombre: 'Microgerencia operativa', descripcion: 'Operatividad institucional: capturas, incautaciones, droga y recuperaciones.', icono: ShieldCheck, disponible: true },
   { id: 'rnmc', nombre: 'RNMC', descripcion: 'Registro Nacional de Medidas Correctivas (comportamientos contrarios a la convivencia).', icono: Users, disponible: true },
   { id: 'irisp1', nombre: 'IRISP1', descripcion: 'Integración de información de seguridad.', icono: Building2, disponible: false },
   { id: 'macri', nombre: 'MACRI', descripcion: 'Análisis de criminalidad avanzada.', icono: ClipboardList, disponible: false },
@@ -182,6 +192,7 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     fechaInicial: filters.fechaInicial ?? '',
     fechaFinal: filters.fechaFinal ?? '',
     delitos: [...filters.delito],
+    delitosAnalisis: [],
   }));
 
   const ajustes = useMemo<AjustesMicrogerencia>(() => ({
@@ -197,13 +208,18 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
   // Catálogos reales (de los datos cargados, nunca inventados).
   const catalogo = useMemo(() => {
-    const delitos = new Set<string>();
+    const delitos = new Map<string, number>();
     const anios = new Set<number>();
     for (const r of registrosVisibles) {
-      if (r.delito && r.delito !== 'NO REPORTADO') delitos.add(r.delito);
+      if (r.delito && r.delito !== 'NO REPORTADO') delitos.set(r.delito, (delitos.get(r.delito) ?? 0) + 1);
       if (r.anio) anios.add(r.anio);
     }
-    return { delitos: Array.from(delitos).sort((a, b) => a.localeCompare(b, 'es')), anios: Array.from(anios).sort((a, b) => b - a) };
+    return {
+      delitos: Array.from(delitos.keys()).sort((a, b) => a.localeCompare(b, 'es')),
+      // Para el análisis por delito: de mayor a menor número de registros.
+      delitosPorCasos: Array.from(delitos.keys()).sort((a, b) => (delitos.get(b) ?? 0) - (delitos.get(a) ?? 0)),
+      anios: Array.from(anios).sort((a, b) => b - a),
+    };
   }, [registrosVisibles]);
 
   const arbol = useMemo(() => (datos ? construirArbol(datos) : []), [datos]);
@@ -219,15 +235,17 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
         const nodoOp = h.tipo === 'general' ? datosOperatividad.general : nodoOperatividadEquivalente(datosOperatividad, h.nodo.nombre);
         if (nodoOp) out.push(...seccionesDelInforme(datosOperatividad, [nodoOp], 'operatividad'));
       }
+      // Microgerencia por delito: una lámina por delito, en el orden elegido.
+      if (datos) for (const d of e.delitosAnalisis) out.push(seccionDelito(datos, h.nodo, d));
     }
     return out;
-  }, [datos, datosOperatividad, hojas, e.fuentes]);
+  }, [datos, datosOperatividad, hojas, e.fuentes, e.delitosAnalisis]);
 
   const errores: (string | null)[] = [
-    e.fuentes.length === 0 ? 'Seleccione al menos una fuente.' : null,
-    (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad')) && e.hojas.length === 0 ? 'Marque al menos una hoja (por ejemplo, MEPOY General).' : null,
+    e.fuentes.length === 0 && e.delitosAnalisis.length === 0 ? 'Seleccione al menos una microgerencia o un delito.' : null,
+    (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.delitosAnalisis.length > 0) && e.hojas.length === 0 ? 'Marque al menos una hoja (por ejemplo, MEPOY General).' : null,
     e.fechaInicial && e.fechaFinal && e.fechaInicial > e.fechaFinal ? 'La fecha inicial no puede ser posterior a la fecha final.' : null,
-    !datos && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad')) ? 'No hay datos suficientes para el periodo elegido.' : null,
+    !datos && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.delitosAnalisis.length > 0) ? 'No hay datos suficientes para el periodo elegido.' : null,
   ];
   const [intento, setIntento] = useState(false);
   const errorActual = errores[e.paso];
@@ -286,9 +304,10 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
 
   /** Imagen PNG de la lámina principal (primera hoja) de CADA fuente elegida. */
   async function descargarImagen() {
-    const principales = (['delictividad', 'operatividad'] as const)
-      .map((f) => secciones.find((s) => s.fuente === f && !s.sinInformacion))
-      .filter((s): s is SeccionTerritorial => !!s);
+    const principales = [
+      ...(['delictividad', 'operatividad'] as const).map((f) => secciones.find((s) => s.fuente === f && !s.sinInformacion)),
+      ...e.delitosAnalisis.map((d) => secciones.find((s) => s.fuente === 'delito' && s.delito === d && !s.sinInformacion)),
+    ].filter((s): s is SeccionTerritorial => !!s);
     if (principales.length === 0) { setGenerando('error'); setMensajeGeneracion('No hay una hoja con información para la imagen.'); return; }
     setGenerando('generando');
     setMensajeGeneracion(`Preparando ${principales.length === 1 ? 'la imagen' : 'las imágenes'}…`);
@@ -299,7 +318,8 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
         const url = URL.createObjectURL(await (await fetch(png)).blob());
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${nombreBase}${principales[i].fuente === 'operatividad' ? '_Operatividad' : ''}.png`;
+        const sufijo = principales[i].fuente === 'operatividad' ? '_Operatividad' : principales[i].fuente === 'delito' ? `_${(principales[i].delito ?? '').replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_')}` : '';
+        a.download = `${nombreBase}${sufijo}.png`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -307,7 +327,7 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
         await new Promise((r) => setTimeout(r, 350)); // el navegador acepta mejor descargas seguidas con una pausa
       }
       setGenerando('listo');
-      setMensajeGeneracion(`Imagen${principales.length === 1 ? '' : 'es'} descargada${principales.length === 1 ? '' : 's'}: ${principales.map((s) => `${s.unidad} (${s.fuente === 'operatividad' ? 'Operatividad' : 'Delictividad'})`).join(' y ')}.`);
+      setMensajeGeneracion(`Imagen${principales.length === 1 ? '' : 'es'} descargada${principales.length === 1 ? '' : 's'}: ${principales.map((s) => `${s.unidad} (${s.fuente === 'operatividad' ? 'Operativa' : s.fuente === 'delito' ? s.delito : 'Delictiva'})`).join(', ')}.`);
     } catch (err) {
       setGenerando('error');
       setMensajeGeneracion(err instanceof Error ? err.message : 'No se pudo generar la imagen.');
@@ -319,7 +339,7 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     if (errores.some(Boolean)) { const i = errores.findIndex(Boolean); setIntento(true); despachar({ tipo: 'paso', paso: i }); return; }
     void fn();
   };
-  const conLaminas = e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad');
+  const conLaminas = e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.delitosAnalisis.length > 0;
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 p-2 sm:p-4" role="dialog" aria-modal="true" aria-label="Microgerencia y Proyección Delictiva MEPOY">
@@ -365,7 +385,7 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
         {/* CUERPO */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
           <main className="min-w-0 flex-1 px-4 py-4 sm:px-5 lg:overflow-y-auto">
-            {e.paso === 0 && <PasoFuentes e={e} despachar={despachar} />}
+            {e.paso === 0 && <PasoFuentes e={e} despachar={despachar} delitos={catalogo.delitosPorCasos} />}
             {e.paso === 1 && <PasoCobertura e={e} despachar={despachar} arbol={arbol} />}
             {e.paso === 2 && <PasoPeriodo e={e} despachar={despachar} anios={catalogo.anios} delitos={catalogo.delitos} datos={datos} />}
             {e.paso === 3 && <PasoResumen e={e} irA={irA} datos={datos} secciones={secciones} generando={generando} mensaje={mensajeGeneracion} />}
@@ -413,27 +433,68 @@ function TituloPaso({ n, titulo, sub }: { n: number; titulo: string; sub: string
   );
 }
 
-function PasoFuentes({ e, despachar }: PropsPaso) {
+function PasoFuentes({ e, despachar, delitos }: PropsPaso & { delitos: string[] }) {
+  const [q, setQ] = useState('');
+  const visibles = delitos.filter((d) => coincide(d, q));
   return (
     <div>
-      <TituloPaso n={1} titulo="Selecciona las fuentes" sub="Elige la(s) fuente(s) de información que deseas incluir en el informe." />
-      <div className="space-y-2">
-        {FUENTES.map((f) => {
+      <TituloPaso n={1} titulo="Selecciona las microgerencias" sub="Marque las láminas que quiere en el informe. Se generan para cada hoja de la cobertura, en este orden." />
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {FUENTES.filter((f) => f.disponible).map((f) => {
           const activo = e.fuentes.includes(f.id);
           const Icono = f.icono;
           return (
-            <button key={f.id} type="button" disabled={!f.disponible} onClick={() => despachar({ tipo: 'fuente', fuente: f.id })} aria-pressed={activo}
-              className={`flex w-full items-center gap-3 rounded-xl border-2 px-3.5 py-3 text-left transition-colors ${!f.disponible ? 'cursor-not-allowed border-slate-100 bg-slate-50 opacity-60' : activo ? 'border-[#159089] bg-[#eaf6f1]' : 'border-slate-200 bg-white hover:border-[#159089]/50'}`}>
-              <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activo ? 'bg-[#0f5f57] text-white' : 'bg-slate-100 text-[#0f5f57]'}`}><Icono size={22} /></span>
+            <button key={f.id} type="button" onClick={() => despachar({ tipo: 'fuente', fuente: f.id })} aria-pressed={activo}
+              className={`flex w-full items-center gap-3 rounded-xl border-2 px-3.5 py-2.5 text-left transition-colors ${activo ? 'border-[#159089] bg-[#eaf6f1]' : 'border-slate-200 bg-white hover:border-[#159089]/50'}`}>
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${activo ? 'bg-[#0f5f57] text-white' : 'bg-slate-100 text-[#0f5f57]'}`}><Icono size={21} /></span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] font-bold text-[#10233f]">{f.nombre}</span>
-                <span className="block text-[12.5px] leading-snug text-slate-600">{f.descripcion}</span>
+                <span className="block text-[12px] leading-snug text-slate-600">{f.descripcion}</span>
               </span>
-              {f.disponible ? <Marca activo={activo} /> : <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-500">Próximamente</span>}
+              <Marca activo={activo} />
             </button>
           );
         })}
       </div>
+
+      <section className="mt-4 rounded-xl border-2 border-slate-200 p-3" data-seccion-delitos>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <ShieldCheck size={20} className="text-[#0f5f57]" />
+          <p className="text-[15px] font-bold text-[#10233f]">Microgerencia por delito</p>
+          <span className="text-[12px] text-slate-500">— una lámina por cada delito marcado, en el orden que usted defina.</span>
+        </div>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Buscador valor={q} onCambio={setQ} placeholder="Buscar delito…" />
+          <BotonesLista contador={e.delitosAnalisis.length} onTodas={() => despachar({ tipo: 'lista', campo: 'delitosAnalisis', valores: Array.from(new Set([...e.delitosAnalisis, ...visibles])) })} onLimpiar={() => despachar({ tipo: 'lista', campo: 'delitosAnalisis', valores: [] })} />
+        </div>
+        <div className="grid max-h-[190px] grid-cols-1 gap-1 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+          {visibles.map((d) => {
+            const activo = e.delitosAnalisis.includes(d);
+            return (
+              <button key={d} type="button" onClick={() => despachar({ tipo: 'alternar', campo: 'delitosAnalisis', valor: d })} aria-pressed={activo}
+                className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[13px] ${activo ? 'border-[#159089] bg-[#eaf6f1] font-semibold text-[#0f5f57]' : 'border-slate-200 bg-white text-[#10233f] hover:border-[#159089]/50'}`}>
+                <Marca activo={activo} /> {d}
+              </button>
+            );
+          })}
+        </div>
+        {e.delitosAnalisis.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-[12.5px] font-bold text-[#10233f]">Orden de las láminas por delito</p>
+            <ol className="space-y-1" data-orden-delitos>
+              {e.delitosAnalisis.map((d, i) => (
+                <li key={d} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[13px]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0f5f57] text-[11.5px] font-bold text-white">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold text-[#10233f]">{d}</span>
+                  <button type="button" onClick={() => despachar({ tipo: 'mover', valor: d, paso: -1 })} disabled={i === 0} aria-label={`Subir ${d}`} className="rounded p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ChevronUp size={16} /></button>
+                  <button type="button" onClick={() => despachar({ tipo: 'mover', valor: d, paso: 1 })} disabled={i === e.delitosAnalisis.length - 1} aria-label={`Bajar ${d}`} className="rounded p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ChevronDown size={16} /></button>
+                  <button type="button" onClick={() => despachar({ tipo: 'alternar', campo: 'delitosAnalisis', valor: d })} aria-label={`Quitar ${d}`} className="rounded p-1 text-rose-600 hover:bg-rose-50"><X size={15} /></button>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -586,7 +647,8 @@ function PasoResumen({ e, irA, datos, secciones, generando, mensaje }: {
   generando: '' | 'generando' | 'listo' | 'error'; mensaje: string;
 }) {
   const filas: { paso: number; titulo: string; valor: string }[] = [
-    { paso: 0, titulo: 'Fuentes', valor: e.fuentes.map((f) => FUENTES.find((x) => x.id === f)?.nombre ?? f).join(', ') },
+    { paso: 0, titulo: 'Fuentes', valor: e.fuentes.map((f) => FUENTES.find((x) => x.id === f)?.nombre ?? f).join(', ') || '—' },
+    ...(e.delitosAnalisis.length ? [{ paso: 0, titulo: 'Por delito', valor: e.delitosAnalisis.map((d, i) => `${i + 1}. ${d}`).join(' · ') }] : []),
     { paso: 1, titulo: 'Hojas', valor: `${e.hojas.length} hoja${e.hojas.length === 1 ? '' : 's'} por fuente` },
     { paso: 2, titulo: 'Periodo', valor: datos ? `${datos.periodo} · corte ${fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}` : '—' },
     { paso: 2, titulo: 'Delitos', valor: e.delitos.length ? e.delitos.join(', ') : 'Todos' },
@@ -609,7 +671,7 @@ function PasoResumen({ e, irA, datos, secciones, generando, mensaje }: {
         {secciones.map((s, i) => (
           <li key={`${s.fuente}-${s.unidad}-${i}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-[12.5px] ${s.sinInformacion ? 'border-dashed border-slate-300 bg-slate-50 text-slate-500' : 'border-slate-200 bg-white'}`}>
             <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#e3f2ef] px-1.5 text-[11px] font-bold text-[#0f5f57]">{i + 1}</span>
-            <span className="min-w-0 flex-1 font-bold text-[#10233f]">{s.unidad}<span className="ml-2 font-normal text-slate-500">{s.fuente === 'operatividad' ? 'Operatividad institucional' : 'Consolidado delictivo'}</span></span>
+            <span className="min-w-0 flex-1 font-bold text-[#10233f]">{s.unidad}<span className="ml-2 font-normal text-slate-500">{s.fuente === 'operatividad' ? 'Microgerencia operativa' : s.fuente === 'delito' ? `Delito: ${s.delito}` : 'Microgerencia delictiva'}</span></span>
             {s.sinInformacion ? <span>Sin registros: no se genera</span> : (
               <>
                 <span className="text-slate-500">{s.datos.anioAnterior}: <strong className="text-[#10233f]">{formatNumero(s.nodo.fecha2025)}</strong></span>
@@ -655,6 +717,7 @@ function PanelResumen({ e, despachar, datos, hojas }: PropsPaso & { datos: Datos
       <p className="mb-3 rounded-lg bg-white px-3 py-2 text-[16px] font-extrabold text-[#10233f] shadow-sm">Resumen</p>
       <div className="space-y-3">
         {bloque('Fuentes seleccionadas', Layers, e.fuentes.length ? e.fuentes.map((f) => <Chip key={f} texto={FUENTES.find((x) => x.id === f)?.nombre ?? f} onQuitar={e.fuentes.length > 1 ? () => despachar({ tipo: 'fuente', fuente: f }) : undefined} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
+        {e.delitosAnalisis.length > 0 && bloque(`Microgerencia por delito (${e.delitosAnalisis.length})`, ShieldCheck, e.delitosAnalisis.map((d, i) => <Chip key={d} texto={`${i + 1}. ${d}`} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitosAnalisis', valor: d })} />))}
         {bloque(`Hojas del informe (${hojas.length})`, MapPin, hojas.length ? hojas.map((h) => <Chip key={h.clave} texto={h.tipo === 'zona' || h.tipo === 'cai' ? `${h.titulo} · ${etiquetaEstacion(h.nodo.estacion ?? '')}` : h.titulo} onQuitar={() => despachar({ tipo: 'hoja', clave: h.clave })} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
         {bloque('Periodo', CalendarDays, <span className="text-[12px] text-slate-600">{datos ? datos.periodo : e.anio || 'Vigencia actual'}</span>)}
         {bloque(`Delitos${e.delitos.length ? ` (${e.delitos.length})` : ''}`, ShieldCheck, e.delitos.length ? e.delitos.map((d) => <Chip key={d} texto={d} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitos', valor: d })} />) : <span className="text-[12px] text-slate-600">Todos</span>)}

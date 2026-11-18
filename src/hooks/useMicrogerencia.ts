@@ -191,8 +191,26 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
       })(),
       delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
       general, distrito1, distrito2, delitos, zonas, barriosUnidad,
+      registros: { completo: recsAnioAnteriorCompleto, anterior: recsAnterior, actual: recsActual },
       delitosSeleccionados: [...filters.delito],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ventana, filters.delito, filters.barrioHecho, ajustes?.barrios]);
+}
+
+/**
+ * Predicado de los registros de una unidad del árbol (las MISMAS reglas con
+ * que se arman los nodos arriba): General, Distrito, Estación, CAI, Zona o Barrio.
+ */
+export function predicadoDeNodo(n: NodoMicrogerencia): (r: CrimeRecord) => boolean {
+  if (n.tipo === 'general' || /^MEPOY General/.test(n.nombre)) return () => true;
+  if (n.tipo === 'distrito' || n.nombre === 'Distrito Uno' || n.nombre === 'Distrito Dos') {
+    const ests: readonly string[] = n.nombre === 'Distrito Uno' ? ESTACIONES_DISTRITO_1 : ESTACIONES_DISTRITO_2;
+    return (r) => ests.includes(r.estacion);
+  }
+  if (n.tipo === 'cai') return (r) => r.estacion === n.estacion && r.cai === n.nombre;
+  if (n.tipo === 'zona') return (r) => r.estacion === n.estacion && r.cuadrante === n.nombre;
+  if (n.tipo === 'barrio') return (r) => (r.barrioHecho ?? '').trim() === n.nombre;
+  if (n.estacion) return (r) => r.estacion === n.estacion;
+  return () => false;
 }

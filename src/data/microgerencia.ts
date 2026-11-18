@@ -1,3 +1,4 @@
+import type { CrimeRecord } from '../types/crime';
 // Tipos de "Microgerencia y Proyección Delictiva" — el cálculo real vive en
 // hooks/useMicrogerencia.ts (se computa EN VIVO a partir de los mismos
 // datos ya cargados en el dashboard, nunca de un archivo aparte). Este
@@ -68,6 +69,11 @@ export interface DatosMicrogerencia {
   zonas?: NodoMicrogerencia[];
   /** Barrios elegidos en el asistente, cada uno como unidad propia (sección del PDF). */
   barriosUnidad?: NodoMicrogerencia[];
+  /**
+   * Solo Delictividad: registros de los tres periodos (año anterior completo,
+   * año anterior al corte y año actual al corte), para el análisis por delito.
+   */
+  registros?: { completo: CrimeRecord[]; anterior: CrimeRecord[]; actual: CrimeRecord[] };
   /** Delitos seleccionados (lista completa) — para filtrar mapas. */
   delitosSeleccionados?: string[];
 }
@@ -89,14 +95,20 @@ export function nombreVisibleUnidad(nombre: string): string {
   return nombre.replace(/Estación Sotara\b/g, 'Estación Paispamba').replace(/\bE-Sotara\b/g, 'E-Paispamba');
 }
 
+/** Cifra en los tres periodos de la lámina: total año anterior (t), año anterior al corte (a) y año actual al corte (b). */
+export interface FilaTriple { nombre: string; t: number; a: number; b: number }
+
 /** Detalle de Operatividad de una unidad (mismas reglas de conteo de «Operatividad por Unidad»). */
 export interface DetalleOperativo {
-  /** Gramos de droga en el periodo comparable de cada año (la droga es cantidad, no procedimientos). */
+  /** Gramos de droga (la droga es cantidad, no procedimientos). */
   drogaG2025: number;
   drogaG2026: number;
-  drogaPorClase: { nombre: string; valor: number }[];
-  capturasPorDelito: { nombre: string; valor: number }[];
-  circunstancia: { nombre: string; valor: number }[];
+  drogaGTotal2025: number;
+  drogaPorClase: FilaTriple[];
+  capturasPorDelito: FilaTriple[];
+  circunstancia: FilaTriple[];
+  /** Género de los capturados en el año actual (al corte). */
   genero: { nombre: string; valor: number }[];
-  grupoEdad: { nombre: string; valor: number }[];
+  grupoEdad: FilaTriple[];
+  armasPermiso: FilaTriple[];
 }

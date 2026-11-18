@@ -104,27 +104,65 @@ export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | nul
     const ventana = construirVentana(contables, ajustes?.periodo);
     if (!ventana) return null;
     const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
-    // Todos los registros (incluida la droga, que va por cantidad) en cada periodo.
-    const enRango = (r: OperatividadRecord, a: Date, b: Date) => !!r.fecha && r.fecha >= a && r.fecha <= b;
+    // Todos los registros (incluida la droga, que va por cantidad) en cada
+    // periodo: «Total año anterior» (1 ene – 31 dic) y los dos periodos
+    // comparables al MISMO corte. Un registro sin fecha pero con año y mes
+    // se ubica por su mes (solo pasa con matrices antiguas).
+    const enRango = (r: OperatividadRecord, a: Date, b: Date) => {
+      if (r.fecha) return r.fecha >= a && r.fecha <= b;
+      if (r.anio == null || r.mes == null) return false;
+      const ini = new Date(r.anio, r.mes - 1, 1), fin = new Date(r.anio, r.mes, 0, 23, 59, 59);
+      return ini >= new Date(a.getFullYear(), a.getMonth(), 1) && fin <= new Date(b.getFullYear(), b.getMonth() + 1, 0, 23, 59, 59) && r.anio === b.getFullYear();
+    };
     const todosActual = filteredOperatividadRecords.filter((r) => enRango(r, ventana.actualInicio, ventana.actualFin));
     const todosAnterior = filteredOperatividadRecords.filter((r) => enRango(r, ventana.anteriorInicio, ventana.anteriorFin));
-    const lista = (filas: { key: string; casos: number }[]) => filas.filter((f) => f.key && !/^no reportad/i.test(f.key)).map((f) => ({ nombre: f.key, valor: f.casos }));
+    const todosAnioAnterior = filteredOperatividadRecords.filter((r) => r.anio === anioAnterior);
+    const valido = (k: string) => !!k && !/^no reportad/i.test(k) && !/^sin (clase|categor)/i.test(k);
 
-    /** Detalle de la lámina de Operatividad (periodo comparable del año actual). */
+    /** Agrupa por clave en los tres periodos (casos que cuentan, o gramos de droga). */
+    function triple(base: OperatividadRecord[][], clave: (r: OperatividadRecord) => string, medida: 'casos' | 'gramos') {
+      const m = new Map<string, { t: number; a: number; b: number }>();
+      (['t', 'a', 'b'] as const).forEach((campo, i) => {
+        for (const r of base[i]) {
+          const v = medida === 'gramos' ? gramosDroga(r) : cuentaComoOperatividad(r) ? 1 : 0;
+          if (!v) continue;
+          const k = clave(r);
+          if (!valido(k)) continue;
+          const fila = m.get(k) ?? { t: 0, a: 0, b: 0 };
+          fila[campo] += v;
+          m.set(k, fila);
+        }
+      });
+      return Array.from(m, ([nombre, f]) => ({ nombre, ...f })).sort((x, y) => y.b - x.b || y.a - x.a);
+    }
+    // Permiso del arma: «sin permiso» / «con permiso» (valores de la matriz).
+    const grupoPermiso = (v: string) => {
+      const n = (v || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/_/g, ' ').trim();
+      if (!n || /NO REPORT/.test(n)) return '';
+      return /\bSIN\b|\bNO\b|ILEGAL/.test(n) ? 'Sin permiso' : 'Con permiso';
+    };
+
+    /** Detalle de la lámina de Operatividad: Total año anterior · año anterior al corte · año actual al corte. */
     function detalleOperativo(pred: (r: OperatividadRecord) => boolean): DetalleOperativo {
-      const act = todosActual.filter(pred);
-      const capt = act.filter((r) => tipoOperatividad(r.categoria) === 'capturas');
-      const edades = new Map(contarOperatividad(capt, (r) => r.grupoEdad || '').map((d) => [d.key, d.casos] as const));
+      const base = [todosAnioAnterior.filter(pred), todosAnterior.filter(pred), todosActual.filter(pred)];
+      const de = (tipo: string) => base.map((l) => l.filter((r) => tipoOperatividad(r.categoria) === tipo));
+      const capt = de('capturas');
+      const edades = triple(capt, (r) => r.grupoEdad || '', 'casos');
+      const drogaTot = triple(de('droga'), () => 'total', 'gramos')[0] ?? { t: 0, a: 0, b: 0 };
+      const generos = new Map(contarOperatividad(capt[2], (r) => r.genero ?? '').map((d) => [d.key, d.casos] as const));
       return {
-        drogaG2026: act.reduce((a, r) => a + gramosDroga(r), 0),
-        drogaG2025: todosAnterior.filter(pred).reduce((a, r) => a + gramosDroga(r), 0),
-        drogaPorClase: lista(sumarDroga(act, (r) => r.claseBien || 'Sin clase')),
-        capturasPorDelito: lista(contarOperatividad(capt, (r) => r.delitoAsociado || '')),
-        circunstancia: lista(contarOperatividad(capt, (r) => agruparCircunstancia(r.circunstanciaCaptura))),
-        genero: lista(contarOperatividad(capt, (r) => r.genero ?? '')),
-        grupoEdad: GRUPOS_CICLO_VIDA.filter((g) => (edades.get(g) ?? 0) > 0).map((g) => ({ nombre: g, valor: edades.get(g)! })),
+        drogaG2025: drogaTot.a,
+        drogaG2026: drogaTot.b,
+        drogaGTotal2025: drogaTot.t,
+        drogaPorClase: triple(de('droga'), (r) => r.claseBien || '', 'gramos'),
+        capturasPorDelito: triple(capt, (r) => r.delitoAsociado || '', 'casos'),
+        circunstancia: triple(capt, (r) => agruparCircunstancia(r.circunstanciaCaptura), 'casos'),
+        genero: Array.from(generos, ([nombre, valor]) => ({ nombre, valor })).filter((g) => valido(g.nombre)).sort((x, y) => y.valor - x.valor),
+        grupoEdad: GRUPOS_CICLO_VIDA.map((g) => edades.find((e) => e.nombre === g)).filter((e): e is NonNullable<typeof e> => !!e),
+        armasPermiso: triple(de('armas'), (r) => grupoPermiso(r.permisoArma), 'casos'),
       };
     }
+
     const totalGeneralFecha2026 = recsActual.length;
 
     function calcularTrimestresYMeses(pred: (r: OperatividadRecord) => boolean) {

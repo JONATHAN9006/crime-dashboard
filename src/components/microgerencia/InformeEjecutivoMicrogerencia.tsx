@@ -102,15 +102,16 @@ export function marcasEjeValores(valores: number[]): number[] {
 // Etiqueta de barra sin choques: las dos barras de un grupo se separan
 // hacia afuera cuando sus alturas son parecidas.
 interface EtiquetaProps { x?: number | string; y?: number | string; width?: number | string; value?: unknown }
-function EtiquetaBarra({ x, y, width, value, lado }: EtiquetaProps & { lado: 'izq' | 'der' }) {
+function EtiquetaBarra({ x, y, width, value, lado, tam = 17 }: EtiquetaProps & { lado: 'izq' | 'der'; tam?: number }) {
   if (value == null) return null;
   const nx = Number(x), ny = Number(y), w = Number(width);
   const texto = formatNumero(Number(value));
-  const ancho = texto.length * 9.2;
-  // Si el texto es más ancho que la barra, se corre hacia afuera del grupo.
-  const desplaza = ancho > w + 4 ? (ancho - w) / 2 + 1 : 0;
+  const ancho = texto.length * tam * 0.54;
+  // Si el texto es más ancho que la barra, se corre hacia afuera del grupo
+  // (con un pequeño aire) para que las dos cifras nunca se monten.
+  const desplaza = ancho > w + 2 ? (ancho - w) / 2 + 2 : 0;
   const cx = nx + w / 2 + (lado === 'izq' ? -desplaza : desplaza);
-  return <text x={cx} y={ny - 6} textAnchor="middle" style={{ fontSize: 17, fontWeight: 700, fill: '#1e2a33', fontFamily: FUENTE }}>{texto}</text>;
+  return <text x={cx} y={ny - 5} textAnchor="middle" style={{ fontSize: tam, fontWeight: 700, fill: '#1e2a33', fontFamily: FUENTE }}>{texto}</text>;
 }
 
 /** Texto ejecutivo del comportamiento trimestral (con advertencia del trimestre incompleto). */
@@ -200,7 +201,7 @@ function CajaDif({ valor }: { valor: number | null }) {
 }
 
 // ── Encabezado y pie comunes (Delictividad y Operatividad) ─────────────
-export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente }: { titulo: string; periodo: string; corte: string; cobertura: string; fuente: string }) {
+export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente, comparacion, delito }: { titulo: string; periodo: string; corte: string; cobertura: string; fuente: string; comparacion?: string; delito?: string }) {
   return (
     <div className="absolute left-0 top-0 h-[108px] w-full overflow-hidden" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro} 0%, #0d4733 45%, #0b3d2c 100%)` }}>
       <div className="absolute top-0 h-full" style={{ left: 600, width: 880, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(40px 0,100% 0,100% 100%,0 100%)' }} />
@@ -219,8 +220,10 @@ export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente }: 
       <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14, fontSize: titulo.length > 24 ? 33 : 38 }}>
         MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{titulo}</span>
       </h2>
-      <div className="absolute flex items-center gap-7 whitespace-nowrap text-[17px] text-white" style={{ left: 310, top: 79 }}>
+      <div className="absolute flex items-center whitespace-nowrap text-white" style={{ left: delito ? 136 : comparacion ? 150 : 310, top: comparacion ? 80 : 79, gap: delito ? 14 : comparacion ? 22 : 28, fontSize: delito ? 14 : comparacion ? 15.5 : 17 }}>
+        {delito && <span className="flex items-center gap-1.5"><Target size={19} /> Delito analizado: <strong className="uppercase" style={{ color: '#d4f53c', fontSize: 16 }}>{delito}</strong></span>}
         <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {periodo}</span>
+        {comparacion && <span className="flex items-center gap-2"><CalendarDays size={20} /> Comparación: {comparacion}</span>}
         <span className="flex items-center gap-2"><BarChart3 size={20} /> Corte de información: {fechaLarga(corte)}</span>
         <span className="flex items-center gap-2"><MapPin size={20} /> Cobertura: {cobertura}</span>
         <span className="flex items-center gap-2"><Database size={20} /> Fuente: {fuente}</span>
@@ -230,12 +233,12 @@ export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente }: 
   );
 }
 
-export function PieLamina({ fuente }: { fuente: string }) {
+export function PieLamina({ fuente, nota }: { fuente: string; nota?: string }) {
   return (
     <div className="absolute bottom-0 left-0 flex h-[58px] w-full items-center justify-between overflow-hidden pl-5" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro}, #0d4433 55%, ${C.verdeOscuro})` }}>
       <div className="absolute top-0 h-full" style={{ left: 860, width: 820, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(60px 0,100% 0,100% 100%,0 100%)' }} />
       <div className="absolute top-0 h-full" style={{ left: 838, width: 80, background: C.lima, clipPath: 'polygon(60px 0,70px 0,10px 100%,0 100%)' }} />
-      <p className="relative text-[17px] text-white"><strong>Fuente:</strong> {fuente}. Información sujeta a variación.</p>
+      <p className="relative text-[17px] text-white">{nota ? <><strong>Nota:</strong> {nota}</> : <><strong>Fuente:</strong> {fuente}. Información sujeta a variación.</>}</p>
       <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[56px] w-auto" />
     </div>
   );
@@ -430,7 +433,6 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
 
   const barrios = (nodo.barrios ?? []).slice(0, topBarrios);
   const top10 = [...nodo.delitos].sort((a, b) => b.fecha2026 - a.fecha2026).slice(0, 10);
-  const maxTop = Math.max(1, ...top10.map((d) => d.fecha2026));
   const sub = subunidades(nodo, esGeneral);
   const tot = sub.filas.reduce((acc, f) => ({ t: acc.t + f.total2025, a: acc.a + f.fecha2025, b: acc.b + f.fecha2026 }), { t: 0, a: 0, b: 0 });
   const totDif = tot.b - tot.a;
@@ -585,25 +587,19 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                   <tr className="text-left font-bold">
                     <th className="w-[26px] pb-1">#</th><th className="pb-1">{T.columna}</th>
                     <th className="pb-1 text-right">Total {P}</th><th className="pb-1 text-right">{P}</th><th className="pb-1 text-right">{A}</th>
-                    <th className="pb-1 text-right">Dif.</th><th className="pb-1 text-right">Variación</th><th className="w-[124px] pb-1" />
+                    <th className="pb-1 text-right">Dif.</th><th className="pb-1 pr-1 text-right">Variación</th>
                   </tr>
                 </thead>
                 <tbody>
                   {top10.map((d, i) => (
                     <tr key={d.nombre} className="leading-[25.5px]">
                       <td>{i + 1}</td>
-                      <td className="max-w-[150px] truncate">{d.nombre}</td>
+                      <td className="max-w-[230px] truncate pr-2" title={d.nombre}>{d.nombre}</td>
                       <td className="text-right font-bold">{formatNumero(d.total2025)}</td>
                       <td className="text-right">{formatNumero(d.fecha2025)}</td>
                       <td className="text-right font-bold">{formatNumero(d.fecha2026)}</td>
                       <td className="text-right font-bold" style={{ color: colDif(d.dif) }}>{signo(d.dif)}{formatNumero(d.dif)}</td>
-                      <td className="text-right font-bold" style={{ color: colDif(d.dif) }}>{pct0(d.pct)}</td>
-                      <td className="pl-3">
-                        <div className="flex items-center gap-1">
-                          <span className="h-[16px]" style={{ width: Math.max(6, (d.fecha2026 / maxTop) * 82), background: `linear-gradient(90deg, ${C.verde}, ${C.verdeMedio})` }} />
-                          <span className="text-[13.5px] font-bold">{formatNumero(d.fecha2026)}</span>
-                        </div>
-                      </td>
+                      <td className="pr-1 text-right font-bold" style={{ color: colDif(d.dif) }}>{pct0(d.pct)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -673,16 +669,36 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                   </div>
                   <div className="min-h-0 flex-1 px-1 pb-1">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={sub.filas.slice(0, 8).map((f) => ({ nombre: nombreCorto(f.nombre), [P]: f.fecha2025, [A]: f.fecha2026 }))} margin={{ top: 18, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="18%">
+                      <BarChart data={sub.filas.slice(0, 8).map((f) => ({ nombre: nombreCorto(f.nombre), [P]: f.fecha2025, [A]: f.fecha2026 }))} margin={{ top: 18, right: 12, left: 0, bottom: 0 }} barGap={3} barCategoryGap="22%">
                         <CartesianGrid vertical={false} stroke="#edf0f1" />
-                        <XAxis dataKey="nombre" tick={{ ...ejeY, fontSize: 13.5 }} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} />
+                        <XAxis dataKey="nombre" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={38}
+                          tick={({ x, y, payload }: { x?: number | string; y?: number | string; payload?: { value: string } }) => {
+                            // Nombre partido en dos renglones (sin montarse con el vecino).
+                            const n = Math.min(8, sub.filas.length);
+                            const tam = n > 5 ? 11.5 : 13.5;
+                            const maxCar = Math.floor(470 / Math.max(1, n) / (tam * 0.45));
+                            const palabras = String(payload?.value ?? '').split(/\s+/);
+                            const lineas: string[] = [''];
+                            for (const w of palabras) {
+                              const actual = lineas[lineas.length - 1];
+                              if (!actual || (actual + ' ' + w).length <= maxCar) lineas[lineas.length - 1] = actual ? `${actual} ${w}` : w;
+                              else if (lineas.length < 2) lineas.push(w);
+                              else lineas[1] = `${lineas[1]} ${w}`;
+                            }
+                            const corta = (t: string) => (t.length > maxCar ? `${t.slice(0, Math.max(3, maxCar - 1))}…` : t);
+                            return (
+                              <g transform={`translate(${x},${y})`}>
+                                {lineas.map((l, i) => <text key={i} dy={12 + i * (tam + 1)} textAnchor="middle" style={{ fontSize: tam, fill: C.texto, fontFamily: FUENTE }}>{corta(l)}</text>)}
+                              </g>
+                            );
+                          }} />
                         <YAxis width={48} tick={{ ...ejeY, fontSize: 12 }} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(v) => formatNumero(v)} />
                         <Tooltip contentStyle={tip} formatter={(v) => formatNumero(Number(v))} />
                         <Bar dataKey={String(P)} fill={C.gris2025} isAnimationActive={false}>
-                          <LabelList dataKey={String(P)} position="top" style={{ fontSize: 14, fill: C.texto, fontWeight: 700, fontFamily: FUENTE }} formatter={(v: unknown) => formatNumero(Number(v))} />
+                          <LabelList dataKey={String(P)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="izq" tam={sub.filas.length > 5 ? 11.5 : 13} />} />
                         </Bar>
                         <Bar dataKey={String(A)} fill={C.verde} isAnimationActive={false}>
-                          <LabelList dataKey={String(A)} position="top" style={{ fontSize: 14, fill: C.texto, fontWeight: 700, fontFamily: FUENTE }} formatter={(v: unknown) => formatNumero(Number(v))} />
+                          <LabelList dataKey={String(A)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="der" tam={sub.filas.length > 5 ? 11.5 : 13} />} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
