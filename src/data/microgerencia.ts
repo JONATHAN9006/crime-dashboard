@@ -38,7 +38,7 @@ export interface NodoMicrogerencia {
   /** Código de estación del dataset (ej. "E-Norte") en nodos de estación, CAI y zona. */
   estacion?: string;
   /** Tipo de nodo (para armar la selección territorial del asistente). */
-  tipo?: 'general' | 'distrito' | 'estacion' | 'cai' | 'zona' | 'delito';
+  tipo?: 'general' | 'distrito' | 'estacion' | 'cai' | 'zona' | 'barrio' | 'delito';
   /** Histórico anual (años reales disponibles; el año actual es el acumulado a la fecha). */
   historico?: { anio: number; casos: number; parcial: boolean }[];
   /** Barrios con más casos en el año actual a la fecha (solo nodos territoriales). */
@@ -64,6 +64,8 @@ export interface DatosMicrogerencia {
   delitos: NodoMicrogerencia[];
   /** Zonas de atención por estación (una por estación + zona, sin partir por CAI). */
   zonas?: NodoMicrogerencia[];
+  /** Barrios elegidos en el asistente, cada uno como unidad propia (sección del PDF). */
+  barriosUnidad?: NodoMicrogerencia[];
   /** Delitos seleccionados (lista completa) — para filtrar mapas. */
   delitosSeleccionados?: string[];
 }

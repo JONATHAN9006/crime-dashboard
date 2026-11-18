@@ -80,6 +80,7 @@ export function paginaDetalleOperatividad(registros: OperatividadRecord[]): Secc
   ].filter((r) => r.filas.length > 0);
   if (rankings.length === 0) return null;
   return {
+    titulo: 'Operatividad — Detalle',
     alturaPagina: 80 + rankings.length * 42,
     dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
       titulo: 'Operatividad — Detalle',
@@ -106,6 +107,7 @@ export async function seccionRnmc(): Promise<SeccionExtraMicrogerencia | null> {
   const rank = (m: Map<string, number>) => Array.from(m.entries()).map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
   const imagenMapa = await generarImagenMapaGeneralPorTipo('rnmc', ['#fbcfe8', '#f472b6', '#ec4899', '#831843']);
   return {
+    titulo: 'RNMC — Registro Nacional de Medidas Correctivas',
     alturaPagina: 190,
     dibujarContenido: (pdf, x, y, ancho) => dibujarSeccionResumenSimple(pdf, x, y, ancho, {
       titulo: 'RNMC — Registro Nacional de Medidas Correctivas',

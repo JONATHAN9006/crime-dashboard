@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import '@fontsource-variable/roboto-condensed/index.css';
 import {
   Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -8,10 +8,8 @@ import {
   MapPin, Percent, ShieldCheck, Target, Loader2, Info,
 } from 'lucide-react';
 import type { DatosMicrogerencia, NodoMicrogerencia } from '../../data/microgerencia';
-import {
-  generarImagenMapaCai, generarImagenMapaDistrito, generarImagenMapaEstacion, generarImagenMapaGeneral,
-  esNombreDeCai, esNombreDeEstacion,
-} from '../../data/microgerenciaMapas';
+import { generarImagenMapaLaminaNodo, esNombreDeCai, esNombreDeEstacion } from '../../data/microgerenciaMapas';
+import { NOMBRES_ESTACION } from '../../hooks/useMicrogerencia';
 import { formatNumero, formatDecimal } from '../../utils/aggregations';
 import { nombreVisibleUnidad } from '../../data/microgerencia';
 
@@ -25,8 +23,8 @@ import { nombreVisibleUnidad } from '../../data/microgerencia';
 // distrito, estación, CAI o zona de atención).
 // ───────────────────────────────────────────────────────────────────────
 
-const ANCHO = 1672;
-const ALTO = 941;
+export const ANCHO = 1672;
+export const ALTO = 941;
 const FUENTE = "'Roboto Condensed Variable', 'Roboto Condensed', 'Arial Narrow', sans-serif";
 const C = {
   verdeOscuro: '#0b3d2c', verde: '#0e5a3c', verdeMedio: '#16714b', verdeVivo: '#23a347', lima: '#8cc63f',
@@ -201,27 +199,21 @@ function CajaDif({ valor }: { valor: number | null }) {
   );
 }
 
-// ── Mapa (misma imagen real que usa el PDF de Microgerencia) ────────────
-function MapaCobertura({ nodo, esGeneral, delitoFiltrado, inicio, fin }: {
-  nodo: NodoMicrogerencia; esGeneral: boolean; delitoFiltrado: string | readonly string[] | null; inicio: string; fin: string;
+// ── Mapa (silueta de la unidad con su mapa de calor) ───────────────────
+// Proporción de la caja del mapa en la lámina (ancho / alto).
+const ASPECTO_MAPA = 292 / 214;
+
+function MapaCobertura({ nodo, esGeneral, delitos, barrios, inicio, fin }: {
+  nodo: NodoMicrogerencia; esGeneral: boolean; delitos: string | readonly string[] | null; barrios: readonly string[]; inicio: string; fin: string;
 }) {
   const [estado, setEstado] = useState<{ img?: string; cargando: boolean }>({ cargando: true });
-  const clave = `${nodo.nombre}|${String(delitoFiltrado)}|${inicio}|${fin}`;
+  const clave = `${nodo.nombre}|${nodo.estacion ?? ''}|${String(delitos)}|${barrios.join(',')}|${inicio}|${fin}`;
   useEffect(() => {
     let vivo = true;
     setEstado({ cargando: true });
-    (async () => {
-      try {
-        let img: string | undefined;
-        if (esGeneral) img = await generarImagenMapaGeneral(delitoFiltrado, inicio, fin);
-        else if (nodo.nombre === 'Distrito Uno' || nodo.nombre === 'Distrito Dos') img = await generarImagenMapaDistrito(nodo.nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitoFiltrado, inicio, fin);
-        else if (esNombreDeEstacion(nodo.nombre)) img = await generarImagenMapaEstacion(nodo.nombre, delitoFiltrado, inicio, fin);
-        else if (esNombreDeCai(nodo.nombre)) img = await generarImagenMapaCai(nodo.nombre, delitoFiltrado, inicio, fin);
-        if (vivo) setEstado({ img, cargando: false });
-      } catch {
-        if (vivo) setEstado({ cargando: false });
-      }
-    })();
+    generarImagenMapaLaminaNodo(nodo, esGeneral, delitos, inicio, fin, { aspecto: ASPECTO_MAPA, ancho: 1000, barrios: barrios.length ? barrios : undefined })
+      .then((img) => { if (vivo) setEstado({ img, cargando: false }); })
+      .catch(() => { if (vivo) setEstado({ cargando: false }); });
     return () => { vivo = false; };
   }, [clave]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -238,16 +230,24 @@ function MapaCobertura({ nodo, esGeneral, delitoFiltrado, inicio, fin }: {
   return <img src={estado.img} alt={`Mapa de densidad delictiva — ${nodo.nombre}`} className="h-full w-full object-contain" />;
 }
 
-// ── Informe ────────────────────────────────────────────────────────────
-export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }: {
-  datos: DatosMicrogerencia; cobertura: string; onCobertura: (ruta: string) => void;
+/** Nombre de la unidad para encabezados (zonas y barrios con su estación). */
+export function etiquetaUnidad(nodo: NodoMicrogerencia, esGeneral: boolean): string {
+  if (esGeneral) return 'MEPOY General';
+  const est = nodo.estacion ? nombreCorto(NOMBRES_ESTACION[nodo.estacion as keyof typeof NOMBRES_ESTACION] ?? nodo.estacion) : '';
+  if (nodo.tipo === 'zona') return `${nombreCorto(nodo.nombre)}${est && !nodo.nombre.includes(nodo.estacion ?? '§') ? ` · ${est}` : ''}`;
+  if (nodo.tipo === 'barrio') return `Barrio ${nodo.nombre}${est ? ` · ${est}` : ''}`;
+  if (nodo.tipo === 'cai') return `${nombreCorto(nodo.nombre)}${est ? ` · ${est}` : ''}`;
+  return nombreCorto(nodo.nombre);
+}
+
+export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura, barrios = [] }: {
+  datos: DatosMicrogerencia; cobertura: string; onCobertura: (ruta: string) => void; barrios?: readonly string[];
 }) {
   const opciones = useMemo(() => opcionesCobertura(datos), [datos]);
   const opcion = opciones.find((o) => o.ruta === cobertura) ?? opciones[0];
   const nodo = opcion.nodo;
   const esGeneral = opcion.nivel === 0;
   const [topBarrios, setTopBarrios] = useState<3 | 5>(5);
-  const [menuTop, setMenuTop] = useState(false);
   const [exportando, setExportando] = useState<'' | 'png' | 'pdf'>('');
   const refLienzo = useRef<HTMLDivElement>(null);
   const refMarco = useRef<HTMLDivElement>(null);
@@ -264,11 +264,103 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
     return () => ro.disconnect();
   }, []);
 
+  const corte = datos.fechaCorte ?? datos.actualFin;
+  const tituloNodo = esGeneral ? 'MEPOY General' : nombreCorto(nodo.nombre);
+
+  async function exportar(tipo: 'png' | 'pdf') {
+    if (!refLienzo.current) return;
+    setExportando(tipo);
+    const anterior = escala;
+    try {
+      setEscala(1); // se captura a tamaño real
+      await new Promise((r) => setTimeout(r, 120));
+      // Lienzo fijo: lo dibuja el propio navegador (html-to-image, vía SVG),
+      // así la exportación queda idéntica a la pantalla: fuente, franjas
+      // inclinadas y colores incluidos.
+      const lienzo = await capturarLamina(refLienzo.current);
+      const nombre = `Microgerencia_${tituloNodo.replace(/[^\wÁÉÍÓÚÑáéíóúñ-]+/g, '_')}_${corte}`;
+      if (tipo === 'png') {
+        const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, 'image/png'));
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${nombre}.png`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } else {
+        const { jsPDF } = await import('jspdf');
+        // Hoja horizontal con la MISMA proporción de la lámina (ancho A4):
+        // sin franjas blancas arriba ni abajo.
+        const anchoMm = 297;
+        const altoMm = (anchoMm * ALTO) / ANCHO;
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [anchoMm, altoMm] });
+        pdf.addImage(lienzo.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, anchoMm, altoMm);
+        pdf.save(`${nombre}.pdf`);
+      }
+    } finally {
+      setEscala(anterior);
+      setExportando('');
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Controles (fuera del informe) */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <label className="flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-[#10233f]">
+          <MapPin size={15} className="text-[#0f5f57]" /> Cobertura
+          <select value={opcion.ruta} onChange={(e) => onCobertura(e.target.value)} aria-label="Cobertura del informe"
+            className="min-w-0 max-w-[260px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[12.5px] font-medium focus:border-[#159089] focus:outline-none">
+            {opciones.map((o) => <option key={o.ruta} value={o.ruta}>{' '.repeat(o.nivel * 3)}{o.etiqueta}</option>)}
+          </select>
+        </label>
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" onClick={() => exportar('png')} disabled={!!exportando} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-[12.5px] font-semibold text-[#0f5f57] hover:border-[#159089] disabled:opacity-60">
+            {exportando === 'png' ? <Loader2 size={14} className="animate-spin" /> : <FileImage size={14} />} Imagen
+          </button>
+          <button type="button" onClick={() => exportar('pdf')} disabled={!!exportando} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0f5f57] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-[#116762] disabled:opacity-60">
+            {exportando === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} PDF del informe
+          </button>
+        </div>
+      </div>
+
+      <div ref={refMarco} className="w-full overflow-hidden" style={{ height: ALTO * escala }}>
+        <div style={{ width: ANCHO, height: ALTO, transform: `scale(${escala})`, transformOrigin: 'top left' }}>
+          <LaminaMicrogerencia ref={refLienzo} datos={datos} nodo={nodo} esGeneral={esGeneral} topBarrios={topBarrios} onTopBarrios={setTopBarrios} barriosFiltro={barrios} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Espera a que el mapa y las imágenes de la lámina estén dibujados. */
+export async function esperarLamina(el: HTMLElement, maxMs = 30000): Promise<void> {
+  const t0 = Date.now();
+  while (el.querySelector('[data-mapa-cargando]') && Date.now() - t0 < maxMs) await new Promise((r) => setTimeout(r, 200));
+  await Promise.all(Array.from(el.querySelectorAll('img')).map((img) => (img.complete && img.naturalWidth > 0 ? null : img.decode().catch(() => null))));
+  await new Promise((r) => requestAnimationFrame(() => r(null)));
+}
+
+/** Lámina a lienzo (html-to-image, tamaño real ×2): idéntica a la pantalla. */
+export async function capturarLamina(el: HTMLElement, pixelRatio = 2): Promise<HTMLCanvasElement> {
+  await esperarLamina(el);
+  const { toCanvas } = await import('html-to-image');
+  return toCanvas(el, { pixelRatio, width: ANCHO, height: ALTO, backgroundColor: '#f3f5f4', cacheBust: false });
+}
+
+/** La lámina ejecutiva (1672 × 941) de UNA unidad. */
+export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
+  datos: DatosMicrogerencia; nodo: NodoMicrogerencia; esGeneral: boolean; topBarrios: 3 | 5;
+  onTopBarrios?: (n: 3 | 5) => void; barriosFiltro?: readonly string[];
+}>(function LaminaMicrogerencia({ datos, nodo, esGeneral, topBarrios, onTopBarrios, barriosFiltro = [] }, refLienzo) {
+  const [menuTop, setMenuTop] = useState(false);
+  const setTopBarrios = (n: 3 | 5) => onTopBarrios?.(n);
   const { anioActual: A, anioAnterior: P } = datos;
   const corte = datos.fechaCorte ?? datos.actualFin;
   const mesCorte = Number(corte.split('-')[1]) - 1;
   const rangoMeses = `Ene – ${MESES_CORTOS[mesCorte]}`;
-  const tituloNodo = esGeneral ? 'MEPOY General' : nombreCorto(nodo.nombre);
+  const tituloNodo = etiquetaUnidad(nodo, esGeneral);
+  const tituloCorto = esGeneral ? 'MEPOY General' : nombreCorto(nodo.nombre);
 
   const proyDif = Math.round(nodo.difConAnioAnterior);
   const proyPct = nodo.total2025 > 0 ? (proyDif / nodo.total2025) * 100 : null;
@@ -296,72 +388,10 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
 
   const analisisTrim = useMemo(() => analisisTrimestral(nodo, datosTrim, rangoMeses, A, P), [nodo, datosTrim, rangoMeses, A, P]);
 
-  async function exportar(tipo: 'png' | 'pdf') {
-    if (!refLienzo.current) return;
-    setExportando(tipo);
-    const anterior = escala;
-    try {
-      setEscala(1); // se captura a tamaño real
-      await new Promise((r) => setTimeout(r, 120));
-      // Esperar a que el mapa y las imágenes terminen de dibujarse.
-      for (let i = 0; i < 60 && refLienzo.current.querySelector('[data-mapa-cargando]'); i++) await new Promise((r) => setTimeout(r, 250));
-      await Promise.all(Array.from(refLienzo.current.querySelectorAll('img')).map((img) => (img.complete ? null : img.decode().catch(() => null))));
-      // Lienzo fijo: lo dibuja el propio navegador (html-to-image, vía SVG),
-      // así la exportación queda idéntica a la pantalla: fuente, franjas
-      // inclinadas y colores incluidos.
-      const { toCanvas } = await import('html-to-image');
-      const lienzo = await toCanvas(refLienzo.current, { pixelRatio: 2, width: ANCHO, height: ALTO, backgroundColor: '#f3f5f4', cacheBust: false });
-      const nombre = `Microgerencia_${tituloNodo.replace(/[^\wÁÉÍÓÚÑáéíóúñ-]+/g, '_')}_${corte}`;
-      if (tipo === 'png') {
-        const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, 'image/png'));
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `${nombre}.png`;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      } else {
-        const { jsPDF } = await import('jspdf');
-        // Hoja horizontal con la MISMA proporción de la lámina (ancho A4):
-        // sin franjas blancas arriba ni abajo.
-        const anchoMm = 297;
-        const altoMm = (anchoMm * ALTO) / ANCHO;
-        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [anchoMm, altoMm] });
-        pdf.addImage(lienzo.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, anchoMm, altoMm);
-        pdf.save(`${nombre}.pdf`);
-      }
-    } finally {
-      setEscala(anterior);
-      setExportando('');
-    }
-  }
-
   const ejeY = { fontSize: 14, fill: C.texto, fontFamily: FUENTE };
   const tip = { fontSize: 13, borderRadius: 8, fontFamily: FUENTE };
 
   return (
-    <div className="space-y-2">
-      {/* Controles (fuera del informe) */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-        <label className="flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-[#10233f]">
-          <MapPin size={15} className="text-[#0f5f57]" /> Cobertura
-          <select value={opcion.ruta} onChange={(e) => onCobertura(e.target.value)} aria-label="Cobertura del informe"
-            className="min-w-0 max-w-[260px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[12.5px] font-medium focus:border-[#159089] focus:outline-none">
-            {opciones.map((o) => <option key={o.ruta} value={o.ruta}>{' '.repeat(o.nivel * 3)}{o.etiqueta}</option>)}
-          </select>
-        </label>
-        <div className="ml-auto flex items-center gap-2">
-          <button type="button" onClick={() => exportar('png')} disabled={!!exportando} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-[12.5px] font-semibold text-[#0f5f57] hover:border-[#159089] disabled:opacity-60">
-            {exportando === 'png' ? <Loader2 size={14} className="animate-spin" /> : <FileImage size={14} />} Imagen
-          </button>
-          <button type="button" onClick={() => exportar('pdf')} disabled={!!exportando} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0f5f57] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-[#116762] disabled:opacity-60">
-            {exportando === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} PDF del informe
-          </button>
-        </div>
-      </div>
-
-      <div ref={refMarco} className="w-full overflow-hidden" style={{ height: ALTO * escala }}>
-        <div style={{ width: ANCHO, height: ALTO, transform: `scale(${escala})`, transformOrigin: 'top left' }}>
           <div ref={refLienzo} data-informe-microgerencia className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
 
             {/* ── ENCABEZADO ─────────────────────────────────────────── */}
@@ -389,7 +419,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
               <div className="absolute flex items-center gap-7 whitespace-nowrap text-[17px] text-white" style={{ left: 310, top: 79 }}>
                 <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {rangoMeses} {A}</span>
                 <span className="flex items-center gap-2"><BarChart3 size={20} /> Corte de información: {fechaLarga(corte)}</span>
-                <span className="flex items-center gap-2"><MapPin size={20} /> Cobertura: {esGeneral ? 'MEPOY (Popayán)' : nombreCorto(nodo.nombre)}</span>
+                <span className="flex items-center gap-2"><MapPin size={20} /> Cobertura: {esGeneral ? 'MEPOY (Popayán)' : tituloNodo}</span>
                 <span className="flex items-center gap-2"><Database size={20} /> Fuente: Aplicativo Los Andes</span>
               </div>
               <img src="/assets/popayan-territorio-seguro-blanco.png" alt="Popayán Territorio Seguro" className="absolute h-[104px] w-auto" style={{ right: 36, top: 2 }} />
@@ -398,7 +428,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
             {/* ── FILA 1 · KPI ───────────────────────────────────────── */}
             <div className="absolute flex items-center gap-4 overflow-hidden text-white" style={{ left: 20, top: 122, width: 362, height: 100, background: `linear-gradient(90deg, ${C.verde}, ${C.verdeMedio})`, clipPath: 'polygon(0 0,100% 0,calc(100% - 26px) 100%,0 100%)', borderRadius: '14px 0 0 14px' }}>
               <span className="ml-5 flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-[12px] border-[3px] border-white"><BarChart3 size={36} strokeWidth={2.6} /></span>
-              <p className="text-[32px] font-bold leading-[1.08]">{tituloNodo}<span className="block">Consolidado</span></p>
+              <p className="font-bold leading-[1.08]" style={{ fontSize: tituloCorto.length > 22 ? 23 : tituloCorto.length > 16 ? 27 : 32 }}>{tituloCorto}<span className="block">Consolidado</span></p>
               <span className="absolute top-0 h-full w-[7px]" style={{ right: 14, background: C.lima, transform: 'skewX(-14deg)' }} />
             </div>
             <Kpi x={392} w={160} icono={CalendarDays} etiqueta={`Total ${P}`} valor={<span className="text-[34px]">{formatNumero(nodo.total2025)}</span>} />
@@ -499,7 +529,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
               <div className="relative min-h-0 flex-1">
                 {/* Mapa: ocupa la mayor parte del panel */}
                 <div className="absolute" style={{ left: 6, top: 2, width: 292, bottom: 6 }}>
-                  <MapaCobertura nodo={nodo} esGeneral={esGeneral} delitoFiltrado={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : datos.delitoFiltrado} inicio={datos.actualInicio} fin={datos.actualFin} />
+                  <MapaCobertura nodo={nodo} esGeneral={esGeneral} delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={barriosFiltro} inicio={datos.actualInicio} fin={datos.actualFin} />
                 </div>
                 <div className="absolute flex flex-col gap-1.5" style={{ left: 302, right: 8, top: 0 }}>
                   <div className="overflow-hidden rounded-[8px] border bg-white" style={{ borderColor: C.borde }}>
@@ -560,9 +590,31 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
             </Panel>
 
             <Panel x={597} y={512} w={494} h={346}>
-              <TituloPanel icono={Landmark}>{sub.filas.length ? `${sub.titulo} (${esGeneral ? 'MEPOY – General' : tituloNodo})` : 'Unidades territoriales'}</TituloPanel>
+              <TituloPanel icono={sub.filas.length ? Landmark : MapPin}>{sub.filas.length ? `${sub.titulo} (${esGeneral ? 'MEPOY – General' : tituloCorto})` : <>Barrios más afectados <span className="text-[17px] font-normal">({A})</span></>}</TituloPanel>
               {sub.filas.length === 0 ? (
-                <p className="px-4 py-8 text-center text-[16px] text-slate-500">Esta cobertura no tiene subunidades para comparar.</p>
+                (nodo.barrios ?? []).length === 0 ? (
+                  <p className="px-4 py-8 text-center text-[16px] text-slate-500">Sin barrios reportados para esta unidad en el periodo.</p>
+                ) : (
+                  <table className="mx-3 mt-2 border-collapse text-[16px]" style={{ width: 'calc(100% - 24px)' }}>
+                    <thead>
+                      <tr className="font-bold" style={{ background: '#eef1f2' }}>
+                        <th className="rounded-l-md px-2 py-0.5 text-left">#</th><th className="py-0.5 text-left">Barrio</th>
+                        <th className="py-0.5 text-right">Casos {A}</th><th className="py-0.5 pl-3 text-left">Participación</th><th className="rounded-r-md px-2 py-0.5 text-right">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(nodo.barrios ?? []).slice(0, 10).map((b, i, arr) => (
+                        <tr key={b.nombre} className="leading-[25px]">
+                          <td className="px-2">{i + 1}</td>
+                          <td className="max-w-[170px] truncate" title={b.nombre}>{b.nombre}</td>
+                          <td className="text-right font-bold tabular-nums">{formatNumero(b.casos)}</td>
+                          <td className="pl-3"><div className="h-[13px] rounded-[2px]" style={{ width: `${Math.max(3, (b.casos / Math.max(1, arr[0].casos)) * 120)}px`, background: C.verde }} /></td>
+                          <td className="px-2 text-right tabular-nums">{formatDecimal(nodo.fecha2026 > 0 ? (b.casos / nodo.fecha2026) * 100 : 0, 1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               ) : (
                 <>
                   <table className="mx-3 mt-2 border-collapse text-[16px]" style={{ width: 'calc(100% - 24px)' }}>
@@ -672,8 +724,5 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura }:
               <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[56px] w-auto" />
             </div>
           </div>
-        </div>
-      </div>
-    </div>
   );
-}
+});

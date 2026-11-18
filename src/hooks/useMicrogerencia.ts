@@ -159,6 +159,20 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
     });
     const delitos = general.delitos;
 
+    // Barrios elegidos en el asistente: cada uno como unidad propia (solo
+    // sus registros). Se ubica en la estación donde ocurre la mayoría.
+    const barriosUnidad: NodoMicrogerencia[] = (ajustes?.barrios ?? []).map((b) => {
+      const pred = (r: CrimeRecord) => (r.barrioHecho ?? '').trim() === b;
+      const porEst = new Map<string, number>();
+      for (const r of [...recsActual, ...recsAnterior]) if (pred(r)) porEst.set(r.estacion, (porEst.get(r.estacion) ?? 0) + 1);
+      // Solo si casi todo el barrio cae en una estación (un mismo nombre
+      // de barrio puede existir en varias); si no, se trata como de MEPOY.
+      const total = [...porEst.values()].reduce((x, y) => x + y, 0);
+      const [principal, casos] = [...porEst].sort((x, y) => y[1] - x[1])[0] ?? [];
+      const estacion = principal && total > 0 && (casos ?? 0) / total >= 0.9 ? principal : undefined;
+      return { ...calcularNodo(b, pred), tipo: 'barrio' as const, ...(estacion ? { estacion } : {}) };
+    });
+
     return {
       diasHastaLaFecha: diasTranscurridos,
       periodo: `Del ${formatFecha(ventana.actualInicio)} al ${formatFecha(ventana.actualFin)} (vigencia ${anioActual} vs. ${anioAnterior})`,
@@ -176,9 +190,9 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       })(),
       delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
-      general, distrito1, distrito2, delitos, zonas,
+      general, distrito1, distrito2, delitos, zonas, barriosUnidad,
       delitosSeleccionados: [...filters.delito],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ventana, filters.delito, filters.barrioHecho]);
+  }, [ventana, filters.delito, filters.barrioHecho, ajustes?.barrios]);
 }

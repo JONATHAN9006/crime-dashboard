@@ -198,6 +198,11 @@ export interface OpcionesPdfMicrogerencia {
   fechaCorte?: string;
   /** Líneas de la ficha del informe (fuentes, cobertura, periodo, delitos…), arriba de la primera página. */
   ficha?: string[];
+  /**
+   * PDF ya iniciado (informe territorial con índice y láminas): las páginas
+   * se AGREGAN a ese documento y no se descarga nada aquí.
+   */
+  pdfBase?: jsPDF;
 }
 const OPCIONES_POR_DEFECTO: OpcionesPdfMicrogerencia = {
   metricas: true, proyeccion: true, trimestres: true, meses: true, delitos: true, mapa: true, topBarrios: 0, hallazgos: false, calidad: false,
@@ -341,6 +346,8 @@ export interface SeccionExtraMicrogerencia {
   // posición Y donde terminó de dibujar, para que el pie se pueda ubicar
   // justo debajo (mismo mecanismo dinámico que ya usa el resto del PDF).
   dibujarContenido: (pdf: any, xInicio: number, yInicio: number, anchoUtil: number) => number;
+  /** Nombre de la sección para el índice del informe. */
+  titulo?: string;
 }
 
 export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], tituloVista: string, imagenesPorNodo?: Map<string, string>, seccionesExtra?: SeccionExtraMicrogerencia[], opcionesPdf?: Partial<OpcionesPdfMicrogerencia>, nombreArchivo = 'microgerencia-mepoy.pdf'): Promise<void> {
@@ -379,7 +386,10 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // Sin tarjetas (ej. solo RNMC): la primera página es la de la primera sección extra.
   const extrasIniciales = nodos.length === 0 && seccionesExtra && seccionesExtra.length > 0;
   const primeraAltura = nodos.length > 0 ? alturaYEscalaParaNodo(nodos[0]) : { alturaPagina: extrasIniciales ? seccionesExtra![0].alturaPagina + ALTO_FICHA : MM_ALTO, escala: 1 };
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [MM_ANCHO, primeraAltura.alturaPagina] });
+  const pdf = op.pdfBase ?? new jsPDF({ orientation: 'portrait', unit: 'mm', format: [MM_ANCHO, primeraAltura.alturaPagina] });
+  if (op.pdfBase) op.pdfBase.addPage([MM_ANCHO, primeraAltura.alturaPagina]);
+  // Primera página propia (en un documento compartido, las anteriores son de otro bloque).
+  const paginaInicial = pdf.getNumberOfPages();
   let y = 0;
 
   function dibujarEncabezadoPagina() {
@@ -832,7 +842,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
   // dibuja al final, sobre TODAS las páginas ya generadas — más simple
   // que ir intercalándolo mientras se agrega contenido dinámico.
   const totalPaginas = pdf.getNumberOfPages();
-  for (let p = 1; p <= totalPaginas; p++) {
+  for (let p = paginaInicial; p <= totalPaginas; p++) {
     pdf.setPage(p);
     dibujarPiePagina(yFinalContenidoPorPagina.get(p));
     // Franjita oscura propia (no parte de la imagen) detrás de la fecha
@@ -850,6 +860,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
     pdf.text(`Generado el ${new Date().toLocaleString('es-CO')}  ·  Página ${p} de ${totalPaginas}`, MARGEN, altoEstaPagina - 1.5);
   }
 
+  if (op.pdfBase) return;
   if ((globalThis as any).__TEST_OUTPUT_PATH__) {
     const fs = await import('fs');
     fs.writeFileSync((globalThis as any).__TEST_OUTPUT_PATH__, Buffer.from(pdf.output('arraybuffer')));
@@ -865,6 +876,7 @@ export async function generarPdfMicrogerencia(nodos: NodoMicrogerencia[], titulo
 export function seccionTablaConsolidada(nodos: NodoMicrogerencia[], anioActual: number, anioAnterior: number): SeccionExtraMicrogerencia {
   const ALTO_FILA = 6.4;
   return {
+    titulo: 'Tabla estadística consolidada',
     alturaPagina: 70 + 18 + nodos.length * ALTO_FILA + 40,
     dibujarContenido: (pdf, x, yInicio, ancho) => {
       let y = yInicio;
