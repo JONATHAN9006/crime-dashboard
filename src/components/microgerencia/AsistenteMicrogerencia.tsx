@@ -9,8 +9,8 @@ import { useData } from '../../context/DataContext';
 import { useMicrogerencia, ESTACIONES_DISTRITO_1, ESTACIONES_DISTRITO_2 } from '../../hooks/useMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
 import { nombreVisibleUnidad, type AjustesMicrogerencia, type DatosMicrogerencia, type NodoMicrogerencia } from '../../data/microgerencia';
-import { generarPdfMicrogerencia, seccionTablaConsolidada, type OpcionesPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
-import { imagenesParaNodos, grupoOperatividad, paginaDetalleOperatividad, seccionRnmc } from '../../data/microgerenciaGeneracion';
+import { seccionTablaConsolidada, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import { nodoOperatividadEquivalente, paginaDetalleOperatividad, seccionRnmc } from '../../data/microgerenciaGeneracion';
 import { fechaLargaIso } from '../../data/microgerenciaTextos';
 import { InformeEjecutivoMicrogerencia, opcionesCobertura } from './InformeEjecutivoMicrogerencia';
 import { capturarLaminas, generarPdfTerritorial, seccionesDelInforme } from './informeTerritorial';
@@ -304,25 +304,18 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
   async function generarPdf() {
     if (!datos && !e.fuentes.includes('rnmc')) return;
     setGenerando('generando');
-    setMensajeGeneracion('Preparando mapas y tarjetas…');
+    setMensajeGeneracion('Preparando el informe…');
     try {
       const comp = new Set(e.componentes.filter((c) => componenteDisponible(c, e.fuentes)));
       const conDelictividad = e.fuentes.includes('delictividad');
       const nodosDelictividad = conDelictividad ? nodos : [];
-      const delitosMapa = e.delitos.length ? e.delitos : null;
-      // Delictividad: una lámina ejecutiva por unidad (índice + secciones).
-      const seccionesLam = datos && nodosDelictividad.length ? seccionesDelInforme(datos, nodosDelictividad) : [];
-      const usarLaminas = seccionesLam.length > 0;
-      const imagenes = !usarLaminas && comp.has('mapas') && datos && nodosDelictividad.length ? await imagenesParaNodos(nodosDelictividad, delitosMapa, datos.actualInicio, datos.actualFin) : new Map<string, string>();
-      let nodosFinales = [...nodosDelictividad];
-      let imagenesFinales = imagenes;
-      if (e.fuentes.includes('operatividad') && comp.has('resumenOperatividad')) {
-        setMensajeGeneracion('Agregando Operatividad…');
-        const grupo = await grupoOperatividad(datosOperatividad, nodos.map((n) => n.nombre));
-        if (grupo) {
-          nodosFinales = [...nodosFinales, ...grupo.nodos];
-          if (comp.has('mapas')) imagenesFinales = new Map([...imagenesFinales, ...grupo.imagenes]);
-        }
+      // Una lámina ejecutiva por unidad: primero Delictividad y luego
+      // Operatividad (las MISMAS unidades elegidas, con sus cifras propias).
+      // Ya no se usan las tarjetas antiguas.
+      const secciones = datos && nodosDelictividad.length ? seccionesDelInforme(datos, nodosDelictividad) : [];
+      if (e.fuentes.includes('operatividad') && comp.has('resumenOperatividad') && datosOperatividad) {
+        const nodosOp = nodos.map((n) => nodoOperatividadEquivalente(datosOperatividad, n.nombre)).filter((n): n is NodoMicrogerencia => n !== null);
+        secciones.push(...seccionesDelInforme(datosOperatividad, nodosOp, 'operatividad'));
       }
       const extras: SeccionExtraMicrogerencia[] = [];
       if (comp.has('tablas') && datos && nodosDelictividad.length) extras.push(seccionTablaConsolidada(nodosDelictividad, datos.anioActual, datos.anioAnterior));
@@ -335,44 +328,18 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
         const rnmc = await seccionRnmc();
         if (rnmc) extras.push(rnmc);
       }
-      if (nodosFinales.length === 0 && extras.length === 0) throw new Error('No hay contenido para el informe con esta selección.');
-      const corte = datos?.fechaCorte ?? datos?.actualFin ?? new Date().toISOString().slice(0, 10);
+      if (secciones.length === 0 && extras.length === 0) throw new Error('No hay contenido para el informe con esta selección.');
+      const corte = datos?.fechaCorte ?? datosOperatividad?.fechaCorte ?? datos?.actualFin ?? new Date().toISOString().slice(0, 10);
       const nombreArchivo = `Microgerencia_${tituloCobertura(e).replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_')}_${corte}.pdf`;
-      const opcionesAnexos: Partial<OpcionesPdfMicrogerencia> = {
-        metricas: comp.has('kpi'), proyeccion: comp.has('proyeccion'), trimestres: comp.has('trimestral'), meses: comp.has('mensual'),
-        delitos: comp.has('top10'), mapa: comp.has('mapas'), topBarrios: comp.has('territorial') ? e.topBarrios : 0,
-        hallazgos: comp.has('hallazgos'), calidad: comp.has('calidad'),
-        anioActual: datos?.anioActual, anioAnterior: datos?.anioAnterior, fechaCorte: corte,
-      };
-      if (usarLaminas && datos) {
-        const laminas = await capturarLaminas(datos, seccionesLam, e.topBarrios, e.barrios, (i, n, u) => setMensajeGeneracion(`Lámina ${i} de ${n}: ${u}…`));
-        setMensajeGeneracion('Armando el PDF…');
-        const nodosAnexo = nodosFinales.filter((n) => !nodosDelictividad.includes(n));
-        const r = await generarPdfTerritorial({
-          titulo: tituloCobertura(e), ficha: fichaInforme(e, datos), secciones: seccionesLam, laminas,
-          anexos: { nodos: nodosAnexo, imagenes: imagenesFinales, extras, opciones: opcionesAnexos },
-          nombreArchivo,
-        });
-        setGenerando('listo');
-        setMensajeGeneracion(`PDF generado: ${r.paginas} página(s) — índice, ${r.laminas} lámina(s) por unidad${nodosAnexo.length + extras.length ? ` y ${nodosAnexo.length + extras.length} anexo(s)` : ''}${r.omitidas.length ? `. Sin información suficiente: ${r.omitidas.join(', ')}` : ''}.`);
-        return;
-      }
-      setMensajeGeneracion('Generando el PDF…');
-      await generarPdfMicrogerencia(nodosFinales, tituloCobertura(e), imagenesFinales, extras, {
-        metricas: comp.has('kpi'),
-        proyeccion: comp.has('proyeccion'),
-        trimestres: comp.has('trimestral'),
-        meses: comp.has('mensual'),
-        delitos: comp.has('top10'),
-        mapa: comp.has('mapas'),
-        topBarrios: comp.has('territorial') ? e.topBarrios : 0,
-        hallazgos: comp.has('hallazgos'),
-        calidad: comp.has('calidad'),
-        anioActual: datos?.anioActual, anioAnterior: datos?.anioAnterior, fechaCorte: corte,
-        ficha: fichaInforme(e, datos),
-      }, `Microgerencia_${tituloCobertura(e).replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_')}_${corte}.pdf`);
+      const laminas = await capturarLaminas(secciones, e.topBarrios, e.barrios, (i, n, u) => setMensajeGeneracion(`Lámina ${i} de ${n}: ${u}…`));
+      setMensajeGeneracion('Armando el PDF…');
+      const r = await generarPdfTerritorial({
+        titulo: tituloCobertura(e), ficha: fichaInforme(e, datos), secciones, laminas,
+        anexos: { nodos: [], imagenes: new Map(), extras, opciones: { anioActual: datos?.anioActual, anioAnterior: datos?.anioAnterior, fechaCorte: corte } },
+        nombreArchivo,
+      });
       setGenerando('listo');
-      setMensajeGeneracion(`PDF generado: ${nodosFinales.length} hoja(s) de unidades${extras.length ? ` y ${extras.length} hoja(s) adicionales` : ''}.`);
+      setMensajeGeneracion(`PDF generado: ${r.paginas} página(s) — ${r.laminas} lámina(s) por unidad${extras.length ? ` y ${extras.length} anexo(s)` : ''}${r.omitidas.length ? `. Sin información suficiente: ${r.omitidas.join(', ')}` : ''}.`);
     } catch (err) {
       setGenerando('error');
       setMensajeGeneracion(err instanceof Error ? err.message : 'No se pudo generar el PDF.');
@@ -432,7 +399,7 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
             )}
             {e.paso === 3 && <PasoPeriodo e={e} despachar={despachar} anios={catalogo.anios} delitos={catalogo.delitos} datos={datos} />}
             {e.paso === 4 && <PasoComponentes e={e} despachar={despachar} />}
-            {e.paso === 5 && <PasoResumen e={e} irA={irA} datos={datos} nodos={nodos} generando={generando} mensaje={mensajeGeneracion} />}
+            {e.paso === 5 && <PasoResumen e={e} irA={irA} datos={datos} datosOperatividad={datosOperatividad} nodos={nodos} generando={generando} mensaje={mensajeGeneracion} />}
             {intento && errorActual && (
               <p className="mt-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] font-semibold text-rose-700"><AlertCircle size={15} /> {errorActual}</p>
             )}
@@ -863,14 +830,18 @@ function PasoComponentes({ e, despachar }: PropsPaso) {
   );
 }
 
-function PasoResumen({ e, irA, datos, nodos, generando, mensaje }: {
-  e: EstadoAsistente; irA: (p: number) => void; datos: DatosMicrogerencia | null; nodos: NodoMicrogerencia[];
+function PasoResumen({ e, irA, datos: datosDelictividad, datosOperatividad, nodos, generando, mensaje }: {
+  e: EstadoAsistente; irA: (p: number) => void; datos: DatosMicrogerencia | null; datosOperatividad: DatosMicrogerencia | null; nodos: NodoMicrogerencia[];
   generando: '' | 'generando' | 'listo' | 'error'; mensaje: string;
 }) {
   const [vista, setVista] = useState<'estructura' | 'lamina'>('estructura');
+  // Vista previa: Delictividad; si solo se eligió Operatividad, su lámina.
+  const fuenteLamina = !e.fuentes.includes('delictividad') && e.fuentes.includes('operatividad') ? 'operatividad' as const : 'delictividad' as const;
+  const datos = datosDelictividad;
+  const datosLamina = fuenteLamina === 'operatividad' ? datosOperatividad : datosDelictividad;
   const comp = e.componentes.filter((c) => componenteDisponible(c, e.fuentes));
-  const opciones = useMemo(() => (datos ? opcionesCobertura(datos) : []), [datos]);
-  const primera = nodos[0];
+  const opciones = useMemo(() => (datosLamina ? opcionesCobertura(datosLamina) : []), [datosLamina]);
+  const primera = fuenteLamina === 'operatividad' && datosOperatividad && nodos[0] ? nodoOperatividadEquivalente(datosOperatividad, nodos[0].nombre) ?? undefined : nodos[0];
   const rutaPrimera = primera ? opciones.find((o) => o.nodo === primera)?.ruta ?? opciones[0]?.ruta ?? '' : '';
   const [cobLamina, setCobLamina] = useState(rutaPrimera);
   const filas: { paso: number; titulo: string; valor: string }[] = [
@@ -901,7 +872,7 @@ function PasoResumen({ e, irA, datos, nodos, generando, mensaje }: {
 
       <div className="flex gap-1.5">
         <button type="button" onClick={() => setVista('estructura')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-bold ${vista === 'estructura' ? 'bg-[#0f5f57] text-white' : 'border border-slate-300 text-[#10233f]'}`}><ClipboardList size={14} /> Estructura del PDF</button>
-        {e.fuentes.includes('delictividad') && datos && <button type="button" onClick={() => setVista('lamina')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-bold ${vista === 'lamina' ? 'bg-[#0f5f57] text-white' : 'border border-slate-300 text-[#10233f]'}`}><Eye size={14} /> Lámina ejecutiva</button>}
+        {(e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad')) && datosLamina && <button type="button" onClick={() => setVista('lamina')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-bold ${vista === 'lamina' ? 'bg-[#0f5f57] text-white' : 'border border-slate-300 text-[#10233f]'}`}><Eye size={14} /> Lámina ejecutiva</button>}
       </div>
 
       {vista === 'estructura' ? (
@@ -915,14 +886,14 @@ function PasoResumen({ e, irA, datos, nodos, generando, mensaje }: {
               <span className={n.dif > 0 ? 'font-bold text-rose-600' : n.dif < 0 ? 'font-bold text-emerald-600' : 'text-slate-400'}>{n.dif > 0 ? '+' : ''}{formatNumero(n.dif)}</span>
             </li>
           ))}
-          {e.fuentes.includes('operatividad') && comp.includes('resumenOperatividad') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Operatividad: tarjetas equivalentes (General, distritos, estaciones o CAI) y hoja de detalle</li>}
+          {e.fuentes.includes('operatividad') && comp.includes('resumenOperatividad') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Operatividad: una lámina ejecutiva por unidad equivalente (General, distritos, estaciones o CAI) y hoja de detalle</li>}
           {comp.includes('tablas') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Tabla estadística consolidada</li>}
           {e.fuentes.includes('rnmc') && comp.includes('resumenRnmc') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Hoja resumen de RNMC</li>}
           {nodos.length === 0 && e.fuentes.includes('delictividad') && <li className="text-[12.5px] text-rose-600">No hay unidades con esta selección.</li>}
         </ol>
-      ) : datos && (
+      ) : datosLamina && (
         <div className="rounded-xl border border-slate-200 p-2">
-          <InformeEjecutivoMicrogerencia datos={datos} cobertura={cobLamina || rutaPrimera} onCobertura={setCobLamina} barrios={e.barrios} />
+          <InformeEjecutivoMicrogerencia key={fuenteLamina} datos={datosLamina} fuente={fuenteLamina} cobertura={cobLamina || rutaPrimera} onCobertura={setCobLamina} barrios={fuenteLamina === 'delictividad' ? e.barrios : []} />
         </div>
       )}
 

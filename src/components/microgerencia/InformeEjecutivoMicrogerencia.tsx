@@ -72,7 +72,7 @@ function subunidades(nodo: NodoMicrogerencia, esGeneral: boolean): { titulo: str
   return { titulo: 'Zonas de atención', singular: 'Zona', filas };
 }
 
-const nombreCorto = (n: string) => nombreVisibleUnidad(n).replace(/^Estación\s+/i, 'Est. ').replace(/\s+—\s+Consolidado$/, '');
+const nombreCorto = (n: string) => nombreVisibleUnidad(n.replace(/\s*\(Operatividad\)$/, '').replace(/^Operatividad\s+—\s+Consolidado$/, 'MEPOY General')).replace(/^Estación\s+/i, 'Est. ').replace(/\s+—\s+Consolidado$/, '');
 
 // Eje Y con marcas «redondas» (0, 200, 400… como en la lámina de referencia).
 function pasoBonito(max: number, marcas = 6): number {
@@ -199,19 +199,26 @@ function CajaDif({ valor }: { valor: number | null }) {
   );
 }
 
+// Textos según la fuente (mismo diseño para Delictividad y Operatividad).
+export type FuenteLamina = 'delictividad' | 'operatividad';
+const TEXTOS: Record<FuenteLamina, { consolidado: string; historico: string; total: string; mensual: string; top: string; columna: string; densidad: string }> = {
+  delictividad: { consolidado: 'CONSOLIDADO DELICTIVO', historico: 'Histórico del comportamiento delictivo', total: 'Total delitos', mensual: 'Distribución mensual de delitos', top: 'Top 10 delitos', columna: 'Delito', densidad: 'Densidad delictiva' },
+  operatividad: { consolidado: 'CONSOLIDADO OPERATIVO', historico: 'Histórico de la operatividad', total: 'Total resultados', mensual: 'Distribución mensual de resultados', top: 'Top 10 resultados operativos', columna: 'Resultado', densidad: 'Densidad operativa' },
+};
+
 // ── Mapa (silueta de la unidad con su mapa de calor) ───────────────────
 // Proporción de la caja del mapa en la lámina (ancho / alto).
 const ASPECTO_MAPA = 292 / 214;
 
-function MapaCobertura({ nodo, esGeneral, delitos, barrios, inicio, fin }: {
-  nodo: NodoMicrogerencia; esGeneral: boolean; delitos: string | readonly string[] | null; barrios: readonly string[]; inicio: string; fin: string;
+function MapaCobertura({ nodo, esGeneral, delitos, barrios, inicio, fin, fuente }: {
+  fuente: FuenteLamina; nodo: NodoMicrogerencia; esGeneral: boolean; delitos: string | readonly string[] | null; barrios: readonly string[]; inicio: string; fin: string;
 }) {
   const [estado, setEstado] = useState<{ img?: string; cargando: boolean }>({ cargando: true });
-  const clave = `${nodo.nombre}|${nodo.estacion ?? ''}|${String(delitos)}|${barrios.join(',')}|${inicio}|${fin}`;
+  const clave = `${fuente}|${nodo.nombre}|${nodo.estacion ?? ''}|${String(delitos)}|${barrios.join(',')}|${inicio}|${fin}`;
   useEffect(() => {
     let vivo = true;
     setEstado({ cargando: true });
-    generarImagenMapaLaminaNodo(nodo, esGeneral, delitos, inicio, fin, { aspecto: ASPECTO_MAPA, ancho: 1000, barrios: barrios.length ? barrios : undefined })
+    generarImagenMapaLaminaNodo(nodo, esGeneral, delitos, inicio, fin, { aspecto: ASPECTO_MAPA, ancho: 1000, barrios: barrios.length ? barrios : undefined }, fuente === 'operatividad' ? 'operatividad' : undefined)
       .then((img) => { if (vivo) setEstado({ img, cargando: false }); })
       .catch(() => { if (vivo) setEstado({ cargando: false }); });
     return () => { vivo = false; };
@@ -240,8 +247,8 @@ export function etiquetaUnidad(nodo: NodoMicrogerencia, esGeneral: boolean): str
   return nombreCorto(nodo.nombre);
 }
 
-export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura, barrios = [] }: {
-  datos: DatosMicrogerencia; cobertura: string; onCobertura: (ruta: string) => void; barrios?: readonly string[];
+export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura, barrios = [], fuente = 'delictividad' }: {
+  datos: DatosMicrogerencia; cobertura: string; onCobertura: (ruta: string) => void; barrios?: readonly string[]; fuente?: FuenteLamina;
 }) {
   const opciones = useMemo(() => opcionesCobertura(datos), [datos]);
   const opcion = opciones.find((o) => o.ruta === cobertura) ?? opciones[0];
@@ -278,7 +285,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura, b
       // así la exportación queda idéntica a la pantalla: fuente, franjas
       // inclinadas y colores incluidos.
       const lienzo = await capturarLamina(refLienzo.current);
-      const nombre = `Microgerencia_${tituloNodo.replace(/[^\wÁÉÍÓÚÑáéíóúñ-]+/g, '_')}_${corte}`;
+      const nombre = `Microgerencia_${fuente === 'operatividad' ? 'Operatividad_' : ''}${tituloNodo.replace(/[^\wÁÉÍÓÚÑáéíóúñ-]+/g, '_')}_${corte}`;
       if (tipo === 'png') {
         const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, 'image/png'));
         if (!blob) return;
@@ -326,7 +333,7 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura, b
 
       <div ref={refMarco} className="w-full overflow-hidden" style={{ height: ALTO * escala }}>
         <div style={{ width: ANCHO, height: ALTO, transform: `scale(${escala})`, transformOrigin: 'top left' }}>
-          <LaminaMicrogerencia ref={refLienzo} datos={datos} nodo={nodo} esGeneral={esGeneral} topBarrios={topBarrios} onTopBarrios={setTopBarrios} barriosFiltro={barrios} />
+          <LaminaMicrogerencia ref={refLienzo} datos={datos} fuente={fuente} nodo={nodo} esGeneral={esGeneral} topBarrios={topBarrios} onTopBarrios={setTopBarrios} barriosFiltro={barrios} />
         </div>
       </div>
     </div>
@@ -351,8 +358,9 @@ export async function capturarLamina(el: HTMLElement, pixelRatio = 2): Promise<H
 /** La lámina ejecutiva (1672 × 941) de UNA unidad. */
 export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   datos: DatosMicrogerencia; nodo: NodoMicrogerencia; esGeneral: boolean; topBarrios: 3 | 5;
-  onTopBarrios?: (n: 3 | 5) => void; barriosFiltro?: readonly string[];
-}>(function LaminaMicrogerencia({ datos, nodo, esGeneral, topBarrios, onTopBarrios, barriosFiltro = [] }, refLienzo) {
+  onTopBarrios?: (n: 3 | 5) => void; barriosFiltro?: readonly string[]; fuente?: FuenteLamina;
+}>(function LaminaMicrogerencia({ datos, nodo, esGeneral, topBarrios, onTopBarrios, barriosFiltro = [], fuente = 'delictividad' }, refLienzo) {
+  const T = TEXTOS[fuente];
   const [menuTop, setMenuTop] = useState(false);
   const setTopBarrios = (n: 3 | 5) => onTopBarrios?.(n);
   const { anioActual: A, anioAnterior: P } = datos;
@@ -414,7 +422,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               </div>
 
               <h2 className="absolute whitespace-nowrap text-[38px] font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14 }}>
-                MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>CONSOLIDADO DELICTIVO</span>
+                MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{T.consolidado}</span>
               </h2>
               <div className="absolute flex items-center gap-7 whitespace-nowrap text-[17px] text-white" style={{ left: 310, top: 79 }}>
                 <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {rangoMeses} {A}</span>
@@ -449,7 +457,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                     <span className="block" style={{ color: colDif(nodo.dif) }}>{signo(nodo.dif)}{formatNumero(nodo.dif)} casos | {pct1(nodo.pct)}</span>
                   </div>
                 )}
-              ><span className="italic">Histórico del comportamiento delictivo</span></TituloPanel>
+              ><span className="italic">{T.historico}</span></TituloPanel>
               <div className="relative min-h-0 flex-1 px-1">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={historico} margin={{ top: 26, right: 14, left: 2, bottom: 0 }} barCategoryGap="14%">
@@ -466,7 +474,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                       }} />
                     <YAxis width={56} tick={ejeY} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(v) => formatNumero(v)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEjeValores(historico.map((h) => h.casos))} allowDecimals={false} />
                     <Tooltip contentStyle={tip} formatter={(v) => formatNumero(Number(v))} />
-                    <Bar dataKey="casos" name="Total delitos" isAnimationActive={false}>
+                    <Bar dataKey="casos" name={T.total} isAnimationActive={false}>
                       {historico.map((h) => <Cell key={h.anio} fill={h.actual ? C.verde : '#8fcf9a'} />)}
                       <LabelList dataKey="casos" position="top" offset={9} style={{ fontSize: 17, fill: C.texto, fontWeight: 700, fontFamily: FUENTE }} formatter={(v: unknown) => formatNumero(Number(v))} />
                     </Bar>
@@ -474,11 +482,11 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex justify-center pb-1"><Leyenda items={[{ color: '#8fcf9a', texto: 'Total delitos' }, { color: C.azul, texto: 'Tendencia anual', linea: true }]} /></div>
+              <div className="flex justify-center pb-1"><Leyenda items={[{ color: '#8fcf9a', texto: T.total }, { color: C.azul, texto: 'Tendencia anual', linea: true }]} /></div>
             </Panel>
 
             <Panel x={598} y={232} w={540} h={270}>
-              <TituloPanel icono={IconoLinea} derecha={<Leyenda items={[{ color: C.azul, texto: String(P), linea: true }, { color: C.verdeVivo, texto: String(A), linea: true }]} />}>Distribución mensual de delitos</TituloPanel>
+              <TituloPanel icono={IconoLinea} derecha={<Leyenda items={[{ color: C.azul, texto: String(P), linea: true }, { color: C.verdeVivo, texto: String(A), linea: true }]} />}>{T.mensual}</TituloPanel>
               <div className="h-[130px] pr-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={datosMes} margin={{ top: 10, right: 12, left: 2, bottom: 0 }}>
@@ -529,7 +537,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               <div className="relative min-h-0 flex-1">
                 {/* Mapa: ocupa la mayor parte del panel */}
                 <div className="absolute" style={{ left: 6, top: 2, width: 292, bottom: 6 }}>
-                  <MapaCobertura nodo={nodo} esGeneral={esGeneral} delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={barriosFiltro} inicio={datos.actualInicio} fin={datos.actualFin} />
+                  <MapaCobertura fuente={fuente} nodo={nodo} esGeneral={esGeneral} delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={barriosFiltro} inicio={datos.actualInicio} fin={datos.actualFin} />
                 </div>
                 <div className="absolute flex flex-col gap-1.5" style={{ left: 302, right: 8, top: 0 }}>
                   <div className="overflow-hidden rounded-[8px] border bg-white" style={{ borderColor: C.borde }}>
@@ -548,7 +556,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                     )}
                   </div>
                   <div className="rounded-[8px] border bg-white px-2.5 py-1 text-[14px]" style={{ borderColor: C.borde }}>
-                    <p className="font-bold leading-tight">Densidad delictiva</p>
+                    <p className="font-bold leading-tight">{T.densidad}</p>
                     <div className="mt-0.5 h-[11px] rounded-[3px]" style={{ background: 'linear-gradient(90deg,#22b33a,#a6d84a,#f7e33b,#f59a2b,#e3262f)' }} />
                     <div className="flex justify-between text-[13px] font-bold leading-tight"><span>Baja</span><span>Alta</span></div>
                   </div>
@@ -558,11 +566,11 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
 
             {/* ── FILA 3 ─────────────────────────────────────────────── */}
             <Panel x={12} y={512} w={574} h={346}>
-              <TituloPanel icono={ShieldCheck}>Top 10 delitos <span className="text-[17px] font-normal">(consolidado)</span></TituloPanel>
+              <TituloPanel icono={ShieldCheck}>{T.top} <span className="text-[17px] font-normal">(consolidado)</span></TituloPanel>
               <table className="mx-4 mt-2 border-collapse text-[16.5px]" style={{ width: 'calc(100% - 32px)' }}>
                 <thead>
                   <tr className="text-left font-bold">
-                    <th className="w-[26px] pb-1">#</th><th className="pb-1">Delito</th>
+                    <th className="w-[26px] pb-1">#</th><th className="pb-1">{T.columna}</th>
                     <th className="pb-1 text-right">Total {P}</th><th className="pb-1 text-right">{P}</th><th className="pb-1 text-right">{A}</th>
                     <th className="pb-1 text-right">Dif.</th><th className="pb-1 text-right">Variación</th><th className="w-[124px] pb-1" />
                   </tr>

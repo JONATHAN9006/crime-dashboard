@@ -76,7 +76,8 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
 
   return useMemo(() => {
     // Conteo oficial: solo los registros que cuentan (la droga va por cantidad, aparte).
-    const ventana = construirVentana(filteredOperatividadRecords.filter(cuentaComoOperatividad));
+    const contables = filteredOperatividadRecords.filter(cuentaComoOperatividad);
+    const ventana = construirVentana(contables);
     if (!ventana) return null;
     const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
     const totalGeneralFecha2026 = recsActual.length;
@@ -119,24 +120,51 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
           .map((cat) => calcularNodo(cat, (r) => pred(r) && r.categoria === cat, [], false))
           .sort((a, b) => b.fecha2026 - a.fecha2026);
       }
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: categoriasDelNodo, hijos };
+      // Para la lámina ejecutiva (mismas cifras; solo se presentan):
+      // barrios del año actual e histórico anual de los años con datos.
+      let barrios: { nombre: string; casos: number }[] | undefined;
+      let historico: { anio: number; casos: number; parcial: boolean }[] | undefined;
+      if (incluirCategorias) {
+        const conteoBarrio = new Map<string, number>();
+        for (const r of recsActual) {
+          if (!pred(r)) continue;
+          const b = (r.barrioHecho ?? '').trim();
+          if (!b || /^no reportad/i.test(b) || /^sin /i.test(b)) continue;
+          conteoBarrio.set(b, (conteoBarrio.get(b) ?? 0) + 1);
+        }
+        barrios = Array.from(conteoBarrio, ([nombre, casos]) => ({ nombre, casos })).sort((a, b) => b.casos - a.casos).slice(0, 10);
+        const porAnio = new Map<number, number>();
+        for (const r of contables) {
+          if (r.anio == null || r.anio >= anioActual || !pred(r)) continue;
+          porAnio.set(r.anio, (porAnio.get(r.anio) ?? 0) + 1);
+        }
+        historico = [
+          ...Array.from(porAnio, ([anio, casos]) => ({ anio, casos, parcial: false })).sort((a, b) => a.anio - b.anio),
+          { anio: anioActual, casos: fecha2026, parcial: ventana!.actualFin < new Date(anioActual, 11, 31) },
+        ];
+      }
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: categoriasDelNodo, hijos, barrios, historico };
     }
 
     function caisDe(estacion: string): NodoMicrogerencia[] {
       const universo = recsActual.filter((r) => r.estacion === estacion && cuadranteACai.get(r.cuadrante));
       const cais = Array.from(new Set(universo.map((r) => cuadranteACai.get(r.cuadrante)!))).sort((a, b) => a.localeCompare(b, 'es'));
-      return cais.map((cai) => calcularNodo(`${cai} (Operatividad)`, (r) => r.estacion === estacion && cuadranteACai.get(r.cuadrante) === cai));
+      return cais.map((cai) => ({ ...calcularNodo(`${cai} (Operatividad)`, (r) => r.estacion === estacion && cuadranteACai.get(r.cuadrante) === cai), tipo: 'cai' as const, estacion }));
     }
 
     // Distrito Uno / Dos + estaciones — misma estructura que Delictividad.
     // "Comuna" no es un campo propio de Operatividad (no existe esa
     // columna en esta matriz); la agrupación más cercana disponible es la
     // Estación, así que el desglose por unidad queda a ese nivel.
-    const nodosDistrito1 = ESTACIONES_DISTRITO_1.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)));
-    const distrito1 = calcularNodo('Distrito Uno (Operatividad)', (r) => (ESTACIONES_DISTRITO_1 as readonly string[]).includes(r.estacion), nodosDistrito1);
-    const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)));
-    const distrito2 = calcularNodo('Distrito Dos (Operatividad)', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2);
-    const general = calcularNodo('Operatividad — Consolidado', () => true, [distrito1, distrito2]);
+    const nodosDistrito1 = ESTACIONES_DISTRITO_1.map((est) => ({ ...calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)), tipo: 'estacion' as const, estacion: est }));
+    const distrito1 = { ...calcularNodo('Distrito Uno (Operatividad)', (r) => (ESTACIONES_DISTRITO_1 as readonly string[]).includes(r.estacion), nodosDistrito1), tipo: 'distrito' as const };
+    const nodosDistrito2 = ESTACIONES_DISTRITO_2.map((est) => ({ ...calcularNodo(NOMBRES_ESTACION[est], (r) => r.estacion === est, caisDe(est)), tipo: 'estacion' as const, estacion: est }));
+    const distrito2 = { ...calcularNodo('Distrito Dos (Operatividad)', (r) => (ESTACIONES_DISTRITO_2 as readonly string[]).includes(r.estacion), nodosDistrito2), tipo: 'distrito' as const };
+    const general = { ...calcularNodo('Operatividad — Consolidado', () => true, [distrito1, distrito2]), tipo: 'general' as const };
+    const fechaCorte = (() => {
+      const d = ventana.actualFin;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
 
     return {
       diasHastaLaFecha: diasTranscurridos,
@@ -144,7 +172,7 @@ export function useMicrogerenciaOperatividad(): DatosMicrogerencia | null {
       actualInicio: ventana.actualInicio.toISOString().slice(0, 10),
       actualFin: ventana.actualFin.toISOString().slice(0, 10),
       anioActual, anioAnterior,
-      delitoFiltrado: null,
+      delitoFiltrado: null, fechaCorte,
       general, distrito1, distrito2, delitos: general.delitos,
     };
   }, [filteredOperatividadRecords]);

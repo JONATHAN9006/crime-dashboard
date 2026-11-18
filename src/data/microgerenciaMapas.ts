@@ -8,18 +8,28 @@
 import { cargarCapas } from './geoStorage';
 import { cargarCapasPuntos } from './puntosStorage';
 import { generarDataUrlPoligonoAislado, type OpcionesPoligonoAislado } from '../utils/exportarPoligonoMapa';
-import { generarMapaCalorLamina } from '../utils/mapaCalorLamina';
-
 /**
- * Estilo «lámina» (opcional): silueta con calor continuo, sin calles, en la
- * proporción exacta de la caja. Puede además acotar los puntos a una zona de
- * atención o a unos barrios (la cobertura de esa sección del informe).
+ * Mapa de la lámina ejecutiva: IGUAL al de «Mapa / Georreferenciación» —
+ * calles de fondo en toda la imagen, los polígonos de la unidad con su borde
+ * y el MISMO mapa de calor (Kernel) — en la proporción exacta de la caja.
+ * Puede además acotar los puntos a una zona de atención o a unos barrios.
  */
-export interface EstiloMapaLamina { aspecto: number; ancho?: number; zona?: string; barrios?: readonly string[] }
+export interface EstiloMapaLamina { aspecto: number; ancho?: number; zona?: string; barrios?: readonly string[]; rellenoGris?: boolean }
 
 async function renderizarMapa(estilo: EstiloMapaLamina | undefined, op: OpcionesPoligonoAislado): Promise<string> {
   if (!estilo) return generarDataUrlPoligonoAislado(op);
-  return generarMapaCalorLamina({ feature: op.feature, puntos: op.puntos, anillosInternos: op.anillosInternos, aspecto: estilo.aspecto, ancho: estilo.ancho });
+  const feats: any[] = op.feature?.type === 'FeatureCollection' ? op.feature.features ?? [] : [op.feature];
+  return generarDataUrlPoligonoAislado({
+    ...op,
+    margen: 0.05,
+    aspectoObjetivo: estilo.aspecto,
+    anchoLienzo: estilo.ancho ?? 900,
+    mostrarCalles: true,
+    fondoCompleto: true,
+    opacidadPoligono: 0,
+    // General: cada polígono en gris claro, como en la pantalla del mapa.
+    rellenos: estilo.rellenoGris ? feats.map((f) => ({ anillos: extraerAnillosDeFeature(f), color: '#9aa5ab', opacidad: 0.32 })) : [],
+  });
 }
 import { MAPA_ESTACION, MAPA_CAI, MAPA_CUADRANTE } from './db2Mapeos';
 import { elegirColumnaFechaConfiable, extraerFechaDePunto } from '../utils/fechaPunto';
@@ -494,15 +504,17 @@ export async function generarImagenMapaGeneral(delitoFiltrado: string | readonly
     // explícito, se dejaron afuera Coconuco y Sotará para que el mapa se
     // vea más grande y legible (con las 5 estaciones, el área quedaba
     // demasiado repartida y cada una se veía chica).
-    const desdeCuadrantesTimbio = await construirEstacionRuralDesdeCuadrantes('E-Timbio');
-    if (desdeCuadrantesTimbio) {
+    // En la lámina, el general es solo el casco urbano (Norte + Sur), igual
+    // que el mapa general de la pantalla de Georreferenciación.
+    const desdeCuadrantesTimbio = estilo ? null : await construirEstacionRuralDesdeCuadrantes('E-Timbio');
+    if (estilo) { /* sin Timbío */ } else if (desdeCuadrantesTimbio) {
       featuresParaMapa.push(...desdeCuadrantesTimbio.features);
     } else {
       const desdeJurisdiccionTimbio = await construirEstacionesRuralesDesdeJurisdiccion(['E-Timbio']);
       if (desdeJurisdiccionTimbio) featuresParaMapa.push(...desdeJurisdiccionTimbio.features);
     }
 
-    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, ['E-Norte', 'E-Sur', 'E-Timbio'], undefined, fechaInicial, fechaFinal, tipoCapa, estilo);
+    const puntos = await obtenerPuntosFiltrados(delitoFiltrado, estilo ? ['E-Norte', 'E-Sur'] : ['E-Norte', 'E-Sur', 'E-Timbio'], undefined, fechaInicial, fechaFinal, tipoCapa, estilo);
     if (puntos.length === 0) {
       console.warn('[Microgerencia→Mapa] No hay puntos disponibles: revisa que exista una capa de PUNTOS visible (ej. "Delitos") cargada en "Mapa/Georreferenciación".', { delitoFiltrado });
       return undefined;
@@ -841,16 +853,18 @@ export async function generarImagenMapaCai(nombreCai: string, delitoFiltrado: st
  */
 export async function generarImagenMapaLaminaNodo(
   nodo: NodoMicrogerencia, esGeneral: boolean, delitos: string | readonly string[] | null,
-  inicio: string, fin: string, estilo: EstiloMapaLamina,
+  inicio: string, fin: string, estilo: EstiloMapaLamina, tipoCapa?: 'operatividad',
 ): Promise<string | undefined> {
-  if (esGeneral) return generarImagenMapaGeneral(delitos, inicio, fin, undefined, estilo);
-  if (nodo.nombre === 'Distrito Uno' || nodo.nombre === 'Distrito Dos') return generarImagenMapaDistrito(nodo.nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitos, inicio, fin, undefined, estilo);
-  if (nodo.tipo === 'zona' && nodo.estacion) return generarImagenMapaEstacion(nodo.estacion, delitos, inicio, fin, undefined, { ...estilo, zona: nodo.nombre });
+  // Operatividad nombra sus nodos con «(Operatividad)» al final.
+  const nombre = nodo.nombre.replace(/\s*\(Operatividad\)$/, '');
+  if (esGeneral) return generarImagenMapaGeneral(delitos, inicio, fin, tipoCapa, { ...estilo, rellenoGris: true });
+  if (nombre === 'Distrito Uno' || nombre === 'Distrito Dos') return generarImagenMapaDistrito(nombre === 'Distrito Uno' ? 'UNO' : 'DOS', delitos, inicio, fin, tipoCapa, estilo);
+  if (nodo.tipo === 'zona' && nodo.estacion) return generarImagenMapaEstacion(nodo.estacion, delitos, inicio, fin, tipoCapa, { ...estilo, zona: nombre });
   if (nodo.tipo === 'barrio') {
-    const acotado = { ...estilo, barrios: [nodo.nombre] };
-    return nodo.estacion ? generarImagenMapaEstacion(nodo.estacion, delitos, inicio, fin, undefined, acotado) : generarImagenMapaGeneral(delitos, inicio, fin, undefined, acotado);
+    const acotado = { ...estilo, barrios: [nombre] };
+    return nodo.estacion ? generarImagenMapaEstacion(nodo.estacion, delitos, inicio, fin, tipoCapa, acotado) : generarImagenMapaGeneral(delitos, inicio, fin, tipoCapa, acotado);
   }
-  if (nodo.tipo === 'cai' || (nodo.tipo !== 'estacion' && esNombreDeCai(nodo.nombre))) return generarImagenMapaCai(nodo.nombre, delitos, inicio, fin, undefined, estilo);
-  if (nodo.estacion || esNombreDeEstacion(nodo.nombre)) return generarImagenMapaEstacion(nodo.estacion ?? nodo.nombre, delitos, inicio, fin, undefined, estilo);
+  if (nodo.tipo === 'cai' || (nodo.tipo !== 'estacion' && esNombreDeCai(nombre))) return generarImagenMapaCai(nombre, delitos, inicio, fin, tipoCapa, estilo);
+  if (nodo.estacion || esNombreDeEstacion(nombre)) return generarImagenMapaEstacion(nodo.estacion ?? nombre, delitos, inicio, fin, tipoCapa, estilo);
   return undefined;
 }

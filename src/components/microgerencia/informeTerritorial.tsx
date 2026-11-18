@@ -10,13 +10,16 @@ import { flushSync } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import type { DatosMicrogerencia, NodoMicrogerencia } from '../../data/microgerencia';
 import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
-import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
+import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
-export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios';
-const ORDEN_GRUPOS: GrupoSeccion[] = ['Microgerencia general', 'Distritos', 'Estaciones', 'Zonas de atención', 'CAI', 'Barrios'];
+export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad';
+const ORDEN_GRUPOS: GrupoSeccion[] = ['Microgerencia general', 'Distritos', 'Estaciones', 'Zonas de atención', 'CAI', 'Barrios', 'Operatividad'];
 
 export interface SeccionTerritorial {
   grupo: GrupoSeccion;
+  /** Datos de la fuente de esta sección (Delictividad u Operatividad). */
+  datos: DatosMicrogerencia;
+  fuente: FuenteLamina;
   nodo: NodoMicrogerencia;
   esGeneral: boolean;
   /** Nombre de la unidad (zonas, CAI y barrios con su estación). */
@@ -35,7 +38,7 @@ function grupoDe(nodo: NodoMicrogerencia, datos: DatosMicrogerencia): GrupoSecci
 }
 
 /** Secciones del informe, ordenadas General → Distritos → Estaciones → Zonas → CAI → Barrios, sin repetir unidades. */
-export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrogerencia[]): SeccionTerritorial[] {
+export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrogerencia[], fuente: FuenteLamina = 'delictividad'): SeccionTerritorial[] {
   const vistos = new Set<NodoMicrogerencia>();
   const salida: SeccionTerritorial[] = [];
   for (const nodo of nodos) {
@@ -43,7 +46,7 @@ export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrog
     vistos.add(nodo);
     const esGeneral = nodo === datos.general;
     salida.push({
-      grupo: grupoDe(nodo, datos), nodo, esGeneral,
+      grupo: fuente === 'operatividad' ? 'Operatividad' : grupoDe(nodo, datos), datos, fuente, nodo, esGeneral,
       unidad: etiquetaUnidad(nodo, esGeneral),
       sinInformacion: nodo.fecha2026 === 0 && nodo.fecha2025 === 0 && nodo.total2025 === 0,
     });
@@ -59,7 +62,7 @@ export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrog
  * JPEG en el mismo orden; null si una sección no tiene información.
  */
 export async function capturarLaminas(
-  datos: DatosMicrogerencia, secciones: SeccionTerritorial[], topBarrios: 3 | 5, barrios: readonly string[],
+  secciones: SeccionTerritorial[], topBarrios: 3 | 5, barrios: readonly string[],
   alAvanzar?: (hecho: number, total: number, unidad: string) => void,
 ): Promise<(string | null)[]> {
   const caja = document.createElement('div');
@@ -76,7 +79,7 @@ export async function capturarLaminas(
       if (s.sinInformacion) { salida.push(null); continue; }
       let el: HTMLDivElement | null = null;
       flushSync(() => {
-        raiz.render(<LaminaMicrogerencia key={`${i}-${s.unidad}`} ref={(n) => { el = n; }} datos={datos} nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={barrios} />);
+        raiz.render(<LaminaMicrogerencia key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} fuente={s.fuente} nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={s.fuente === 'delictividad' ? barrios : []} />);
       });
       // Las gráficas miden su caja en el siguiente cuadro.
       await new Promise((r) => setTimeout(r, 380));
@@ -119,6 +122,8 @@ export interface ParametrosPdfTerritorial {
   /** Anexos con el generador de siempre (tarjetas de Operatividad y secciones extra). */
   anexos?: { nodos: NodoMicrogerencia[]; imagenes: Map<string, string>; extras: SeccionExtraMicrogerencia[]; opciones: Partial<OpcionesPdfMicrogerencia> };
   nombreArchivo: string;
+  /** Índice al inicio (por defecto NO: el informe va directo a las láminas). */
+  indice?: boolean;
 }
 
 /** Arma el PDF: índice → una lámina por unidad → anexos. Devuelve el número de páginas. */
@@ -134,7 +139,8 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
   let grupoActual = '';
   incluidas.forEach(({ s }, i) => {
     if (s.grupo !== grupoActual) { grupoActual = s.grupo; filas.push({ tipo: 'grupo', texto: s.grupo }); }
-    filas.push({ tipo: 'item', texto: s.grupo === 'Microgerencia general' ? 'Lámina ejecutiva consolidada' : `Microgerencia — ${s.unidad}`, unidad: s.unidad, detalle: s.grupo, pagina: i });
+    const texto = s.fuente === 'operatividad' ? `Consolidado operativo — ${s.unidad}` : s.grupo === 'Microgerencia general' ? 'Lámina ejecutiva consolidada' : `Microgerencia — ${s.unidad}`;
+    filas.push({ tipo: 'item', texto, unidad: s.unidad, detalle: s.grupo, pagina: i });
   });
   if (anexosNodos.length || anexosExtras.length) {
     filas.push({ tipo: 'grupo', texto: 'Anexos' });
@@ -160,13 +166,16 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
     porPagina[porPagina.length - 1].push(f);
     yy += ALTO_FILA;
   }
-  const paginasIndice = porPagina.length;
+  const paginasIndice = p.indice ? porPagina.length : 0;
   const paginaDe = (k: number) => paginasIndice + 1 + k;
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [PAG_W, PAG_H] });
   const totalSinAnexos = paginasIndice + incluidas.length;
 
-  porPagina.forEach((lista, ip) => {
+  // Página 1 ya creada por jsPDF: la usa el índice o la primera lámina.
+  let paginaLibre = true;
+  (p.indice ? porPagina : []).forEach((lista, ip) => {
+    paginaLibre = false;
     if (ip > 0) pdf.addPage([PAG_W, PAG_H], 'landscape');
     // Encabezado institucional
     pdf.setFillColor(...VERDE_OSC); pdf.rect(0, 0, PAG_W, 22, 'F');
@@ -229,7 +238,7 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
 
   // Láminas (página completa, sin márgenes) con su número de página.
   incluidas.forEach(({ s, img }, i) => {
-    pdf.addPage([PAG_W, PAG_H], 'landscape');
+    if (paginaLibre) paginaLibre = false; else pdf.addPage([PAG_W, PAG_H], 'landscape');
     pdf.addImage(img!, 'JPEG', 0, 0, PAG_W, PAG_H, undefined, 'FAST');
     // Rótulo de la sección (identifica la unidad aunque se imprima suelta).
     pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6.5);
@@ -239,6 +248,8 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
   if (p.anexos && (anexosNodos.length || anexosExtras.length)) {
     await generarPdfMicrogerencia(anexosNodos, p.titulo, p.anexos.imagenes, anexosExtras, { ...p.anexos.opciones, ficha: undefined, pdfBase: pdf }, p.nombreArchivo);
   }
+  // Solo anexos (sin índice ni láminas): se quita la página inicial vacía.
+  if (paginaLibre && pdf.getNumberOfPages() > 1) pdf.deletePage(1);
   const paginas = pdf.getNumberOfPages();
   if (paginas < totalSinAnexos) throw new Error('Paginación inconsistente del informe.');
   pdf.save(p.nombreArchivo);
