@@ -30,7 +30,10 @@ const g = (v: number) => `${v.toLocaleString('es-CO', { minimumFractionDigits: 1
 const kg = (v: number) => `${(v / 1000).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`;
 const variacion = (a: number, b: number) => (a > 0 ? ((b - a) / a) * 100 : null);
 const pct = (p: number | null) => (p === null ? '—' : `${signo(p)}${formatDecimal(p, 1)}%`);
-const colorDif = (n: number) => (n > 0 ? C.rojo : n < 0 ? C.verdeDif : '#8a949b');
+// Delictividad: subir es malo (rojo). Operatividad es AL REVÉS: más
+// capturas, incautaciones o recuperaciones = verde; menos = rojo.
+const colorDifDelito = (n: number) => (n > 0 ? C.rojo : n < 0 ? C.verdeDif : '#8a949b');
+const colorDif = (n: number) => (n > 0 ? C.verdeDif : n < 0 ? C.rojo : '#8a949b');
 const PALETA_CAT = ['#1d64d8', '#0e6b3f', '#f59e0b', '#14b8a6', '#7c3aed', '#64748b', '#0ea5e9', '#a3a3a3', '#be123c'];
 
 /** Nombres largos de la matriz, abreviados SOLO para que quepan (mismo dato). */
@@ -67,15 +70,16 @@ export function Caja({ x, y, w, h, children }: { x: number; y: number; w: number
 }
 
 /** Tabla con las tres columnas de periodo, diferencia y variación (+ fila de total). */
-export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato = formatNumero, tam = 15, anchoNombre = 160, alto = 23, color, vacio = 'Sin registros en el periodo.' }: {
+export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato = formatNumero, tam = 15, anchoNombre = 160, alto = 23, color, vacio = 'Sin registros en el periodo.', masEsMejor = false }: {
   titulo: string; filas: FilaTriple[]; total?: { t: number; a: number; b: number } | null; etiquetaTotal?: string; P: number; A: number;
-  formato?: (v: number) => string; tam?: number; anchoNombre?: number; alto?: number; color?: (i: number) => string; vacio?: string;
+  formato?: (v: number) => string; tam?: number; anchoNombre?: number; alto?: number; color?: (i: number) => string; vacio?: string; masEsMejor?: boolean;
 }) {
+  const colorDifT = masEsMejor ? colorDif : colorDifDelito;
   if (filas.length === 0) return <p className="px-4 py-6 text-center text-[14px] text-slate-500">{vacio}</p>;
   return (
     <table className="mx-2.5 mt-1.5 border-collapse" style={{ width: 'calc(100% - 20px)', fontSize: tam }}>
       <thead>
-        <tr className="font-bold" style={{ fontSize: tam - 1 }}>
+        <tr className="whitespace-nowrap font-bold" style={{ fontSize: tam - 1 }}>
           <th className="px-1 text-left">{titulo}</th>
           <th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th>
           <th className="text-right">Dif.</th><th className="pr-1 text-right">Variación</th>
@@ -93,8 +97,8 @@ export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato
               <td className="text-right tabular-nums">{formato(f.t)}</td>
               <td className="text-right tabular-nums">{formato(f.a)}</td>
               <td className="text-right font-bold tabular-nums">{formato(f.b)}</td>
-              <td className="text-right font-bold tabular-nums" style={{ color: colorDif(dif) }}>{signo(dif)}{formato(dif)}</td>
-              <td className="pr-1 text-right font-bold tabular-nums" style={{ color: colorDif(dif) }}>{pct(variacion(f.a, f.b))}</td>
+              <td className="text-right font-bold tabular-nums" style={{ color: colorDifT(dif) }}>{signo(dif)}{formato(dif)}</td>
+              <td className="pr-1 text-right font-bold tabular-nums" style={{ color: colorDifT(dif) }}>{pct(variacion(f.a, f.b))}</td>
             </tr>
           );
         })}
@@ -143,9 +147,21 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
       nodo.delitos.filter((c) => tipoOperatividad(c.nombre) === tipo && (!filtro || filtro(c.nombre))).map(comoTriple),
     );
     const capturas = porTipo('capturas');
-    const mercInc = porTipo('mercancia', (n) => /INCAUT/i.test(n.normalize('NFD').replace(/[̀-ͯ]/g, '')));
+    const armas = porTipo('armas');
+    const sinTilde = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const mercInc = porTipo('mercancia', (n) => /INCAUT/i.test(sinTilde(n)));
+    const mercRec = porTipo('mercancia', (n) => /RECUPER/i.test(sinTilde(n)));
+    const mercancia = porTipo('mercancia');
+    const mercOtra = { t: mercancia.t - mercInc.t - mercRec.t, a: mercancia.a - mercInc.a - mercRec.a, b: mercancia.b - mercInc.b - mercRec.b };
     const motos = porTipo('motos');
     const autos = porTipo('automotores');
+    const vehiculos = sumar([motos, autos]);
+    const filasMercancia: FilaTriple[] = [
+      { nombre: 'Incautada', ...mercInc },
+      { nombre: 'Recuperada', ...mercRec },
+      ...(mercOtra.t + mercOtra.a + mercOtra.b > 0 ? [{ nombre: 'Otra', ...mercOtra }] : []),
+    ];
+    const filasVehiculos: FilaTriple[] = [{ nombre: 'Motocicletas', ...motos }, { nombre: 'Automotores', ...autos }];
     const droga = { t: op?.drogaGTotal2025 ?? 0, a: op?.drogaG2025 ?? 0, b: op?.drogaG2026 ?? 0 };
 
     const categorias = [...nodo.delitos].map((c) => ({ ...comoTriple(c), nombre: abreviar(c.nombre) })).filter((c) => c.t + c.a + c.b > 0).sort((x, y) => y.b - x.b);
@@ -179,7 +195,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
       const p = variacion(f.a, f.b);
       const sube = dif > 0;
       return (
-        <span className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-[8px] px-2 py-1 text-[17px] font-bold" style={{ background: sube ? '#fde3e5' : '#e4f6dc', color: sube ? C.rojo : '#15803d' }}>
+        <span className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-[8px] px-2 py-1 text-[17px] font-bold" style={{ background: dif === 0 ? '#eef0f2' : sube ? '#e4f6dc' : '#fde3e5', color: dif === 0 ? '#5b6670' : sube ? '#15803d' : C.rojo }}>
           {f.a > 0 ? <>{dif < 0 ? <ChevronDown size={18} strokeWidth={3} /> : <ChevronUp size={18} strokeWidth={3} />}{signo(dif)}{formatNumero(dif)} ({pct(p)})</> : 'Sin comparable'}
         </span>
       );
@@ -198,17 +214,17 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
         {[
           { icono: Building2, titulo: 'Operatividad', color: '#1d4ed8', ...totalOp },
           { icono: UserCheck, titulo: 'Capturas', color: '#15803d', ...capturas },
-          { icono: Package, titulo: 'Mercancía incautada', color: '#7e22ce', ...mercInc },
-          { icono: Bike, titulo: 'Motocicletas recuperadas', color: '#ea580c', ...motos },
-          { icono: Car, titulo: 'Vehículos recuperados', color: '#2563eb', ...autos },
+          { icono: Crosshair, titulo: 'Armas de fuego', color: '#b45309', ...armas },
+          { icono: Package, titulo: 'Casos de mercancía', color: '#0f766e', ...mercancia },
+          { icono: Car, titulo: 'Vehículos recuperados', color: '#2563eb', ...vehiculos },
         ].map((k, i) => <TarjetaKpiConEtiquetas key={k.titulo} x={272 + i * 232} w={224} P={P} A={A} {...k} />)}
         <TarjetaKpiConEtiquetas x={272 + 5 * 232} w={228} P={P} A={A} icono={Leaf} titulo="Incautación de droga" color="#7e22ce" {...droga} formato={g} />
 
         {/* ── FILA 2 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={252} w={614} h={198}>
+        <Caja x={12} y={252} w={614} h={190}>
           <TituloBanda icono={IconoLinea}>Evolución mensual de procedimientos</TituloBanda>
           <div className="flex justify-end px-5 pt-0.5"><Leyenda items={[{ color: AZUL, texto: String(P), linea: true }, { color: VERDE_B, texto: String(A), linea: true }]} /></div>
-          <div className="h-[72px] pr-3">
+          <div className="h-[64px] pr-3">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={datosMes} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="#edf0f1" />
@@ -228,7 +244,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           </table>
         </Caja>
 
-        <Caja x={634} y={252} w={482} h={198}>
+        <Caja x={634} y={252} w={482} h={190}>
           <TituloBanda icono={Crosshair}>Armas de fuego incautadas</TituloBanda>
           <div className="flex flex-1 flex-col justify-around px-2 pb-1.5 pt-1">
             {[{ titulo: 'Sin permiso', icono: XCircle, fila: sinPermiso, color: '#1d4ed8' }, { titulo: 'Con permiso', icono: CheckCircle2, fila: conPermiso, color: '#16a34a' }].map((s) => (
@@ -242,7 +258,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           </div>
         </Caja>
 
-        <Caja x={1124} y={252} w={536} h={198}>
+        <Caja x={1124} y={252} w={536} h={190}>
           <TituloBanda icono={Gavel}>Circunstancia de captura</TituloBanda>
           {circ.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin registros en el periodo.</p> : (
             <table className="mx-2.5 mt-1.5 border-collapse text-[16.5px]" style={{ width: 'calc(100% - 20px)' }}>
@@ -251,7 +267,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
                 {circ.slice(0, 3).map((f) => {
                   const d = f.b - f.a;
                   return (
-                    <tr key={f.nombre} style={{ height: 36 }}>
+                    <tr key={f.nombre} style={{ height: 33 }}>
                       <td className="px-1">{f.nombre}</td>
                       <td className="text-right font-bold tabular-nums">{formatNumero(f.t)}</td>
                       <td className="text-right font-bold tabular-nums">{formatNumero(f.a)}</td>
@@ -280,13 +296,13 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
         </Caja>
 
         {/* ── FILA 3 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={458} w={646} h={216}>
+        <Caja x={12} y={450} w={646} h={208}>
           <TituloBanda icono={IconoDona}>Distribución por categoría</TituloBanda>
           <div className="flex min-h-0 flex-1 items-center">
-            <div className="relative h-[176px] w-[176px] shrink-0">
+            <div className="relative h-[166px] w-[166px] shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={categorias.map((c) => ({ nombre: c.nombre, valor: c.b }))} dataKey="valor" innerRadius={46} outerRadius={84} startAngle={90} endAngle={-270} stroke="#fff" strokeWidth={2} isAnimationActive={false}
+                  <Pie data={categorias.map((c) => ({ nombre: c.nombre, valor: c.b }))} dataKey="valor" innerRadius={44} outerRadius={80} startAngle={90} endAngle={-270} stroke="#fff" strokeWidth={2} isAnimationActive={false}
                     label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx?: number; cy?: number; midAngle?: number; innerRadius?: number; outerRadius?: number; percent?: number }) => {
                       if (!percent || percent < 0.035) return null;
                       const rad = Math.PI / 180;
@@ -306,17 +322,17 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <TablaTriple titulo="Categoría" filas={categorias.slice(0, 7)} total={totalOp} etiquetaTotal="Total operatividad" P={P} A={A} tam={13.5} anchoNombre={150} alto={19} color={(i) => PALETA_CAT[i % PALETA_CAT.length]} />
+              <TablaTriple titulo="Categoría" filas={categorias.slice(0, 7)} total={totalOp} etiquetaTotal="Total operatividad" P={P} A={A} tam={13.5} anchoNombre={150} alto={17} color={(i) => PALETA_CAT[i % PALETA_CAT.length]} masEsMejor />
             </div>
           </div>
         </Caja>
 
-        <Caja x={666} y={458} w={454} h={216}>
+        <Caja x={666} y={450} w={454} h={208}>
           <TituloBanda icono={Scale}>Capturas por delito asociado <span className="text-[16px] font-normal">(Top 5)</span></TituloBanda>
           {capt5.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin capturas en el periodo.</p> : (
-            <div className="px-3 pt-2">
+            <div className="px-3 pt-1.5">
               {capt5.map((f) => (
-                <div key={f.nombre} className="flex items-center gap-2 text-[16px]" style={{ height: 25 }}>
+                <div key={f.nombre} className="flex items-center gap-2 text-[16px]" style={{ height: 23 }}>
                   <span className="w-[150px] shrink-0 truncate" title={f.nombre}>{f.nombre}</span>
                   <span className="h-[15px] flex-1"><span className="block h-full rounded-[2px]" style={{ width: `${Math.max(3, (f.b / Math.max(1, capt5[0].b)) * 100)}%`, background: '#22a33a' }} /></span>
                   <span className="w-[48px] text-right font-bold tabular-nums">{formatNumero(f.b)}</span>
@@ -332,7 +348,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           )}
         </Caja>
 
-        <Caja x={1128} y={458} w={532} h={216}>
+        <Caja x={1128} y={450} w={532} h={208}>
           <TituloBanda icono={Building2}>{tituloSubunidad}</TituloBanda>
           <div className="flex justify-end px-4 pt-0.5"><Leyenda items={[{ color: AZUL, texto: String(P) }, { color: VERDE_B, texto: String(A) }]} /></div>
           <div className="min-h-0 flex-1 px-1 pb-1">
@@ -353,45 +369,41 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
         </Caja>
 
         {/* ── FILA 4 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={682} w={816} h={190}>
+        <Caja x={12} y={666} w={444} h={206}>
           <TituloBanda icono={Users}>Caracterización de capturados</TituloBanda>
-          <div className="flex min-h-0 flex-1 gap-3 px-2.5 pb-2 pt-1">
-            <div className="w-[230px] shrink-0 text-center">
-              <p className="text-[15px] font-bold">Género</p>
-              {genero.length === 0 ? <p className="pt-4 text-[13px] text-slate-500">Sin registros.</p> : (
-                <div className="mt-0.5 flex justify-center gap-2">
-                  {genero.slice(0, 2).map((f) => {
-                    const mujer = /fem|mujer/i.test(f.nombre);
-                    return (
-                      <div key={f.nombre} className="flex w-[106px] flex-col items-center rounded-[10px] py-1 leading-tight" style={{ background: '#f4f7f6' }}>
-                        <UserRound size={34} strokeWidth={2.6} style={{ color: mujer ? '#ec4899' : '#2563eb' }} />
-                        <p className="text-[14px]">{f.nombre}</p>
-                        <p className="text-[23px] font-extrabold leading-none">{formatNumero(f.valor)}</p>
-                        <p className="text-[14px]">({totalGenero > 0 ? formatDecimal((f.valor / totalGenero) * 100, 1) : '0'}%)</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          {genero.length > 0 && (
+            <div className="mx-2.5 mt-1.5 flex gap-2">
+              {genero.slice(0, 2).map((f) => {
+                const mujer = /fem|mujer/i.test(f.nombre);
+                return (
+                  <div key={f.nombre} className="flex flex-1 items-center gap-1.5 rounded-[8px] px-2 py-[2px] text-[14px]" style={{ background: mujer ? '#fdeef6' : '#eaf1fd' }}>
+                    <UserRound size={20} strokeWidth={2.6} style={{ color: mujer ? '#ec4899' : '#2563eb' }} />
+                    <span className="font-semibold">{f.nombre}</span>
+                    <span className="ml-auto text-[17px] font-extrabold tabular-nums">{formatNumero(f.valor)}</span>
+                    <span className="text-[13px] tabular-nums">({totalGenero > 0 ? formatDecimal((f.valor / totalGenero) * 100, 1) : '0'}%)</span>
+                  </div>
+                );
+              })}
             </div>
-            <div className="min-w-0 flex-1">
-              <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturas" P={P} A={A} tam={edad.length > 4 ? 13 : 14.5} anchoNombre={170} alto={edad.length > 4 ? 16.5 : 21} />
-            </div>
-          </div>
+          )}
+          <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturas" P={P} A={A} tam={12.5} anchoNombre={130} alto={edad.length > 4 ? 15.5 : 18} masEsMejor />
         </Caja>
 
-        <Caja x={836} y={682} w={824} h={190}>
+        <Caja x={464} y={666} w={496} h={206}>
           <TituloBanda icono={Leaf}>Incautación de droga <span className="text-[16px] font-normal">(por sustancia)</span></TituloBanda>
-          <TablaTriple titulo="Sustancia" filas={drogaClase.slice(0, 4)} total={drogaClase.length ? droga : null} etiquetaTotal="Total incautado" P={P} A={A} formato={g} tam={12.5} anchoNombre={150} alto={15.5} vacio="Sin incautación de droga en el periodo." />
+          <TablaTriple titulo="Sustancia" filas={drogaClase.slice(0, 4)} total={drogaClase.length ? droga : null} etiquetaTotal="Total" P={P} A={A} formato={g} tam={12.5} anchoNombre={92} alto={18} vacio="Sin incautación de droga en el periodo." masEsMejor />
           {drogaClase.length > 0 && (
-            <div className="mx-2.5 mt-0.5 grid items-center rounded-[7px] px-2 py-[1px] text-[13px] font-bold" style={{ background: '#fdf0c4', gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr 0.8fr' }}>
-              <span>Equivalente en kilogramos</span>
+            <div className="mx-2.5 mt-1 grid items-center rounded-[7px] px-1.5 py-[2px] text-[12.5px] font-bold" style={{ background: '#fdf0c4', gridTemplateColumns: '0.9fr 1fr 1fr 1fr 1fr 0.75fr' }}>
+              <span>En kg</span>
               <span className="text-right">{kg(droga.t)}</span><span className="text-right">{kg(droga.a)}</span><span className="text-right">{kg(droga.b)}</span>
               <span className="text-right" style={{ color: colorDif(droga.b - droga.a) }}>{signo(droga.b - droga.a)}{kg(droga.b - droga.a)}</span>
               <span className="pr-1 text-right" style={{ color: colorDif(droga.b - droga.a) }}>{pct(variacion(droga.a, droga.b))}</span>
             </div>
           )}
         </Caja>
+
+        <ComponenteDiscriminado x={968} titulo="Casos de mercancía" icono={Package} filas={filasMercancia} total={mercancia} colores={['#0f766e', '#f59e0b', '#94a3b8']} etiquetaTotal="Total mercancía" P={P} A={A} />
+        <ComponenteDiscriminado x={1318} titulo="Vehículos recuperados" icono={Car} filas={filasVehiculos} total={vehiculos} colores={['#ea580c', '#2563eb']} etiquetaTotal="Total vehículos" P={P} A={A} iconos={[Bike, Car]} />
 
         <PieLamina fuente="Aplicativo Operatividad" />
       </div>
@@ -420,9 +432,77 @@ function TarjetaKpiConEtiquetas({ x, w, icono: Icono, titulo, color, t, a, b, P,
           </div>
         ))}
       </div>
-      <span className="mx-2 mb-1.5 mt-auto flex items-center justify-center gap-0.5 whitespace-nowrap rounded-full py-[2px] font-bold" style={{ background: '#e4f6dc', color: '#14532d', fontSize: largo ? 15 : 20 }}>
+      <span className="mx-2 mb-1.5 mt-auto flex items-center justify-center gap-0.5 whitespace-nowrap rounded-full py-[2px] font-bold" style={{ background: a === 0 || dif === 0 ? '#eef0f2' : dif > 0 ? '#e4f6dc' : '#fde3e5', color: a === 0 || dif === 0 ? '#5b6670' : dif > 0 ? '#14532d' : '#b91c1c', fontSize: largo ? 15 : 20 }}>
         {a > 0 ? <>{dif < 0 ? <ChevronDown size={17} strokeWidth={3} /> : <ChevronUp size={17} strokeWidth={3} />}{signo(dif)}{formato(dif)} ({pct(p)})</> : (b > 0 ? 'Sin periodo comparable' : 'Sin registros')}
       </span>
     </div>
+  );
+}
+
+/** Componente de la fila inferior: un total discriminado en sus partes
+ *  (mercancía incautada/recuperada; motocicletas/automotores) con los tres
+ *  periodos y la participación de cada parte en el año actual. */
+function ComponenteDiscriminado({ x, titulo, icono, iconos, filas, total, colores, etiquetaTotal, P, A }: {
+  x: number; titulo: string; icono: LucideIcon; iconos?: LucideIcon[]; filas: FilaTriple[]; total: { t: number; a: number; b: number };
+  colores: string[]; etiquetaTotal: string; P: number; A: number;
+}) {
+  const color = (i: number) => colores[i % colores.length];
+  const base = total.b > 0 ? total.b : total.a;
+  const campo: 'a' | 'b' = total.b > 0 ? 'b' : 'a';
+  return (
+    <Caja x={x} y={666} w={342} h={206}>
+      <TituloBanda icono={icono}>{titulo}</TituloBanda>
+      {total.t + total.a + total.b === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin registros en el periodo.</p> : (
+        <>
+          <table className="mx-2 mt-1.5 border-collapse text-[13px]" style={{ width: 'calc(100% - 16px)' }}>
+            <thead>
+              <tr className="whitespace-nowrap text-[11.5px] font-bold">
+                <th className="px-0.5 text-left" />
+                <th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th><th className="text-right">Dif.</th><th className="pr-0.5 text-right">Var.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f, i) => {
+                const d = f.b - f.a;
+                const Ic = iconos?.[i];
+                return (
+                  <tr key={f.nombre} style={{ height: 24 }}>
+                    <td className="whitespace-nowrap px-0.5 font-semibold">
+                      {Ic ? <Ic size={15} strokeWidth={2.5} className="mr-1 inline align-[-3px]" style={{ color: color(i) }} /> : <span className="mr-1.5 inline-block h-[10px] w-[10px] rounded-full align-middle" style={{ background: color(i) }} />}
+                      {f.nombre}
+                    </td>
+                    <td className="text-right tabular-nums">{formatNumero(f.t)}</td>
+                    <td className="text-right tabular-nums">{formatNumero(f.a)}</td>
+                    <td className="text-right font-bold tabular-nums">{formatNumero(f.b)}</td>
+                    <td className="text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{signo(d)}{formatNumero(d)}</td>
+                    <td className="whitespace-nowrap pr-0.5 text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{pct(variacion(f.a, f.b))}</td>
+                  </tr>
+                );
+              })}
+              <tr className="font-bold text-white" style={{ background: C.verde, height: 25 }}>
+                <td className="whitespace-nowrap rounded-l-[7px] px-1.5 text-[12px]">{etiquetaTotal}</td>
+                <td className="text-right tabular-nums">{formatNumero(total.t)}</td>
+                <td className="text-right tabular-nums">{formatNumero(total.a)}</td>
+                <td className="text-right tabular-nums">{formatNumero(total.b)}</td>
+                <td className="text-right tabular-nums">{signo(total.b - total.a)}{formatNumero(total.b - total.a)}</td>
+                <td className="whitespace-nowrap rounded-r-[7px] pr-1 text-right tabular-nums">{pct(variacion(total.a, total.b))}</td>
+              </tr>
+            </tbody>
+          </table>
+          {base > 0 && (
+            <div className="mx-2.5 mt-auto mb-2">
+              <p className="text-[11.5px] font-semibold text-slate-600">Participación {campo === 'b' ? A : P}</p>
+              <div className="mt-0.5 flex h-[16px] overflow-hidden rounded-[5px]">
+                {filas.map((f, i) => f[campo] > 0 && (
+                  <span key={f.nombre} className="flex items-center justify-center text-[10.5px] font-bold text-white" style={{ width: `${(f[campo] / base) * 100}%`, background: color(i) }}>
+                    {f[campo] / base >= 0.12 ? `${formatDecimal((f[campo] / base) * 100, 1)}%` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Caja>
   );
 }

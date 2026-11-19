@@ -180,7 +180,34 @@ const coincide = (t: string, q: string) => !q || normalizar(t).includes(normaliz
 
 
 // ── Asistente ──────────────────────────────────────────────────────────
+// La ventana se pinta de inmediato y el cálculo (todas las unidades del
+// árbol) arranca en el siguiente cuadro: antes el clic quedaba congelado
+// hasta terminar de calcular.
 export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
+  const [listo, setListo] = useState(false);
+  useEffect(() => {
+    let t = 0;
+    const r = requestAnimationFrame(() => { t = window.setTimeout(() => setListo(true), 0); });
+    return () => { cancelAnimationFrame(r); clearTimeout(t); };
+  }, []);
+  if (listo) return <AsistenteContenido onCerrar={onCerrar} />;
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 p-2 sm:p-4" role="dialog" aria-modal="true" aria-label="Microgerencia y Proyección Delictiva MEPOY">
+      <div className="flex w-full max-w-[1120px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="bg-gradient-to-r from-[#0a3a2c] via-[#0d4636] to-[#0a3a2c] px-4 py-5 text-center text-white">
+          <h2 className="text-[19px] font-extrabold sm:text-[24px]">Microgerencia y Proyección Delictiva <span className="text-[#9fdc3a]">MEPOY</span></h2>
+        </div>
+        <div className="flex items-center justify-center gap-3 px-4 py-16 text-[14px] font-semibold text-slate-600">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-[#0d4636]" />
+          Cargando datos de las unidades…
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   const { registrosVisibles, filters } = useData();
 
   const [e, despachar] = useReducer(reducir, undefined, (): EstadoAsistente => ({

@@ -70,64 +70,72 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
     const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
     const totalGeneralFecha2026 = recsActual.length;
 
-    function calcularTrimestresYMeses(pred: (r: CrimeRecord) => boolean): { trimestres: PuntoTrimestre[]; meses: PuntoMes[] } {
-      const meses: PuntoMes[] = NOMBRES_MES.map((etiqueta, i) => {
-        const mesNum = i + 1;
-        const anio2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes === mesNum).length;
-        const anio2026 = recsActual.filter((r) => pred(r) && r.mes === mesNum).length;
-        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
-      });
-      const trimestres: PuntoTrimestre[] = TRIMESTRES.map(({ etiqueta, meses: mesesTrimestre }) => {
-        const anio2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        const anio2026 = recsActual.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
-      });
-      return { trimestres, meses };
-    }
-
-    function calcularNodo(nombre: string, pred: (r: CrimeRecord) => boolean, hijos: NodoMicrogerencia[] = [], incluirDelitos = true): NodoMicrogerencia {
-      const total2025 = recsAnioAnteriorCompleto.filter(pred).length;
-      const fecha2025 = recsAnterior.filter(pred).length;
-      const fecha2026 = recsActual.filter(pred).length;
+    // ── Cálculo de nodos (rendimiento) ───────────────────────────────
+    // Mismas cifras de siempre, pero cada unidad recorre sus registros UNA
+    // sola vez: antes se filtraban los años completos ~35 veces por unidad
+    // y por cada delito (meses, trimestres, totales), y con ~80 unidades
+    // la ventana de Microgerencia tardaba varios segundos en abrir.
+    const recordsBaseAnteriores = recordsBase.filter((r) => r.anio != null && r.anio < anioActual);
+    const porMes = (lista: CrimeRecord[]) => {
+      const m = new Array<number>(12).fill(0);
+      for (const r of lista) if (r.mes != null && r.mes >= 1 && r.mes <= 12) m[r.mes - 1]++;
+      return m;
+    };
+    function nodoBase(nombre: string, T: CrimeRecord[], Aa: CrimeRecord[], B: CrimeRecord[], hijos: NodoMicrogerencia[]): NodoMicrogerencia {
+      const total2025 = T.length;
+      const fecha2025 = Aa.length;
+      const fecha2026 = B.length;
       const dif = fecha2026 - fecha2025;
       const pct = fecha2025 > 0 ? (dif / fecha2025) * 100 : (fecha2026 > 0 ? 100 : null);
       const aportePct = totalGeneralFecha2026 > 0 ? (fecha2026 / totalGeneralFecha2026) * 100 : 0;
       const casosDia = diasTranscurridos > 0 ? fecha2026 / diasTranscurridos : 0;
       const terminaAnio = casosDia * 365;
       const difConAnioAnterior = terminaAnio - total2025;
-      const { trimestres, meses } = calcularTrimestresYMeses(pred);
-      let delitosDelNodo: NodoMicrogerencia[] = [];
-      let barrios: { nombre: string; casos: number }[] | undefined;
-      let historico: { anio: number; casos: number; parcial: boolean }[] | undefined;
-      if (incluirDelitos) {
-        // Barrios más afectados (año actual a la fecha) — para «Distribución territorial».
-        const conteoBarrio = new Map<string, number>();
-        for (const r of recsActual) {
-          if (!pred(r)) continue;
-          const b = (r.barrioHecho ?? '').trim();
-          if (!b || /^no reportad/i.test(b) || /^sin /i.test(b)) continue;
-          conteoBarrio.set(b, (conteoBarrio.get(b) ?? 0) + 1);
-        }
-        barrios = Array.from(conteoBarrio, ([nombre, casos]) => ({ nombre, casos })).sort((a, b) => b.casos - a.casos).slice(0, 10);
-        // Histórico anual: los años que REALMENTE existen en los datos (sin
-        // rellenar años vacíos); el año actual es el acumulado a la fecha.
-        const porAnio = new Map<number, number>();
-        for (const r of recordsBase) {
-          if (r.anio == null || r.anio >= anioActual || !pred(r)) continue;
-          porAnio.set(r.anio, (porAnio.get(r.anio) ?? 0) + 1);
-        }
-        const finAnio = new Date(anioActual, 11, 31);
-        historico = [
-          ...Array.from(porAnio, ([anio, casos]) => ({ anio, casos, parcial: false })).sort((a, b) => a.anio - b.anio),
-          { anio: anioActual, casos: fecha2026, parcial: ventana.actualFin < finAnio },
-        ];
-        const universo = [...recsActual, ...recsAnterior].filter(pred);
-        const nombresDelitosNodo = Array.from(new Set(universo.map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')));
-        delitosDelNodo = nombresDelitosNodo
-          .map((delito) => calcularNodo(delito, (r) => pred(r) && r.delito === delito, [], false))
-          .sort((a, b) => b.fecha2026 - a.fecha2026);
+      const mT = porMes(T), mB = porMes(B);
+      const meses: PuntoMes[] = NOMBRES_MES.map((etiqueta, i) => ({ etiqueta, anio2025: mT[i], anio2026: mB[i], dif: mB[i] - mT[i] }));
+      const trimestres: PuntoTrimestre[] = TRIMESTRES.map(({ etiqueta, meses: ms }) => {
+        const anio2025 = ms.reduce((s, m) => s + mT[m - 1], 0);
+        const anio2026 = ms.reduce((s, m) => s + mB[m - 1], 0);
+        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
+      });
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: [], hijos };
+    }
+    const agrupar = (lista: CrimeRecord[]) => {
+      const m = new Map<string, CrimeRecord[]>();
+      for (const r of lista) { const l = m.get(r.delito); if (l) l.push(r); else m.set(r.delito, [r]); }
+      return m;
+    };
+
+    function calcularNodo(nombre: string, pred: (r: CrimeRecord) => boolean, hijos: NodoMicrogerencia[] = [], incluirDelitos = true): NodoMicrogerencia {
+      const T = recsAnioAnteriorCompleto.filter(pred);
+      const Aa = recsAnterior.filter(pred);
+      const B = recsActual.filter(pred);
+      const nodo = nodoBase(nombre, T, Aa, B, hijos);
+      if (!incluirDelitos) return nodo;
+      // Barrios más afectados (año actual a la fecha) — para «Distribución territorial».
+      const conteoBarrio = new Map<string, number>();
+      for (const r of B) {
+        const b = (r.barrioHecho ?? '').trim();
+        if (!b || /^no reportad/i.test(b) || /^sin /i.test(b)) continue;
+        conteoBarrio.set(b, (conteoBarrio.get(b) ?? 0) + 1);
       }
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: delitosDelNodo.map((d) => ({ ...d, tipo: 'delito' as const })), hijos, barrios, historico };
+      const barrios = Array.from(conteoBarrio, ([n, casos]) => ({ nombre: n, casos })).sort((a, b) => b.casos - a.casos).slice(0, 10);
+      // Histórico anual: los años que REALMENTE existen en los datos (sin
+      // rellenar años vacíos); el año actual es el acumulado a la fecha.
+      const porAnio = new Map<number, number>();
+      for (const r of recordsBaseAnteriores) if (pred(r)) porAnio.set(r.anio!, (porAnio.get(r.anio!) ?? 0) + 1);
+      const finAnio = new Date(anioActual, 11, 31);
+      const historico = [
+        ...Array.from(porAnio, ([anio, casos]) => ({ anio, casos, parcial: false })).sort((a, b) => a.anio - b.anio),
+        { anio: anioActual, casos: nodo.fecha2026, parcial: ventana.actualFin < finAnio },
+      ];
+      // Desglose por delito: se agrupa una vez (mismo orden de aparición de antes).
+      const gT = agrupar(T), gA = agrupar(Aa), gB = agrupar(B);
+      const nombresDelitosNodo = Array.from(new Set([...B, ...Aa].map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')));
+      const delitosDelNodo = nombresDelitosNodo
+        .map((d) => nodoBase(d, gT.get(d) ?? [], gA.get(d) ?? [], gB.get(d) ?? [], []))
+        .sort((a, b) => b.fecha2026 - a.fecha2026);
+      return { ...nodo, delitos: delitosDelNodo.map((d) => ({ ...d, tipo: 'delito' as const })), barrios, historico };
     }
 
     function cuadrantesDe(estacion: string, caiFiltro: string | null): NodoMicrogerencia[] {

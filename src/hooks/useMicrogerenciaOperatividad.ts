@@ -165,69 +165,67 @@ export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | nul
 
     const totalGeneralFecha2026 = recsActual.length;
 
-    function calcularTrimestresYMeses(pred: (r: OperatividadRecord) => boolean) {
-      const meses: PuntoMes[] = NOMBRES_MES.map((etiqueta, i) => {
-        const mesNum = i + 1;
-        const anio2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes === mesNum).length;
-        const anio2026 = recsActual.filter((r) => pred(r) && r.mes === mesNum).length;
-        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
-      });
-      const trimestres: PuntoTrimestre[] = TRIMESTRES.map(({ etiqueta, meses: mesesTrimestre }) => {
-        const anio2025 = recsAnioAnteriorCompleto.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        const anio2026 = recsActual.filter((r) => pred(r) && r.mes !== null && mesesTrimestre.includes(r.mes)).length;
-        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
-      });
-      return { trimestres, meses };
-    }
-
-    function calcularNodo(nombre: string, pred: (r: OperatividadRecord) => boolean, hijos: NodoMicrogerencia[] = [], incluirCategorias = true): NodoMicrogerencia {
-      const total2025 = recsAnioAnteriorCompleto.filter(pred).length;
-      const fecha2025 = recsAnterior.filter(pred).length;
-      const fecha2026 = recsActual.filter(pred).length;
+    // Mismas cifras, recorriendo los registros de cada unidad UNA sola vez
+    // (antes ~35 filtros por unidad y por categoría: abría muy lento).
+    const contablesAnteriores = contables.filter((r) => r.anio != null && r.anio < anioActual);
+    const porMes = (lista: OperatividadRecord[]) => {
+      const m = new Array<number>(12).fill(0);
+      for (const r of lista) if (r.mes != null && r.mes >= 1 && r.mes <= 12) m[r.mes - 1]++;
+      return m;
+    };
+    function nodoBase(nombre: string, T: OperatividadRecord[], Aa: OperatividadRecord[], B: OperatividadRecord[], hijos: NodoMicrogerencia[]): NodoMicrogerencia {
+      const total2025 = T.length;
+      const fecha2025 = Aa.length;
+      const fecha2026 = B.length;
       const dif = fecha2026 - fecha2025;
       const pct = fecha2025 > 0 ? (dif / fecha2025) * 100 : (fecha2026 > 0 ? 100 : null);
       const aportePct = totalGeneralFecha2026 > 0 ? (fecha2026 / totalGeneralFecha2026) * 100 : 0;
       const casosDia = diasTranscurridos > 0 ? fecha2026 / diasTranscurridos : 0;
       const terminaAnio = casosDia * 365;
       const difConAnioAnterior = terminaAnio - total2025;
-      const { trimestres, meses } = calcularTrimestresYMeses(pred);
-      // "delitos" se reutiliza para el Top 10 de CATEGORÍAS (capturas,
-      // incautaciones, etc.) — mismo mecanismo que el desglose por delito
-      // de Delictividad, ordenado de mayor a menor y recortado a 10 en la
-      // tarjeta (dibujarTarjetaNodo ya hace ese recorte).
-      let categoriasDelNodo: NodoMicrogerencia[] = [];
-      if (incluirCategorias) {
-        const universo = [...recsActual, ...recsAnterior].filter(pred);
-        const nombresCategorias = Array.from(new Set(universo.map((r) => r.categoria).filter((c) => c && c !== 'NO REPORTADO')));
-        categoriasDelNodo = nombresCategorias
-          .map((cat) => calcularNodo(cat, (r) => pred(r) && r.categoria === cat, [], false))
-          .sort((a, b) => b.fecha2026 - a.fecha2026);
+      const mT = porMes(T), mB = porMes(B);
+      const meses: PuntoMes[] = NOMBRES_MES.map((etiqueta, i) => ({ etiqueta, anio2025: mT[i], anio2026: mB[i], dif: mB[i] - mT[i] }));
+      const trimestres: PuntoTrimestre[] = TRIMESTRES.map(({ etiqueta, meses: ms }) => {
+        const anio2025 = ms.reduce((s2, m) => s2 + mT[m - 1], 0);
+        const anio2026 = ms.reduce((s2, m) => s2 + mB[m - 1], 0);
+        return { etiqueta, anio2025, anio2026, dif: anio2026 - anio2025 };
+      });
+      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: [], hijos };
+    }
+    const agrupar = (lista: OperatividadRecord[]) => {
+      const m = new Map<string, OperatividadRecord[]>();
+      for (const r of lista) { const l = m.get(r.categoria); if (l) l.push(r); else m.set(r.categoria, [r]); }
+      return m;
+    };
+
+    function calcularNodo(nombre: string, pred: (r: OperatividadRecord) => boolean, hijos: NodoMicrogerencia[] = [], incluirCategorias = true): NodoMicrogerencia {
+      const T = recsAnioAnteriorCompleto.filter(pred);
+      const Aa = recsAnterior.filter(pred);
+      const B = recsActual.filter(pred);
+      const nodo = nodoBase(nombre, T, Aa, B, hijos);
+      if (!incluirCategorias) return nodo;
+      // "delitos" se reutiliza para las CATEGORÍAS (capturas, incautaciones…).
+      const gT = agrupar(T), gA = agrupar(Aa), gB = agrupar(B);
+      const nombresCategorias = Array.from(new Set([...B, ...Aa].map((r) => r.categoria).filter((c) => c && c !== 'NO REPORTADO')));
+      const categoriasDelNodo = nombresCategorias
+        .map((cat) => nodoBase(cat, gT.get(cat) ?? [], gA.get(cat) ?? [], gB.get(cat) ?? [], []))
+        .sort((a, b) => b.fecha2026 - a.fecha2026);
+      // Para la lámina ejecutiva: barrios del año actual e histórico anual.
+      const conteoBarrio = new Map<string, number>();
+      for (const r of B) {
+        const b = (r.barrioHecho ?? '').trim();
+        if (!b || /^no reportad/i.test(b) || /^sin /i.test(b)) continue;
+        conteoBarrio.set(b, (conteoBarrio.get(b) ?? 0) + 1);
       }
-      // Para la lámina ejecutiva (mismas cifras; solo se presentan):
-      // barrios del año actual e histórico anual de los años con datos.
-      let barrios: { nombre: string; casos: number }[] | undefined;
-      let historico: { anio: number; casos: number; parcial: boolean }[] | undefined;
-      if (incluirCategorias) {
-        const conteoBarrio = new Map<string, number>();
-        for (const r of recsActual) {
-          if (!pred(r)) continue;
-          const b = (r.barrioHecho ?? '').trim();
-          if (!b || /^no reportad/i.test(b) || /^sin /i.test(b)) continue;
-          conteoBarrio.set(b, (conteoBarrio.get(b) ?? 0) + 1);
-        }
-        barrios = Array.from(conteoBarrio, ([nombre, casos]) => ({ nombre, casos })).sort((a, b) => b.casos - a.casos).slice(0, 10);
-        const porAnio = new Map<number, number>();
-        for (const r of contables) {
-          if (r.anio == null || r.anio >= anioActual || !pred(r)) continue;
-          porAnio.set(r.anio, (porAnio.get(r.anio) ?? 0) + 1);
-        }
-        historico = [
-          ...Array.from(porAnio, ([anio, casos]) => ({ anio, casos, parcial: false })).sort((a, b) => a.anio - b.anio),
-          { anio: anioActual, casos: fecha2026, parcial: ventana!.actualFin < new Date(anioActual, 11, 31) },
-        ];
-      }
-      const operativo = incluirCategorias ? detalleOperativo(pred) : undefined;
-      return { nombre, total2025, fecha2025, fecha2026, dif, pct, aportePct, casosDia, terminaAnio, difConAnioAnterior, trimestres, meses, delitos: categoriasDelNodo, hijos, barrios, historico, operativo };
+      const barrios = Array.from(conteoBarrio, ([n, casos]) => ({ nombre: n, casos })).sort((a, b) => b.casos - a.casos).slice(0, 10);
+      const porAnio = new Map<number, number>();
+      for (const r of contablesAnteriores) if (pred(r)) porAnio.set(r.anio!, (porAnio.get(r.anio!) ?? 0) + 1);
+      const historico = [
+        ...Array.from(porAnio, ([anio, casos]) => ({ anio, casos, parcial: false })).sort((a, b) => a.anio - b.anio),
+        { anio: anioActual, casos: nodo.fecha2026, parcial: ventana!.actualFin < new Date(anioActual, 11, 31) },
+      ];
+      const operativo = detalleOperativo(pred);
+      return { ...nodo, delitos: categoriasDelNodo, barrios, historico, operativo };
     }
 
     function caisDe(estacion: string): NodoMicrogerencia[] {
