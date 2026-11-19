@@ -10,7 +10,7 @@ import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
 import { nombreVisibleUnidad, type AjustesMicrogerencia, type DatosMicrogerencia, type NodoMicrogerencia } from '../../data/microgerencia';
 import type { SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
-import { nodoOperatividadEquivalente, paginaDetalleOperatividad, seccionRnmc } from '../../data/microgerenciaGeneracion';
+import { nodoOperatividadEquivalente, seccionRnmc } from '../../data/microgerenciaGeneracion';
 import { fechaLargaIso } from '../../data/microgerenciaTextos';
 import { etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
 import { capturarLaminas, generarPdfTerritorial, seccionDelito, seccionesDelInforme, type SeccionTerritorial } from './informeTerritorial';
@@ -181,7 +181,7 @@ const coincide = (t: string, q: string) => !q || normalizar(t).includes(normaliz
 
 // ── Asistente ──────────────────────────────────────────────────────────
 export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
-  const { registrosVisibles, filters, filteredOperatividadRecords } = useData();
+  const { registrosVisibles, filters } = useData();
 
   const [e, despachar] = useReducer(reducir, undefined, (): EstadoAsistente => ({
     paso: 0,
@@ -290,10 +290,8 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
     setMensajeGeneracion('Preparando el informe…');
     try {
       const extras: SeccionExtraMicrogerencia[] = [];
-      if (e.fuentes.includes('operatividad')) {
-        const detalle = paginaDetalleOperatividad(filteredOperatividadRecords);
-        if (detalle) extras.push(detalle);
-      }
+      // Operatividad va SOLO en su lámina institucional: ya no se agrega la
+      // hoja antigua «Operatividad — Detalle».
       if (e.fuentes.includes('rnmc')) {
         setMensajeGeneracion('Agregando RNMC…');
         const rnmc = await seccionRnmc();
@@ -694,7 +692,6 @@ function PasoResumen({ e, irA, datos, secciones, generando, mensaje }: {
             )}
           </li>
         ))}
-        {e.fuentes.includes('operatividad') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Anexo: detalle de Operatividad</li>}
         {e.fuentes.includes('rnmc') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Anexo: resumen de RNMC</li>}
         {secciones.length === 0 && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad')) && <li className="text-[12.5px] text-rose-600">No hay hojas con esta selección.</li>}
       </ol>
