@@ -75,7 +75,7 @@ export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato
   const colorDifT = masEsMejor ? colorDif : colorDifDelito;
   if (filas.length === 0) return <p className="px-4 py-6 text-center text-[14px] text-slate-500">{vacio}</p>;
   return (
-    <table className="mx-2.5 mt-1.5 border-collapse" style={{ width: 'calc(100% - 20px)', fontSize: tam }}>
+    <table className="mx-2.5 mt-1.5 border-collapse leading-[1.2]" style={{ width: 'calc(100% - 20px)', fontSize: tam }}>
       <thead>
         <tr className="whitespace-nowrap font-bold" style={{ fontSize: tam - 1 }}>
           <th className="px-1 text-left">{titulo}</th>
@@ -355,9 +355,9 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           partes={[{ nombre: 'Motocicletas', valor: motos.b, color: '#f59e0b' }, { nombre: 'Automotores', valor: autos.b, color: '#1d64d8' }]} />
 
         {/* ── FILA 4 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={674} w={820} h={200}>
+        <Caja x={12} y={674} w={820} h={206}>
           <TituloBanda icono={Users}>Caracterización de capturados</TituloBanda>
-          <div className="flex min-h-0 flex-1 gap-3 px-2.5 pb-2 pt-1">
+          <div className="flex min-h-0 flex-1 gap-3 px-2.5 pb-1.5 pt-0.5">
             <div className="flex w-[230px] shrink-0 flex-col rounded-[10px] border text-center" style={{ borderColor: '#e2e8e5' }}>
               <p className="pt-0.5 text-[16px] font-bold">Género</p>
               {genero.length === 0 ? <p className="pt-4 text-[13px] text-slate-500">Sin registros.</p> : (
@@ -377,12 +377,12 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturados" P={P} A={A} tam={15} anchoNombre={200} alto={edad.length > 4 ? 20 : 24} masEsMejor />
+              <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturados" P={P} A={A} tam={edad.length > 4 ? 14 : 15} anchoNombre={200} alto={edad.length > 5 ? 16 : edad.length > 4 ? 18.5 : 22} masEsMejor />
             </div>
           </div>
         </Caja>
 
-        <Caja x={840} y={674} w={820} h={200}>
+        <Caja x={840} y={674} w={820} h={206}>
           <TituloBanda icono={Leaf}>Incautación de droga <span className="text-[16px] font-normal">(por sustancia)</span></TituloBanda>
           <TablaTriple titulo="Sustancia" filas={drogaClase.slice(0, 5)} total={drogaClase.length ? droga : null} etiquetaTotal="Total" P={P} A={A} formato={g} tam={15.5} anchoNombre={170} alto={drogaClase.length > 4 ? 20 : 23} tituloDif="Dif. (g)" vacio="Sin incautación de droga en el periodo." masEsMejor />
         </Caja>
@@ -433,24 +433,7 @@ function DonaDiscriminada({ x, w, titulo, icono, partes, unidad, A }: {
       <TituloBanda icono={icono}>{titulo}</TituloBanda>
       {total === 0 ? <p className="px-4 py-8 text-center text-[14px] text-slate-500">Sin registros en {A}.</p> : (
         <div className="flex min-h-0 flex-1 items-center gap-2 pl-2 pr-3">
-          <div className="relative h-[134px] w-[134px] shrink-0 [&_svg]:overflow-visible">
-            <PieChart width={134} height={134} style={{ overflow: 'visible' }}>
-              <Pie data={visibles} dataKey="valor" nameKey="nombre" cx={67} cy={67} innerRadius={29} outerRadius={66} startAngle={90} endAngle={-270} stroke="#fff" strokeWidth={2} isAnimationActive={false} labelLine={false}
-                label={({ midAngle, percent }: { midAngle?: number; percent?: number }) => {
-                  if (!percent || percent < 0.08) return null;
-                  const rad = Math.PI / 180;
-                  const r = 48; // a mitad del anillo (29 – 66)
-                  return <text x={67 + r * Math.cos(-Number(midAngle) * rad)} y={67 + r * Math.sin(-Number(midAngle) * rad)} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 10.5, fontWeight: 700, fill: '#fff', fontFamily: FUENTE }}>{formatDecimal(percent * 100, 1)}%</text>;
-                }}>
-                {visibles.map((p) => <Cell key={p.nombre} fill={p.color} />)}
-              </Pie>
-            </PieChart>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center leading-none">
-              <span className="text-[18px] font-extrabold tabular-nums">{formatNumero(total)}</span>
-              <span className="mt-0.5 text-[10px]">{unidad}</span>
-              <span className="text-[10px]">({A})</span>
-            </div>
-          </div>
+          <DonaSvg partes={visibles} total={total} unidad={unidad} A={A} />
           <div className="min-w-0 flex-1 space-y-2.5">
             {partes.map((p) => (
               <div key={p.nombre} className="flex items-start gap-2">
@@ -487,6 +470,45 @@ function Figura({ mujer }: { mujer: boolean }) {
           <rect x="18" y="28" width="5.5" height="17" rx="2" fill={color} />
         </>
       )}
+    </svg>
+  );
+}
+
+/** Dona dibujada a mano (SVG): centro, porcentajes y texto siempre alineados,
+ *  sin depender de cómo el navegador mida el gráfico. */
+function DonaSvg({ partes, total, unidad, A, tam = 132 }: { partes: { nombre: string; valor: number; color: string }[]; total: number; unidad: string; A: number; tam?: number }) {
+  const c = tam / 2;
+  const rExt = c - 1;
+  const rInt = rExt * 0.46;
+  const rEtq = (rExt + rInt) / 2;
+  const punto = (r: number, ang: number) => [c + r * Math.sin(ang), c - r * Math.cos(ang)];
+  let acum = 0;
+  const arcos = partes.map((p) => {
+    const frac = p.valor / total;
+    const a0 = acum * 2 * Math.PI;
+    acum += frac;
+    const a1 = acum * 2 * Math.PI;
+    const medio = (a0 + a1) / 2;
+    let d: string;
+    if (frac >= 0.9999) {
+      d = `M ${c} ${c - rExt} A ${rExt} ${rExt} 0 1 1 ${c - 0.01} ${c - rExt} Z M ${c} ${c - rInt} A ${rInt} ${rInt} 0 1 0 ${c - 0.01} ${c - rInt} Z`;
+    } else {
+      const grande = frac > 0.5 ? 1 : 0;
+      const [x0, y0] = punto(rExt, a0), [x1, y1] = punto(rExt, a1), [x2, y2] = punto(rInt, a1), [x3, y3] = punto(rInt, a0);
+      d = `M ${x0} ${y0} A ${rExt} ${rExt} 0 ${grande} 1 ${x1} ${y1} L ${x2} ${y2} A ${rInt} ${rInt} 0 ${grande} 0 ${x3} ${y3} Z`;
+    }
+    const [tx, ty] = punto(rEtq, medio);
+    return { ...p, d, frac, tx, ty };
+  });
+  return (
+    <svg width={tam} height={tam} viewBox={`0 0 ${tam} ${tam}`} className="shrink-0" style={{ fontFamily: FUENTE }}>
+      {arcos.map((a) => <path key={a.nombre} d={a.d} fill={a.color} fillRule="evenodd" stroke="#fff" strokeWidth={2} />)}
+      {arcos.map((a) => a.frac >= 0.08 && (
+        <text key={`t-${a.nombre}`} x={a.tx} y={a.ty} textAnchor="middle" dominantBaseline="central" fontSize={10.5} fontWeight={700} fill="#fff">{formatDecimal(a.frac * 100, 1)}%</text>
+      ))}
+      <text x={c} y={c - 10} textAnchor="middle" dominantBaseline="central" fontSize={18} fontWeight={800} fill={C.texto}>{formatNumero(total)}</text>
+      <text x={c} y={c + 7} textAnchor="middle" dominantBaseline="central" fontSize={10} fill={C.texto}>{unidad}</text>
+      <text x={c} y={c + 19} textAnchor="middle" dominantBaseline="central" fontSize={10} fill={C.texto}>({A})</text>
     </svg>
   );
 }
