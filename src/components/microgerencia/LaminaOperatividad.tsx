@@ -1,8 +1,8 @@
 import { forwardRef } from 'react';
-import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Line, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Line, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import {
-  Bike, Building2, Car, CheckCircle2, ChevronDown, ChevronUp, Leaf, Package, PieChart as IconoDona, Scale, ShieldCheck,
-  Siren, UserCheck, UserRound, Users, XCircle, Gavel, Crosshair, LineChart as IconoLinea, type LucideIcon,
+  Building2, Car, CheckCircle2, ChevronDown, ChevronUp, Leaf, Package, Scale,
+  Siren, UserCheck, Users, XCircle, Gavel, Crosshair, LineChart as IconoLinea, CalendarRange as IconoTrimestre, type LucideIcon,
 } from 'lucide-react';
 import type { DatosMicrogerencia, FilaTriple, NodoMicrogerencia } from '../../data/microgerencia';
 import { tipoOperatividad, type TipoOperatividad } from '../../utils/operatividadConteo';
@@ -27,14 +27,12 @@ const VERDE_B = '#3cc23c';
 // ───────────────────────────────────────────────────────────────────────
 
 const g = (v: number) => `${v.toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} g`;
-const kg = (v: number) => `${(v / 1000).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`;
 const variacion = (a: number, b: number) => (a > 0 ? ((b - a) / a) * 100 : null);
 const pct = (p: number | null) => (p === null ? '—' : `${signo(p)}${formatDecimal(p, 1)}%`);
 // Delictividad: subir es malo (rojo). Operatividad es AL REVÉS: más
 // capturas, incautaciones o recuperaciones = verde; menos = rojo.
 const colorDifDelito = (n: number) => (n > 0 ? C.rojo : n < 0 ? C.verdeDif : '#8a949b');
 const colorDif = (n: number) => (n > 0 ? C.verdeDif : n < 0 ? C.rojo : '#8a949b');
-const PALETA_CAT = ['#1d64d8', '#0e6b3f', '#f59e0b', '#14b8a6', '#7c3aed', '#64748b', '#0ea5e9', '#a3a3a3', '#be123c'];
 
 /** Nombres largos de la matriz, abreviados SOLO para que quepan (mismo dato). */
 function abreviar(n: string): string {
@@ -70,9 +68,9 @@ export function Caja({ x, y, w, h, children }: { x: number; y: number; w: number
 }
 
 /** Tabla con las tres columnas de periodo, diferencia y variación (+ fila de total). */
-export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato = formatNumero, tam = 15, anchoNombre = 160, alto = 23, color, vacio = 'Sin registros en el periodo.', masEsMejor = false }: {
+export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato = formatNumero, tam = 15, anchoNombre = 160, alto = 23, color, vacio = 'Sin registros en el periodo.', masEsMejor = false, tituloDif = 'Dif.' }: {
   titulo: string; filas: FilaTriple[]; total?: { t: number; a: number; b: number } | null; etiquetaTotal?: string; P: number; A: number;
-  formato?: (v: number) => string; tam?: number; anchoNombre?: number; alto?: number; color?: (i: number) => string; vacio?: string; masEsMejor?: boolean;
+  formato?: (v: number) => string; tam?: number; anchoNombre?: number; alto?: number; color?: (i: number) => string; vacio?: string; masEsMejor?: boolean; tituloDif?: string;
 }) {
   const colorDifT = masEsMejor ? colorDif : colorDifDelito;
   if (filas.length === 0) return <p className="px-4 py-6 text-center text-[14px] text-slate-500">{vacio}</p>;
@@ -82,7 +80,7 @@ export function TablaTriple({ titulo, filas, total, etiquetaTotal, P, A, formato
         <tr className="whitespace-nowrap font-bold" style={{ fontSize: tam - 1 }}>
           <th className="px-1 text-left">{titulo}</th>
           <th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th>
-          <th className="text-right">Dif.</th><th className="pr-1 text-right">Variación</th>
+          <th className="text-right">{tituloDif}</th><th className="pr-1 text-right">Variación</th>
         </tr>
       </thead>
       <tbody>
@@ -121,9 +119,9 @@ function MiniTabla({ P, A, t, a, b, formato = formatNumero }: { P: number; A: nu
   return (
     <div className="grid grid-cols-3 divide-x divide-slate-300 rounded-[8px] border text-center leading-tight" style={{ borderColor: '#c7d4e8', background: '#f7f9fc' }}>
       {[[`Total ${P}`, t], [String(P), a], [String(A), b]].map(([et, v]) => (
-        <div key={String(et)} className="px-2 py-0">
-          <p className="whitespace-nowrap text-[12.5px] font-semibold">{et}</p>
-          <p className="text-[21px] font-bold leading-tight tabular-nums">{formato(Number(v))}</p>
+        <div key={String(et)} className="px-1.5 py-0">
+          <p className="whitespace-nowrap text-[11px] font-semibold">{et}</p>
+          <p className="text-[19px] font-bold leading-tight tabular-nums">{formato(Number(v))}</p>
         </div>
       ))}
     </div>
@@ -164,7 +162,6 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
     const filasVehiculos: FilaTriple[] = [{ nombre: 'Motocicletas', ...motos }, { nombre: 'Automotores', ...autos }];
     const droga = { t: op?.drogaGTotal2025 ?? 0, a: op?.drogaG2025 ?? 0, b: op?.drogaG2026 ?? 0 };
 
-    const categorias = [...nodo.delitos].map((c) => ({ ...comoTriple(c), nombre: abreviar(c.nombre) })).filter((c) => c.t + c.a + c.b > 0).sort((x, y) => y.b - x.b);
     const totalOp = { t: nodo.total2025, a: nodo.fecha2025, b: nodo.fecha2026 };
 
     // Estaciones y CAI dentro de la unidad.
@@ -184,6 +181,16 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
     const mesParcial = diaCorte < new Date(A, mesCorte + 1, 0).getDate();
     const datosMes = nodo.meses.slice(0, mesCorte + 1).map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.anio2025, [A]: m.anio2026 }));
     const totalCirc = sumar(circ);
+    // Trimestres: {P} = año anterior completo; {A} = año actual al corte.
+    const trimCorte = Math.floor(mesCorte / 3);
+    const ROMANOS = ['I', 'II', 'III', 'IV'];
+    const datosTrim = nodo.trimestres.map((t, i) => ({
+      nombre: `Trim. ${ROMANOS[i]}${i === trimCorte && (mesCorte % 3 !== 2 || mesParcial) ? '*' : ''}`,
+      [P]: t.anio2025, [A]: i <= trimCorte ? t.anio2026 : null,
+    }));
+    const notaTrim = (mesCorte % 3 !== 2 || mesParcial)
+      ? `* Trim. ${ROMANOS[trimCorte]}: información parcial (${MESES_CORTOS[trimCorte * 3].toLowerCase()} – ${MESES_CORTOS[mesCorte].toLowerCase()}).`
+      : '';
     const totalCapt5 = capt5.reduce((s2, f) => s2 + f.b, 0);
     const porc = (v: number, total: number) => (total > 0 ? `${formatDecimal((v / total) * 100, 1)}%` : '—');
     const unidades = (sub.filas.length ? sub.filas : [nodo]).filter((n) => !/no reportad/i.test(n.nombre)).slice(0, 8).map(comoTriple);
@@ -195,7 +202,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
       const p = variacion(f.a, f.b);
       const sube = dif > 0;
       return (
-        <span className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-[8px] px-2 py-1 text-[17px] font-bold" style={{ background: dif === 0 ? '#eef0f2' : sube ? '#e4f6dc' : '#fde3e5', color: dif === 0 ? '#5b6670' : sube ? '#15803d' : C.rojo }}>
+        <span className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-[8px] px-1.5 py-1 text-[15px] font-bold" style={{ background: dif === 0 ? '#eef0f2' : sube ? '#e4f6dc' : '#fde3e5', color: dif === 0 ? '#5b6670' : sube ? '#15803d' : C.rojo }}>
           {f.a > 0 ? <>{dif < 0 ? <ChevronDown size={18} strokeWidth={3} /> : <ChevronUp size={18} strokeWidth={3} />}{signo(dif)}{formatNumero(dif)} ({pct(p)})</> : 'Sin comparable'}
         </span>
       );
@@ -221,22 +228,22 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
         <TarjetaKpiConEtiquetas x={272 + 5 * 232} w={228} P={P} A={A} icono={Leaf} titulo="Incautación de droga" color="#7e22ce" {...droga} formato={g} />
 
         {/* ── FILA 2 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={252} w={614} h={190}>
+        <Caja x={12} y={250} w={484} h={226}>
           <TituloBanda icono={IconoLinea}>Evolución mensual de procedimientos</TituloBanda>
           <div className="flex justify-end px-5 pt-0.5"><Leyenda items={[{ color: AZUL, texto: String(P), linea: true }, { color: VERDE_B, texto: String(A), linea: true }]} /></div>
-          <div className="h-[64px] pr-3">
+          <div className="h-[86px] pr-3">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={datosMes} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="#edf0f1" />
                 <XAxis dataKey="nombre" hide />
                 <YAxis width={40} tick={{ fontSize: 11.5, fill: C.texto, fontFamily: FUENTE }} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(x) => formatNumero(x)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEjeValores(datosMes.flatMap((m) => [Number(m[P]), Number(m[A])]))} allowDecimals={false} />
-                <Area type="monotone" dataKey={String(P)} stroke={AZUL} strokeWidth={2.2} fill="#e7effc" dot={{ r: 3.5, fill: '#fff', stroke: AZUL, strokeWidth: 2 }} isAnimationActive={false} />
+                <Line type="monotone" dataKey={String(P)} stroke={AZUL} strokeWidth={2.2} dot={{ r: 3.5, fill: '#fff', stroke: AZUL, strokeWidth: 2 }} isAnimationActive={false} />
                 <Line type="monotone" dataKey={String(A)} stroke={VERDE_B} strokeWidth={2.4} dot={{ r: 3.5, fill: '#fff', stroke: VERDE_B, strokeWidth: 2 }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-          <table className="mx-2.5 border-collapse text-center text-[13.5px] leading-[19px]" style={{ width: 'calc(100% - 20px)' }}>
-            <thead><tr><th className="w-[44px]" />{datosMes.map((m, i) => <th key={m.nombre} className="font-bold">{m.nombre}{i === mesCorte && mesParcial ? '*' : ''}</th>)}</tr></thead>
+          <table className="mx-2.5 border-collapse text-center text-[13px] leading-[20px]" style={{ width: 'calc(100% - 20px)' }}>
+            <thead><tr><th className="w-[42px]" />{datosMes.map((m, i) => <th key={m.nombre} className="font-bold">{m.nombre}{i === mesCorte && mesParcial ? '*' : ''}</th>)}</tr></thead>
             <tbody>
               <tr style={{ background: '#e7effc' }}><th className="rounded-l-md text-white" style={{ background: AZUL }}>{P}</th>{datosMes.map((m) => <td key={m.nombre}>{formatNumero(Number(m[P]))}</td>)}</tr>
               <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md text-white" style={{ background: '#16a34a' }}>{A}</th>{datosMes.map((m) => <td key={m.nombre} className="font-bold">{formatNumero(Number(m[A]))}</td>)}</tr>
@@ -244,102 +251,44 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           </table>
         </Caja>
 
-        <Caja x={634} y={252} w={482} h={190}>
-          <TituloBanda icono={Crosshair}>Armas de fuego incautadas</TituloBanda>
-          <div className="flex flex-1 flex-col justify-around px-2 pb-1.5 pt-1">
-            {[{ titulo: 'Sin permiso', icono: XCircle, fila: sinPermiso, color: '#1d4ed8' }, { titulo: 'Con permiso', icono: CheckCircle2, fila: conPermiso, color: '#16a34a' }].map((s) => (
-              <div key={s.titulo} className="flex items-center gap-2 rounded-[10px] px-2 py-1" style={{ background: '#f4f7f6' }}>
-                <s.icono size={30} strokeWidth={2.2} className="shrink-0" style={{ color: s.color }} />
-                <p className="w-[96px] shrink-0 text-[19px] font-bold leading-tight">{s.titulo}</p>
-                {s.fila ? <MiniTabla P={P} A={A} t={s.fila.t} a={s.fila.a} b={s.fila.b} /> : <p className="flex-1 text-[14px] text-slate-500">Sin registros en la matriz.</p>}
-                {s.fila && pillArma(s.fila)}
-              </div>
-            ))}
+        <Caja x={504} y={250} w={334} h={226}>
+          <TituloBanda icono={IconoTrimestre}>Comparativo trimestral</TituloBanda>
+          <div className="flex justify-center pt-0.5"><Leyenda items={[{ color: AZUL, texto: String(P) }, { color: VERDE_B, texto: String(A) }]} /></div>
+          <div className="min-h-0 flex-1 px-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={datosTrim} margin={{ top: 22, right: 6, left: 6, bottom: 0 }} barGap={3} barCategoryGap="18%">
+                <XAxis dataKey="nombre" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={22} tick={{ fontSize: 14, fontWeight: 700, fill: C.texto, fontFamily: FUENTE }} />
+                <YAxis hide domain={[0, (max: number) => max * 1.08]} />
+                <Bar dataKey={String(P)} fill={AZUL} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  <LabelList dataKey={String(P)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="izq" tam={14} />} />
+                </Bar>
+                <Bar dataKey={String(A)} fill={VERDE_B} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  <LabelList dataKey={String(A)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="der" tam={14} />} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
+          <p className="h-[22px] shrink-0 text-center text-[12.5px] text-slate-600">{notaTrim}</p>
         </Caja>
 
-        <Caja x={1124} y={252} w={536} h={190}>
-          <TituloBanda icono={Gavel}>Circunstancia de captura</TituloBanda>
-          {circ.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin registros en el periodo.</p> : (
-            <table className="mx-2.5 mt-1.5 border-collapse text-[16.5px]" style={{ width: 'calc(100% - 20px)' }}>
-              <thead><tr className="text-[14.5px] font-bold"><th className="px-1 text-left">Circunstancia</th><th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th><th className="text-right">Dif.</th><th className="text-right">Variación</th><th className="w-[120px]" /></tr></thead>
-              <tbody>
-                {circ.slice(0, 3).map((f) => {
-                  const d = f.b - f.a;
-                  return (
-                    <tr key={f.nombre} style={{ height: 33 }}>
-                      <td className="px-1">{f.nombre}</td>
-                      <td className="text-right font-bold tabular-nums">{formatNumero(f.t)}</td>
-                      <td className="text-right font-bold tabular-nums">{formatNumero(f.a)}</td>
-                      <td className="text-right font-bold tabular-nums">{formatNumero(f.b)}</td>
-                      <td className="text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{signo(d)}{formatNumero(d)}</td>
-                      <td className="text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{pct(variacion(f.a, f.b))}</td>
-                      <td className="pl-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="h-[16px] flex-1"><span className="block h-full rounded-[2px]" style={{ width: `${Math.max(3, (f.b / Math.max(1, totalCirc.b)) * 100)}%`, background: '#22a33a' }} /></span>
-                          <span className="w-[44px] text-right text-[13.5px] tabular-nums">{porc(f.b, totalCirc.b)}</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                <tr className="font-bold text-white" style={{ background: C.verde, height: 30 }}>
-                  <td className="rounded-l-[7px] px-2">Total capturas</td>
-                  <td className="text-right tabular-nums">{formatNumero(totalCirc.t)}</td><td className="text-right tabular-nums">{formatNumero(totalCirc.a)}</td><td className="text-right tabular-nums">{formatNumero(totalCirc.b)}</td>
-                  <td className="text-right tabular-nums">{signo(totalCirc.b - totalCirc.a)}{formatNumero(totalCirc.b - totalCirc.a)}</td>
-                  <td className="rounded-r-[7px] pr-1 text-right tabular-nums">{pct(variacion(totalCirc.a, totalCirc.b))}</td>
-                  <td />
-                </tr>
-              </tbody>
-            </table>
-          )}
+        <Caja x={846} y={250} w={398} h={226}>
+          <TituloBanda icono={Building2}>{tituloSubunidad}</TituloBanda>
+          <TablaTriple titulo={sub.singular || 'Unidad'} filas={unidades.slice(0, 6)} total={unidades.length > 1 ? totalOp : null} etiquetaTotal={esGeneral ? 'Total MEPOY' : `Total ${nombreCorto(nodo.nombre)}`} P={P} A={A} tam={14.5} anchoNombre={130} alto={unidades.length > 5 ? 21 : 25} masEsMejor />
         </Caja>
 
-        {/* ── FILA 3 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={450} w={646} h={208}>
-          <TituloBanda icono={IconoDona}>Distribución por categoría</TituloBanda>
-          <div className="flex min-h-0 flex-1 items-center">
-            <div className="relative h-[166px] w-[166px] shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={categorias.map((c) => ({ nombre: c.nombre, valor: c.b }))} dataKey="valor" innerRadius={44} outerRadius={80} startAngle={90} endAngle={-270} stroke="#fff" strokeWidth={2} isAnimationActive={false}
-                    label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx?: number; cy?: number; midAngle?: number; innerRadius?: number; outerRadius?: number; percent?: number }) => {
-                      if (!percent || percent < 0.035) return null;
-                      const rad = Math.PI / 180;
-                      const r = (Number(innerRadius) + Number(outerRadius)) / 2;
-                      const xx = Number(cx) + r * Math.cos(-Number(midAngle) * rad);
-                      const yy = Number(cy) + r * Math.sin(-Number(midAngle) * rad);
-                      return <text x={xx} y={yy} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 11.5, fontWeight: 700, fill: '#fff', fontFamily: FUENTE }}>{formatDecimal(percent * 100, 1)}%</text>;
-                    }} labelLine={false}>
-                    {categorias.map((c, i) => <Cell key={c.nombre} fill={PALETA_CAT[i % PALETA_CAT.length]} />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center leading-none">
-                <span className="text-[23px] font-extrabold">{formatNumero(totalOp.b)}</span>
-                <span className="mt-0.5 text-[11.5px]">operatividad</span>
-                <span className="text-[10.5px]">({A})</span>
-              </div>
-            </div>
-            <div className="min-w-0 flex-1">
-              <TablaTriple titulo="Categoría" filas={categorias.slice(0, 7)} total={totalOp} etiquetaTotal="Total operatividad" P={P} A={A} tam={13.5} anchoNombre={150} alto={17} color={(i) => PALETA_CAT[i % PALETA_CAT.length]} masEsMejor />
-            </div>
-          </div>
-        </Caja>
-
-        <Caja x={666} y={450} w={454} h={208}>
+        <Caja x={1252} y={250} w={408} h={226}>
           <TituloBanda icono={Scale}>Capturas por delito asociado <span className="text-[16px] font-normal">(Top 5)</span></TituloBanda>
           {capt5.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin capturas en el periodo.</p> : (
-            <div className="px-3 pt-1.5">
+            <div className="px-3 pt-2">
               {capt5.map((f) => (
-                <div key={f.nombre} className="flex items-center gap-2 text-[16px]" style={{ height: 23 }}>
+                <div key={f.nombre} className="flex items-center gap-2 text-[15px]" style={{ height: 27 }}>
                   <span className="w-[150px] shrink-0 truncate" title={f.nombre}>{f.nombre}</span>
-                  <span className="h-[15px] flex-1"><span className="block h-full rounded-[2px]" style={{ width: `${Math.max(3, (f.b / Math.max(1, capt5[0].b)) * 100)}%`, background: '#22a33a' }} /></span>
-                  <span className="w-[48px] text-right font-bold tabular-nums">{formatNumero(f.b)}</span>
-                  <span className="w-[58px] text-right text-[14px] tabular-nums">({porc(f.b, totalCapt5)})</span>
+                  <span className="h-[17px] flex-1"><span className="block h-full rounded-[2px]" style={{ width: `${Math.max(3, (f.b / Math.max(1, capt5[0].b)) * 100)}%`, background: '#22a33a' }} /></span>
+                  <span className="w-[44px] text-right font-bold tabular-nums">{formatNumero(f.b)}</span>
+                  <span className="w-[56px] text-right text-[14px] tabular-nums">({porc(f.b, totalCapt5)})</span>
                 </div>
               ))}
-              <div className="mt-1 flex items-center rounded-[7px] px-2 py-[3px] text-[15px] font-bold text-white" style={{ background: C.verde }}>
+              <div className="mt-1.5 flex items-center rounded-[7px] px-2 py-[4px] text-[15.5px] font-bold text-white" style={{ background: C.verde }}>
                 <span className="flex-1">Total (Top 5)</span>
                 <span className="w-[60px] text-right tabular-nums">{formatNumero(totalCapt5)}</span>
                 <span className="w-[66px] text-right">(100%)</span>
@@ -348,62 +297,95 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           )}
         </Caja>
 
-        <Caja x={1128} y={450} w={532} h={208}>
-          <TituloBanda icono={Building2}>{tituloSubunidad}</TituloBanda>
-          <div className="flex justify-end px-4 pt-0.5"><Leyenda items={[{ color: AZUL, texto: String(P) }, { color: VERDE_B, texto: String(A) }]} /></div>
-          <div className="min-h-0 flex-1 px-1 pb-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={unidades.map((u) => ({ nombre: u.nombre, [P]: u.a, [A]: u.b }))} margin={{ top: 22, right: 10, left: 0, bottom: 0 }} barGap={3} barCategoryGap="20%">
-                <CartesianGrid vertical={false} stroke="#edf0f1" />
-                <XAxis dataKey="nombre" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={22} tick={{ fontSize: unidades.length > 5 ? 11.5 : 13.5, fill: C.texto, fontFamily: FUENTE }} tickFormatter={(t: string) => (t.length > 14 ? `${t.slice(0, 13)}…` : t)} />
-                <YAxis width={44} tick={{ fontSize: 12, fill: C.texto, fontFamily: FUENTE }} axisLine={{ stroke: '#9aa3a8' }} tickLine={false} tickFormatter={(x) => formatNumero(x)} domain={[0, (max: number) => techoBonito(max)]} ticks={marcasEjeValores(unidades.flatMap((u) => [u.a, u.b]))} allowDecimals={false} />
-                <Bar dataKey={String(P)} fill={AZUL} maxBarSize={56} isAnimationActive={false}>
-                  <LabelList dataKey={String(P)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="izq" tam={unidades.length > 5 ? 11.5 : 13.5} />} />
-                </Bar>
-                <Bar dataKey={String(A)} fill={VERDE_B} maxBarSize={56} isAnimationActive={false}>
-                  <LabelList dataKey={String(A)} content={(props) => <EtiquetaBarra {...(props as EtiquetaProps)} lado="der" tam={unidades.length > 5 ? 11.5 : 13.5} />} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+        {/* ── FILA 3 ──────────────────────────────────────────────── */}
+        <Caja x={12} y={484} w={412} h={182}>
+          <TituloBanda icono={Crosshair}>Armas de fuego incautadas</TituloBanda>
+          <div className="flex flex-1 flex-col justify-around px-2 pb-1.5 pt-1">
+            {[{ titulo: 'Sin permiso', icono: XCircle, fila: sinPermiso, color: '#1d4ed8' }, { titulo: 'Con permiso', icono: CheckCircle2, fila: conPermiso, color: '#16a34a' }].map((s) => (
+              <div key={s.titulo} className="flex items-center gap-1.5 rounded-[10px] px-1.5 py-1" style={{ background: '#f4f7f6' }}>
+                <s.icono size={26} strokeWidth={2.2} className="shrink-0" style={{ color: s.color }} />
+                <p className="w-[84px] shrink-0 whitespace-nowrap text-[16.5px] font-bold leading-tight">{s.titulo}</p>
+                {s.fila ? <MiniTabla P={P} A={A} t={s.fila.t} a={s.fila.a} b={s.fila.b} /> : <p className="flex-1 text-[13px] text-slate-500">Sin registros en la matriz.</p>}
+                {s.fila && pillArma(s.fila)}
+              </div>
+            ))}
           </div>
         </Caja>
 
+        <Caja x={432} y={484} w={497} h={182}>
+          <TituloBanda icono={Gavel}>Circunstancia de captura</TituloBanda>
+          {circ.length === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin registros en el periodo.</p> : (
+            <table className="mx-2.5 mt-1 border-collapse text-[15.5px]" style={{ width: 'calc(100% - 20px)' }}>
+              <thead><tr className="whitespace-nowrap text-[13.5px] font-bold"><th className="px-1 text-left">Circunstancia</th><th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th><th className="text-right">Dif.</th><th className="text-right">Variación</th><th className="w-[96px]" /></tr></thead>
+              <tbody>
+                {circ.slice(0, 3).map((f) => {
+                  const d = f.b - f.a;
+                  return (
+                    <tr key={f.nombre} style={{ height: 33 }}>
+                      <td className="whitespace-nowrap px-1">{f.nombre}</td>
+                      <td className="text-right font-bold tabular-nums">{formatNumero(f.t)}</td>
+                      <td className="text-right font-bold tabular-nums">{formatNumero(f.a)}</td>
+                      <td className="text-right font-bold tabular-nums">{formatNumero(f.b)}</td>
+                      <td className="text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{signo(d)}{formatNumero(d)}</td>
+                      <td className="text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{pct(variacion(f.a, f.b))}</td>
+                      <td className="pl-2">
+                        <div className="flex items-center gap-1">
+                          <span className="h-[16px] flex-1"><span className="block h-full rounded-[2px]" style={{ width: `${Math.max(3, (f.b / Math.max(1, totalCirc.b)) * 100)}%`, background: '#22a33a' }} /></span>
+                          <span className="w-[40px] text-right text-[12.5px] tabular-nums">{porc(f.b, totalCirc.b)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="font-bold text-white" style={{ background: C.verde, height: 30 }}>
+                  <td className="whitespace-nowrap rounded-l-[7px] px-2">Total capturas</td>
+                  <td className="text-right tabular-nums">{formatNumero(totalCirc.t)}</td><td className="text-right tabular-nums">{formatNumero(totalCirc.a)}</td><td className="text-right tabular-nums">{formatNumero(totalCirc.b)}</td>
+                  <td className="text-right tabular-nums">{signo(totalCirc.b - totalCirc.a)}{formatNumero(totalCirc.b - totalCirc.a)}</td>
+                  <td className="text-right tabular-nums">{pct(variacion(totalCirc.a, totalCirc.b))}</td>
+                  <td className="rounded-r-[7px]" />
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </Caja>
+
+        <DonaDiscriminada x={937} w={344} titulo="Casos de mercancía" icono={Package} unidad="casos" A={A}
+          partes={[{ nombre: 'Incautada', valor: mercInc.b, color: '#1d64d8' }, { nombre: 'Recuperada', valor: mercRec.b, color: '#f59e0b' }, ...(mercOtra.b > 0 ? [{ nombre: 'Otra', valor: mercOtra.b, color: '#94a3b8' }] : [])]} />
+        <DonaDiscriminada x={1289} w={371} titulo="Vehículos recuperados" icono={Car} unidad="vehículos" A={A}
+          partes={[{ nombre: 'Motocicletas', valor: motos.b, color: '#f59e0b' }, { nombre: 'Automotores', valor: autos.b, color: '#1d64d8' }]} />
+
         {/* ── FILA 4 ──────────────────────────────────────────────── */}
-        <Caja x={12} y={666} w={444} h={206}>
+        <Caja x={12} y={674} w={820} h={200}>
           <TituloBanda icono={Users}>Caracterización de capturados</TituloBanda>
-          {genero.length > 0 && (
-            <div className="mx-2.5 mt-1.5 flex gap-2">
-              {genero.slice(0, 2).map((f) => {
-                const mujer = /fem|mujer/i.test(f.nombre);
-                return (
-                  <div key={f.nombre} className="flex flex-1 items-center gap-1.5 rounded-[8px] px-2 py-[2px] text-[14px]" style={{ background: mujer ? '#fdeef6' : '#eaf1fd' }}>
-                    <UserRound size={20} strokeWidth={2.6} style={{ color: mujer ? '#ec4899' : '#2563eb' }} />
-                    <span className="font-semibold">{f.nombre}</span>
-                    <span className="ml-auto text-[17px] font-extrabold tabular-nums">{formatNumero(f.valor)}</span>
-                    <span className="text-[13px] tabular-nums">({totalGenero > 0 ? formatDecimal((f.valor / totalGenero) * 100, 1) : '0'}%)</span>
-                  </div>
-                );
-              })}
+          <div className="flex min-h-0 flex-1 gap-3 px-2.5 pb-2 pt-1">
+            <div className="flex w-[230px] shrink-0 flex-col rounded-[10px] border text-center" style={{ borderColor: '#e2e8e5' }}>
+              <p className="pt-0.5 text-[16px] font-bold">Género</p>
+              {genero.length === 0 ? <p className="pt-4 text-[13px] text-slate-500">Sin registros.</p> : (
+                <div className="flex flex-1 items-center justify-center divide-x divide-slate-200">
+                  {genero.slice(0, 2).map((f) => {
+                    const mujer = /fem|mujer/i.test(f.nombre);
+                    return (
+                      <div key={f.nombre} className="flex w-[110px] flex-col items-center leading-tight">
+                        <Figura mujer={mujer} />
+                        <p className="mt-0.5 text-[15px] font-bold">{f.nombre}</p>
+                        <p className="text-[24px] font-extrabold leading-none tabular-nums">{formatNumero(f.valor)}</p>
+                        <p className="text-[15px] font-bold">({totalGenero > 0 ? formatDecimal((f.valor / totalGenero) * 100, 1) : '0'}%)</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-          <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturas" P={P} A={A} tam={12.5} anchoNombre={130} alto={edad.length > 4 ? 15.5 : 18} masEsMejor />
+            <div className="min-w-0 flex-1">
+              <TablaTriple titulo="Grupo de edad" filas={edad} total={edad.length ? sumar(edad) : null} etiquetaTotal="Total capturados" P={P} A={A} tam={15} anchoNombre={200} alto={edad.length > 4 ? 20 : 24} masEsMejor />
+            </div>
+          </div>
         </Caja>
 
-        <Caja x={464} y={666} w={496} h={206}>
+        <Caja x={840} y={674} w={820} h={200}>
           <TituloBanda icono={Leaf}>Incautación de droga <span className="text-[16px] font-normal">(por sustancia)</span></TituloBanda>
-          <TablaTriple titulo="Sustancia" filas={drogaClase.slice(0, 4)} total={drogaClase.length ? droga : null} etiquetaTotal="Total" P={P} A={A} formato={g} tam={12.5} anchoNombre={92} alto={18} vacio="Sin incautación de droga en el periodo." masEsMejor />
-          {drogaClase.length > 0 && (
-            <div className="mx-2.5 mt-1 grid items-center rounded-[7px] px-1.5 py-[2px] text-[12.5px] font-bold" style={{ background: '#fdf0c4', gridTemplateColumns: '0.9fr 1fr 1fr 1fr 1fr 0.75fr' }}>
-              <span>En kg</span>
-              <span className="text-right">{kg(droga.t)}</span><span className="text-right">{kg(droga.a)}</span><span className="text-right">{kg(droga.b)}</span>
-              <span className="text-right" style={{ color: colorDif(droga.b - droga.a) }}>{signo(droga.b - droga.a)}{kg(droga.b - droga.a)}</span>
-              <span className="pr-1 text-right" style={{ color: colorDif(droga.b - droga.a) }}>{pct(variacion(droga.a, droga.b))}</span>
-            </div>
-          )}
+          <TablaTriple titulo="Sustancia" filas={drogaClase.slice(0, 5)} total={drogaClase.length ? droga : null} etiquetaTotal="Total" P={P} A={A} formato={g} tam={15.5} anchoNombre={170} alto={drogaClase.length > 4 ? 20 : 23} tituloDif="Dif. (g)" vacio="Sin incautación de droga en el periodo." masEsMejor />
         </Caja>
-
-        <ComponenteDiscriminado x={968} titulo="Casos de mercancía" icono={Package} filas={filasMercancia} total={mercancia} colores={['#0f766e', '#f59e0b', '#94a3b8']} etiquetaTotal="Total mercancía" P={P} A={A} />
-        <ComponenteDiscriminado x={1318} titulo="Vehículos recuperados" icono={Car} filas={filasVehiculos} total={vehiculos} colores={['#ea580c', '#2563eb']} etiquetaTotal="Total vehículos" P={P} A={A} iconos={[Bike, Car]} />
 
         <PieLamina fuente="Aplicativo Operatividad" />
       </div>
@@ -439,70 +421,72 @@ function TarjetaKpiConEtiquetas({ x, w, icono: Icono, titulo, color, t, a, b, P,
   );
 }
 
-/** Componente de la fila inferior: un total discriminado en sus partes
- *  (mercancía incautada/recuperada; motocicletas/automotores) con los tres
- *  periodos y la participación de cada parte en el año actual. */
-function ComponenteDiscriminado({ x, titulo, icono, iconos, filas, total, colores, etiquetaTotal, P, A }: {
-  x: number; titulo: string; icono: LucideIcon; iconos?: LucideIcon[]; filas: FilaTriple[]; total: { t: number; a: number; b: number };
-  colores: string[]; etiquetaTotal: string; P: number; A: number;
+/** Dona de una parte operativa (año actual): total al centro y leyenda con
+ *  cantidad y participación de cada parte. */
+function DonaDiscriminada({ x, w, titulo, icono, partes, unidad, A }: {
+  x: number; w: number; titulo: string; icono: LucideIcon; partes: { nombre: string; valor: number; color: string }[]; unidad: string; A: number;
 }) {
-  const color = (i: number) => colores[i % colores.length];
-  const base = total.b > 0 ? total.b : total.a;
-  const campo: 'a' | 'b' = total.b > 0 ? 'b' : 'a';
+  const total = partes.reduce((s2, p) => s2 + p.valor, 0);
+  const visibles = partes.filter((p) => p.valor > 0);
   return (
-    <Caja x={x} y={666} w={342} h={206}>
+    <Caja x={x} y={484} w={w} h={182}>
       <TituloBanda icono={icono}>{titulo}</TituloBanda>
-      {total.t + total.a + total.b === 0 ? <p className="px-4 py-6 text-center text-[14px] text-slate-500">Sin registros en el periodo.</p> : (
-        <>
-          <table className="mx-2 mt-1.5 border-collapse text-[13px]" style={{ width: 'calc(100% - 16px)' }}>
-            <thead>
-              <tr className="whitespace-nowrap text-[11.5px] font-bold">
-                <th className="px-0.5 text-left" />
-                <th className="text-right">Total {P}</th><th className="text-right">{P}</th><th className="text-right">{A}</th><th className="text-right">Dif.</th><th className="pr-0.5 text-right">Var.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((f, i) => {
-                const d = f.b - f.a;
-                const Ic = iconos?.[i];
-                return (
-                  <tr key={f.nombre} style={{ height: 24 }}>
-                    <td className="whitespace-nowrap px-0.5 font-semibold">
-                      {Ic ? <Ic size={15} strokeWidth={2.5} className="mr-1 inline align-[-3px]" style={{ color: color(i) }} /> : <span className="mr-1.5 inline-block h-[10px] w-[10px] rounded-full align-middle" style={{ background: color(i) }} />}
-                      {f.nombre}
-                    </td>
-                    <td className="text-right tabular-nums">{formatNumero(f.t)}</td>
-                    <td className="text-right tabular-nums">{formatNumero(f.a)}</td>
-                    <td className="text-right font-bold tabular-nums">{formatNumero(f.b)}</td>
-                    <td className="text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{signo(d)}{formatNumero(d)}</td>
-                    <td className="whitespace-nowrap pr-0.5 text-right font-bold tabular-nums" style={{ color: colorDif(d) }}>{pct(variacion(f.a, f.b))}</td>
-                  </tr>
-                );
-              })}
-              <tr className="font-bold text-white" style={{ background: C.verde, height: 25 }}>
-                <td className="whitespace-nowrap rounded-l-[7px] px-1.5 text-[12px]">{etiquetaTotal}</td>
-                <td className="text-right tabular-nums">{formatNumero(total.t)}</td>
-                <td className="text-right tabular-nums">{formatNumero(total.a)}</td>
-                <td className="text-right tabular-nums">{formatNumero(total.b)}</td>
-                <td className="text-right tabular-nums">{signo(total.b - total.a)}{formatNumero(total.b - total.a)}</td>
-                <td className="whitespace-nowrap rounded-r-[7px] pr-1 text-right tabular-nums">{pct(variacion(total.a, total.b))}</td>
-              </tr>
-            </tbody>
-          </table>
-          {base > 0 && (
-            <div className="mx-2.5 mt-auto mb-2">
-              <p className="text-[11.5px] font-semibold text-slate-600">Participación {campo === 'b' ? A : P}</p>
-              <div className="mt-0.5 flex h-[16px] overflow-hidden rounded-[5px]">
-                {filas.map((f, i) => f[campo] > 0 && (
-                  <span key={f.nombre} className="flex items-center justify-center text-[10.5px] font-bold text-white" style={{ width: `${(f[campo] / base) * 100}%`, background: color(i) }}>
-                    {f[campo] / base >= 0.12 ? `${formatDecimal((f[campo] / base) * 100, 1)}%` : ''}
-                  </span>
-                ))}
-              </div>
+      {total === 0 ? <p className="px-4 py-8 text-center text-[14px] text-slate-500">Sin registros en {A}.</p> : (
+        <div className="flex min-h-0 flex-1 items-center gap-2 pl-2 pr-3">
+          <div className="relative h-[134px] w-[134px] shrink-0 [&_svg]:overflow-visible">
+            <PieChart width={134} height={134} style={{ overflow: 'visible' }}>
+              <Pie data={visibles} dataKey="valor" nameKey="nombre" cx={67} cy={67} innerRadius={29} outerRadius={66} startAngle={90} endAngle={-270} stroke="#fff" strokeWidth={2} isAnimationActive={false} labelLine={false}
+                label={({ midAngle, percent }: { midAngle?: number; percent?: number }) => {
+                  if (!percent || percent < 0.08) return null;
+                  const rad = Math.PI / 180;
+                  const r = 48; // a mitad del anillo (29 – 66)
+                  return <text x={67 + r * Math.cos(-Number(midAngle) * rad)} y={67 + r * Math.sin(-Number(midAngle) * rad)} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 10.5, fontWeight: 700, fill: '#fff', fontFamily: FUENTE }}>{formatDecimal(percent * 100, 1)}%</text>;
+                }}>
+                {visibles.map((p) => <Cell key={p.nombre} fill={p.color} />)}
+              </Pie>
+            </PieChart>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center leading-none">
+              <span className="text-[18px] font-extrabold tabular-nums">{formatNumero(total)}</span>
+              <span className="mt-0.5 text-[10px]">{unidad}</span>
+              <span className="text-[10px]">({A})</span>
             </div>
-          )}
-        </>
+          </div>
+          <div className="min-w-0 flex-1 space-y-2.5">
+            {partes.map((p) => (
+              <div key={p.nombre} className="flex items-start gap-2">
+                <span className="mt-[3px] h-[15px] w-[15px] shrink-0 rounded-full" style={{ background: p.color }} />
+                <div className="min-w-0 leading-tight">
+                  <p className="whitespace-nowrap text-[17px] font-bold">{p.nombre}</p>
+                  <p className="whitespace-nowrap text-[16px] tabular-nums"><strong>{formatNumero(p.valor)}</strong> ({formatDecimal((p.valor / total) * 100, 1)}%)</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </Caja>
+  );
+}
+
+/** Silueta de persona (hombre / mujer) para la caracterización por género. */
+function Figura({ mujer }: { mujer: boolean }) {
+  const color = mujer ? '#ec4899' : '#1d64d8';
+  return (
+    <svg width="34" height="46" viewBox="0 0 34 46" aria-hidden="true">
+      <circle cx="17" cy="6" r="5.5" fill={color} />
+      {mujer ? (
+        <>
+          <path d="M11 13 h12 l6 17 h-6 l-0.5 14 h-4 v-12 h-3 v12 h-4 L11 30 h-6 z" fill={color} />
+        </>
+      ) : (
+        <>
+          <rect x="9" y="13" width="16" height="17" rx="4" fill={color} />
+          <rect x="4" y="13" width="4.5" height="15" rx="2.2" fill={color} />
+          <rect x="25.5" y="13" width="4.5" height="15" rx="2.2" fill={color} />
+          <rect x="10.5" y="28" width="5.5" height="17" rx="2" fill={color} />
+          <rect x="18" y="28" width="5.5" height="17" rx="2" fill={color} />
+        </>
+      )}
+    </svg>
   );
 }

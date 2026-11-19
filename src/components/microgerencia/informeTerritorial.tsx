@@ -13,7 +13,7 @@ import { predicadoDeNodo } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
 import { LaminaOperatividad } from './LaminaOperatividad';
 import { LaminaDelito } from './LaminaDelito';
-import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
+import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, cargarFuenteLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
 export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad' | 'Delito';
 
@@ -78,6 +78,9 @@ export async function capturarLaminas(
   alAvanzar?: (hecho: number, total: number, unidad: string) => void,
   formato: 'jpeg' | 'png' = 'jpeg',
 ): Promise<(string | null)[]> {
+  // La fuente de la lámina debe estar lista ANTES de armarla (si no, el texto
+  // se mide con otra fuente más ancha y queda montado).
+  await cargarFuenteLamina();
   const caja = document.createElement('div');
   caja.setAttribute('aria-hidden', 'true');
   Object.assign(caja.style, { position: 'fixed', left: '-40000px', top: '0', width: `${ANCHO}px`, height: `${ALTO}px`, overflow: 'hidden', pointerEvents: 'none' });

@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import '@fontsource-variable/roboto-condensed/index.css';
+import urlFuenteLamina from '@fontsource-variable/roboto-condensed/files/roboto-condensed-latin-wght-normal.woff2?url';
 import {
   Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
@@ -158,7 +159,7 @@ export function Leyenda({ items }: { items: { color: string; texto: string; line
   return (
     <div className="flex items-center gap-4 text-[15px]" style={{ color: C.texto }}>
       {items.map((it) => (
-        <span key={it.texto} className="flex items-center gap-1.5">
+        <span key={it.texto} className="flex items-center gap-1.5 whitespace-nowrap">
           {it.linea ? (
             <span className="relative inline-block h-[3px] w-6 rounded" style={{ background: it.color }}>
               <span className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-white" style={{ borderColor: it.color }} />
@@ -181,7 +182,7 @@ function Kpi({ x, w, icono: Icono, etiqueta, sub, valor, tono = 'blanco' }: {
     <div className="absolute flex flex-col rounded-[12px] px-3.5 pt-2.5" style={{ left: x, top: 122, width: w, height: 100, background: fondo, border: `1px solid ${borde}`, boxShadow: '0 3px 8px rgba(20,40,30,0.10)' }}>
       <div className="flex items-start gap-2">
         <Icono size={26} strokeWidth={2.2} style={{ color: colorIcono }} className="mt-0.5 shrink-0" />
-        <p className="text-[16px] font-bold leading-[1.1]" style={{ color: tono === 'rosa' ? '#7a1d24' : C.texto }}>
+        <p className="whitespace-nowrap text-[16px] font-bold leading-[1.1]" style={{ color: tono === 'rosa' ? '#7a1d24' : C.texto }}>
           {etiqueta}{sub && <span className="block text-[15px] font-medium">{sub}</span>}
         </p>
       </div>
@@ -238,7 +239,7 @@ export function PieLamina({ fuente, nota }: { fuente: string; nota?: string }) {
     <div className="absolute bottom-0 left-0 flex h-[58px] w-full items-center justify-between overflow-hidden pl-5" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro}, #0d4433 55%, ${C.verdeOscuro})` }}>
       <div className="absolute top-0 h-full" style={{ left: 860, width: 820, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(60px 0,100% 0,100% 100%,0 100%)' }} />
       <div className="absolute top-0 h-full" style={{ left: 838, width: 80, background: C.lima, clipPath: 'polygon(60px 0,70px 0,10px 100%,0 100%)' }} />
-      <p className="relative text-[17px] text-white">{nota ? <><strong>Nota:</strong> {nota}</> : <><strong>Fuente:</strong> {fuente}. Información sujeta a variación.</>}</p>
+      <p className="relative whitespace-nowrap text-[17px] text-white">{nota ? <><strong>Nota:</strong> {nota}</> : <><strong>Fuente:</strong> {fuente}. Información sujeta a variación.</>}</p>
       <img src="/assets/mepoy-footer-iconos-blanco.png" alt="Trabajo articulado · Prevención efectiva · Comunidad segura" className="relative mr-6 h-[56px] w-auto" />
     </div>
   );
@@ -386,7 +387,32 @@ export function InformeEjecutivoMicrogerencia({ datos, cobertura, onCobertura, b
 }
 
 /** Espera a que el mapa y las imágenes de la lámina estén dibujados. */
+// ── Tipografía de las láminas ────────────────────────────────────────────
+// La lámina se diseña con Roboto Condensed. Si al dibujarla o capturarla la
+// fuente aún no estaba descargada, el navegador usaba otra más ancha y los
+// textos se montaban unos sobre otros («apeñuzcado»). Por eso: 1) se espera
+// a que la fuente esté cargada antes de armar la lámina y 2) la imagen se
+// genera con la fuente incrustada (no depende de lo instalado en el equipo).
+let cssFuente: Promise<string> | null = null;
+function cssFuenteEmbebida(): Promise<string> {
+  cssFuente ??= fetch(urlFuenteLamina)
+    .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.blob(); })
+    .then((b) => new Promise<string>((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.onerror = () => mal(fr.error); fr.readAsDataURL(b); }))
+    .then((d) => ['Roboto Condensed Variable', 'Roboto Condensed'].map((familia) =>
+      `@font-face{font-family:'${familia}';font-style:normal;font-display:block;font-weight:100 900;src:url(${d}) format('woff2-variations'),url(${d}) format('woff2');}`).join('\n'))
+    .catch(() => { cssFuente = null; return ''; });
+  return cssFuente;
+}
+
+export async function cargarFuenteLamina(): Promise<void> {
+  try {
+    await Promise.all([400, 500, 600, 700, 800].map((w) => document.fonts.load(`${w} 16px "Roboto Condensed Variable"`, 'Áa0–')));
+    await document.fonts.ready;
+  } catch { /* sin API de fuentes: se sigue igual */ }
+}
+
 export async function esperarLamina(el: HTMLElement, maxMs = 30000): Promise<void> {
+  await cargarFuenteLamina();
   const t0 = Date.now();
   while (el.querySelector('[data-mapa-cargando]') && Date.now() - t0 < maxMs) await new Promise((r) => setTimeout(r, 200));
   await Promise.all(Array.from(el.querySelectorAll('img')).map((img) => (img.complete && img.naturalWidth > 0 ? null : img.decode().catch(() => null))));
@@ -397,7 +423,8 @@ export async function esperarLamina(el: HTMLElement, maxMs = 30000): Promise<voi
 export async function capturarLamina(el: HTMLElement, pixelRatio = 2): Promise<HTMLCanvasElement> {
   await esperarLamina(el);
   const { toCanvas } = await import('html-to-image');
-  return toCanvas(el, { pixelRatio, width: ANCHO, height: ALTO, backgroundColor: '#f3f5f4', cacheBust: false });
+  const fontEmbedCSS = await cssFuenteEmbebida();
+  return toCanvas(el, { pixelRatio, width: ANCHO, height: ALTO, backgroundColor: '#f3f5f4', cacheBust: false, ...(fontEmbedCSS ? { fontEmbedCSS } : {}) });
 }
 
 /** La lámina ejecutiva (1672 × 941) de UNA unidad. */
@@ -536,7 +563,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                 icono={MapPin}
                 derecha={(
                   <div className="relative">
-                    <button type="button" onClick={() => setMenuTop((v) => !v)} className="flex items-center gap-2 rounded-[8px] border bg-white px-3 py-1 text-[16px] font-bold" style={{ borderColor: C.borde, color: C.texto }}>
+                    <button type="button" onClick={() => setMenuTop((v) => !v)} className="flex items-center gap-2 whitespace-nowrap rounded-[8px] border bg-white px-3 py-1 text-[16px] font-bold" style={{ borderColor: C.borde, color: C.texto }}>
                       Top {topBarrios} barrios <ChevronDown size={18} />
                     </button>
                     {menuTop && (
@@ -664,7 +691,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                     </tbody>
                   </table>
                   <div className="mt-2 flex items-center justify-between px-4">
-                    <p className="text-[17px] font-bold">Comparativo por {sub.singular === 'CAI' ? 'CAI' : sub.singular.toLowerCase()} ({P} vs {A})</p>
+                    <p className="whitespace-nowrap text-[17px] font-bold">Comparativo por {sub.singular === 'CAI' ? 'CAI' : sub.singular.toLowerCase()} ({P} vs {A})</p>
                     <Leyenda items={[{ color: C.gris2025, texto: String(P) }, { color: C.verde, texto: String(A) }]} />
                   </div>
                   <div className="min-h-0 flex-1 px-1 pb-1">
