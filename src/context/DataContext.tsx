@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { aplicarAjustesOficiales } from '../utils/ajustesOficialesOperatividad';
 import type { CrimeRecord, DatasetMeta, FilterState, PeriodoAnalisis, UpdateMode, UpdateSummary } from '../types/crime';
 import type { OperatividadRecord } from '../types/operatividad';
 import { parsearOperatividad, parsearOperatividadDesdeCsv, reinterpretarOperatividad } from '../data/operatividadParser';
@@ -904,7 +905,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // tienen equivalente en este dataset (armas, modalidad, género, etc.).
   // Piloto: Operatividad limitada a las unidades / ubicaciones de Popayán.
   const operatividadVisibles = useMemo(
-    () => (restriccionPopayanActiva() ? operatividadRecords.filter((r) => operatividadEnPopayan(r)).map((r) => recortarCoordenadasPiloto(r)) : operatividadRecords),
+    // Marihuana (y otras clases que se agreguen): cifra oficial hasta la
+    // fecha de corte del cuadro institucional + lo posterior de la matriz.
+    () => (restriccionPopayanActiva() ? operatividadRecords.filter((r) => operatividadEnPopayan(r)).map((r) => recortarCoordenadasPiloto(r)) : aplicarAjustesOficiales(operatividadRecords)),
     [operatividadRecords],
   );
   const filteredOperatividadRecords = useMemo(() => {

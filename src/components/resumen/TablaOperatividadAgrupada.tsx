@@ -1,6 +1,7 @@
 import { VariacionPct, claseDif } from './ComparativoComun';
 import type { OperatividadRecord } from '../../types/operatividad';
 import { formatDecimal, formatNumero } from '../../utils/aggregations';
+import { notaAjustesOficiales } from '../../utils/ajustesOficialesOperatividad';
 import { agruparCircunstancia, cuentaComoOperatividad, gramosDroga, tipoOperatividad, type UnidadDroga } from '../../utils/operatividadConteo';
 
 // Comparativo de Operatividad con la MISMA estructura de la tabla del
@@ -17,7 +18,7 @@ import { agruparCircunstancia, cuentaComoOperatividad, gramosDroga, tipoOperativ
 
 export interface VentanaOp { inicio: Date; fin: Date; inicioAnt: Date; finAnt: Date; anioActual: number; anioAnterior: number }
 
-interface Fila { etiqueta: string; anterior: number; actual: number; esDroga?: boolean }
+interface Fila { etiqueta: string; total: number; anterior: number; actual: number; esDroga?: boolean }
 interface Grupo { titulo: string; filas: Fila[]; esDroga?: boolean }
 
 const normalizar = (s: string) => (s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
@@ -27,12 +28,15 @@ export function construirTablaOperatividad(registros: OperatividadRecord[], v: V
   const enRango = (r: OperatividadRecord, ini: Date, fin: Date) => !!r.fecha && r.fecha >= ini && r.fecha <= fin;
   const actuales = registros.filter((r) => enRango(r, v.inicio, v.fin));
   const anteriores = registros.filter((r) => enRango(r, v.inicioAnt, v.finAnt));
+  // Total del año anterior COMPLETO (1 ene – 31 dic), como en Delictividad.
+  const completos = registros.filter((r) => enRango(r, new Date(v.anioAnterior, 0, 1), new Date(v.anioAnterior, 11, 31, 23, 59, 59, 999)));
 
   // Suma en ambos periodos de lo que cumpla la condición (1 por registro que
   // cuenta, o gramos si es droga).
   const par = (cond: (r: OperatividadRecord) => boolean, droga = false) => {
     const valor = (r: OperatividadRecord) => (droga ? gramosDroga(r) : cuentaComoOperatividad(r) ? 1 : 0);
     return {
+      total: completos.filter(cond).reduce((a, r) => a + valor(r), 0),
       anterior: anteriores.filter(cond).reduce((a, r) => a + valor(r), 0),
       actual: actuales.filter(cond).reduce((a, r) => a + valor(r), 0),
     };
@@ -48,7 +52,7 @@ export function construirTablaOperatividad(registros: OperatividadRecord[], v: V
     { etiqueta: 'En flagrancia', ...par((r) => esCaptura(r) && circ(r) === 'Flagrancia') },
   ];
   const otrasCapturas = par((r) => esCaptura(r) && circ(r) !== 'Orden judicial' && circ(r) !== 'Flagrancia');
-  if (otrasCapturas.anterior + otrasCapturas.actual > 0) capturas.push({ etiqueta: 'Sin circunstancia registrada', ...otrasCapturas });
+  if (otrasCapturas.total + otrasCapturas.anterior + otrasCapturas.actual > 0) capturas.push({ etiqueta: 'Sin circunstancia registrada', ...otrasCapturas });
   grupos.push({ titulo: 'Capturas', filas: capturas });
 
   // VEHÍCULOS RECUPERADOS
@@ -84,7 +88,7 @@ export function construirTablaOperatividad(registros: OperatividadRecord[], v: V
     { etiqueta: 'Sin permiso', ...par((r) => esArma(r) && permiso(r) === 'Sin permiso') },
   ];
   const armasSinDato = par((r) => esArma(r) && permiso(r) === 'Sin dato de permiso');
-  if (armasSinDato.anterior + armasSinDato.actual > 0) armas.push({ etiqueta: 'Sin dato de permiso', ...armasSinDato });
+  if (armasSinDato.total + armasSinDato.anterior + armasSinDato.actual > 0) armas.push({ etiqueta: 'Sin dato de permiso', ...armasSinDato });
   grupos.push({ titulo: 'Armas incautadas', filas: armas });
 
   // CASOS DE MERCANCÍA
@@ -101,7 +105,7 @@ export function construirTablaOperatividad(registros: OperatividadRecord[], v: V
   const otras = Array.from(new Set(registros.filter(tipo('otra')).map((r) => r.categoria)));
   if (otras.length > 0) grupos.push({ titulo: 'Otras', filas: otras.map((c) => ({ etiqueta: c, ...par((r) => r.categoria === c) })) });
 
-  return grupos.filter((g) => g.filas.some((f) => f.anterior + f.actual > 0));
+  return grupos.filter((g) => g.filas.some((f) => f.total + f.anterior + f.actual > 0));
 }
 
 export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarAporte = false }: { grupos: Grupo[]; ventana: VentanaOp; unidad: UnidadDroga; mostrarAporte?: boolean }) {
@@ -121,6 +125,7 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarApor
         <thead>
           <tr className="text-white">
             <th rowSpan={2} colSpan={2} className="rounded-tl-md bg-[#0f5f57] px-3 py-2 text-center text-[14.5px] font-bold uppercase">Tipo de operatividad</th>
+            <th rowSpan={2} className="bg-[#0f5f57] px-2 py-2 text-center text-[14px] font-bold leading-tight">Total<span className="block text-[17px]">{ventana.anioAnterior}</span></th>
             <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioAnterior}</th>
             <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioActual}</th>
             <th colSpan={2} className="rounded-tr-md bg-[#0f5f57] px-2 pt-1.5 text-center text-[13.5px] font-bold uppercase">Variación</th>
@@ -132,6 +137,7 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarApor
         </thead>
         <tbody>
           {grupos.map((g) => {
+            const totTot = g.filas.reduce((a, f) => a + f.total, 0);
             const totAnt = g.filas.reduce((a, f) => a + f.anterior, 0);
             const totAct = g.filas.reduce((a, f) => a + f.actual, 0);
             return [
@@ -144,6 +150,7 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarApor
                     </td>
                   )}
                   <td className={`${celda} font-semibold text-[#10233f]`}>{f.etiqueta}</td>
+                  <td className={`${celda} text-center tabular-nums text-slate-500`}>{fmt(f.total, f.esDroga)}</td>
                   <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.anterior, f.esDroga)}</td>
                   <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.actual, f.esDroga)}{aporteDebajo(f.actual, totAct)}</td>
                   <td className={`${celda} text-center font-semibold tabular-nums ${claseDif(f.actual - f.anterior, true)}`}>{fmtDif(f.actual - f.anterior, f.esDroga)}</td>
@@ -152,6 +159,7 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarApor
               )),
               <tr key={`${g.titulo}-total`} className="bg-slate-200/70 font-bold text-[#10233f]">
                 <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center text-[13.5px] uppercase">Total</td>
+                <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totTot, g.esDroga)}</td>
                 <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAnt, g.esDroga)}</td>
                 <td className="border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums">{fmt(totAct, g.esDroga)}{aporteDebajo(totAct, totAct)}</td>
                 <td className={`border-b-2 border-slate-300 px-2 py-[7px] text-center tabular-nums ${claseDif(totAct - totAnt, true)}`}>{fmtDif(totAct - totAnt, g.esDroga)}</td>
@@ -161,6 +169,7 @@ export function TablaOperatividadAgrupada({ grupos, ventana, unidad, mostrarApor
           })}
         </tbody>
       </table>
+      {grupos.some((g) => g.esDroga) && <p className="mt-1.5 px-1 text-[11.5px] text-slate-500">* {notaAjustesOficiales()}</p>}
     </div>
   );
 }
@@ -195,6 +204,7 @@ export function TablaOperatividadPorTendencia({ grupos, ventana, unidad }: { gru
           <tr className="text-white">
             <th rowSpan={2} className="rounded-tl-md bg-[#0f5f57] px-3 py-2 text-left text-[13.5px] font-bold uppercase">Categoría</th>
             <th rowSpan={2} className="bg-[#0f5f57] px-3 py-2 text-left text-[13.5px] font-bold uppercase">Detalle</th>
+            <th rowSpan={2} className="bg-[#0f5f57] px-2 py-2 text-center text-[14px] font-bold leading-tight">Total<span className="block text-[17px]">{ventana.anioAnterior}</span></th>
             <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioAnterior}</th>
             <th rowSpan={2} className="bg-[#10233f] px-2 py-2 text-center text-[17px] font-bold">{ventana.anioActual}</th>
             <th colSpan={2} className="rounded-tr-md bg-[#0f5f57] px-2 pt-1.5 text-center text-[13.5px] font-bold uppercase">Variación</th>
@@ -207,7 +217,7 @@ export function TablaOperatividadPorTendencia({ grupos, ventana, unidad }: { gru
         <tbody>
           {secciones.flatMap((s) => [
             <tr key={`${s.titulo}-titulo`}>
-              <td colSpan={6} className={`border-b border-slate-300 px-3 py-1.5 text-[13px] font-bold uppercase ${s.clase}`}>
+              <td colSpan={7} className={`border-b border-slate-300 px-3 py-1.5 text-[13px] font-bold uppercase ${s.clase}`}>
                 {s.titulo}{s.nota && <span className="ml-1 font-semibold normal-case opacity-80">({s.nota})</span>}
                 <span className="ml-2 font-semibold normal-case opacity-70">· {s.filas.length} {s.filas.length === 1 ? 'concepto' : 'conceptos'}</span>
               </td>
@@ -216,6 +226,7 @@ export function TablaOperatividadPorTendencia({ grupos, ventana, unidad }: { gru
               <tr key={`${s.titulo}-${f.categoria}-${f.etiqueta}`}>
                 <td className={`${celda} text-[13px] font-semibold uppercase text-slate-500`}>{f.categoria}{f.esDroga && <span className="block text-[11.5px] normal-case">({unidad === 'kg' ? 'kilogramos' : 'gramos'})</span>}</td>
                 <td className={`${celda} font-semibold text-[#10233f]`}>{f.etiqueta}</td>
+                <td className={`${celda} text-center tabular-nums text-slate-500`}>{fmt(f.total, f.esDroga)}</td>
                 <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.anterior, f.esDroga)}</td>
                 <td className={`${celda} text-center tabular-nums text-slate-700`}>{fmt(f.actual, f.esDroga)}</td>
                 <td className={`${celda} text-center font-semibold tabular-nums ${claseDif(dif(f), true)}`}>{fmtDif(dif(f), f.esDroga)}</td>
