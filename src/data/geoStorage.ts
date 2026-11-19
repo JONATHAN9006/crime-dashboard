@@ -20,6 +20,36 @@ export function restringirCapasAPopayan(capas: CapaGeografica[]): CapaGeografica
     .filter((c) => contarElementos(c.geojson) > 0);
 }
 
+export interface EstiloElemento { color?: string | null; opacidad?: number | null }
+
+/** Clave con la que se guarda el estilo de un polígono (por su nombre). */
+export const claveNombreElemento = (v: unknown) =>
+  `n:${String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase().replace(/\s+/g, ' ')}`;
+
+/** Clave del polígono dentro de su capa: su nombre (campo) o su posición. */
+export function claveDeElemento(capa: CapaGeografica, feature: any, campo?: string | null): string | null {
+  const v = campo ? feature?.properties?.[campo] : null;
+  if (v != null && String(v).trim()) return claveNombreElemento(v);
+  const feats = (capa.geojson as any)?.features;
+  const i = Array.isArray(feats) ? feats.indexOf(feature) : -1;
+  return i >= 0 ? `i:${i}` : null;
+}
+
+/** Estilo propio guardado para un polígono (si lo tiene). Sin campo conocido
+ *  se prueba con cada texto de sus atributos (ej. láminas de Microgerencia). */
+export function estiloDeElemento(capa: CapaGeografica | undefined, feature: any, campo?: string | null): EstiloElemento | undefined {
+  const e = capa?.estilosElemento;
+  if (!capa || !e) return undefined;
+  const clave = claveDeElemento(capa, feature, campo);
+  if (clave && e[clave]) return e[clave];
+  if (!campo) {
+    for (const v of Object.values(feature?.properties ?? {})) {
+      if (typeof v === 'string' && v.trim() && e[claveNombreElemento(v)]) return e[claveNombreElemento(v)];
+    }
+  }
+  return undefined;
+}
+
 export interface CapaGeografica {
   id: string;
   nombre: string;
@@ -35,6 +65,11 @@ export interface CapaGeografica {
   // Color elegido por el usuario para distinguir la capa en el mapa (borde y
   // relleno). Sin valor = estilo institucional de siempre. Es de cada equipo.
   color?: string | null;
+  // Opacidad del relleno de toda la capa (0–100). Sin valor = la de siempre.
+  opacidad?: number | null;
+  // Estilo propio de cada polígono (color y opacidad), por nombre del
+  // polígono («n:NOMBRE») o, si no tiene nombre, por su posición («i:3»).
+  estilosElemento?: Record<string, EstiloElemento>;
   // Capa compartida con los demás equipos a través del servidor central
   // (ver geoSync.ts). Sin estos campos = la capa solo existe en este equipo.
   compartida?: boolean;

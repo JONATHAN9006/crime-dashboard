@@ -5,7 +5,7 @@
 // que tener esa página abierta). Si no hay capas o puntos cargados
 // todavía, devuelve undefined — el PDF ya sabe mostrar la lista de
 // delitos como respaldo cuando no hay imagen disponible.
-import { cargarCapas } from './geoStorage';
+import { cargarCapas, estiloDeElemento } from './geoStorage';
 import { cargarCapasPuntos } from './puntosStorage';
 import { generarDataUrlPoligonoAislado, type OpcionesPoligonoAislado } from '../utils/exportarPoligonoMapa';
 /**
@@ -74,6 +74,13 @@ async function estiloUsuario(features: any[], puntos: any[]) {
       const m = conteoDe(capa.dimension);
       const max = Math.max(0, ...m.values());
       rellenos.push({ anillos: extraerAnillosDeFeature(f), color: colorPorIntensidad(m.get(normEspacios(f?.properties?.[capa.campoUnion])) ?? 0, max), opacidad: 0.65 });
+      continue;
+    }
+    // Color / transparencia que el usuario le dio al polígono o a su capa.
+    const propio = estiloDeElemento(capa, f, capa?.campoUnion ?? null);
+    const colorPropio = propio?.color ?? capa?.color ?? null;
+    if (colorPropio) {
+      rellenos.push({ anillos: extraerAnillosDeFeature(f), color: colorPropio, opacidad: (propio?.opacidad ?? capa?.opacidad ?? 25) / 100 });
       continue;
     }
     const cai = colorearCai ? nombreCaiDe(f) : null;

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card } from '../components/ui/Card';
-import { guardarCapas, cargarCapas, limpiarCapas, type CapaGeografica } from '../data/geoStorage';
+import { guardarCapas, cargarCapas, limpiarCapas, claveDeElemento, estiloDeElemento, type CapaGeografica, type EstiloElemento } from '../data/geoStorage';
 import { sincronizarCapasDesdeServidor, subirCapaCompartida, subirFichaCapa, borrarCapaCompartida, hayServidorParaCapas } from '../data/geoSync';
 import {
   guardarCapasPuntos, cargarCapasPuntos, delitosIrispEquivalentes, dependenciasIrispEquivalentes, type CapaPuntos, type TipoCapaPuntos,
@@ -197,6 +197,8 @@ function detectarCampoUnion(geojson: any, valoresConocidos: Set<string>): string
 
 // Colores para distinguir las capas geográficas adjuntas entre sí.
 const COLORES_CAPA = ['#e11d48', '#f97316', '#eab308', '#16a34a', '#0d9488', '#0ea5e9', '#2563eb', '#7c3aed', '#c026d3', '#78350f', '#334155', '#000000'];
+// Para «Colores distintos»: tonos que se distinguen bien entre vecinos.
+const COLORES_CAPA_AUTO = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#469990', '#9a6324', '#800000', '#808000', '#000075', '#ffe119', '#a9a9a9', '#dcbeff'];
 
 // Paleta multicolor por delito — para la vista normal/exploratoria de cada
 // capa (sin comparar), donde cada tipo de delito debe distinguirse con su
@@ -1343,6 +1345,66 @@ function MapaGeorreferenciacionContenido() {
     await persistir(capas.filter((c) => c.id !== id));
   }
 
+  // Cambios de estilo (color / transparencia): se ven al instante y se
+  // guardan en el equipo medio segundo después del último movimiento.
+  const temporizadorEstilo = useRef<number | null>(null);
+  function actualizarEstiloCapa(id: string, cambiar: (c: CapaGeografica) => Partial<CapaGeografica>) {
+    setCapas((prev) => {
+      const nuevas = prev.map((c) => (c.id === id ? { ...c, ...cambiar(c) } : c));
+      if (temporizadorEstilo.current) clearTimeout(temporizadorEstilo.current);
+      temporizadorEstilo.current = window.setTimeout(() => { guardarCapas(nuevas).catch(() => {}); }, 500);
+      return nuevas;
+    });
+  }
+  function estiloElementoCapa(id: string, clave: string, cambios: EstiloElemento | null) {
+    actualizarEstiloCapa(id, (c) => {
+      const e = { ...(c.estilosElemento ?? {}) };
+      if (cambios === null) delete e[clave];
+      else {
+        const n = { ...(e[clave] ?? {}), ...cambios };
+        if (n.color == null && n.opacidad == null) delete e[clave]; else e[clave] = n;
+      }
+      return { estilosElemento: e };
+    });
+  }
+  /** Un color distinto para cada polígono de la capa (paleta fija). */
+  function coloresDistintosCapa(capa: CapaGeografica) {
+    const campo = camposUnionAutoDetectados.get(capa.id) ?? null;
+    const feats: any[] = (capa.geojson as any)?.features ?? [];
+    const e: Record<string, EstiloElemento> = {};
+    let n = 0;
+    for (const f of feats) {
+      const clave = claveDeElemento(capa, f, campo);
+      if (!clave || e[clave]) continue;
+      e[clave] = { ...(capa.estilosElemento?.[clave] ?? {}), color: COLORES_CAPA_AUTO[n++ % COLORES_CAPA_AUTO.length] };
+    }
+    actualizarEstiloCapa(capa.id, () => ({ estilosElemento: e }));
+  }
+
+  /** Editor de color y transparencia del polígono seleccionado con clic. */
+  function editorPoligonoSeleccionado() {
+    if (!zonaSeleccionada) return null;
+
+    const capaSel = capas.find((c) => c.id === zonaSeleccionada.capaId);
+    const clave = capaSel ? claveDeElemento(capaSel, zonaSeleccionada.feature, camposUnionAutoDetectados.get(capaSel.id) ?? null) : null;
+    if (!capaSel || !clave) return null;
+    const est = capaSel.estilosElemento?.[clave];
+    return (
+      <div className="mb-2 rounded-md border border-slate-200 bg-slate-50 p-1.5 text-[11.5px]">
+        <p className="mb-1 font-semibold text-[#10233f]">Estilo de este polígono</p>
+        <EditorColorTransparencia
+          color={est?.color ?? null}
+          opacidad={est?.opacidad ?? null}
+          opacidadDefecto={capaSel.opacidad ?? 25}
+          colorHeredado={capaSel.color ?? null}
+          onColor={(c) => estiloElementoCapa(capaSel.id, clave, { color: c })}
+          onOpacidad={(o) => estiloElementoCapa(capaSel.id, clave, { opacidad: o })}
+          onRestablecer={est ? () => estiloElementoCapa(capaSel.id, clave, null) : undefined}
+        />
+      </div>
+    );
+  }
+
   async function actualizarCapa(id: string, cambios: Partial<CapaGeografica>) {
     const nuevas = capas.map((c) => (c.id === id ? { ...c, ...cambios } : c));
     await persistir(nuevas);
@@ -1947,18 +2009,25 @@ function MapaGeorreferenciacionContenido() {
     // se haya seleccionado con un clic puntual.
     const esSeleccionadaPorFiltro = (campoEfectivo ? coincideConFiltrosActivos(feature?.properties?.[campoEfectivo]) : false)
       || (barriosElegidosNorm.size > 0 && geojsonEnPantalla.has(capa.id));
-    const opacidadPoligono = opacidades.poligono / 100;
+    // Estilo propio: primero el del polígono, luego el de toda la capa.
+    const propio = estiloDeElemento(capa, feature, campoEfectivo);
+    const colorPropio = propio?.color ?? capa.color ?? null;
+    const opacidadPropia = propio?.opacidad ?? capa.opacidad ?? null;
+    const op = (porDefecto: number) => (opacidadPropia ?? porDefecto) / 100;
     if (esSeleccionadaPorClic || esSeleccionadaPorFiltro) {
-      return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 * opacidadPoligono };
+      // Si el polígono tiene color propio se ve con él (para poder editarlo),
+      // con el borde negro grueso de la selección.
+      if (colorPropio) return { color: '#000000', weight: 4, fillColor: colorPropio, fillOpacity: op(25) };
+      return { color: '#000000', weight: 4, fillColor: '#000000', fillOpacity: 0.4 };
     }
     if (capa.colorearPorCasos && conteos && capa.campoUnion) {
       const valorCrudo = feature?.properties?.[capa.campoUnion!];
       const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
-      return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
+      return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: op(65) };
     }
-    // Color propio que el usuario le dio a la capa para distinguirla.
-    if (capa.color) {
-      return { color: capa.color, weight: 2.5, fillColor: capa.color, fillOpacity: 0.22 * opacidadPoligono };
+    // Color propio que el usuario le dio al polígono o a la capa.
+    if (colorPropio) {
+      return { color: colorPropio, weight: 2.5, fillColor: colorPropio, fillOpacity: op(25) };
     }
     // Capas de CAI (dimensión sin "colorear por casos" activo):
     // usan el color propio configurable de cada CAI en vez del
@@ -1971,10 +2040,10 @@ function MapaGeorreferenciacionContenido() {
       const valorCrudo = String(feature?.properties?.[campoEfectivo] ?? '');
       const coincideCai = opcionesFiltroMapa.cai.find((c) => normalizar(c) === normalizar(valorCrudo));
       if (coincideCai) {
-        return { color: '#000000', weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: 0.25 * opacidadPoligono };
+        return { color: '#000000', weight: 2, fillColor: colorDeCai(coincideCai), fillOpacity: op(25) };
       }
     }
-    return { color: '#000000', weight: 2, fillColor: '#116762', fillOpacity: 0.15 * opacidadPoligono };
+    return { color: '#000000', weight: 2, fillColor: '#116762', fillOpacity: op(15) };
   }
 
   /** Rellenos de color de las capas visibles para la descarga (solo los que
@@ -2957,19 +3026,24 @@ function MapaGeorreferenciacionContenido() {
                               {menu && (
                                 <div className="mx-1.5 mb-1 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11.5px]">
                                   <p className="text-slate-500">{tipoGeometria(capa)} · {formatNumero(contarFeatures(capa.geojson))} elementos{detectado ? ` · campo: ${detectado}` : ''}</p>
-                                  <div>
-                                    <p className="mb-1 font-semibold text-[#10233f]">Color de la capa en el mapa</p>
-                                    <div className="flex flex-wrap items-center gap-1">
-                                      {COLORES_CAPA.map((hex) => (
-                                        <button key={hex} type="button" onClick={() => actualizarCapa(capa.id, { color: hex })} aria-label={`Color ${hex}`} title={hex}
-                                          className={clsx('h-5 w-5 rounded-full border-2 transition hover:scale-110', capa.color === hex ? 'border-[#10233f] ring-2 ring-[#10233f]/30' : 'border-white shadow-[0_0_0_1px_#cbd5e1]')} style={{ background: hex }} />
-                                      ))}
-                                      <label title="Otro color" className="relative flex h-5 w-5 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-slate-300 bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]">
-                                        <input type="color" value={capa.color ?? '#116762'} onChange={(e) => actualizarCapa(capa.id, { color: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Elegir otro color" />
-                                      </label>
-                                      {capa.color && <button type="button" onClick={() => actualizarCapa(capa.id, { color: null })} className="ml-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-600 hover:bg-slate-100">Quitar color</button>}
-                                    </div>
+                                  <div className="rounded-md border border-slate-200 bg-white p-1.5">
+                                    <p className="mb-1 font-semibold text-[#10233f]">Toda la capa</p>
+                                    <EditorColorTransparencia
+                                      color={capa.color ?? null}
+                                      opacidad={capa.opacidad ?? null}
+                                      opacidadDefecto={capa.color ? 25 : 15}
+                                      onColor={(c) => actualizarEstiloCapa(capa.id, () => ({ color: c }))}
+                                      onOpacidad={(o) => actualizarEstiloCapa(capa.id, () => ({ opacidad: o }))}
+                                      onRestablecer={capa.color || capa.opacidad != null ? () => actualizarEstiloCapa(capa.id, () => ({ color: null, opacidad: null })) : undefined}
+                                    />
                                   </div>
+                                  <PoligonosDeCapa
+                                    capa={capa}
+                                    campo={detectado ?? null}
+                                    onEstilo={(clave, cambios) => estiloElementoCapa(capa.id, clave, cambios)}
+                                    onColoresDistintos={() => coloresDistintosCapa(capa)}
+                                    onQuitarTodos={() => actualizarEstiloCapa(capa.id, () => ({ estilosElemento: {} }))}
+                                  />
                                   <div className="flex flex-wrap gap-1">
                                     <button type="button" onClick={() => { acercarACapa(capa.geojson); setMenuCapaAbierto(null); }} className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-0.5 font-semibold text-[#10233f] hover:bg-[#f1f8f6]"><LocateFixed size={12} /> Acercar</button>
                                     {!capa.compartida && hayServidorParaCapas() && !soloLectura && (
@@ -3050,7 +3124,7 @@ function MapaGeorreferenciacionContenido() {
                         <input type="checkbox" checked={colorearZonasPorCai} onChange={(e) => setColorearZonasPorCai(e.target.checked)} className="mt-0.5 accent-[#116762]" />
                         <span><span className="font-semibold text-slate-700">Colorear zonas por CAI</span><br />Pinta cada polígono de CAI con su color.</span>
                       </label>
-                      <Deslizador texto="Transparencia de polígonos" valor={opacidades.poligono} onChange={(v) => setOpacidades((prev) => ({ ...prev, poligono: v }))} />
+                      <p className="rounded-lg bg-slate-50 p-2 text-[11px] text-slate-500">El color y la transparencia de cada capa y de cada polígono se ajustan en la pestaña <b>Capas</b> (botón de color de la capa) o haciendo clic en el polígono del mapa.</p>
                       <Deslizador texto="Transparencia de etiquetas" valor={opacidades.etiquetas} onChange={(v) => setOpacidades((prev) => ({ ...prev, etiquetas: v }))} />
                       <div>
                         <p className="mb-1 text-[12px] font-bold text-[#10233f]">Colores de CAI</p>
@@ -3364,7 +3438,7 @@ function MapaGeorreferenciacionContenido() {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${[...barriosElegidosNorm].join('|')}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}-${capa.color ?? ''}`}
+                  key={`${capa.id}-${[...barriosElegidosNorm].join('|')}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}-${capa.color ?? ''}-${capa.opacidad ?? ''}-${JSON.stringify(capa.estilosElemento ?? {})}`}
                   data={datosCapa as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
@@ -3695,16 +3769,28 @@ function MapaGeorreferenciacionContenido() {
                 </button>
                 {leyendaMapaAbierta && (
                   <div className="max-h-[min(380px,45vh)] space-y-3 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2 [scrollbar-width:thin]">
-                  {capas.some((c) => c.visible && c.color) && (
+                  {capas.some((c) => c.visible && (c.color || Object.values(c.estilosElemento ?? {}).some((e) => e.color))) && (
                     <div>
                       <p className="mb-1 font-semibold text-[#10233f]">Capas</p>
                       <div className="space-y-0.5">
-                        {capas.filter((c) => c.visible && c.color).map((c) => (
-                          <p key={c.id} className="flex items-center gap-1.5 text-slate-600">
-                            <span className="h-3 w-5 shrink-0 rounded-sm border-2" style={{ borderColor: c.color!, background: `${c.color}55` }} />
-                            <span className="min-w-0 truncate">{c.nombre}</span>
-                          </p>
-                        ))}
+                        {capas.filter((c) => c.visible && (c.color || Object.values(c.estilosElemento ?? {}).some((e) => e.color))).map((c) => {
+                          const propios = Object.entries(c.estilosElemento ?? {}).filter(([k, e]) => e.color && k.startsWith('n:'));
+                          return (
+                            <div key={c.id}>
+                              <p className="flex items-center gap-1.5 text-slate-600">
+                                <span className="h-3 w-5 shrink-0 rounded-sm border-2" style={{ borderColor: c.color ?? '#94a3b8', background: c.color ? `${c.color}55` : 'transparent' }} />
+                                <span className="min-w-0 truncate font-semibold">{c.nombre}</span>
+                              </p>
+                              {propios.slice(0, 12).map(([k, e]) => (
+                                <p key={k} className="ml-3 flex items-center gap-1.5 text-[11px] text-slate-600">
+                                  <span className="h-2.5 w-4 shrink-0 rounded-sm border-2" style={{ borderColor: e.color!, background: `${e.color}55` }} />
+                                  <span className="min-w-0 truncate">{nombreDeClave(c, k)}</span>
+                                </p>
+                              ))}
+                              {propios.length > 12 && <p className="ml-3 text-[10.5px] text-slate-400">+{propios.length - 12} polígonos más</p>}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -3884,6 +3970,7 @@ function MapaGeorreferenciacionContenido() {
                     {zonaActiva ? (
                       <div className="rounded-lg bg-[#f1f8f6] p-2.5">
                         <p className="text-[13px] font-bold text-[#10233f]">{zonaActiva.nombre}</p>
+                        <div className="mt-1.5">{editorPoligonoSeleccionado()}</div>
                         <p className="text-[11px] text-slate-500">{formatNumero(puntosEnZonaParaCalor.length)} punto(s) dentro del polígono{delitoZonaSeleccionada ? ` · ${delitoZonaSeleccionada}` : ''}</p>
                         {(() => {
                           const conteo = new Map<string, number>();
@@ -3963,6 +4050,8 @@ function MapaGeorreferenciacionContenido() {
                   <X size={16} />
                 </button>
               </div>
+
+              {editorPoligonoSeleccionado()}
 
               <label className="mb-1 block text-[11px] font-semibold text-slate-500">Delito dentro de esta zona</label>
               <select
@@ -4211,4 +4300,123 @@ function SincronizarMiniMapa({ centro, zoom }: { centro: L.LatLng; zoom: number 
   const map = useMap();
   useEffect(() => { map.setView(centro, zoom, { animate: false }); }, [map, centro, zoom]);
   return null;
+}
+
+/** Nombre legible de un polígono a partir de su clave guardada. */
+function nombreDeClave(capa: CapaGeografica, clave: string): string {
+  if (clave.startsWith('i:')) return `Polígono ${Number(clave.slice(2)) + 1}`;
+  const buscado = clave.slice(2);
+  for (const f of ((capa.geojson as any)?.features ?? []) as any[]) {
+    for (const v of Object.values(f?.properties ?? {})) {
+      if (typeof v === 'string' && v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase().replace(/\s+/g, ' ') === buscado) return v.trim();
+    }
+  }
+  return buscado;
+}
+
+/** Selector de color (paleta + color libre) y transparencia del relleno. */
+function EditorColorTransparencia({ color, opacidad, opacidadDefecto, colorHeredado = null, onColor, onOpacidad, onRestablecer }: {
+  color: string | null; opacidad: number | null; opacidadDefecto: number; colorHeredado?: string | null;
+  onColor: (c: string | null) => void; onOpacidad: (o: number | null) => void; onRestablecer?: () => void;
+}) {
+  const opacidadActual = opacidad ?? opacidadDefecto;
+  const transparencia = 100 - opacidadActual;
+  const muestra = color ?? colorHeredado;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1">
+        {COLORES_CAPA.map((hex) => (
+          <button key={hex} type="button" onClick={() => onColor(hex)} aria-label={`Color ${hex}`} title={hex}
+            className={clsx('h-5 w-5 rounded-full border-2 transition hover:scale-110', color === hex ? 'border-[#10233f] ring-2 ring-[#10233f]/30' : 'border-white shadow-[0_0_0_1px_#cbd5e1]')} style={{ background: hex }} />
+        ))}
+        <label title="Otro color" className="relative flex h-5 w-5 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-slate-300 bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]">
+          <input type="color" value={color ?? colorHeredado ?? '#116762'} onChange={(e) => onColor(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Elegir otro color" />
+        </label>
+      </div>
+      <div>
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="font-semibold text-slate-600">Transparencia del relleno</span>
+          <span className="font-bold tabular-nums text-[#10233f]">{transparencia}%</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="range" min={0} max={100} value={transparencia} onChange={(e) => onOpacidad(100 - Number(e.target.value))} className="min-w-0 flex-1 accent-[#116762]" aria-label="Transparencia del relleno" />
+          <span className="h-4 w-7 shrink-0 rounded border-2" style={{ borderColor: muestra ?? '#116762', background: muestra ?? '#116762', opacity: Math.max(0.08, opacidadActual / 100) }} />
+        </div>
+        <div className="flex justify-between text-[9.5px] text-slate-400"><span>Sólido</span><span>Transparente</span></div>
+      </div>
+      {onRestablecer && <button type="button" onClick={onRestablecer} className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-600 hover:bg-slate-100">Restablecer</button>}
+    </div>
+  );
+}
+
+/** Lista de los polígonos de una capa para pintar cada uno a gusto. */
+function PoligonosDeCapa({ capa, campo, onEstilo, onColoresDistintos, onQuitarTodos }: {
+  capa: CapaGeografica; campo: string | null;
+  onEstilo: (clave: string, cambios: EstiloElemento | null) => void; onColoresDistintos: () => void; onQuitarTodos: () => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [buscar, setBuscar] = useState('');
+  const [editando, setEditando] = useState<string | null>(null);
+  const elementos = useMemo(() => {
+    const vistos = new Map<string, string>();
+    const feats: any[] = (capa.geojson as any)?.features ?? [];
+    feats.forEach((f) => {
+      const clave = claveDeElemento(capa, f, campo);
+      if (!clave || vistos.has(clave)) return;
+      const nombre = campo && f?.properties?.[campo] != null ? String(f.properties[campo]).trim() : `Polígono ${Number(clave.slice(2)) + 1}`;
+      vistos.set(clave, nombre);
+    });
+    return Array.from(vistos, ([clave, nombre]) => ({ clave, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
+  }, [capa.geojson, campo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filtrados = buscar ? elementos.filter((e) => normalizar(e.nombre).includes(normalizar(buscar))) : elementos;
+  const conEstilo = Object.keys(capa.estilosElemento ?? {}).length;
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-1.5">
+      <button type="button" onClick={() => setAbierto((v) => !v)} className="flex w-full items-center justify-between font-semibold text-[#10233f]">
+        <span>Cada polígono ({formatNumero(elementos.length)}){conEstilo > 0 && <span className="ml-1 font-normal text-slate-500">· {conEstilo} con estilo propio</span>}</span>
+        <ChevronDown size={13} className={clsx('transition', abierto && 'rotate-180')} />
+      </button>
+      {abierto && (
+        <div className="mt-1.5 space-y-1.5">
+          <div className="flex flex-wrap gap-1">
+            <button type="button" onClick={onColoresDistintos} className="rounded-md border border-[#116762]/40 bg-[#f1f8f6] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#116762] hover:bg-[#e3f2ee]">Un color distinto a cada uno</button>
+            {conEstilo > 0 && <button type="button" onClick={onQuitarTodos} className="rounded-md border border-slate-200 px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-600 hover:bg-slate-100">Quitar todos</button>}
+          </div>
+          {elementos.length > 8 && (
+            <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar polígono…" className="w-full rounded border border-slate-300 px-1.5 py-0.5 text-[11px]" />
+          )}
+          <div className="max-h-[260px] space-y-0.5 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
+            {filtrados.slice(0, 300).map((el) => {
+              const est = capa.estilosElemento?.[el.clave];
+              const col = est?.color ?? capa.color ?? null;
+              const opa = est?.opacidad ?? capa.opacidad ?? 25;
+              return (
+                <div key={el.clave} className="rounded">
+                  <button type="button" onClick={() => setEditando(editando === el.clave ? null : el.clave)} className={clsx('flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-slate-50', editando === el.clave && 'bg-slate-100')}>
+                    <span className="h-3.5 w-5 shrink-0 rounded-sm border-2" style={{ borderColor: col ?? '#cbd5e1', background: col ? col : 'transparent', opacity: col ? Math.max(0.15, opa / 100) : 1 }} />
+                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-[#10233f]">{el.nombre}</span>
+                    {est && <span className="text-[9.5px] font-bold uppercase text-[#116762]">propio</span>}
+                  </button>
+                  {editando === el.clave && (
+                    <div className="mb-1 ml-1 rounded border border-slate-200 bg-slate-50 p-1.5">
+                      <EditorColorTransparencia
+                        color={est?.color ?? null}
+                        opacidad={est?.opacidad ?? null}
+                        opacidadDefecto={capa.opacidad ?? 25}
+                        colorHeredado={capa.color ?? null}
+                        onColor={(c) => onEstilo(el.clave, { color: c })}
+                        onOpacidad={(o) => onEstilo(el.clave, { opacidad: o })}
+                        onRestablecer={est ? () => onEstilo(el.clave, null) : undefined}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filtrados.length > 300 && <p className="px-1 text-[10.5px] text-slate-400">Mostrando 300 de {formatNumero(filtrados.length)}: use el buscador.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
