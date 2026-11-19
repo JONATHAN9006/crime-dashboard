@@ -195,6 +195,9 @@ function detectarCampoUnion(geojson: any, valoresConocidos: Set<string>): string
   return mejorCampo;
 }
 
+// Colores para distinguir las capas geográficas adjuntas entre sí.
+const COLORES_CAPA = ['#e11d48', '#f97316', '#eab308', '#16a34a', '#0d9488', '#0ea5e9', '#2563eb', '#7c3aed', '#c026d3', '#78350f', '#334155', '#000000'];
+
 // Paleta multicolor por delito — para la vista normal/exploratoria de cada
 // capa (sin comparar), donde cada tipo de delito debe distinguirse con su
 // propio color, tal como semaforiza el resto del dashboard.
@@ -1953,6 +1956,10 @@ function MapaGeorreferenciacionContenido() {
       const casos = conteos.get(normalizar(valorCrudo)) ?? 0;
       return { color: '#000000', weight: 1.5, fillColor: colorPorIntensidad(casos, maxCasos), fillOpacity: 0.65 * opacidadPoligono };
     }
+    // Color propio que el usuario le dio a la capa para distinguirla.
+    if (capa.color) {
+      return { color: capa.color, weight: 2.5, fillColor: capa.color, fillOpacity: 0.22 * opacidadPoligono };
+    }
     // Capas de CAI (dimensión sin "colorear por casos" activo):
     // usan el color propio configurable de cada CAI en vez del
     // verde institucional genérico, para diferenciarlos entre sí
@@ -2944,12 +2951,25 @@ function MapaGeorreferenciacionContenido() {
                                 <button type="button" onClick={() => actualizarCapa(capa.id, { visible: !capa.visible })} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-[#10233f]" title={`${capa.nombre} · ${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`}>{capa.nombre}</button>
                                 <span title={`${tipoGeometria(capa)} · ${formatNumero(contarFeatures(capa.geojson))} elementos`} className="shrink-0 text-slate-300"><Info size={12} /></span>
                                 {capa.compartida ? <Cloud size={12} className="shrink-0 text-emerald-500" aria-label="Compartida con todos los equipos" /> : !detectado ? <AlertCircle size={12} className="shrink-0 text-amber-500" aria-label="Falta elegir el campo de nombre" /> : null}
-                                <span className="h-3.5 w-6 shrink-0 rounded border-2" style={{ borderColor: g.color, background: `${g.color}1f` }} />
+                                <button type="button" onClick={() => setMenuCapaAbierto(menu ? null : capa.id)} title={capa.color ? 'Cambiar el color de la capa' : 'Darle color a la capa'} aria-label={`Color de ${capa.nombre}`} className="h-3.5 w-6 shrink-0 rounded border-2 hover:ring-2 hover:ring-slate-300" style={{ borderColor: capa.color ?? g.color, background: capa.color ? `${capa.color}66` : `${g.color}1f` }} />
                                 <button type="button" onClick={() => setMenuCapaAbierto(menu ? null : capa.id)} aria-expanded={menu} aria-label={`Opciones de ${capa.nombre}`} className="shrink-0 rounded p-0.5 text-slate-400 opacity-70 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"><MoreHorizontal size={14} /></button>
                               </div>
                               {menu && (
                                 <div className="mx-1.5 mb-1 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11.5px]">
                                   <p className="text-slate-500">{tipoGeometria(capa)} · {formatNumero(contarFeatures(capa.geojson))} elementos{detectado ? ` · campo: ${detectado}` : ''}</p>
+                                  <div>
+                                    <p className="mb-1 font-semibold text-[#10233f]">Color de la capa en el mapa</p>
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      {COLORES_CAPA.map((hex) => (
+                                        <button key={hex} type="button" onClick={() => actualizarCapa(capa.id, { color: hex })} aria-label={`Color ${hex}`} title={hex}
+                                          className={clsx('h-5 w-5 rounded-full border-2 transition hover:scale-110', capa.color === hex ? 'border-[#10233f] ring-2 ring-[#10233f]/30' : 'border-white shadow-[0_0_0_1px_#cbd5e1]')} style={{ background: hex }} />
+                                      ))}
+                                      <label title="Otro color" className="relative flex h-5 w-5 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-slate-300 bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]">
+                                        <input type="color" value={capa.color ?? '#116762'} onChange={(e) => actualizarCapa(capa.id, { color: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Elegir otro color" />
+                                      </label>
+                                      {capa.color && <button type="button" onClick={() => actualizarCapa(capa.id, { color: null })} className="ml-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-600 hover:bg-slate-100">Quitar color</button>}
+                                    </div>
+                                  </div>
                                   <div className="flex flex-wrap gap-1">
                                     <button type="button" onClick={() => { acercarACapa(capa.geojson); setMenuCapaAbierto(null); }} className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-0.5 font-semibold text-[#10233f] hover:bg-[#f1f8f6]"><LocateFixed size={12} /> Acercar</button>
                                     {!capa.compartida && hayServidorParaCapas() && !soloLectura && (
@@ -3344,7 +3364,7 @@ function MapaGeorreferenciacionContenido() {
 
               return (
                 <GeoJSONLayer
-                  key={`${capa.id}-${[...barriosElegidosNorm].join('|')}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}`}
+                  key={`${capa.id}-${[...barriosElegidosNorm].join('|')}-${capa.colorearPorCasos}-${capa.campoUnion}-${camposUnionAutoDetectados.get(capa.id)}-${capa.dimension}-${filteredRecords.length}-${zonaSeleccionada?.capaId ?? ''}:${zonaSeleccionada?.nombre ?? ''}-${filters.cai.join(',')}-${filters.estacion.join(',')}-${filters.cuadrante.join(',')}-${opacidades.poligono}-${JSON.stringify(coloresCai)}-${colorearZonasPorCai}-${capa.color ?? ''}`}
                   data={datosCapa as any}
                   style={estiloFeature}
                   onEachFeature={onEachFeature}
@@ -3675,6 +3695,19 @@ function MapaGeorreferenciacionContenido() {
                 </button>
                 {leyendaMapaAbierta && (
                   <div className="max-h-[min(380px,45vh)] space-y-3 overflow-y-auto border-t border-slate-100 px-3 pb-3 pt-2 [scrollbar-width:thin]">
+                  {capas.some((c) => c.visible && c.color) && (
+                    <div>
+                      <p className="mb-1 font-semibold text-[#10233f]">Capas</p>
+                      <div className="space-y-0.5">
+                        {capas.filter((c) => c.visible && c.color).map((c) => (
+                          <p key={c.id} className="flex items-center gap-1.5 text-slate-600">
+                            <span className="h-3 w-5 shrink-0 rounded-sm border-2" style={{ borderColor: c.color!, background: `${c.color}55` }} />
+                            <span className="min-w-0 truncate">{c.nombre}</span>
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {verCalor && mostrarCalorDelitos && (
                     <div>
                       <p className="mb-1 font-semibold text-[#10233f]">Intensidad delictiva (densidad Kernel)</p>

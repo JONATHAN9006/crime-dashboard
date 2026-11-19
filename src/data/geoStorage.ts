@@ -32,6 +32,9 @@ export interface CapaGeografica {
   // qué agrupar los casos filtrados (estación, cuadrante o barrio).
   dimension: 'estacion' | 'cuadrante' | 'barrioHecho' | null;
   colorearPorCasos: boolean;
+  // Color elegido por el usuario para distinguir la capa en el mapa (borde y
+  // relleno). Sin valor = estilo institucional de siempre. Es de cada equipo.
+  color?: string | null;
   // Capa compartida con los demás equipos a través del servidor central
   // (ver geoSync.ts). Sin estos campos = la capa solo existe en este equipo.
   compartida?: boolean;
