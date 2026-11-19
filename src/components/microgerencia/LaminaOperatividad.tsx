@@ -476,7 +476,7 @@ function Figura({ mujer }: { mujer: boolean }) {
 
 /** Dona dibujada a mano (SVG): centro, porcentajes y texto siempre alineados,
  *  sin depender de cómo el navegador mida el gráfico. */
-function DonaSvg({ partes, total, unidad, A, tam = 132 }: { partes: { nombre: string; valor: number; color: string }[]; total: number; unidad: string; A: number; tam?: number }) {
+export function DonaSvg({ partes, total, unidad, A, tam = 132 }: { partes: { nombre: string; valor: number; color: string }[]; total: number; unidad: string; A: number; tam?: number }) {
   const c = tam / 2;
   const rExt = c - 1;
   const rInt = rExt * 0.46;
