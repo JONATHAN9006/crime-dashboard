@@ -248,7 +248,7 @@ export function PieLamina({ fuente, nota }: { fuente: string; nota?: string }) {
 // Textos según la fuente (mismo diseño para Delictividad y Operatividad).
 export type FuenteLamina = 'delictividad' | 'operatividad';
 const TEXTOS: Record<FuenteLamina, { consolidado: string; historico: string; total: string; mensual: string; top: string; columna: string; densidad: string }> = {
-  delictividad: { consolidado: 'CONSOLIDADO DELICTIVO', historico: 'Histórico del comportamiento delictivo', total: 'Total delitos', mensual: 'Distribución mensual de delitos', top: 'Top 10 delitos', columna: 'Delito', densidad: 'Densidad delictiva' },
+  delictividad: { consolidado: 'CONSOLIDADO DELICTIVO', historico: 'Histórico del comportamiento delictivo', total: 'Total delitos', mensual: 'Comportamiento mensual de delitos', top: 'Top 10 delitos', columna: 'Delito', densidad: 'Densidad delictiva' },
   operatividad: { consolidado: 'CONSOLIDADO OPERATIVO', historico: 'Histórico de la operatividad', total: 'Total resultados', mensual: 'Distribución mensual de resultados', top: 'Top 10 resultados operativos', columna: 'Resultado', densidad: 'Densidad operativa' },
 };
 
@@ -458,9 +458,11 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   const datosMes = nodo.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.anio2025, [A]: i > mesCorte ? null : m.anio2026, dif: i > mesCorte ? null : m.dif, parcial: i === mesCorte && mesParcial }));
   const historico = (nodo.historico ?? []).map((h) => ({ anio: String(h.anio), casos: h.casos, parcial: h.parcial, actual: h.anio === A }));
 
-  const barrios = (nodo.barrios ?? []).slice(0, topBarrios);
+  const barrios = [...(nodo.barrios ?? [])].sort((x, y) => y.casos - x.casos).slice(0, topBarrios);
   const top10 = [...nodo.delitos].sort((a, b) => b.fecha2026 - a.fecha2026).slice(0, 10);
-  const sub = subunidades(nodo, esGeneral);
+  const subBase = subunidades(nodo, esGeneral);
+  // Siempre de mayor a menor (casos del año actual al corte).
+  const sub = { ...subBase, filas: [...subBase.filas].sort((x, y) => y.fecha2026 - x.fecha2026 || y.fecha2025 - x.fecha2025) };
   const tot = sub.filas.reduce((acc, f) => ({ t: acc.t + f.total2025, a: acc.a + f.fecha2025, b: acc.b + f.fecha2026 }), { t: 0, a: 0, b: 0 });
   const totDif = tot.b - tot.a;
   const totPct = tot.a > 0 ? (totDif / tot.a) * 100 : null;
@@ -527,11 +529,12 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               <div className="flex justify-center pb-1"><Leyenda items={[{ color: '#8fcf9a', texto: T.total }, { color: C.azul, texto: 'Tendencia anual', linea: true }]} /></div>
             </Panel>
 
-            <Panel x={598} y={232} w={540} h={270}>
-              <TituloPanel icono={IconoLinea} derecha={<Leyenda items={[{ color: C.azul, texto: String(P), linea: true }, { color: C.verdeVivo, texto: String(A), linea: true }]} />}>{T.mensual}</TituloPanel>
-              <div className="h-[130px] pr-2">
+            <Panel x={1148} y={232} w={512} h={270}>
+              <TituloPanel icono={IconoLinea}>{T.mensual}</TituloPanel>
+              <div className="relative h-[130px] pr-2">
+                <div className="absolute right-4 top-0 z-[1] rounded bg-white/85 px-1"><Leyenda items={[{ color: C.azul, texto: String(P), linea: true }, { color: C.verdeVivo, texto: String(A), linea: true }]} /></div>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={datosMes} margin={{ top: 10, right: 12, left: 2, bottom: 0 }}>
+                  <ComposedChart data={datosMes} margin={{ top: 24, right: 12, left: 2, bottom: 0 }}>
                     <defs>
                       <linearGradient id="mg-area-2025" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={C.azul} stopOpacity={0.22} />
@@ -558,7 +561,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               {(mesParcial || mesCorte < 11) && <p className="mt-0.5 px-3 text-[11px] leading-tight text-slate-500">{mesParcial ? `* ${MESES_LARGOS[mesCorte]} parcial (hasta el ${diaCorte}). ` : ''}{mesCorte < 11 ? '«—» = sin información consolidada aún.' : ''}</p>}
             </Panel>
 
-            <Panel x={1148} y={232} w={512} h={270}>
+            <Panel x={1102} y={512} w={558} h={346}>
               <TituloPanel
                 icono={MapPin}
                 derecha={(
@@ -575,13 +578,13 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                     )}
                   </div>
                 )}
-              >Distribución territorial</TituloPanel>
+              >Mapa de Georreferenciación</TituloPanel>
               <div className="relative min-h-0 flex-1">
                 {/* Mapa: ocupa la mayor parte del panel */}
-                <div className="absolute" style={{ left: 6, top: 2, width: 292, bottom: 6 }}>
-                  <MapaCobertura fuente={fuente} nodo={nodo} esGeneral={esGeneral} delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={barriosFiltro} inicio={datos.actualInicio} fin={datos.actualFin} />
+                <div className="absolute" style={{ left: 6, top: 2, width: 330, bottom: 6 }}>
+                  <MapaCobertura fuente={fuente} nodo={nodo} esGeneral={esGeneral} delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={barriosFiltro} inicio={datos.actualInicio} fin={datos.actualFin} aspecto={330 / 284} />
                 </div>
-                <div className="absolute flex flex-col gap-1.5" style={{ left: 302, right: 8, top: 0 }}>
+                <div className="absolute flex flex-col gap-1.5" style={{ left: 342, right: 8, top: 4 }}>
                   <div className="overflow-hidden rounded-[8px] border bg-white" style={{ borderColor: C.borde }}>
                     <p className="px-2.5 py-[3px] text-[15px] font-bold text-white" style={{ background: C.verde }}>Top {topBarrios} barrios ({A})</p>
                     {barrios.length === 0 ? <p className="px-2.5 py-2 text-[14px] text-slate-500">Sin barrios reportados.</p> : (
@@ -734,32 +737,30 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               )}
             </Panel>
 
-            <Panel x={1102} y={512} w={558} h={346}>
-              <TituloPanel icono={BarChart3}>Comportamiento trimestral <span className="text-[17px] font-normal">(principales hallazgos)</span></TituloPanel>
-              <div className="flex justify-end px-4"><Leyenda items={[{ color: C.gris2025, texto: String(P) }, { color: C.verde, texto: String(A) }]} /></div>
+            <Panel x={598} y={232} w={540} h={270}>
+              <TituloPanel icono={BarChart3} derecha={<Leyenda items={[{ color: C.gris2025, texto: String(P) }, { color: C.verde, texto: String(A) }]} />}>Comportamiento trimestral</TituloPanel>
               <div className="relative min-h-0 flex-1">
-                <div className="absolute grid grid-cols-4 text-center" style={{ left: 64, right: 12, top: 2 }}>
+                <div className="absolute grid grid-cols-4 text-center" style={{ left: 64, right: 12, top: 4 }}>
                   {datosTrim.map((t) => (
                     <div key={t.nombre} className="flex justify-center">
                       {t.dif == null ? <span className="text-[13px] text-slate-400">—</span> : (
-                        <span className="rounded-[5px] px-1.5 text-center text-[14px] font-bold leading-[1.1]" style={{ color: colDif(t.dif), border: `1.5px solid ${colDif(t.dif)}`, background: t.dif > 0 ? '#fff1f2' : t.dif < 0 ? '#ecf8ef' : '#fff' }}>
-                          {signo(t.dif)}{formatNumero(t.dif)}{t.parcial ? '*' : ''}
-                          <span className="block text-[11.5px]">({pct1(t.pct)})</span>
+                        <span className="whitespace-nowrap rounded-[5px] px-1.5 text-center text-[13px] font-bold leading-[1.15]" style={{ color: colDif(t.dif), border: `1.5px solid ${colDif(t.dif)}`, background: t.dif > 0 ? '#fff1f2' : t.dif < 0 ? '#ecf8ef' : '#fff' }}>
+                          {signo(t.dif)}{formatNumero(t.dif)}{t.parcial ? '*' : ''} <span className="text-[11.5px]">({pct1(t.pct)})</span>
                         </span>
                       )}
                     </div>
                   ))}
                 </div>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={datosTrim} margin={{ top: 58, right: 12, left: 8, bottom: 0 }} barGap={4} barCategoryGap="20%">
+                  <BarChart data={datosTrim} margin={{ top: 46, right: 12, left: 8, bottom: 0 }} barGap={4} barCategoryGap="20%">
                     <CartesianGrid vertical={false} stroke="#edf0f1" />
-                    <XAxis dataKey="nombre" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={42}
+                    <XAxis dataKey="nombre" axisLine={{ stroke: '#9aa3a8' }} tickLine={false} interval={0} height={36}
                       tick={({ x, y, payload }: { x?: number | string; y?: number | string; payload?: { value: string } }) => {
                         const t = datosTrim.find((d) => d.nombre === payload?.value);
                         return (
                           <g transform={`translate(${x},${y})`}>
-                            <text dy={15} textAnchor="middle" style={{ fontSize: 16, fill: C.texto, fontFamily: FUENTE }}>{payload?.value}</text>
-                            {t?.sub && <text dy={31} textAnchor="middle" style={{ fontSize: 14, fill: C.texto, fontFamily: FUENTE }}>{t.sub}</text>}
+                            <text dy={14} textAnchor="middle" style={{ fontSize: 15, fill: C.texto, fontFamily: FUENTE }}>{payload?.value}</text>
+                            {t?.sub && <text dy={28} textAnchor="middle" style={{ fontSize: 12.5, fill: C.texto, fontFamily: FUENTE }}>{t.sub}</text>}
                           </g>
                         );
                       }} />
@@ -774,9 +775,9 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="mx-3 mb-2.5 mt-1 flex items-start gap-2.5 rounded-[10px] px-3 py-2" style={{ background: '#fbf3df', border: '1px solid #efe0b8' }}>
-                <span className="mt-0.5 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: '#b07a1e', color: '#b07a1e' }}><Info size={18} strokeWidth={2.6} /></span>
-                <p className="text-[13.5px] leading-[1.25]"><strong>Análisis trimestral:</strong> {analisisTrim}</p>
+              <div className="mx-3 mb-2 mt-1 flex items-start gap-2 rounded-[10px] px-2.5 py-1.5" style={{ background: '#fbf3df', border: '1px solid #efe0b8' }}>
+                <span className="mt-0.5 flex h-[24px] w-[24px] shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: '#b07a1e', color: '#b07a1e' }}><Info size={15} strokeWidth={2.6} /></span>
+                <p className="text-[11.5px] leading-[1.2]"><strong>Análisis trimestral:</strong> {analisisTrim}</p>
               </div>
             </Panel>
 

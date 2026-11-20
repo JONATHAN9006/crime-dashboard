@@ -476,7 +476,7 @@ function Figura({ mujer }: { mujer: boolean }) {
 
 /** Dona dibujada a mano (SVG): centro, porcentajes y texto siempre alineados,
  *  sin depender de cómo el navegador mida el gráfico. */
-export function DonaSvg({ partes, total, unidad, A, tam = 132 }: { partes: { nombre: string; valor: number; color: string }[]; total: number; unidad: string; A: number; tam?: number }) {
+export function DonaSvg({ partes, total, unidad, A, tam = 132, porcentajes = true }: { partes: { nombre: string; valor: number; color: string }[]; total: number; unidad: string; A: number; tam?: number; porcentajes?: boolean }) {
   const c = tam / 2;
   const rExt = c - 1;
   const rInt = rExt * 0.46;
@@ -503,7 +503,7 @@ export function DonaSvg({ partes, total, unidad, A, tam = 132 }: { partes: { nom
   return (
     <svg width={tam} height={tam} viewBox={`0 0 ${tam} ${tam}`} className="shrink-0" style={{ fontFamily: FUENTE }}>
       {arcos.map((a) => <path key={a.nombre} d={a.d} fill={a.color} fillRule="evenodd" stroke="#fff" strokeWidth={2} />)}
-      {arcos.map((a) => a.frac >= 0.08 && (
+      {porcentajes && arcos.map((a) => a.frac >= 0.08 && (
         <text key={`t-${a.nombre}`} x={a.tx} y={a.ty} textAnchor="middle" dominantBaseline="central" fontSize={10.5} fontWeight={700} fill="#fff">{formatDecimal(a.frac * 100, 1)}%</text>
       ))}
       <text x={c} y={c - 10} textAnchor="middle" dominantBaseline="central" fontSize={18} fontWeight={800} fill={C.texto}>{formatNumero(total)}</text>

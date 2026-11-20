@@ -13,6 +13,7 @@ import { predicadoDeNodo } from '../../hooks/useMicrogerencia';
 import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
 import { LaminaOperatividad } from './LaminaOperatividad';
 import { LaminaDelito } from './LaminaDelito';
+import { LaminaVariablesDelictivas } from './LaminaVariablesDelictivas';
 import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, cargarFuenteLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
 export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad' | 'Delito';
@@ -21,7 +22,10 @@ export interface SeccionTerritorial {
   grupo: GrupoSeccion;
   /** Datos de la fuente de esta sección (Delictividad u Operatividad). */
   datos: DatosMicrogerencia;
-  fuente: FuenteLamina | 'delito';
+  /** «variables» = hoja 2 de Delictividad (matriz de calor y variables). */
+  fuente: FuenteLamina | 'delito' | 'variables';
+  /** Hoja 2: vista de la matriz de calor (por hora o por franja). */
+  vistaMatriz?: 'hora' | 'franja';
   /** Solo en «delito»: el delito analizado en la lámina. */
   delito?: string;
   nodo: NodoMicrogerencia;
@@ -51,18 +55,22 @@ export function seccionDelito(datos: DatosMicrogerencia, nodo: NodoMicrogerencia
 }
 
 /** Secciones del informe (una por unidad, sin repetir), en el orden recibido. */
-export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrogerencia[], fuente: FuenteLamina = 'delictividad'): SeccionTerritorial[] {
+export function seccionesDelInforme(datos: DatosMicrogerencia, nodos: NodoMicrogerencia[], fuente: FuenteLamina = 'delictividad', vistaMatriz: 'hora' | 'franja' = 'hora'): SeccionTerritorial[] {
   const vistos = new Set<NodoMicrogerencia>();
   const salida: SeccionTerritorial[] = [];
   for (const nodo of nodos) {
     if (vistos.has(nodo)) continue;
     vistos.add(nodo);
     const esGeneral = nodo === datos.general;
-    salida.push({
+    const base: SeccionTerritorial = {
       grupo: fuente === 'operatividad' ? 'Operatividad' : grupoDe(nodo, datos), datos, fuente, nodo, esGeneral,
       unidad: etiquetaUnidad(nodo, esGeneral),
       sinInformacion: nodo.fecha2026 === 0 && nodo.fecha2025 === 0 && nodo.total2025 === 0,
-    });
+    };
+    salida.push(base);
+    // Delictividad: SIEMPRE dos hojas por unidad (consolidado + matriz de
+    // calor y variables), misma unidad, periodo y corte.
+    if (fuente === 'delictividad') salida.push({ ...base, fuente: 'variables', vistaMatriz, sinInformacion: nodo.fecha2026 === 0 });
   }
   // Mismo orden en que se eligieron las hojas (General → Distrito →
   // Estación → sus CAI → sus zonas).
@@ -97,6 +105,8 @@ export async function capturarLaminas(
       flushSync(() => {
         raiz.render(s.fuente === 'delito' && s.delito
           ? <LaminaDelito key={`${i}-${s.delito}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} delito={s.delito} />
+          : s.fuente === 'variables'
+          ? <LaminaVariablesDelictivas key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} vista={s.vistaMatriz ?? 'hora'} />
           : s.fuente === 'operatividad'
           ? <LaminaOperatividad key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} />
           : <LaminaMicrogerencia key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} fuente="delictividad" nodo={s.nodo} esGeneral={s.esGeneral} topBarrios={topBarrios} barriosFiltro={barrios} />);
@@ -159,7 +169,7 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
   let grupoActual = '';
   incluidas.forEach(({ s }, i) => {
     if (s.grupo !== grupoActual) { grupoActual = s.grupo; filas.push({ tipo: 'grupo', texto: s.grupo }); }
-    const texto = s.fuente === 'operatividad' ? `Consolidado operativo — ${s.unidad}` : s.grupo === 'Microgerencia general' ? 'Lámina ejecutiva consolidada' : `Microgerencia — ${s.unidad}`;
+    const texto = s.fuente === 'operatividad' ? `Consolidado operativo — ${s.unidad}` : s.fuente === 'variables' ? `Matriz de calor y variables — ${s.unidad}` : s.fuente === 'delito' ? `Delito ${s.delito ?? ''} — ${s.unidad}` : s.grupo === 'Microgerencia general' ? 'Lámina ejecutiva consolidada' : `Microgerencia — ${s.unidad}`;
     filas.push({ tipo: 'item', texto, unidad: s.unidad, detalle: s.grupo, pagina: i });
   });
   if (anexosNodos.length || anexosExtras.length) {
