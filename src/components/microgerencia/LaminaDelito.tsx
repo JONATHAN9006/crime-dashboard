@@ -35,7 +35,7 @@ const AZUL = '#1d64d8';
 const VERDE_B = '#22b33a';
 const colorDif = (n: number) => (n > 0 ? C.rojo : n < 0 ? C.verdeDif : '#8a949b');
 
-function iconoDelito(delito: string): LucideIcon {
+export function iconoDelito(delito: string): LucideIcon {
   const n = delito.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   if (/MOTO/.test(n)) return Bike;
   if (/AUTOMOTOR|VEHICUL/.test(n)) return Car;

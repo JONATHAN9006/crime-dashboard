@@ -82,13 +82,15 @@ function IconoFranja({ i }: { i: number }) {
  * seleccionadas llevan borde; su fila y su columna quedan resaltadas.
  * (La usa también Multifecha, en versión compacta.)
  */
-export function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda, compacta = false }: {
+export function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda, compacta = false, colorTotalDia }: {
   data: HeatmapResumen;
   seleccion: CeldaHeatmap | null;
   seleccionadas?: { dia: number; col: number }[];
   onCelda: (c: CeldaHeatmap, e?: React.MouseEvent) => void;
   /** Más angosta (para ponerla al lado de otro componente). */
   compacta?: boolean;
+  /** Opcional (láminas): color propio de la celda «Total día» de cada día. */
+  colorTotalDia?: (dia: number) => { fondo: string; texto: string } | undefined;
 }) {
   const esHora = data.vista === 'hora';
   const maxFila = maxDe(data.totalesFila);
@@ -147,8 +149,8 @@ export function TablaMatriz({ data, seleccion, seleccionadas = [], onCelda, comp
                 );
               })}
               <td
-                className={`rounded-md text-center font-extrabold tabular-nums ${data.totalesFila[d] === maxFila && maxFila > 0 ? 'bg-rose-100 text-rose-700' : 'bg-sky-50'}`}
-                style={data.totalesFila[d] === maxFila && maxFila > 0 ? undefined : { color: AZUL }}
+                className={`rounded-md text-center font-extrabold tabular-nums ${colorTotalDia?.(d) ? '' : data.totalesFila[d] === maxFila && maxFila > 0 ? 'bg-rose-100 text-rose-700' : 'bg-sky-50'}`}
+                style={colorTotalDia?.(d) ? { background: colorTotalDia(d)!.fondo, color: colorTotalDia(d)!.texto } : data.totalesFila[d] === maxFila && maxFila > 0 ? undefined : { color: AZUL }}
               >
                 {formatNumero(data.totalesFila[d])}
               </td>

@@ -1,5 +1,5 @@
 import { forwardRef, useMemo } from 'react';
-import { CalendarDays, Crosshair, Footprints, Grid3x3, MapPin, Theater, Users, UsersRound, type LucideIcon } from 'lucide-react';
+import { Crosshair, Siren, Footprints, Grid3x3, MapPin, Theater, Users, UsersRound, type LucideIcon } from 'lucide-react';
 import type { CrimeRecord } from '../../types/crime';
 import type { DatosMicrogerencia, NodoMicrogerencia } from '../../data/microgerencia';
 import { predicadoDeNodo } from '../../hooks/useMicrogerencia';
@@ -9,6 +9,8 @@ import { TablaMatriz } from '../../pages/MatrizCalor';
 import { formatNumero } from '../../utils/aggregations';
 import { ALTO, ANCHO, C, EncabezadoLamina, FUENTE, MESES_CORTOS, PieLamina, etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
 import { Caja, DonaSvg, TituloBanda } from './LaminaOperatividad';
+import { iconoDelito } from './LaminaDelito';
+import { FRANJAS_ORDEN } from '../../hooks/useHeatmap';
 
 // ───────────────────────────────────────────────────────────────────────
 // HOJA 2 de la Microgerencia de Delictividad: «Matriz de calor y análisis
@@ -22,7 +24,10 @@ import { Caja, DonaSvg, TituloBanda } from './LaminaOperatividad';
 
 const PALETA = ['#1d64d8', '#22a33a', '#f59e0b', '#a21caf', '#64748b'];
 // Ranking de días: del más alto (rojo) al más bajo (verde).
+// Semáforo de la columna «Total día»: el día con más casos en rojo y el de
+// menos en verde (según su puesto, de mayor a menor).
 const ESCALA_DIAS = ['#e5383b', '#f59a3c', '#f6cf3a', '#8cd13f', '#3cb44b', '#1f9d47', '#15803d'];
+const TEXTO_DIAS = ['#ffffff', '#ffffff', '#10233f', '#10233f', '#ffffff', '#ffffff', '#ffffff'];
 const tituloCase = (t: string) => (t === t.toUpperCase() && t.length > 3 ? t.charAt(0) + t.slice(1).toLowerCase() : t);
 const edadCorta = (n: string) => {
   const m = n.match(/(\d+)\s*a\s*(\d+)/);
@@ -125,8 +130,26 @@ export const LaminaVariablesDelictivas = forwardRef<HTMLDivElement, { datos: Dat
     }, [datos, nodo, esGeneral]);
 
     const matriz = useHeatmap(registros, vista);
-    const dias = matriz.diasLabel.map((nombre, i) => ({ nombre, casos: matriz.totalesFila[i] })).sort((a, b) => b.casos - a.casos);
-    const maxDia = Math.max(1, ...dias.map((d) => d.casos));
+    // Puesto de cada día (0 = más casos); empates comparten color.
+    const puestoDia = useMemo(() => {
+      const orden = [...matriz.totalesFila].sort((a, b) => b - a);
+      return matriz.totalesFila.map((t) => orden.indexOf(t));
+    }, [matriz]);
+    const colorTotalDia = (d: number) => (matriz.totalGeneral > 0 ? { fondo: ESCALA_DIAS[puestoDia[d]], texto: TEXTO_DIAS[puestoDia[d]] } : undefined);
+
+    // Momentos críticos: las 5 celdas día × hora (o franja) con más casos y el
+    // delito que más se repite en cada una.
+    const momentos = useMemo(() => {
+      const celdas = [...matriz.celdas].filter((c) => c.valor > 0).sort((a, b) => b.valor - a.valor || a.diaIndex - b.diaIndex || a.columnaIndex - b.columnaIndex).slice(0, 5);
+      return celdas.map((c) => {
+        const enCelda = registros.filter((r) => r.diaSemanaIndex === c.diaIndex && (vista === 'hora' ? r.hora === c.columnaIndex : r.franjaHoraria === FRANJAS_ORDEN[c.columnaIndex]));
+        const porDelito = new Map<string, number>();
+        for (const r of enCelda) if (esValorValido(r.delito)) porDelito.set(r.delito, (porDelito.get(r.delito) ?? 0) + 1);
+        const top = [...porDelito].sort((a, b) => b[1] - a[1])[0];
+        const momento = vista === 'hora' ? `${String(c.columnaIndex).padStart(2, '0')}:00` : c.columnaLabel;
+        return { clave: `${c.diaIndex}-${c.columnaIndex}`, dia: c.diaLabel, momento, casos: c.valor, delito: top?.[0] ?? '', casosDelito: top?.[1] ?? 0 };
+      });
+    }, [matriz, registros, vista]);
 
     const modalidad = useMemo(() => contar(registros, (r) => r.modalidad), [registros]);
     const causa = useMemo(() => contar(registros, (r) => r.causaLesion), [registros]);
@@ -151,29 +174,32 @@ export const LaminaVariablesDelictivas = forwardRef<HTMLDivElement, { datos: Dat
           <div className="min-h-0 flex-1 px-2 pt-1 [&_button]:!h-[42px] [&_button]:!text-[16px] [&_td]:!text-[16px] [&_th]:!text-[15px] [&_th]:!py-1.5">
             {matriz.totalGeneral === 0
               ? <p className="py-16 text-center text-[16px] text-slate-500">Sin registros con día y hora en el periodo.</p>
-              : <TablaMatriz data={matriz} seleccion={null} onCelda={() => {}} />}
+              : <TablaMatriz data={matriz} seleccion={null} onCelda={() => {}} colorTotalDia={colorTotalDia} />}
           </div>
           <p className="px-4 pb-1.5 text-[12.5px] text-slate-500">Casos del 1 de enero al {diaCorte} de {MESES_CORTOS[mesCorte].toLowerCase()} de {A} · {tituloNodo}{matriz.sinDiaOHora ? ` · ${formatNumero(matriz.sinDiaOHora)} registros sin día u hora no se incluyen` : ''}</p>
         </Caja>
 
-        {/* ── Casos por día de la semana (de mayor a menor) ─────────────── */}
+        {/* ── Momentos críticos (Top 5 celdas de la matriz) ──────────── */}
         <Caja x={1200} y={116} w={460} h={462}>
-          <TituloBanda icono={CalendarDays}>Casos por día de la semana</TituloBanda>
-          <div className="mx-3 mt-2 flex items-center rounded-[6px] px-2 py-1 text-[15px] font-bold" style={{ background: '#eef1f2' }}>
-            <span className="w-[120px]">Día</span><span className="w-[70px] text-right">Casos</span>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col justify-around px-3 py-1">
-            {dias.map((d, i) => (
-              <div key={d.nombre} className="flex items-center text-[19px]">
-                <span className="w-[120px] pl-2 font-semibold">{d.nombre}</span>
-                <span className="w-[70px] text-right font-bold tabular-nums">{formatNumero(d.casos)}</span>
-                <span className="ml-4 h-[24px] flex-1"><span className="block h-full rounded-[3px]" style={{ width: `${Math.max(3, (d.casos / maxDia) * 100)}%`, background: ESCALA_DIAS[i] }} /></span>
-              </div>
-            ))}
-          </div>
-          <div className="mx-3 mb-3 flex items-center rounded-[8px] px-3 py-1.5 text-[21px] font-bold text-white" style={{ background: C.verde }}>
-            <span className="w-[120px]">Total general</span><span className="w-[70px] text-right tabular-nums">{formatNumero(matriz.totalGeneral)}</span>
-          </div>
+          <TituloBanda icono={Siren}>Momentos críticos <span className="text-[16px] font-normal">(Top 5)</span></TituloBanda>
+          {momentos.length === 0 ? <p className="flex flex-1 items-center justify-center px-4 text-center text-[15px] text-slate-500">Sin registros con día y hora en el periodo.</p> : (
+            <div className="flex min-h-0 flex-1 flex-col justify-around gap-1.5 px-3 py-2">
+              {momentos.map((m, i) => {
+                const Icono = iconoDelito(m.delito);
+                return (
+                  <div key={m.clave} className="flex items-center gap-3 rounded-[10px] border px-3 py-1.5" style={{ borderColor: '#f3c9cc', background: i === 0 ? '#fdecee' : '#fff6f6' }}>
+                    <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full text-[18px] font-extrabold text-white" style={{ background: '#e5383b' }}>{i + 1}</span>
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <p className="whitespace-nowrap text-[19px] font-bold">{m.dia} · {m.momento}</p>
+                      {m.delito && <p className="mt-0.5 flex items-center gap-1.5 truncate text-[15.5px] text-slate-700"><Icono size={17} strokeWidth={2.3} className="shrink-0" style={{ color: '#c0262d' }} />{tituloCase(m.delito)} <span className="text-[13.5px] text-slate-500">({formatNumero(m.casosDelito)})</span></p>}
+                    </div>
+                    <span className="shrink-0 whitespace-nowrap text-[19px] font-extrabold tabular-nums" style={{ color: '#c0262d' }}>{formatNumero(m.casos)} <span className="text-[14px] font-semibold">casos</span></span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="px-3 pb-1.5 text-right text-[11.5px] text-slate-500">Celdas de la matriz con más casos · {periodo}</p>
         </Caja>
 
         {/* ── Variables (casos del año actual al corte, de mayor a menor) ── */}
