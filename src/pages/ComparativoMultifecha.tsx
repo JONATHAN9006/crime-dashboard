@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
 import clsx from 'clsx';
 import {
   BarChart3, Building2, CalendarDays, CalendarRange, ChevronDown, Clock, Crosshair, FileText, Flame, Home, Hourglass,
@@ -101,7 +102,8 @@ export function ComparativoMultifecha() {
     delito: tabla((r) => r.delito),
     estacion: tabla((r) => r.estacion),
     cai: tabla((r) => r.cai),
-    zona: tabla((r) => r.cuadrante),
+    // Sin «E-Norte», «E-Sur»…: no son zonas de atención (sin cuadrante).
+    zona: tabla((r) => r.cuadrante).filter((f) => !esZonaSinCuadrante(f.key)),
     barrio: tabla((r) => r.barrioHecho),
     hora: tabla((r) => (r.hora != null ? String(r.hora) : '')),
     turno: tabla((r) => r.turno),

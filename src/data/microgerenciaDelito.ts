@@ -10,6 +10,9 @@
 import type { CrimeRecord } from '../types/crime';
 import type { DatosMicrogerencia, FilaTriple, NodoMicrogerencia } from './microgerencia';
 import { predicadoDeNodo } from '../hooks/useMicrogerencia';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
+// Nombre de zona sin el sufijo de estación que agrega Microgerencia.
+const nombreZona = (n: string) => n.replace(/\s*\(.*\)\s*$/, '');
 
 export type ClaveVariable =
   | 'modalidad' | 'armas' | 'causaLesion' | 'claseSitio' | 'conductas' | 'spoa' | 'unidadApoya'
@@ -142,6 +145,7 @@ export function analizarDelito(datos: DatosMicrogerencia, nodo: NodoMicrogerenci
 
   // Zonas de atención de la unidad (intersección con la cobertura).
   const zonas = (datos.zonas ?? [])
+    .filter((z) => !esZonaSinCuadrante(nombreZona(z.nombre)))
     .map((z) => ({ nombre: z.nombre, ...triple(predicadoDeNodo(z)) }))
     .filter((z) => z.t + z.a + z.b > 0)
     .sort((x, y) => y.b - x.b || y.a - x.a);

@@ -1,4 +1,5 @@
 import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
 import { useTemporada } from '../config/temporadas';
 import { contarOperatividad } from '../utils/operatividadConteo';
 import { useMemo, useState } from 'react';
@@ -515,7 +516,7 @@ export function AnalisisUnidad() {
                 <RankingAporte data={conAnios(porDelitoVigenciaActual, (r) => r.delito)} anios={aniosTabla} cabeza="Delito" onClick={(key) => drillDown('delito', key)} seleccionados={filters.delito as string[]} />
               </Card>
               <Card className="h-full" title={`Top ${topCuadrante} Zonas de Atención más afectadas`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
-                <RankingAporte data={conAnios(ranking(cmpCuadrante, topCuadrante), (r) => r.cuadrante)} anios={aniosTabla} cabeza="Zonas de Atención" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
+                <RankingAporte data={conAnios(ranking(cmpCuadrante.filter((f) => !esZonaSinCuadrante(f.key)), topCuadrante), (r) => r.cuadrante)} anios={aniosTabla} cabeza="Zonas de Atención" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
               </Card>
               <Card className="h-full" title="Horas más afectadas" subtitle={`${topHorasRanking ? `Top ${topHorasRanking}` : 'Las 24 horas'}, ${etiquetaVigencia}`} descargable="horas-mas-afectadas" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTop valor={topHorasRanking} onChange={setTopHorasRanking} opciones={OPCIONES_TOP} />}>
                 <RankingAporte
