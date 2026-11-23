@@ -1,4 +1,5 @@
 import { TrendingUp, TrendingDown, BarChart3, ArrowDown, ArrowUp, MapPin, Home, Clock, CalendarDays, Landmark, Settings, Crosshair, Building2, Plus, Database, Info } from 'lucide-react';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useData } from '../context/DataContext';
@@ -183,12 +184,13 @@ export function ResumenEjecutivo() {
   // "Pendiente por asignar", y su % sobre el total de ese periodo — así el
   // indicador "Barrio con mayor incidencia" y el primer renglón de
   // "Barrios críticos" son siempre la misma cifra.
-  const rankingTerritorial = (campo: (r: CrimeRecord) => string) => {
+  const rankingTerritorial = (campo: (r: CrimeRecord) => string, excluir?: (k: string) => boolean) => {
     const total = soloVigenciaActual.reduce((a, r) => a + (r.cantidad || 1), 0);
-    return sinValoresPendientes(agruparPor(soloVigenciaActual, campo)).slice(0, 5)
+    return sinValoresPendientes(agruparPor(soloVigenciaActual, campo)).filter((f) => !excluir?.(f.key)).slice(0, 5)
       .map((f) => ({ key: f.key, casos: f.casos, participacion: total > 0 ? (f.casos / total) * 100 : 0 }));
   };
-  const cuadrantes = useMemo(() => rankingTerritorial((r) => r.cuadrante), [soloVigenciaActual]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Sin «E-Norte», «E-Sur»…: código de estación sin cuadrante.
+  const cuadrantes = useMemo(() => rankingTerritorial((r) => r.cuadrante, esZonaSinCuadrante), [soloVigenciaActual]); // eslint-disable-line react-hooks/exhaustive-deps
   const barrios = useMemo(() => rankingTerritorial((r) => r.barrioHecho), [soloVigenciaActual]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Top 5 delitos de la vigencia actual, para la gráfica de pastel — misma

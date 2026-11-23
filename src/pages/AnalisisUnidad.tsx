@@ -199,7 +199,7 @@ export function AnalisisUnidad() {
   }, [porHora, topHorasUnidad]);
 
   const cmpEstacion = useComparativoCategoria(ventana, (r) => r.estacion, 10);
-  const cmpCuadrante = useComparativoCategoria(ventanaVista, (r) => r.cuadrante, 10);
+  const cmpCuadrante = useComparativoCategoria(ventanaVista, (r) => r.cuadrante, 15);
   const cmpBarrio = useComparativoCategoria(ventanaVista, (r) => r.barrioHecho, 10);
   const cmpArma = useComparativoCategoria(ventanaVista, (r) => r.armas, 10);
   const cmpModalidad = useComparativoCategoria(ventanaVista, (r) => r.modalidad, 10);

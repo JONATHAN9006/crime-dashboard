@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
 import type { CrimeRecord } from '../types/crime';
 import { agruparPor, participacionPct, totalCasos, semanaIso } from '../utils/aggregations';
 import { sinValoresPendientes } from '../utils/valoresPendientes';
@@ -130,7 +131,7 @@ export function useUltimasSemanas(records: CrimeRecord[]): UltimasSemanasResumen
       estacionTop: porEstacion[0] ? { key: porEstacion[0].key, casos: porEstacion[0].casos } : null,
       armasTop: porArma.slice(0, 5).map((a) => ({ key: a.key, casos: a.casos })),
       horaTop: porHora[0] ? { key: porHora[0].key, casos: porHora[0].casos } : null,
-      cuadrantesTop: porCuadrante.slice(0, 5).map((c) => ({ key: c.key, casos: c.casos })),
+      cuadrantesTop: porCuadrante.filter((c) => !esZonaSinCuadrante(c.key)).slice(0, 5).map((c) => ({ key: c.key, casos: c.casos })),
       causaLesionTop: porCausaLesion.slice(0, 5).map((c) => ({ key: c.key, casos: c.casos })),
       claseSitioTop: porClaseSitio.slice(0, 5).map((c) => ({ key: c.key, casos: c.casos })),
       barriosTop: porBarrio.slice(0, 5).map((b) => ({ key: b.key, casos: b.casos, participacion: participacionPct(b.casos, totalVentanaParaPct) })),

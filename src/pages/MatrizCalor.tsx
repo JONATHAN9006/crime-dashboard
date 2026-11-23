@@ -1,4 +1,5 @@
 import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
 import { useTemporada } from '../config/temporadas';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -453,7 +454,8 @@ function FocosComportamiento({ records, filters, onFiltrar }: {
 }) {
   const total = records.length;
   const estacion = topDe(records, (r) => r.estacion, 1)[0];
-  const zona = topDe(records, (r) => r.cuadrante, 1)[0];
+  // Sin «E-Norte», «E-Sur»… (código de estación sin cuadrante): no son zonas.
+  const zona = topDe(records, (r) => (esZonaSinCuadrante(r.cuadrante) ? '' : r.cuadrante), 1)[0];
   const delitos = topDe(records, (r) => r.delito, 3);
   const marcado = (campo: 'estacion' | 'cuadrante' | 'delito', v: string) => (filters[campo] as string[]).includes(v);
   const bloque = (campo: 'estacion' | 'cuadrante', titulo: string, item: { key: string; casos: number } | undefined, icono: ReactNode) => (
