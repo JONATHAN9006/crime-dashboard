@@ -1,4 +1,5 @@
 import { BannerTemporada, TelaranaEsquina } from '../components/temporada/DecoracionTemporada';
+import { esZonaSinCuadrante } from '../utils/zonasAtencion';
 import { useTemporada } from '../config/temporadas';
 import { useMemo, useState } from 'react';
 import { maxDe } from '../utils/mathSeguro';
@@ -149,7 +150,8 @@ export function OperatividadUnidad() {
   const porCategoria = contarOperatividad(registros, (r) => r.categoria || 'Sin categoría');
   const conAportePorCategoria = conAporte(porCategoria);
 
-  const porCuadranteCompleto = contarOperatividad(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
+  // Sin «E-Norte», «E-Sur»…: código de estación sin cuadrante (no es zona).
+  const porCuadranteCompleto = contarOperatividad(registros, (r) => r.cuadrante || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO' && !esZonaSinCuadrante(d.key));
   const porCuadrante = conAporte(recortar(porCuadranteCompleto, topZona));
 
   const porBarrioCompleto = contarOperatividad(registros, (r) => r.barrioHecho || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO');
