@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { sincronizarCapasDesdeServidor } from './data/geoSync';
 import { DataProvider, useData } from './context/DataContext';
 import { Sidebar, type PaginaId } from './components/layout/Sidebar';
@@ -28,6 +28,12 @@ import { PaginaNoDisponible } from './cuentas/PaginaNoDisponible';
 import { AvisoTendencia } from './components/filters/AvisoTendencia';
 import { PuertaAdmin } from './admin/PuertaAdmin';
 import { tieneAcceso } from './utils/permisos';
+// Centro de Inteligencia: solo administrador; su código se descarga aparte
+// (las cuentas interno y piloto nunca lo cargan).
+const CentroInteligencia = lazy(() => import('./inteligencia/CentroInteligencia').then((m) => ({ default: m.CentroInteligencia })));
+function PaginaCentroInteligencia() {
+  return <Suspense fallback={<div className="p-6 text-sm text-slate-500">Cargando Centro de Inteligencia…</div>}><CentroInteligencia /></Suspense>;
+}
 
 // Protección de RUTA, no solo de menú: aunque algo intente abrir una página
 // no autorizada para el modo actual (/piloto, /cai, /jefe…), se muestra
@@ -53,6 +59,7 @@ const PAGINAS: Record<PaginaId, React.ComponentType> = {
   productos: ProductosEsperados,
   accesosCai: AccesosCuentas,
   planCandado: PlanCandado2026,
+  centroInteligencia: PaginaCentroInteligencia,
 };
 
 // El mapa, "Indicadores Tasa Cosec" y "Productos Esperados" pueden abrirse

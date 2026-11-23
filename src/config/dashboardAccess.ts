@@ -38,6 +38,8 @@ export interface AccesoHerramientas {
   planCandado: boolean;
   // La «X» que elimina capas del mapa (Capas cargadas) — solo el administrador (enlace raíz).
   eliminarCapas: boolean;
+  // «Centro de Inteligencia y Microgerencia» — EXCLUSIVO del administrador.
+  centroInteligencia: boolean;
 }
 
 export const DASHBOARD_ACCESS: Record<'interno' | 'piloto', AccesoHerramientas> = {
@@ -68,6 +70,7 @@ export const DASHBOARD_ACCESS: Record<'interno' | 'piloto', AccesoHerramientas> 
     planCandado: false,
     // Sin la «X» de las capas (para no borrar capas compartidas por error).
     eliminarCapas: false,
+    centroInteligencia: false,
   },
   // Cuenta PILOTO (/piloto). SOLO estos
   // seis módulos; todo lo demás desaparece del menú y su página no abre
@@ -97,6 +100,7 @@ export const DASHBOARD_ACCESS: Record<'interno' | 'piloto', AccesoHerramientas> 
     accesosCai: false,
     planCandado: false,
     eliminarCapas: false,
+    centroInteligencia: false,
   },
 };
 

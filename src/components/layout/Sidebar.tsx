@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Home, Building2, CalendarDays, Flame, Map, X, Table2, Database, ChevronsLeft, ChevronsRight,
-  Eye, Target, Scale, Shield, Network, UserCheck, LogOut, Lock,
+  Eye, Target, Scale, Shield, Network, UserCheck, LogOut, Lock, Radar,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { esModoConsulta } from '../../utils/modoConsulta';
@@ -17,7 +17,7 @@ import { useContadorCuentas } from '../../pages/AccesosCuentas';
 export type PaginaId =
   | 'resumen' | 'unidad' | 'operatividadUnidad' | 'rnmc' | 'irisp1' | 'macri' | 'ultimasSemanas'
   | 'matrizCalor' | 'mapa' | 'tasaCosec'
-  | 'comparativo' | 'tabla' | 'calidad' | 'productos' | 'accesosCai' | 'planCandado';
+  | 'comparativo' | 'tabla' | 'calidad' | 'productos' | 'accesosCai' | 'planCandado' | 'centroInteligencia';
 
 // Ítems bloqueados temporalmente para presentarle al jefe por partes — se ven
 // atenuados, no se puede entrar, y al pasar el mouse se explica por qué. Para
@@ -61,6 +61,15 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloA
     items: [
       { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
       { id: 'calidad', label: 'Calidad de Datos', icon: Database },
+    ],
+  },
+  {
+    // Solo el administrador (ruta raíz): análisis estratégico y priorización.
+    titulo: 'Inteligencia',
+    soloCompleto: true,
+    soloAdmin: true,
+    items: [
+      { id: 'centroInteligencia', label: 'Centro de Inteligencia', icon: Radar },
     ],
   },
   {
@@ -327,7 +336,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.11.23 · v273" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.11.23 · v274" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -343,7 +352,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.11.23 · v273</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.11.23 · v274</p>
             </div>
           )}
         </div>
