@@ -61,6 +61,12 @@ export interface DatosMicrogerencia {
   /** Corte real de la información (último día con datos del año actual). */
   fechaCorte?: string;
   delitoFiltrado: string | null;
+  /** Periodo en palabras según los filtros (ej. «Jun – Jul y Dic 2026»). */
+  periodoEtiqueta?: string;
+  /** El mismo periodo del año comparado (ej. «Jun – Jul y Dic 2025»). */
+  comparacionEtiqueta?: string;
+  /** Meses filtrados (1–12); vacío = todos. Los demás meses se muestran «–». */
+  mesesSeleccionados?: number[];
   general: NodoMicrogerencia;
   distrito1: NodoMicrogerencia;
   distrito2: NodoMicrogerencia;
@@ -88,6 +94,8 @@ export interface AjustesMicrogerencia {
   fechaFinal: string | null;
   /** Barrios (vacío = todos, como siempre). */
   barrios: string[];
+  /** Meses (1–12) del filtro; vacío = sin filtro de mes. Se cuentan SOLO esos meses. */
+  meses?: string[];
 }
 
 /** Nombre para mostrar de una unidad (la estación de Sotará tiene sede en Paispamba). */

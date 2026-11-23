@@ -1,4 +1,5 @@
 import { agruparCircunstancia, contarOperatividad, cuentaComoOperatividad, gramosDroga, sumarDroga, tipoOperatividad } from '../utils/operatividadConteo';
+import { etiquetaPeriodo, mesesElegidos } from '../data/periodoMicrogerencia';
 import { GRUPOS_CICLO_VIDA } from '../utils/cicloVida';
 import { useMemo } from 'react';
 import { useData } from '../context/DataContext';
@@ -64,7 +65,7 @@ function construirVentana(registros: OperatividadRecord[], periodo?: { inicio: s
  * la lámina de Delictividad. Sin ajustes, se usa todo como siempre (filtros
  * generales del dashboard y su propia fecha de corte).
  */
-export interface AjustesOperatividad { delitos: string[]; periodo: { inicio: string; fin: string } | null }
+export interface AjustesOperatividad { delitos: string[]; periodo: { inicio: string; fin: string } | null; meses?: string[]; fechasPersonalizadas?: boolean }
 
 export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | null): DatosMicrogerencia | null {
   const { filteredOperatividadRecords: filtradosDashboard, operatividadRecords, filters, records } = useData();
@@ -103,7 +104,13 @@ export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | nul
     const contables = filteredOperatividadRecords.filter(cuentaComoOperatividad);
     const ventana = construirVentana(contables, ajustes?.periodo);
     if (!ventana) return null;
-    const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
+    const { diasTranscurridos, anioActual, anioAnterior } = ventana;
+    // Mismos meses que la Microgerencia de Delictividad (solo esos meses).
+    const mesesSel = mesesElegidos(ajustes?.meses);
+    const enMeses = (r: OperatividadRecord) => mesesSel.length === 0 || (r.mes != null && mesesSel.includes(r.mes));
+    const recsActual = ventana.recsActual.filter(enMeses);
+    const recsAnterior = ventana.recsAnterior.filter(enMeses);
+    const recsAnioAnteriorCompleto = ventana.recsAnioAnteriorCompleto.filter(enMeses);
     // Todos los registros (incluida la droga, que va por cantidad) en cada
     // periodo: «Total año anterior» (1 ene – 31 dic) y los dos periodos
     // comparables al MISMO corte. Un registro sin fecha pero con año y mes
@@ -114,9 +121,9 @@ export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | nul
       const ini = new Date(r.anio, r.mes - 1, 1), fin = new Date(r.anio, r.mes, 0, 23, 59, 59);
       return ini >= new Date(a.getFullYear(), a.getMonth(), 1) && fin <= new Date(b.getFullYear(), b.getMonth() + 1, 0, 23, 59, 59) && r.anio === b.getFullYear();
     };
-    const todosActual = filteredOperatividadRecords.filter((r) => enRango(r, ventana.actualInicio, ventana.actualFin));
-    const todosAnterior = filteredOperatividadRecords.filter((r) => enRango(r, ventana.anteriorInicio, ventana.anteriorFin));
-    const todosAnioAnterior = filteredOperatividadRecords.filter((r) => r.anio === anioAnterior);
+    const todosActual = filteredOperatividadRecords.filter((r) => enRango(r, ventana.actualInicio, ventana.actualFin) && enMeses(r));
+    const todosAnterior = filteredOperatividadRecords.filter((r) => enRango(r, ventana.anteriorInicio, ventana.anteriorFin) && enMeses(r));
+    const todosAnioAnterior = filteredOperatividadRecords.filter((r) => r.anio === anioAnterior && enMeses(r));
     const valido = (k: string) => !!k && !/^no reportad/i.test(k) && !/^sin (clase|categor)/i.test(k);
 
     /** Agrupa por clave en los tres periodos (casos que cuentan, o gramos de droga). */
@@ -261,7 +268,10 @@ export function useMicrogerenciaOperatividad(ajustes?: AjustesOperatividad | nul
       actualFin: ventana.actualFin.toISOString().slice(0, 10),
       anioActual, anioAnterior,
       delitoFiltrado: null, fechaCorte,
+      mesesSeleccionados: mesesSel,
+      periodoEtiqueta: etiquetaPeriodo(ventana.actualInicio, ventana.actualFin, mesesSel, !!ajustes?.fechasPersonalizadas),
+      comparacionEtiqueta: etiquetaPeriodo(ventana.anteriorInicio, ventana.anteriorFin, mesesSel, !!ajustes?.fechasPersonalizadas),
       general, distrito1, distrito2, delitos: general.delitos, zonas,
     };
-  }, [filteredOperatividadRecords, ajustes?.periodo?.inicio, ajustes?.periodo?.fin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredOperatividadRecords, ajustes?.periodo?.inicio, ajustes?.periodo?.fin, (ajustes?.meses ?? []).join(','), ajustes?.fechasPersonalizadas]); // eslint-disable-line react-hooks/exhaustive-deps
 }

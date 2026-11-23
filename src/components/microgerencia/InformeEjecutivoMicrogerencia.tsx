@@ -438,7 +438,13 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   const { anioActual: A, anioAnterior: P } = datos;
   const corte = datos.fechaCorte ?? datos.actualFin;
   const mesCorte = Number(corte.split('-')[1]) - 1;
-  const rangoMeses = `Ene – ${MESES_CORTOS[mesCorte]}`;
+  // Periodo «inteligente» según los filtros (meses, fechas o año a la fecha).
+  const periodoA = datos.periodoEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${A}`;
+  const periodoP = datos.comparacionEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${P}`;
+  const rangoMeses = periodoA.replace(/\s\d{4}$/, '');
+  const mesesSel = datos.mesesSeleccionados ?? [];
+  const mesElegido = (i: number) => mesesSel.length === 0 || mesesSel.includes(i + 1);
+  const sinProyeccion = mesesSel.length > 0 || /^\d/.test(periodoA);
   const tituloNodo = etiquetaUnidad(nodo, esGeneral);
   const tituloCorto = esGeneral ? 'MEPOY General' : nombreCorto(nodo.nombre);
 
@@ -451,11 +457,17 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   const trimCorte = Math.floor(mesCorte / 3);
   const trimParcial = mesParcial || mesCorte % 3 !== 2;
   const datosTrim = nodo.trimestres.map((t, i) => {
-    const futuro = i > trimCorte;
+    // Con filtro de meses: un trimestre sin meses elegidos no se compara
+    // (queda en blanco) y uno cuyos meses elegidos aún no llegan, tampoco.
+    const mesesTrim = [i * 3, i * 3 + 1, i * 3 + 2].filter(mesElegido);
+    const fuera = mesesTrim.length === 0;
+    const futuro = i > trimCorte || fuera || mesesTrim.every((m) => m > mesCorte);
     const pct = !futuro && t.anio2025 > 0 ? (t.dif / t.anio2025) * 100 : null;
-    return { i, nombre: TRIM_CORTOS[i], sub: i === trimCorte && trimParcial ? `(Ene – ${MESES_CORTOS[mesCorte]})`.replace('Ene', MESES_CORTOS[i * 3]) : '', [P]: t.anio2025, [A]: futuro ? null : t.anio2026, dif: futuro ? null : t.dif, pct, parcial: i === trimCorte && trimParcial, futuro };
+    const parcial = !futuro && i === trimCorte && trimParcial;
+    return { i, nombre: TRIM_CORTOS[i], sub: parcial ? `(${MESES_CORTOS[i * 3]} – ${MESES_CORTOS[mesCorte]})` : '', [P]: fuera ? null : t.anio2025, [A]: futuro ? null : t.anio2026, dif: futuro ? null : t.dif, pct, parcial, futuro };
   });
-  const datosMes = nodo.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.anio2025, [A]: i > mesCorte ? null : m.anio2026, dif: i > mesCorte ? null : m.dif, parcial: i === mesCorte && mesParcial }));
+  // Meses fuera del filtro: «—» (no son cero, simplemente no se analizan).
+  const datosMes = nodo.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: mesElegido(i) ? m.anio2025 : null, [A]: i > mesCorte || !mesElegido(i) ? null : m.anio2026, dif: i > mesCorte || !mesElegido(i) ? null : m.dif, parcial: i === mesCorte && mesParcial }));
   const historico = (nodo.historico ?? []).map((h) => ({ anio: String(h.anio), casos: h.casos, parcial: h.parcial, actual: h.anio === A }));
 
   const barrios = [...(nodo.barrios ?? [])].sort((x, y) => y.casos - x.casos).slice(0, topBarrios);
@@ -475,7 +487,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   return (
           <div ref={refLienzo} data-informe-microgerencia className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
 
-            <EncabezadoLamina titulo={T.consolidado} periodo={`${rangoMeses} ${A}`} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
+            <EncabezadoLamina titulo={T.consolidado} periodo={periodoA} comparacion={periodoP} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
 
             {/* ── FILA 1 · KPI ───────────────────────────────────────── */}
             <div className="absolute flex items-center gap-4 overflow-hidden text-white" style={{ left: 20, top: 122, width: 362, height: 100, background: `linear-gradient(90deg, ${C.verde}, ${C.verdeMedio})`, clipPath: 'polygon(0 0,100% 0,calc(100% - 26px) 100%,0 100%)', borderRadius: '14px 0 0 14px' }}>
@@ -488,8 +500,19 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
             <Kpi x={738} w={167} icono={CalendarDays} etiqueta={`${A}`} sub={`(${rangoMeses})`} valor={<span className="text-[34px]">{formatNumero(nodo.fecha2026)}</span>} tono="verde" />
             <Kpi x={915} w={167} icono={BarChart3} etiqueta="Diferencia" sub={`(${A} – ${P})`} valor={<span className="text-[34px]">{signo(nodo.dif)}{formatNumero(nodo.dif)}</span>} tono={nodo.dif > 0 ? 'rosa' : 'blanco'} />
             <Kpi x={1092} w={158} icono={Percent} etiqueta="Variación" valor={<span className="text-[40px]">{pct0(nodo.pct)}</span>} tono={nodo.dif > 0 ? 'rosa' : 'blanco'} />
-            <Kpi x={1260} w={195} icono={Target} etiqueta={`Proyectado ${A}`} sub="(Ene – Dic)" valor={<span className="text-[34px]">{formatNumero(Math.round(nodo.terminaAnio))}</span>} />
-            <Kpi x={1465} w={187} icono={BarChart3} etiqueta={`Proy. vs ${P}`} valor={<span className="block text-[32px] leading-[1.05]">{signo(proyDif)}{formatNumero(proyDif)}<span className="block text-[27px]">({pct1(proyPct)})</span></span>} tono={proyDif > 0 ? 'rosa' : 'blanco'} />
+            {/* La proyección anual solo tiene sentido con el año a la fecha; con
+                meses sueltos o fechas personalizadas no se proyecta. */}
+            {sinProyeccion ? (
+              <>
+                <Kpi x={1260} w={195} icono={Target} etiqueta={`Proyectado ${A}`} sub="(no aplica)" valor={<span className="text-[30px] text-slate-400">N/A</span>} />
+                <Kpi x={1465} w={187} icono={BarChart3} etiqueta={`Proy. vs ${P}`} sub="(periodo filtrado)" valor={<span className="text-[30px] text-slate-400">N/A</span>} tono="blanco" />
+              </>
+            ) : (
+              <>
+                <Kpi x={1260} w={195} icono={Target} etiqueta={`Proyectado ${A}`} sub="(Ene – Dic)" valor={<span className="text-[34px]">{formatNumero(Math.round(nodo.terminaAnio))}</span>} />
+                <Kpi x={1465} w={187} icono={BarChart3} etiqueta={`Proy. vs ${P}`} valor={<span className="block text-[32px] leading-[1.05]">{signo(proyDif)}{formatNumero(proyDif)}<span className="block text-[27px]">({pct1(proyPct)})</span></span>} tono={proyDif > 0 ? 'rosa' : 'blanco'} />
+              </>
+            )}
 
             {/* ── FILA 2 ─────────────────────────────────────────────── */}
             <Panel x={14} y={232} w={573} h={270}>
@@ -512,7 +535,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
                         return (
                           <g transform={`translate(${x},${y})`}>
                             <text dy={14} textAnchor="middle" style={{ fontSize: 15, fontWeight: 700, fill: C.texto, fontFamily: FUENTE }}>{payload?.value}</text>
-                            {h?.parcial && <text dy={28} textAnchor="middle" style={{ fontSize: 11.5, fill: C.texto, fontFamily: FUENTE }}>(Ene–{MESES_CORTOS[mesCorte]})</text>}
+                            {h?.parcial && <text dy={28} textAnchor="middle" style={{ fontSize: 11.5, fill: C.texto, fontFamily: FUENTE }}>({rangoMeses.replace(/ – /g, '–')})</text>}
                           </g>
                         );
                       }} />
@@ -553,7 +576,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
               <table className="mx-3 border-collapse text-center text-[15px] leading-[20px]" style={{ width: 'calc(100% - 24px)' }}>
                 <thead><tr><th className="w-[52px]" />{datosMes.map((m) => <th key={m.nombre} className="pb-0.5 font-bold">{m.nombre}{m.parcial ? '*' : ''}</th>)}</tr></thead>
                 <tbody>
-                  <tr style={{ background: '#e7effc' }}><th className="rounded-l-md py-0.5 font-bold" style={{ color: C.azul }}>{P}</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5">{formatNumero(Number(m[P]))}</td>)}</tr>
+                  <tr style={{ background: '#e7effc' }}><th className="rounded-l-md py-0.5 font-bold" style={{ color: C.azul }}>{P}</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5" style={{ color: m[P] == null ? '#a3acb2' : undefined }}>{m[P] == null ? '—' : formatNumero(Number(m[P]))}</td>)}</tr>
                   <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md py-0.5 font-bold" style={{ color: C.verdeDif }}>{A}</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5" style={{ color: m[A] == null ? '#a3acb2' : undefined }}>{m[A] == null ? '—' : formatNumero(Number(m[A]))}</td>)}</tr>
                   <tr><th className="py-0.5 font-bold">Dif.</th>{datosMes.map((m) => <td key={m.nombre} className="py-0.5 font-bold" style={{ color: m.dif == null ? '#a3acb2' : colDif(m.dif) }}>{m.dif == null ? '—' : `${signo(m.dif)}${formatNumero(m.dif)}`}</td>)}</tr>
                 </tbody>

@@ -117,9 +117,9 @@ export const LaminaVariablesDelictivas = forwardRef<HTMLDivElement, { datos: Dat
     const corte = datos.fechaCorte ?? datos.actualFin;
     const mesCorte = Number(corte.split('-')[1]) - 1;
     const diaCorte = Number(corte.split('-')[2]);
-    const rangoMeses = `Ene – ${MESES_CORTOS[mesCorte]}`;
+    const periodoA = datos.periodoEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${A}`;
     const tituloNodo = etiquetaUnidad(nodo, esGeneral);
-    const periodo = `Casos 1 ene – ${diaCorte} ${MESES_CORTOS[mesCorte].toLowerCase()} ${A}`;
+    const periodo = datos.mesesSeleccionados?.length || datos.periodoEtiqueta?.match(/^\d/) ? `Casos ${periodoA} (corte ${diaCorte} ${MESES_CORTOS[mesCorte].toLowerCase()})` : `Casos 1 ene – ${diaCorte} ${MESES_CORTOS[mesCorte].toLowerCase()} ${A}`;
 
     // Registros del año actual al corte de la unidad (los mismos de la hoja 1).
     const registros = useMemo(() => {
@@ -160,7 +160,7 @@ export const LaminaVariablesDelictivas = forwardRef<HTMLDivElement, { datos: Dat
 
     return (
       <div ref={ref} data-informe-microgerencia data-lamina-variables className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
-        <EncabezadoLamina titulo="CONSOLIDADO DELICTIVO" periodo={`${rangoMeses} ${A}`} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
+        <EncabezadoLamina titulo="CONSOLIDADO DELICTIVO" periodo={periodoA} comparacion={datos.comparacionEtiqueta} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
 
         {/* ── Matriz de calor por día y hora ─────────────────────────── */}
         <Caja x={12} y={116} w={1180} h={462}>
@@ -176,7 +176,7 @@ export const LaminaVariablesDelictivas = forwardRef<HTMLDivElement, { datos: Dat
               ? <p className="py-16 text-center text-[16px] text-slate-500">Sin registros con día y hora en el periodo.</p>
               : <TablaMatriz data={matriz} seleccion={null} onCelda={() => {}} colorTotalDia={colorTotalDia} />}
           </div>
-          <p className="px-4 pb-1.5 text-[12.5px] text-slate-500">Casos del 1 de enero al {diaCorte} de {MESES_CORTOS[mesCorte].toLowerCase()} de {A} · {tituloNodo}{matriz.sinDiaOHora ? ` · ${formatNumero(matriz.sinDiaOHora)} registros sin día u hora no se incluyen` : ''}</p>
+          <p className="px-4 pb-1.5 text-[12.5px] text-slate-500">{periodo} · {tituloNodo}{matriz.sinDiaOHora ? ` · ${formatNumero(matriz.sinDiaOHora)} registros sin día u hora no se incluyen` : ''}</p>
         </Caja>
 
         {/* ── Momentos críticos (Top 5 celdas de la matriz) ──────────── */}

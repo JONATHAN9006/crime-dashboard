@@ -136,7 +136,10 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
     const { anioActual: A, anioAnterior: P } = datos;
     const corte = datos.fechaCorte ?? datos.actualFin;
     const mesCorte = Number(corte.split('-')[1]) - 1;
-    const rango = `Ene – ${MESES_CORTOS[mesCorte]}`;
+    const periodoA = datos.periodoEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${A}`;
+    const periodoP = datos.comparacionEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${P}`;
+    const rango = periodoA.replace(/\s\d{4}$/, '');
+    const mesElegido = (i: number) => !datos.mesesSeleccionados?.length || datos.mesesSeleccionados.includes(i + 1);
     const tituloNodo = etiquetaUnidad(nodo, esGeneral);
     const op = nodo.operativo;
 
@@ -179,7 +182,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
     // Mensual (hasta el mes del corte), circunstancia, top 5 y subunidades del gráfico.
     const diaCorte = Number(corte.split('-')[2]);
     const mesParcial = diaCorte < new Date(A, mesCorte + 1, 0).getDate();
-    const datosMes = nodo.meses.slice(0, mesCorte + 1).map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.anio2025, [A]: m.anio2026 }));
+    const datosMes = nodo.meses.slice(0, mesCorte + 1).map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: mesElegido(i) ? m.anio2025 : null, [A]: mesElegido(i) ? m.anio2026 : null }));
     const totalCirc = sumar(circ);
     // Trimestres: {P} = año anterior completo; {A} = año actual al corte.
     const trimCorte = Math.floor(mesCorte / 3);
@@ -210,7 +213,7 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
 
     return (
       <div ref={ref} data-informe-microgerencia data-lamina-operatividad className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
-        <EncabezadoLamina titulo="OPERATIVIDAD INSTITUCIONAL – MEPOY" periodo={`${rango} ${A}`} comparacion={`${rango} ${P}`} corte={corte} cobertura={esGeneral ? 'MEPOY' : tituloNodo} fuente="Aplicativo Operatividad" />
+        <EncabezadoLamina titulo="OPERATIVIDAD INSTITUCIONAL – MEPOY" periodo={periodoA} comparacion={periodoP} corte={corte} cobertura={esGeneral ? 'MEPOY' : tituloNodo} fuente="Aplicativo Operatividad" />
 
         {/* ── KPI ─────────────────────────────────────────────────── */}
         <div className="absolute flex items-center gap-3 overflow-hidden text-white" style={{ left: 12, top: 116, width: 252, height: 126, background: `linear-gradient(90deg, ${C.verdeOscuro}, ${C.verdeMedio})`, clipPath: 'polygon(0 0,100% 0,calc(100% - 24px) 100%,0 100%)', borderRadius: '14px 0 0 14px' }}>
@@ -245,8 +248,8 @@ export const LaminaOperatividad = forwardRef<HTMLDivElement, { datos: DatosMicro
           <table className="mx-2.5 border-collapse text-center text-[13px] leading-[20px]" style={{ width: 'calc(100% - 20px)' }}>
             <thead><tr><th className="w-[42px]" />{datosMes.map((m, i) => <th key={m.nombre} className="font-bold">{m.nombre}{i === mesCorte && mesParcial ? '*' : ''}</th>)}</tr></thead>
             <tbody>
-              <tr style={{ background: '#e7effc' }}><th className="rounded-l-md text-white" style={{ background: AZUL }}>{P}</th>{datosMes.map((m) => <td key={m.nombre}>{formatNumero(Number(m[P]))}</td>)}</tr>
-              <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md text-white" style={{ background: '#16a34a' }}>{A}</th>{datosMes.map((m) => <td key={m.nombre} className="font-bold">{formatNumero(Number(m[A]))}</td>)}</tr>
+              <tr style={{ background: '#e7effc' }}><th className="rounded-l-md text-white" style={{ background: AZUL }}>{P}</th>{datosMes.map((m) => <td key={m.nombre}>{m[P] == null ? '–' : formatNumero(Number(m[P]))}</td>)}</tr>
+              <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md text-white" style={{ background: '#16a34a' }}>{A}</th>{datosMes.map((m) => <td key={m.nombre} className="font-bold">{m[A] == null ? '–' : formatNumero(Number(m[A]))}</td>)}</tr>
             </tbody>
           </table>
         </Caja>

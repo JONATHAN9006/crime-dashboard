@@ -5,6 +5,7 @@ import type { CrimeRecord } from '../types/crime';
 import { formatFecha } from '../utils/aggregations';
 import type { AjustesMicrogerencia, DatosMicrogerencia, NodoMicrogerencia, PuntoMes, PuntoTrimestre } from '../data/microgerencia';
 import { aplicarFiltros } from '../utils/filters';
+import { etiquetaPeriodo, mesesElegidos } from '../data/periodoMicrogerencia';
 import type { FilterState } from '../types/crime';
 
 export const ESTACIONES_DISTRITO_1 = ['E-Norte', 'E-Sur'] as const;
@@ -54,7 +55,7 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
       delito: ajustes.delitos,
       barrioHecho: ajustes.barrios,
       municipio: [], estacion: [], cai: [], cuadrante: [],
-      anio: ajustes.anio ? [ajustes.anio] : [], mes: [],
+      anio: ajustes.anio ? [ajustes.anio] : [], mes: ajustes.meses ?? [],
       fechaInicial: ajustes.fechaInicial, fechaFinal: ajustes.fechaFinal,
     }
     : filtrosDashboard), [ajustes, filtrosDashboard]);
@@ -67,7 +68,16 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
 
   return useMemo(() => {
     if (!ventana.disponible) return null;
-    const { recsActual, recsAnterior, recsAnioAnteriorCompleto, diasTranscurridos, anioActual, anioAnterior } = ventana;
+    const { diasTranscurridos, anioActual, anioAnterior } = ventana;
+    // Filtro de MES (panel principal o asistente): se cuentan SOLO esos
+    // meses en los tres periodos (Total del año anterior incluido). La
+    // ventana va del primer al último mes elegido, así que sin esto meses
+    // sueltos como Jun, Jul y Dic arrastraban también Ago – Nov.
+    const mesesSel = mesesElegidos(filters.mes);
+    const enMeses = (r: CrimeRecord) => mesesSel.length === 0 || (r.mes != null && mesesSel.includes(r.mes));
+    const recsActual = mesesSel.length ? ventana.recsActual.filter(enMeses) : ventana.recsActual;
+    const recsAnterior = mesesSel.length ? ventana.recsAnterior.filter(enMeses) : ventana.recsAnterior;
+    const recsAnioAnteriorCompleto = mesesSel.length ? ventana.recsAnioAnteriorCompleto.filter(enMeses) : ventana.recsAnioAnteriorCompleto;
     const totalGeneralFecha2026 = recsActual.length;
 
     // ── Cálculo de nodos (rendimiento) ───────────────────────────────
@@ -75,7 +85,7 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
     // sola vez: antes se filtraban los años completos ~35 veces por unidad
     // y por cada delito (meses, trimestres, totales), y con ~80 unidades
     // la ventana de Microgerencia tardaba varios segundos en abrir.
-    const recordsBaseAnteriores = recordsBase.filter((r) => r.anio != null && r.anio < anioActual);
+    const recordsBaseAnteriores = recordsBase.filter((r) => r.anio != null && r.anio < anioActual && enMeses(r));
     const porMes = (lista: CrimeRecord[]) => {
       const m = new Array<number>(12).fill(0);
       for (const r of lista) if (r.mes != null && r.mes >= 1 && r.mes <= 12) m[r.mes - 1]++;
@@ -193,13 +203,16 @@ export function useMicrogerencia(ajustes?: AjustesMicrogerencia | null): DatosMi
       actualFin: ventana.actualFin.toISOString().slice(0, 10),
       anioActual, anioAnterior,
       fechaCorte: (() => {
-        const ts = recsActual.reduce((m, r) => (r.fecha && r.fecha.getTime() > m ? r.fecha.getTime() : m), 0);
+        const ts = ventana.recsActual.reduce((m, r) => (r.fecha && r.fecha.getTime() > m ? r.fecha.getTime() : m), 0);
         const d = ts > 0 ? new Date(ts) : ventana.actualFin;
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       })(),
       delitoFiltrado: filters.delito.length === 1 ? filters.delito[0] : filters.delito.length > 1 ? `${filters.delito.length} delitos seleccionados` : null,
       general, distrito1, distrito2, delitos, zonas, barriosUnidad,
       registros: { completo: recsAnioAnteriorCompleto, anterior: recsAnterior, actual: recsActual },
+      mesesSeleccionados: mesesSel,
+      periodoEtiqueta: etiquetaPeriodo(ventana.actualInicio, ventana.actualFin, mesesSel, !!(filters.fechaInicial && filters.fechaFinal)),
+      comparacionEtiqueta: etiquetaPeriodo(ventana.anteriorInicio, ventana.anteriorFin, mesesSel, !!(filters.fechaInicial && filters.fechaFinal)),
       delitosSeleccionados: [...filters.delito],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -10,6 +10,7 @@ import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
 import { nombreVisibleUnidad, type AjustesMicrogerencia, type DatosMicrogerencia, type NodoMicrogerencia } from '../../data/microgerencia';
 import type { SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import type { CrimeRecord, FilterState } from '../../types/crime';
 import { nodoOperatividadEquivalente, seccionRnmc } from '../../data/microgerenciaGeneracion';
 import { fechaLargaIso } from '../../data/microgerenciaTextos';
 import { etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
@@ -34,6 +35,8 @@ interface EstadoAsistente {
   /** Hojas del informe: 'general' | 'd1' | 'd2' | 'est:E-Norte' | 'cai:E-Norte|CAI 1' | 'zona:E-Norte|Z. Atención 1 Norte'. */
   hojas: string[];
   anio: string;
+  /** Meses (1–12) — se cuentan SOLO esos meses. */
+  meses: string[];
   fechaInicial: string;
   fechaFinal: string;
   delitos: string[];
@@ -51,7 +54,7 @@ type Accion =
   | { tipo: 'lista'; campo: 'delitos' | 'delitosAnalisis'; valores: string[] }
   | { tipo: 'alternar'; campo: 'delitos' | 'delitosAnalisis'; valor: string }
   | { tipo: 'mover'; valor: string; paso: -1 | 1 }
-  | { tipo: 'periodo'; anio?: string; fechaInicial?: string; fechaFinal?: string }
+  | { tipo: 'periodo'; anio?: string; meses?: string[]; fechaInicial?: string; fechaFinal?: string }
   | { tipo: 'vistaMatriz'; vista: 'hora' | 'franja' };
 
 const ETIQUETA_ESTACION: Record<string, string> = {
@@ -79,7 +82,7 @@ function reducir(e: EstadoAsistente, a: Accion): EstadoAsistente {
       return { ...e, delitosAnalisis: l };
     }
     case 'vistaMatriz': return { ...e, vistaMatriz: a.vista };
-    case 'periodo': return { ...e, ...(a.anio !== undefined ? { anio: a.anio } : {}), ...(a.fechaInicial !== undefined ? { fechaInicial: a.fechaInicial } : {}), ...(a.fechaFinal !== undefined ? { fechaFinal: a.fechaFinal } : {}) };
+    case 'periodo': return { ...e, ...(a.anio !== undefined ? { anio: a.anio } : {}), ...(a.meses !== undefined ? { meses: a.meses } : {}), ...(a.fechaInicial !== undefined ? { fechaInicial: a.fechaInicial } : {}), ...(a.fechaFinal !== undefined ? { fechaFinal: a.fechaFinal } : {}) };
   }
 }
 
@@ -211,15 +214,32 @@ export function AsistenteMicrogerencia({ onCerrar }: { onCerrar: () => void }) {
   );
 }
 
+/** Cobertura del panel principal → hojas del asistente (estación, CAI, zona). */
+function hojasDesdeFiltros(f: FilterState, registros: CrimeRecord[]): string[] {
+  const estacionDe = (campo: 'cai' | 'cuadrante', valor: string) => {
+    const m = new Map<string, number>();
+    for (const r of registros) if (r[campo] === valor && r.estacion) m.set(r.estacion, (m.get(r.estacion) ?? 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  };
+  const hojas: string[] = [
+    ...f.estacion.filter((x) => !f.cai.length && !f.cuadrante.length).map((x) => `est:${x}`),
+    ...f.cai.filter((x) => !f.cuadrante.length).map((x) => `cai:${f.estacion.length === 1 ? f.estacion[0] : estacionDe('cai', x)}|${x}`),
+    ...f.cuadrante.map((x) => `zona:${f.estacion.length === 1 ? f.estacion[0] : estacionDe('cuadrante', x)}|${x}`),
+  ].filter((h) => !/:\|/.test(h));
+  return hojas.length ? hojas : ['general'];
+}
+
 function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   const { registrosVisibles, filters } = useData();
 
   const [e, despachar] = useReducer(reducir, undefined, (): EstadoAsistente => ({
     paso: 0,
     fuentes: ['delictividad'],
-    hojas: ['general'],
-    // Arranca con el periodo y los delitos que ya estén filtrados en el dashboard.
+    // Arranca con TODO lo que ya esté filtrado en el panel principal:
+    // cobertura (estación, CAI, zona), año, meses, fechas y delitos.
+    hojas: hojasDesdeFiltros(filters, registrosVisibles),
     anio: filters.anio.length === 1 ? filters.anio[0] : '',
+    meses: [...filters.mes],
     fechaInicial: filters.fechaInicial ?? '',
     fechaFinal: filters.fechaFinal ?? '',
     delitos: [...filters.delito],
@@ -232,15 +252,17 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   const totalDelitosCatalogo = useMemo(() => new Set(registrosVisibles.map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')).size, [registrosVisibles]);
   const delitosFiltro = useMemo(() => (e.delitos.length >= totalDelitosCatalogo ? [] : e.delitos), [e.delitos, totalDelitosCatalogo]);
   const ajustes = useMemo<AjustesMicrogerencia>(() => ({
-    delitos: delitosFiltro, anio: e.anio, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null, barrios: [],
-  }), [delitosFiltro, e.anio, e.fechaInicial, e.fechaFinal]);
+    delitos: delitosFiltro, anio: e.anio, meses: e.meses, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null,
+    // Barrios filtrados en el panel principal: todas las hojas se limitan a ellos.
+    barrios: [...filters.barrioHecho],
+  }), [delitosFiltro, e.anio, e.meses, e.fechaInicial, e.fechaFinal, filters.barrioHecho]);
   const datos = useMicrogerencia(ajustes);
   // Operatividad: por defecto usa SU PROPIO corte (la última fecha cargada
   // en la matriz de Operatividad), igual que el módulo «Operatividad por
   // Unidad»; antes tomaba el corte de Delictividad y dejaba por fuera los
   // registros de Operatividad posteriores a ese día. Solo si el usuario
   // elige un año o fechas en el asistente se usa ese mismo periodo.
-  const periodoElegido = !!(e.anio || e.fechaInicial || e.fechaFinal);
+  const periodoElegido = !!(e.anio || e.meses.length || e.fechaInicial || e.fechaFinal);
   // Operatividad NO se recorta por los delitos de Delictividad: su «delito
   // asociado» tiene otro vocabulario (Tráfico de estupefacientes,
   // Receptación…) y se perdían capturas y TODA la droga. Va completa, igual
@@ -248,7 +270,9 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   const ajustesOp = useMemo(() => ({
     delitos: [] as string[],
     periodo: periodoElegido && datos ? { inicio: datos.actualInicio, fin: datos.actualFin } : null,
-  }), [periodoElegido, datos?.actualInicio, datos?.actualFin]); // eslint-disable-line react-hooks/exhaustive-deps
+    meses: e.meses,
+    fechasPersonalizadas: !!(e.fechaInicial && e.fechaFinal),
+  }), [periodoElegido, datos?.actualInicio, datos?.actualFin, e.meses, e.fechaInicial, e.fechaFinal]); // eslint-disable-line react-hooks/exhaustive-deps
   const datosOperatividad = useMicrogerenciaOperatividad(ajustesOp);
 
   // Catálogos reales (de los datos cargados, nunca inventados).
@@ -649,16 +673,33 @@ function PasoPeriodo({ e, despachar, anios, delitos, datos }: PropsPaso & { anio
           </select>
         </label>
         <label className="text-[12.5px] font-semibold text-[#10233f]">Fecha inicial
-          <input type="date" value={e.fechaInicial} onChange={(ev) => despachar({ tipo: 'periodo', fechaInicial: ev.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[13px]" />
+          <input type="date" value={e.fechaInicial} onChange={(ev) => despachar({ tipo: 'periodo', fechaInicial: ev.target.value, meses: [] })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[13px]" />
         </label>
         <label className="text-[12.5px] font-semibold text-[#10233f]">Fecha final
-          <input type="date" value={e.fechaFinal} onChange={(ev) => despachar({ tipo: 'periodo', fechaFinal: ev.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[13px]" />
+          <input type="date" value={e.fechaFinal} onChange={(ev) => despachar({ tipo: 'periodo', fechaFinal: ev.target.value, meses: [] })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[13px]" />
         </label>
+      </div>
+      <div data-meses-asistente>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[12.5px] font-semibold text-[#10233f]">Meses <span className="font-normal text-slate-500">(sin selección = todo el periodo; se cuentan solo los meses elegidos)</span></p>
+          {e.meses.length > 0 && <button type="button" onClick={() => despachar({ tipo: 'periodo', meses: [] })} className="rounded-md border border-slate-200 px-2 py-0.5 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-100">Quitar meses</button>}
+        </div>
+        <div className="mt-1.5 grid grid-cols-6 gap-1.5 sm:grid-cols-12">
+          {['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'].map((m, i) => {
+            const v = String(i + 1);
+            const activo = e.meses.includes(v);
+            return (
+              <button key={v} type="button" aria-pressed={activo}
+                onClick={() => despachar({ tipo: 'periodo', meses: activo ? e.meses.filter((x) => x !== v) : [...e.meses, v].sort((a, b) => Number(a) - Number(b)), fechaInicial: '', fechaFinal: '' })}
+                className={`rounded-lg border px-1 py-1.5 text-[12.5px] font-bold ${activo ? 'border-[#159089] bg-[#0f5f57] text-white' : 'border-slate-200 bg-white text-[#10233f] hover:border-[#159089]/60'}`}>{m}</button>
+            );
+          })}
+        </div>
       </div>
       {datos && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[11px] font-bold uppercase text-slate-500">Periodo analizado</p><p className="text-[13.5px] font-bold text-[#10233f]">{fmt(datos.actualInicio)} – {fmt(datos.actualFin)}</p></div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[11px] font-bold uppercase text-slate-500">Periodo de comparación</p><p className="text-[13.5px] font-bold text-[#10233f]">Mismo periodo de {datos.anioAnterior}</p></div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[11px] font-bold uppercase text-slate-500">Periodo analizado</p><p className="text-[13.5px] font-bold text-[#10233f]">{datos.periodoEtiqueta ?? `${fmt(datos.actualInicio)} – ${fmt(datos.actualFin)}`}</p>{!e.meses.length && <p className="text-[11.5px] text-slate-500">{fmt(datos.actualInicio)} – {fmt(datos.actualFin)}</p>}</div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[11px] font-bold uppercase text-slate-500">Periodo de comparación</p><p className="text-[13.5px] font-bold text-[#10233f]">{datos.comparacionEtiqueta ?? `Mismo periodo de ${datos.anioAnterior}`}</p><p className="text-[11.5px] text-slate-500">Total {datos.anioAnterior}: {e.meses.length ? 'los mismos meses completos' : 'año completo'}</p></div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[11px] font-bold uppercase text-slate-500">Fecha de corte</p><p className="text-[13.5px] font-bold text-[#10233f]">{fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}</p></div>
         </div>
       )}
@@ -693,7 +734,7 @@ function PasoResumen({ e, despachar, irA, datos, secciones, generando, mensaje }
     { paso: 0, titulo: 'Fuentes', valor: e.fuentes.map((f) => FUENTES.find((x) => x.id === f)?.nombre ?? f).join(', ') || '—' },
     ...(e.delitosAnalisis.length ? [{ paso: 0, titulo: 'Por delito', valor: e.delitosAnalisis.map((d, i) => `${i + 1}. ${d}`).join(' · ') }] : []),
     { paso: 1, titulo: 'Hojas', valor: `${e.hojas.length} hoja${e.hojas.length === 1 ? '' : 's'} por fuente` },
-    { paso: 2, titulo: 'Periodo', valor: datos ? `${datos.periodo} · corte ${fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}` : '—' },
+    { paso: 2, titulo: 'Periodo', valor: datos ? `${datos.periodoEtiqueta ?? datos.periodo} vs. ${datos.comparacionEtiqueta ?? datos.anioAnterior} · corte ${fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}` : '—' },
     { paso: 2, titulo: 'Delitos', valor: e.delitos.length ? e.delitos.join(', ') : 'Todos' },
   ];
   return (
@@ -772,7 +813,7 @@ function PanelResumen({ e, despachar, datos, hojas }: PropsPaso & { datos: Datos
         {bloque('Fuentes seleccionadas', Layers, e.fuentes.length ? e.fuentes.map((f) => <Chip key={f} texto={FUENTES.find((x) => x.id === f)?.nombre ?? f} onQuitar={e.fuentes.length > 1 ? () => despachar({ tipo: 'fuente', fuente: f }) : undefined} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
         {e.delitosAnalisis.length > 0 && bloque(`Microgerencia por delito (${e.delitosAnalisis.length})`, ShieldCheck, e.delitosAnalisis.map((d, i) => <Chip key={d} texto={`${i + 1}. ${d}`} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitosAnalisis', valor: d })} />))}
         {bloque(`Hojas del informe (${hojas.length})`, MapPin, hojas.length ? hojas.map((h) => <Chip key={h.clave} texto={h.tipo === 'zona' || h.tipo === 'cai' ? `${h.titulo} · ${etiquetaEstacion(h.nodo.estacion ?? '')}` : h.titulo} onQuitar={() => despachar({ tipo: 'hoja', clave: h.clave })} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
-        {bloque('Periodo', CalendarDays, <span className="text-[12px] text-slate-600">{datos ? datos.periodo : e.anio || 'Vigencia actual'}</span>)}
+        {bloque('Periodo', CalendarDays, <span className="text-[12px] text-slate-600">{datos ? `${datos.periodoEtiqueta ?? datos.periodo} vs. ${datos.comparacionEtiqueta ?? datos.anioAnterior}` : e.anio || 'Vigencia actual'}</span>)}
         {bloque(`Delitos${e.delitos.length ? ` (${e.delitos.length})` : ''}`, ShieldCheck, e.delitos.length ? e.delitos.map((d) => <Chip key={d} texto={d} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitos', valor: d })} />) : <span className="text-[12px] text-slate-600">Todos</span>)}
       </div>
       <p className="mt-4 flex gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11.5px] text-slate-600"><Info size={14} className="mt-0.5 shrink-0 text-[#0f5f57]" /> {nota}</p>

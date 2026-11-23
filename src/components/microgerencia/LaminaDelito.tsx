@@ -169,7 +169,10 @@ export const LaminaDelito = forwardRef<HTMLDivElement, { datos: DatosMicrogerenc
     const mesCorte = Number(corte.split('-')[1]) - 1;
     const diaCorte = Number(corte.split('-')[2]);
     const mesParcial = diaCorte < new Date(A, mesCorte + 1, 0).getDate();
-    const rango = `Ene – ${MESES_CORTOS[mesCorte]}`;
+    const periodoA = datos.periodoEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${A}`;
+    const periodoP = datos.comparacionEtiqueta ?? `Ene – ${MESES_CORTOS[mesCorte]} ${P}`;
+    const rango = periodoA.replace(/\s\d{4}$/, '');
+    const mesElegido = (i: number) => !datos.mesesSeleccionados?.length || datos.mesesSeleccionados.includes(i + 1);
     const cobertura = esGeneral ? 'MEPOY' : etiquetaUnidad(nodo, esGeneral);
     const nombreDelito = tituloCase(delito);
     const Icono = iconoDelito(delito);
@@ -180,7 +183,7 @@ export const LaminaDelito = forwardRef<HTMLDivElement, { datos: DatosMicrogerenc
     const trimCorte = Math.floor(mesCorte / 3);
     const trimParcial = mesParcial || mesCorte % 3 !== 2;
     // Mensual: {P} el año completo; {A} solo hasta el corte (sin ceros futuros).
-    const datosMes = an.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: m.a, [A]: i <= mesCorte ? m.b : null }));
+    const datosMes = an.meses.map((m, i) => ({ nombre: MESES_CORTOS[i], [P]: mesElegido(i) ? m.a : null, [A]: i <= mesCorte && mesElegido(i) ? m.b : null }));
     const datosTrim = an.trimestres.slice(0, trimCorte + 1).map((t, i) => ({ nombre: `${TRIM[i]}${i === trimCorte && trimParcial ? '*' : ''}`, [P]: t.a, [A]: t.b }));
     const tituloSub = an.sub.singular === 'Estación' ? 'Resultados por estación' : an.sub.singular === 'CAI' ? 'Resultados por CAI' : an.sub.singular ? 'Resultados por zona de atención' : 'Resultados de la unidad';
     const filasSub = an.sub.filas.length ? an.sub.filas.map((f) => ({ ...f, nombre: nombreCorto(f.nombre) })) : [{ nombre: nombreCorto(nodo.nombre), t: an.t, a: an.a, b: an.b }];
@@ -278,7 +281,7 @@ export const LaminaDelito = forwardRef<HTMLDivElement, { datos: DatosMicrogerenc
 
     return (
       <div ref={ref} data-informe-microgerencia data-lamina-delito className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
-        <EncabezadoLamina titulo="ANÁLISIS ESPECÍFICO POR DELITO – MEPOY" delito={nombreDelito} periodo={`${rango} ${A}`} comparacion={`${rango} ${P}`} corte={corte} cobertura={cobertura} fuente="SIEDCO" />
+        <EncabezadoLamina titulo="ANÁLISIS ESPECÍFICO POR DELITO – MEPOY" delito={nombreDelito} periodo={periodoA} comparacion={periodoP} corte={corte} cobertura={cobertura} fuente="SIEDCO" />
 
         {/* ── FILA 1 · KPI ─────────────────────────────────────────── */}
         <div className="absolute flex items-center gap-3 overflow-hidden text-white" style={{ left: 12, top: 116, width: 268, height: 96, background: `linear-gradient(90deg, ${C.verdeOscuro}, ${C.verdeMedio})`, clipPath: 'polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%)', borderRadius: '14px 0 0 14px' }}>
@@ -311,12 +314,12 @@ export const LaminaDelito = forwardRef<HTMLDivElement, { datos: DatosMicrogerenc
           <table className="mx-2 border-collapse text-center text-[12.5px] leading-[17px]" style={{ width: 'calc(100% - 16px)' }}>
             <thead><tr><th className="w-[38px]" />{datosMes.map((m, i) => <th key={m.nombre} className="font-bold">{m.nombre}{i === mesCorte && mesParcial ? '*' : ''}</th>)}</tr></thead>
             <tbody>
-              <tr style={{ background: '#e7effc' }}><th className="rounded-l-md text-white" style={{ background: AZUL }}>{P}</th>{an.meses.map((m, i) => <td key={i}>{formatNumero(m.a)}</td>)}</tr>
-              <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md text-white" style={{ background: '#16a34a' }}>{A}</th>{an.meses.map((m, i) => <td key={i} className="font-bold">{i <= mesCorte ? formatNumero(m.b) : '–'}</td>)}</tr>
+              <tr style={{ background: '#e7effc' }}><th className="rounded-l-md text-white" style={{ background: AZUL }}>{P}</th>{an.meses.map((m, i) => <td key={i}>{mesElegido(i) ? formatNumero(m.a) : '–'}</td>)}</tr>
+              <tr style={{ background: '#e3f3e6' }}><th className="rounded-l-md text-white" style={{ background: '#16a34a' }}>{A}</th>{an.meses.map((m, i) => <td key={i} className="font-bold">{i <= mesCorte && mesElegido(i) ? formatNumero(m.b) : '–'}</td>)}</tr>
               <tr><th className="text-[11px] font-bold">Dif.</th>{an.meses.map((m, i) => {
                 // Mes parcial: se compara contra el año anterior hasta el mismo día.
                 const d = m.b - (i === mesCorte ? m.ant : m.a);
-                return <td key={i} className="font-bold" style={{ color: i <= mesCorte ? colorDif(d) : '#9aa3a8' }}>{i <= mesCorte ? `${signo(d)}${formatNumero(d)}` : ''}</td>;
+                return <td key={i} className="font-bold" style={{ color: i <= mesCorte && mesElegido(i) ? colorDif(d) : '#9aa3a8' }}>{i <= mesCorte && mesElegido(i) ? `${signo(d)}${formatNumero(d)}` : ''}</td>;
               })}</tr>
             </tbody>
           </table>
