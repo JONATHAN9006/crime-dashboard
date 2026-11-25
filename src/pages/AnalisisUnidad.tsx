@@ -7,6 +7,7 @@ import { useData } from '../context/DataContext';
 import { useRanking, useUrbanoRural } from '../hooks/useTerritorialAnalysis';
 import { useDistribucionHoraria, useTendenciaDiaSemana, useTendenciaDiaria, formatFechaISOLocal } from '../hooks/useTemporalAnalysis';
 import { aplicarFiltros } from '../utils/filters';
+import { municipioDe } from '../utils/municipio';
 import { useVentanaComparativa, useComparativoCategoria, useComparativoGeneral, useProyeccion } from '../hooks/useComparativoHomologo';
 import { useKpis } from '../hooks/useKpis';
 import { agruparPor, totalCasos, formatPct, DIAS_ORDEN_DOMINGO } from '../utils/aggregations';
@@ -176,6 +177,11 @@ export function AnalisisUnidad() {
   const desfavorableGeneral = cmpGeneral.variacionPct !== null && cmpGeneral.variacionPct > 0;
 
   const urbanoRural = useUrbanoRural(recsVista);
+  // Casos por municipio (mismo periodo y filtros de la vista), de mayor a menor.
+  const porMunicipio = useMemo(
+    () => agruparPor(recsVista, (r) => municipioDe(r) || 'NO REPORTADO').filter((m) => m.casos > 0).sort((a, b) => b.casos - a.casos).map((m) => ({ municipio: m.key, casos: m.casos })),
+    [recsVista],
+  );
   const porGenero = useRanking(recsVista, (r) => r.genero, 10);
   const porGrupoEdad = useRanking(recsVista, (r) => r.grupoEdad, 10);
   // Igual razón que diaSemana arriba: EXCLUSIVAMENTE la vigencia actual,
@@ -568,8 +574,8 @@ export function AnalisisUnidad() {
               </Card>
             </div>
 
-            {/* ── FILA 6: Casos por día de la semana | Concentración horaria (mitad y mitad) ── */}
-            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+            {/* ── FILA 6: Casos por día de la semana | Concentración horaria | Municipio ── */}
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1.45fr_0.8fr]">
               <Card className="h-full" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de domingo a sábado" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
                 <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={46} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarEjeY ocultarLeyendaBarras lineaReferencia="tendencia" />
               </Card>
@@ -589,6 +595,16 @@ export function AnalisisUnidad() {
                 }
               >
                 <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={26} tamanoEtiqueta={10} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad ? undefined : 'promedio3'} />
+              </Card>
+              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por municipio" subtitle={`${etiquetaVigencia} · clic en una barra para filtrar por ese municipio`} descargable="casos-municipio" icono={ico(Building2)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+                {porMunicipio.length > 0 ? (
+                  <div data-casos-municipio>
+                    <GroupedBarChart data={porMunicipio} xKey="municipio" seriesKeys={['casos']} horizontal height={Math.min(270, Math.max(130, 70 + porMunicipio.length * 40))} resaltarMaximo colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarLeyendaBarras onBarClick={(m) => drillDown('municipio', m)} />
+                    <p className="mt-1 text-center text-[11.5px] text-slate-500">
+                      {porMunicipio.map((m) => `${m.municipio}: ${formatNumero(m.casos)} (${formatDecimal(total(porMunicipio) ? (m.casos / total(porMunicipio)) * 100 : 0, 1)} %)`).join(' · ')}
+                    </p>
+                  </div>
+                ) : <p className="py-8 text-center text-sm text-slate-400">Sin casos con los filtros activos.</p>}
               </Card>
             </div>
           </>
