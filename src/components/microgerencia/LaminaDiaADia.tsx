@@ -51,7 +51,9 @@ export const LaminaDiaADia = forwardRef<HTMLDivElement, PropsDiaADia>(function L
   const mesCorto = MESES_CORTOS[mes - 1];
   const completo = d.diaCorte === d.dias;
   const rangoInfo = d.diaCorte > 0 ? `${dd(1)} – ${dd(d.diaCorte)} ${mesCorto} ${anio}` : `sin información aún`;
-  const corteTxt = `${d.corte.getFullYear()}-${dd(d.corte.getMonth() + 1)}-${dd(d.corte.getDate())}`;
+  // Mes ya cerrado: el corte es su último día (registro completo).
+  const fCorte = completo ? new Date(anio, mes - 1, d.dias) : d.corte;
+  const corteTxt = `${fCorte.getFullYear()}-${dd(fCorte.getMonth() + 1)}-${dd(fCorte.getDate())}`;
 
   // Tamaños de la matriz según los días del mes (28 … 31 columnas).
   // Ancho disponible de la caja (1120 − márgenes) repartido entre los días.

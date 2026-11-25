@@ -23,15 +23,31 @@ export function hoyColombia(): { anio: number; mes: number; dia: number } {
 
 export const diasDelMes = (anio: number, mes: number) => new Date(anio, mes, 0).getDate();
 
-/** Meses a generar según el periodo del asistente. */
-export function mesesDiaADia(opc: { anio: string; meses: string[]; fechaInicial: string; fechaFinal: string }): { anio: number; mes: number }[] {
+/**
+ * Hojas a generar: cada AÑO × MES elegido es una hoja propia (ej. Nov 2024 y
+ * Nov 2025 → dos hojas). Sin año = el año actual; sin mes = el mes actual.
+ */
+export function mesesDiaADia(opc: { anios: string[]; meses: string[] }): { anio: number; mes: number }[] {
   const hoy = hoyColombia();
-  const anio = opc.anio ? Number(opc.anio) : opc.fechaFinal ? Number(opc.fechaFinal.slice(0, 4)) : hoy.anio;
-  if (opc.meses.length) return [...opc.meses].map(Number).sort((a, b) => a - b).map((mes) => ({ anio, mes }));
-  if (opc.fechaFinal) return [{ anio: Number(opc.fechaFinal.slice(0, 4)), mes: Number(opc.fechaFinal.slice(5, 7)) }];
-  // Sin mes: el mes actual (o diciembre si se eligió un año ya cerrado).
-  if (anio < hoy.anio) return [{ anio, mes: 12 }];
-  return [{ anio: hoy.anio, mes: hoy.mes }];
+  const anios = opc.anios.length ? [...new Set(opc.anios.map(Number))].sort((a, b) => a - b) : [hoy.anio];
+  const meses = opc.meses.length ? [...new Set(opc.meses.map(Number))].sort((a, b) => a - b) : [hoy.mes];
+  const salida: { anio: number; mes: number }[] = [];
+  for (const anio of anios) for (const mes of meses) {
+    // Un mes que aún no empieza no tiene registros: no se genera.
+    if (anio > hoy.anio || (anio === hoy.anio && mes > hoy.mes)) continue;
+    salida.push({ anio, mes });
+  }
+  return salida;
+}
+
+/** El Día a Día se reporta con corte al DÍA ANTERIOR (hora de Colombia),
+ *  o a la última fecha cargada si es anterior. */
+export function corteDiaADia(ultimaFechaCargada: Date | null): Date {
+  const hoy = hoyColombia();
+  const ayer = new Date(hoy.anio, hoy.mes - 1, hoy.dia - 1);
+  if (!ultimaFechaCargada) return ayer;
+  const u = new Date(ultimaFechaCargada.getFullYear(), ultimaFechaCargada.getMonth(), ultimaFechaCargada.getDate());
+  return u < ayer ? u : ayer;
 }
 
 // ── Fecha de ingreso / registro (si la matriz la trae) ───────────────────

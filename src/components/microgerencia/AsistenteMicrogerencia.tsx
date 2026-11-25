@@ -10,7 +10,7 @@ import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
 import { nombreVisibleUnidad, type AjustesMicrogerencia, type DatosMicrogerencia, type NodoMicrogerencia } from '../../data/microgerencia';
 import type { SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
-import { columnaIngreso, fechaDeConteo, mesesDiaADia, MESES_LARGOS } from '../../data/diaADia';
+import { columnaIngreso, corteDiaADia, fechaDeConteo, mesesDiaADia, MESES_LARGOS } from '../../data/diaADia';
 import { aplicarFiltros } from '../../utils/filters';
 import type { CrimeRecord, FilterState } from '../../types/crime';
 import { nodoOperatividadEquivalente, seccionRnmc } from '../../data/microgerenciaGeneracion';
@@ -39,6 +39,9 @@ interface EstadoAsistente {
   anio: string;
   /** Meses (1–12) — se cuentan SOLO esos meses. */
   meses: string[];
+  /** Día a Día: años y meses propios (cada año × mes = una hoja; sin versus). */
+  ddAnios: string[];
+  ddMeses: string[];
   fechaInicial: string;
   fechaFinal: string;
   delitos: string[];
@@ -57,7 +60,8 @@ type Accion =
   | { tipo: 'alternar'; campo: 'delitos' | 'delitosAnalisis'; valor: string }
   | { tipo: 'mover'; valor: string; paso: -1 | 1 }
   | { tipo: 'periodo'; anio?: string; meses?: string[]; fechaInicial?: string; fechaFinal?: string }
-  | { tipo: 'vistaMatriz'; vista: 'hora' | 'franja' };
+  | { tipo: 'vistaMatriz'; vista: 'hora' | 'franja' }
+  | { tipo: 'diaadia'; anios?: string[]; meses?: string[] };
 
 const ETIQUETA_ESTACION: Record<string, string> = {
   'E-Norte': 'Est. Norte', 'E-Sur': 'Est. Sur', 'E-Timbio': 'Est. Timbío', 'E-Coconuco': 'Est. Coconuco', 'E-Sotara': 'Est. Paispamba',
@@ -84,6 +88,7 @@ function reducir(e: EstadoAsistente, a: Accion): EstadoAsistente {
       return { ...e, delitosAnalisis: l };
     }
     case 'vistaMatriz': return { ...e, vistaMatriz: a.vista };
+    case 'diaadia': return { ...e, ...(a.anios ? { ddAnios: a.anios } : {}), ...(a.meses ? { ddMeses: a.meses } : {}) };
     case 'periodo': return { ...e, ...(a.anio !== undefined ? { anio: a.anio } : {}), ...(a.meses !== undefined ? { meses: a.meses } : {}), ...(a.fechaInicial !== undefined ? { fechaInicial: a.fechaInicial } : {}), ...(a.fechaFinal !== undefined ? { fechaFinal: a.fechaFinal } : {}) };
   }
 }
@@ -243,6 +248,8 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
     hojas: hojasDesdeFiltros(filters, registrosVisibles),
     anio: filters.anio.length === 1 ? filters.anio[0] : '',
     meses: [...filters.mes],
+    ddAnios: [...filters.anio],
+    ddMeses: [...filters.mes],
     fechaInicial: filters.fechaInicial ?? '',
     fechaFinal: filters.fechaFinal ?? '',
     delitos: [...filters.delito],
@@ -303,15 +310,12 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
       ...filters, delito: delitosFiltro, barrioHecho: [...filters.barrioHecho],
       municipio: [], estacion: [], cai: [], cuadrante: [], anio: [], mes: [], fechaInicial: null, fechaFinal: null,
     });
-    const ts = registrosVisibles.reduce((m, r) => (r.fecha && r.fecha.getTime() > m ? r.fecha.getTime() : m), 0);
     const columna = columnaIngreso(registrosVisibles);
-    let corte = ts > 0 ? new Date(ts) : new Date();
-    if (columna) {
-      const tsI = registrosVisibles.reduce((m, r) => { const f = fechaDeConteo(r, columna); return f && f.getTime() > m ? f.getTime() : m; }, 0);
-      if (tsI > 0) corte = new Date(tsI);
-    }
-    return { registros, corte, columna, meses: mesesDiaADia({ anio: e.anio, meses: e.meses, fechaInicial: e.fechaInicial, fechaFinal: e.fechaFinal }) };
-  }, [e.fuentes, e.anio, e.meses, e.fechaInicial, e.fechaFinal, registrosVisibles, filters, delitosFiltro]);
+    const ts = registrosVisibles.reduce((m, r) => { const f = fechaDeConteo(r, columna); return f && f.getTime() > m ? f.getTime() : m; }, 0);
+    // Corte: el día anterior (o la última fecha cargada, si es antes).
+    const corte = corteDiaADia(ts > 0 ? new Date(ts) : null);
+    return { registros, corte, columna, meses: mesesDiaADia({ anios: e.ddAnios, meses: e.ddMeses }) };
+  }, [e.fuentes, e.ddAnios, e.ddMeses, registrosVisibles, filters, delitosFiltro]);
 
   const arbol = useMemo(() => (datos ? construirArbol(datos) : []), [datos]);
   const hojas = useMemo(() => nodosDelInforme(arbol, e.hojas), [arbol, e.hojas]);
@@ -703,6 +707,7 @@ function PasoPeriodo({ e, despachar, anios, delitos, datos }: PropsPaso & { anio
           <input type="date" value={e.fechaFinal} onChange={(ev) => despachar({ tipo: 'periodo', fechaFinal: ev.target.value, meses: [] })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[13px]" />
         </label>
       </div>
+      {e.fuentes.includes('diaadia') && <SelectorDiaADia e={e} despachar={despachar} anios={anios} />}
       <div data-meses-asistente>
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[12.5px] font-semibold text-[#10233f]">Meses <span className="font-normal text-slate-500">(sin selección = todo el periodo; se cuentan solo los meses elegidos)</span></p>
@@ -842,5 +847,25 @@ function PanelResumen({ e, despachar, datos, hojas }: PropsPaso & { datos: Datos
       </div>
       <p className="mt-4 flex gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11.5px] text-slate-600"><Info size={14} className="mt-0.5 shrink-0 text-[#0f5f57]" /> {nota}</p>
     </aside>
+  );
+}
+
+/** Día a Día: años y meses propios (sin versus). Cada año × mes = una hoja. */
+function SelectorDiaADia({ e, despachar, anios }: { e: EstadoAsistente; despachar: (a: Accion) => void; anios: number[] }) {
+  const hojasDd = mesesDiaADia({ anios: e.ddAnios, meses: e.ddMeses });
+  const alternar = (lista: string[], v: string) => (lista.includes(v) ? lista.filter((x) => x !== v) : [...lista, v].sort((a, b) => Number(a) - Number(b)));
+  const chip = (activo: boolean) => `rounded-lg border px-2 py-1.5 text-[12.5px] font-bold ${activo ? 'border-[#159089] bg-[#0f5f57] text-white' : 'border-slate-200 bg-white text-[#10233f] hover:border-[#159089]/60'}`;
+  return (
+    <div className="rounded-xl border border-[#159089]/40 bg-[#f1f8f6] p-3" data-dia-a-dia-periodo>
+      <p className="text-[13.5px] font-bold text-[#0f5f57]">Día a Día · años y meses</p>
+      <p className="mb-2 text-[11.5px] text-slate-600">Independiente del periodo de arriba y sin comparación: cada año × mes elegido sale en su propia hoja. Sin año = año actual; sin mes = mes actual. El mes en curso va con corte al día anterior.</p>
+      <div className="flex flex-wrap gap-1.5">
+        {anios.map((a) => { const v = String(a); return <button key={v} type="button" aria-pressed={e.ddAnios.includes(v)} onClick={() => despachar({ tipo: 'diaadia', anios: alternar(e.ddAnios, v) })} className={chip(e.ddAnios.includes(v))}>{v}</button>; })}
+      </div>
+      <div className="mt-1.5 grid grid-cols-6 gap-1.5 sm:grid-cols-12">
+        {['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'].map((m, i) => { const v = String(i + 1); return <button key={v} type="button" aria-pressed={e.ddMeses.includes(v)} onClick={() => despachar({ tipo: 'diaadia', meses: alternar(e.ddMeses, v) })} className={chip(e.ddMeses.includes(v))}>{m}</button>; })}
+      </div>
+      <p className="mt-2 text-[12px] text-[#10233f]"><b>Hojas Día a Día:</b> {hojasDd.length ? hojasDd.map((h) => `${MESES_LARGOS[h.mes - 1]} ${h.anio}`).join(' · ') : 'ninguna (los meses elegidos aún no empiezan)'}</p>
+    </div>
   );
 }
