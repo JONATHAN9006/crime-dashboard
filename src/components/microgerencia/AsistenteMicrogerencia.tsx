@@ -93,7 +93,7 @@ function reducir(e: EstadoAsistente, a: Accion): EstadoAsistente {
   }
 }
 
-const PASOS = ['Fuentes', 'Cobertura', 'Periodo y delitos', 'Resumen'];
+const PASOS = ['Periodo', 'Fuentes y delito', 'Cobertura', 'Resumen'];
 
 const FUENTES: { id: FuenteMicrogerencia; nombre: string; descripcion: string; icono: typeof BarChart3; disponible: boolean }[] = [
   { id: 'delictividad', nombre: 'Microgerencia delictiva', descripcion: 'Consolidado delictivo: comparativos, tendencias, territorio y proyección.', icono: BarChart3, disponible: true },
@@ -252,20 +252,19 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
     ddMeses: [...filters.mes],
     fechaInicial: filters.fechaInicial ?? '',
     fechaFinal: filters.fechaFinal ?? '',
-    delitos: [...filters.delito],
-    delitosAnalisis: [],
+    delitos: [],
+    // Un solo lugar para elegir delitos: el paso «Fuentes y delito».
+    delitosAnalisis: [...filters.delito],
     vistaMatriz: 'hora',
   }));
 
-  // Marcar TODOS los delitos equivale a no filtrar (así no se pierden los
-  // registros con delito «NO REPORTADO» ni cambian los totales del dashboard).
-  const totalDelitosCatalogo = useMemo(() => new Set(registrosVisibles.map((r) => r.delito).filter((d) => d && d !== 'NO REPORTADO')).size, [registrosVisibles]);
-  const delitosFiltro = useMemo(() => (e.delitos.length >= totalDelitosCatalogo ? [] : e.delitos), [e.delitos, totalDelitosCatalogo]);
   const ajustes = useMemo<AjustesMicrogerencia>(() => ({
-    delitos: delitosFiltro, anio: e.anio, meses: e.meses, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null,
+    // La microgerencia general siempre cubre TODOS los delitos; los delitos
+    // elegidos generan sus propias láminas (o filtran el Día a Día).
+    delitos: [], anio: e.anio, meses: e.meses, fechaInicial: e.fechaInicial || null, fechaFinal: e.fechaFinal || null,
     // Barrios filtrados en el panel principal: todas las hojas se limitan a ellos.
     barrios: [...filters.barrioHecho],
-  }), [delitosFiltro, e.anio, e.meses, e.fechaInicial, e.fechaFinal, filters.barrioHecho]);
+  }), [e.anio, e.meses, e.fechaInicial, e.fechaFinal, filters.barrioHecho]);
   const datos = useMicrogerencia(ajustes);
   // Operatividad: por defecto usa SU PROPIO corte (la última fecha cargada
   // en la matriz de Operatividad), igual que el módulo «Operatividad por
@@ -307,7 +306,7 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   const diaADia = useMemo(() => {
     if (!e.fuentes.includes('diaadia')) return null;
     const registros = aplicarFiltros(registrosVisibles, {
-      ...filters, delito: delitosFiltro, barrioHecho: [...filters.barrioHecho],
+      ...filters, delito: [...e.delitosAnalisis], barrioHecho: [...filters.barrioHecho],
       municipio: [], estacion: [], cai: [], cuadrante: [], anio: [], mes: [], fechaInicial: null, fechaFinal: null,
     });
     const columna = columnaIngreso(registrosVisibles);
@@ -315,7 +314,7 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
     // Corte: el día anterior (o la última fecha cargada, si es antes).
     const corte = corteDiaADia(ts > 0 ? new Date(ts) : null);
     return { registros, corte, columna, meses: mesesDiaADia({ anios: e.ddAnios, meses: e.ddMeses }) };
-  }, [e.fuentes, e.ddAnios, e.ddMeses, registrosVisibles, filters, delitosFiltro]);
+  }, [e.fuentes, e.ddAnios, e.ddMeses, registrosVisibles, filters, e.delitosAnalisis]);
 
   const arbol = useMemo(() => (datos ? construirArbol(datos) : []), [datos]);
   const hojas = useMemo(() => nodosDelInforme(arbol, e.hojas), [arbol, e.hojas]);
@@ -324,26 +323,33 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   // unidad y enseguida su Operatividad (General, General; Norte, Norte…).
   const secciones = useMemo<SeccionTerritorial[]>(() => {
     const out: SeccionTerritorial[] = [];
+    const hayDelitos = e.delitosAnalisis.length > 0;
+    const laminasDelito = hayDelitos && (e.fuentes.includes('delictividad') || !e.fuentes.includes('diaadia'));
     for (const h of hojas) {
-      if (datos && e.fuentes.includes('delictividad')) out.push(...seccionesDelInforme(datos, [h.nodo], 'delictividad', e.vistaMatriz));
+      // Delictiva sin delito = microgerencia general (hojas 1 y 2).
+      if (datos && e.fuentes.includes('delictividad') && !hayDelitos) out.push(...seccionesDelInforme(datos, [h.nodo], 'delictividad', e.vistaMatriz));
       // Día a Día: enseguida de Delictividad (una hoja por mes elegido).
       if (datos && e.fuentes.includes('diaadia') && diaADia) for (const m of diaADia.meses) out.push(seccionDiaADia(datos, h.nodo, m, diaADia.registros, diaADia.corte, diaADia.columna));
       if (datosOperatividad && e.fuentes.includes('operatividad')) {
         const nodoOp = h.tipo === 'general' ? datosOperatividad.general : nodoOperatividadEquivalente(datosOperatividad, h.nodo.nombre);
         if (nodoOp) out.push(...seccionesDelInforme(datosOperatividad, [nodoOp], 'operatividad'));
       }
-      // Microgerencia por delito: una lámina por delito, en el orden elegido.
-      if (datos) for (const d of e.delitosAnalisis) out.push(seccionDelito(datos, h.nodo, d));
+      // Microgerencia por delito: una lámina por delito, en el orden elegido
+      // (con Delictiva, o con los delitos solos). Con solo Día a Día el
+      // delito únicamente filtra el Día a Día.
+      if (datos && laminasDelito) for (const d of e.delitosAnalisis) out.push(seccionDelito(datos, h.nodo, d));
     }
     return out;
   }, [datos, datosOperatividad, hojas, e.fuentes, e.delitosAnalisis, e.vistaMatriz, diaADia]);
 
+  const usaHojas = e.fuentes.length > 0 || e.delitosAnalisis.length > 0;
   const errores: (string | null)[] = [
-    e.fuentes.length === 0 && e.delitosAnalisis.length === 0 ? 'Seleccione al menos una microgerencia o un delito.' : null,
-    (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.fuentes.includes('diaadia') || e.delitosAnalisis.length > 0) && e.hojas.length === 0 ? 'Marque al menos una hoja (por ejemplo, MEPOY General).' : null,
     e.fechaInicial && e.fechaFinal && e.fechaInicial > e.fechaFinal ? 'La fecha inicial no puede ser posterior a la fecha final.' : null,
-    !datos && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.fuentes.includes('diaadia') || e.delitosAnalisis.length > 0) ? 'No hay datos suficientes para el periodo elegido.' : null,
+    !usaHojas ? 'Seleccione al menos una microgerencia o un delito.' : null,
+    usaHojas && e.hojas.length === 0 ? 'Marque al menos una hoja (por ejemplo, MEPOY General).' : null,
+    !datos && usaHojas ? 'No hay datos suficientes para el periodo elegido.' : null,
   ];
+
   const [intento, setIntento] = useState(false);
   const errorActual = errores[e.paso];
 
@@ -480,9 +486,9 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
         {/* CUERPO */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
           <main className="min-w-0 flex-1 px-4 py-4 sm:px-5 lg:overflow-y-auto">
-            {e.paso === 0 && <PasoFuentes e={e} despachar={despachar} delitos={catalogo.delitosPorCasos} />}
-            {e.paso === 1 && <PasoCobertura e={e} despachar={despachar} arbol={arbol} />}
-            {e.paso === 2 && <PasoPeriodo e={e} despachar={despachar} anios={catalogo.anios} delitos={catalogo.delitos} datos={datos} />}
+            {e.paso === 0 && <PasoPeriodo e={e} despachar={despachar} anios={catalogo.anios} datos={datos} />}
+            {e.paso === 1 && <PasoFuentes e={e} despachar={despachar} delitos={catalogo.delitosPorCasos} anios={catalogo.anios} />}
+            {e.paso === 2 && <PasoCobertura e={e} despachar={despachar} arbol={arbol} />}
             {e.paso === 3 && <PasoResumen e={e} despachar={despachar} irA={irA} datos={datos} secciones={secciones} generando={generando} mensaje={mensajeGeneracion} />}
             {intento && errorActual && (
               <p className="mt-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] font-semibold text-rose-700"><AlertCircle size={15} /> {errorActual}</p>
@@ -528,12 +534,12 @@ function TituloPaso({ n, titulo, sub }: { n: number; titulo: string; sub: string
   );
 }
 
-function PasoFuentes({ e, despachar, delitos }: PropsPaso & { delitos: string[] }) {
+function PasoFuentes({ e, despachar, delitos, anios }: PropsPaso & { delitos: string[]; anios: number[] }) {
   const [q, setQ] = useState('');
   const visibles = delitos.filter((d) => coincide(d, q));
   return (
     <div>
-      <TituloPaso n={1} titulo="Selecciona las microgerencias" sub="Marque las láminas que quiere en el informe. Se generan para cada hoja de la cobertura, en este orden." />
+      <TituloPaso n={2} titulo="Fuentes y delito" sub="Elija qué microgerencia generar y, si quiere, el delito. Sin delito, la Delictiva es la general de todos los delitos." />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {FUENTES.filter((f) => f.disponible).map((f) => {
           const activo = e.fuentes.includes(f.id);
@@ -552,11 +558,13 @@ function PasoFuentes({ e, despachar, delitos }: PropsPaso & { delitos: string[] 
         })}
       </div>
 
+      {e.fuentes.includes('diaadia') && <div className="mt-3"><SelectorDiaADia e={e} despachar={despachar} anios={anios} /></div>}
+
       <section className="mt-4 rounded-xl border-2 border-slate-200 p-3" data-seccion-delitos>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <ShieldCheck size={20} className="text-[#0f5f57]" />
-          <p className="text-[15px] font-bold text-[#10233f]">Microgerencia por delito</p>
-          <span className="text-[12px] text-slate-500">— una lámina por cada delito marcado, en el orden que usted defina.</span>
+          <p className="text-[15px] font-bold text-[#10233f]">Delito <span className="font-normal text-slate-500">(opcional)</span></p>
+          <span className="text-[12px] text-slate-500" data-regla-delito>— {e.delitosAnalisis.length === 0 ? (e.fuentes.includes('delictividad') ? 'sin delito: microgerencia general de todos los delitos.' : 'sin delito: se incluyen todos.') : e.fuentes.includes('diaadia') && !e.fuentes.includes('delictividad') ? 'el Día a Día se filtra a los delitos marcados.' : `una microgerencia por cada delito marcado, en el orden que usted defina${e.fuentes.includes('diaadia') ? '; el Día a Día también se filtra a ellos' : ''}.`}</span>
         </div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Buscador valor={q} onCambio={setQ} placeholder="Buscar delito…" />
@@ -668,7 +676,7 @@ function PasoCobertura({ e, despachar, arbol }: PropsPaso & { arbol: NodoArbol[]
 
   return (
     <div>
-      <TituloPaso n={2} titulo="Cobertura del informe" sub="Marque las unidades que deben tener su propia hoja. Cada casilla marcada es una hoja del PDF." />
+      <TituloPaso n={3} titulo="Cobertura del informe" sub="Marque las unidades que deben tener su propia hoja. Cada casilla marcada es una hoja del PDF." />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => despachar({ tipo: 'hojas', valores: Array.from(new Set([...e.hojas, ...estaciones])) })} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#10233f] hover:border-[#159089]"><CheckCircle2 size={13} /> Marcar las 5 estaciones</button>
         <button type="button" onClick={() => despachar({ tipo: 'hojas', valores: [] })} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#10233f] hover:border-rose-300"><Trash2 size={13} /> Limpiar</button>
@@ -686,13 +694,11 @@ function PasoCobertura({ e, despachar, arbol }: PropsPaso & { arbol: NodoArbol[]
   );
 }
 
-function PasoPeriodo({ e, despachar, anios, delitos, datos }: PropsPaso & { anios: number[]; delitos: string[]; datos: DatosMicrogerencia | null }) {
-  const [q, setQ] = useState('');
+function PasoPeriodo({ e, despachar, anios, datos }: PropsPaso & { anios: number[]; datos: DatosMicrogerencia | null }) {
   const fmt = (iso: string) => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}`; };
-  const visibles = delitos.filter((d) => coincide(d, q));
   return (
     <div className="space-y-4">
-      <TituloPaso n={3} titulo="Periodo y delitos" sub="Ventana de análisis y delitos que se incluirán (se respetan las reglas estadísticas del dashboard)." />
+      <TituloPaso n={1} titulo="Periodo" sub="Primero elija año, meses o fechas. Luego, la microgerencia y el delito." />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="text-[12.5px] font-semibold text-[#10233f]">Año de análisis
           <select value={e.anio} onChange={(ev) => despachar({ tipo: 'periodo', anio: ev.target.value, fechaInicial: '', fechaFinal: '' })} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[13px]">
@@ -707,7 +713,6 @@ function PasoPeriodo({ e, despachar, anios, delitos, datos }: PropsPaso & { anio
           <input type="date" value={e.fechaFinal} onChange={(ev) => despachar({ tipo: 'periodo', fechaFinal: ev.target.value, meses: [] })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[13px]" />
         </label>
       </div>
-      {e.fuentes.includes('diaadia') && <SelectorDiaADia e={e} despachar={despachar} anios={anios} />}
       <div data-meses-asistente>
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[12.5px] font-semibold text-[#10233f]">Meses <span className="font-normal text-slate-500">(sin selección = todo el periodo; se cuentan solo los meses elegidos)</span></p>
@@ -732,24 +737,6 @@ function PasoPeriodo({ e, despachar, anios, delitos, datos }: PropsPaso & { anio
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[11px] font-bold uppercase text-slate-500">Fecha de corte</p><p className="text-[13.5px] font-bold text-[#10233f]">{fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}</p></div>
         </div>
       )}
-      <section>
-        <p className="mb-2 text-[14px] font-bold text-[#10233f]">Delitos <span className="font-normal text-slate-500">(sin selección se incluyen todos)</span></p>
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <Buscador valor={q} onCambio={setQ} placeholder="Buscar delito…" />
-          <BotonesLista contador={e.delitos.length} onTodas={() => despachar({ tipo: 'lista', campo: 'delitos', valores: Array.from(new Set([...e.delitos, ...visibles])) })} onLimpiar={() => despachar({ tipo: 'lista', campo: 'delitos', valores: [] })} />
-        </div>
-        <div className="grid max-h-[300px] grid-cols-1 gap-1 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
-          {visibles.map((d) => {
-            const activo = e.delitos.includes(d);
-            return (
-              <button key={d} type="button" onClick={() => despachar({ tipo: 'alternar', campo: 'delitos', valor: d })} aria-pressed={activo}
-                className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[13px] ${activo ? 'border-[#159089] bg-[#eaf6f1] font-semibold text-[#0f5f57]' : 'border-slate-200 bg-white text-[#10233f] hover:border-[#159089]/50'}`}>
-                <Marca activo={activo} /> {d}
-              </button>
-            );
-          })}
-        </div>
-      </section>
     </div>
   );
 }
@@ -760,11 +747,10 @@ function PasoResumen({ e, despachar, irA, datos, secciones, generando, mensaje }
   generando: '' | 'generando' | 'listo' | 'error'; mensaje: string;
 }) {
   const filas: { paso: number; titulo: string; valor: string }[] = [
-    { paso: 0, titulo: 'Fuentes', valor: e.fuentes.map((f) => FUENTES.find((x) => x.id === f)?.nombre ?? f).join(', ') || '—' },
-    ...(e.delitosAnalisis.length ? [{ paso: 0, titulo: 'Por delito', valor: e.delitosAnalisis.map((d, i) => `${i + 1}. ${d}`).join(' · ') }] : []),
-    { paso: 1, titulo: 'Hojas', valor: `${e.hojas.length} hoja${e.hojas.length === 1 ? '' : 's'} por fuente` },
-    { paso: 2, titulo: 'Periodo', valor: datos ? `${datos.periodoEtiqueta ?? datos.periodo} vs. ${datos.comparacionEtiqueta ?? datos.anioAnterior} · corte ${fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}` : '—' },
-    { paso: 2, titulo: 'Delitos', valor: e.delitos.length ? e.delitos.join(', ') : 'Todos' },
+    { paso: 1, titulo: 'Fuentes', valor: e.fuentes.map((f) => FUENTES.find((x) => x.id === f)?.nombre ?? f).join(', ') || '—' },
+    ...(e.delitosAnalisis.length ? [{ paso: 1, titulo: 'Delito', valor: e.delitosAnalisis.map((d, i) => `${i + 1}. ${d}`).join(' · ') }] : []),
+    { paso: 2, titulo: 'Hojas', valor: `${e.hojas.length} hoja${e.hojas.length === 1 ? '' : 's'} por fuente` },
+    { paso: 0, titulo: 'Periodo', valor: datos ? `${datos.periodoEtiqueta ?? datos.periodo} vs. ${datos.comparacionEtiqueta ?? datos.anioAnterior} · corte ${fechaLargaIso(datos.fechaCorte ?? datos.actualFin)}` : '—' },
   ];
   return (
     <div className="space-y-3">
@@ -834,16 +820,15 @@ function PanelResumen({ e, despachar, datos, hojas }: PropsPaso & { datos: Datos
       </div>
     );
   };
-  const nota = e.paso === 0 ? 'Puede seleccionar una o varias fuentes.' : e.paso === 1 ? 'Cada unidad marcada es una hoja del informe.' : e.paso === 2 ? 'Sin delitos seleccionados se incluyen todos.' : 'Genere el PDF o descargue la imagen.';
+  const nota = e.paso === 0 ? 'Primero el periodo: año, meses o fechas.' : e.paso === 1 ? 'Sin delito, la Delictiva es la general de todos los delitos.' : e.paso === 2 ? 'Cada unidad marcada es una hoja del informe.' : 'Genere el PDF o descargue la imagen.';
   return (
     <aside className="shrink-0 border-t border-slate-200 bg-slate-50/70 px-4 py-4 lg:w-[290px] lg:overflow-y-auto lg:border-l lg:border-t-0" aria-label="Resumen de la selección" data-panel-resumen>
       <p className="mb-3 rounded-lg bg-white px-3 py-2 text-[16px] font-extrabold text-[#10233f] shadow-sm">Resumen</p>
       <div className="space-y-3">
-        {bloque('Fuentes seleccionadas', Layers, e.fuentes.length ? e.fuentes.map((f) => <Chip key={f} texto={FUENTES.find((x) => x.id === f)?.nombre ?? f} onQuitar={e.fuentes.length > 1 ? () => despachar({ tipo: 'fuente', fuente: f }) : undefined} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
-        {e.delitosAnalisis.length > 0 && bloque(`Microgerencia por delito (${e.delitosAnalisis.length})`, ShieldCheck, e.delitosAnalisis.map((d, i) => <Chip key={d} texto={`${i + 1}. ${d}`} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitosAnalisis', valor: d })} />))}
-        {bloque(`Hojas del informe (${hojas.length})`, MapPin, hojas.length ? hojas.map((h) => <Chip key={h.clave} texto={h.tipo === 'zona' || h.tipo === 'cai' ? `${h.titulo} · ${etiquetaEstacion(h.nodo.estacion ?? '')}` : h.titulo} onQuitar={() => despachar({ tipo: 'hoja', clave: h.clave })} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
         {bloque('Periodo', CalendarDays, <span className="text-[12px] text-slate-600">{datos ? `${datos.periodoEtiqueta ?? datos.periodo} vs. ${datos.comparacionEtiqueta ?? datos.anioAnterior}` : e.anio || 'Vigencia actual'}</span>)}
-        {bloque(`Delitos${e.delitos.length ? ` (${e.delitos.length})` : ''}`, ShieldCheck, e.delitos.length ? e.delitos.map((d) => <Chip key={d} texto={d} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitos', valor: d })} />) : <span className="text-[12px] text-slate-600">Todos</span>)}
+        {bloque('Fuentes seleccionadas', Layers, e.fuentes.length ? e.fuentes.map((f) => <Chip key={f} texto={FUENTES.find((x) => x.id === f)?.nombre ?? f} onQuitar={e.fuentes.length > 1 || e.delitosAnalisis.length > 0 ? () => despachar({ tipo: 'fuente', fuente: f }) : undefined} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
+        {e.delitosAnalisis.length > 0 && bloque(`Delito (${e.delitosAnalisis.length})`, ShieldCheck, e.delitosAnalisis.map((d, i) => <Chip key={d} texto={`${i + 1}. ${d}`} onQuitar={() => despachar({ tipo: 'alternar', campo: 'delitosAnalisis', valor: d })} />))}
+        {bloque(`Hojas del informe (${hojas.length})`, MapPin, hojas.length ? hojas.map((h) => <Chip key={h.clave} texto={h.tipo === 'zona' || h.tipo === 'cai' ? `${h.titulo} · ${etiquetaEstacion(h.nodo.estacion ?? '')}` : h.titulo} onQuitar={() => despachar({ tipo: 'hoja', clave: h.clave })} />) : <span className="text-[12px] text-slate-400">Ninguna</span>)}
       </div>
       <p className="mt-4 flex gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11.5px] text-slate-600"><Info size={14} className="mt-0.5 shrink-0 text-[#0f5f57]" /> {nota}</p>
     </aside>
