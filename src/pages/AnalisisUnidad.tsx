@@ -30,35 +30,15 @@ import { formatDecimal, formatFecha, formatNumero } from '../utils/aggregations'
 import { TrendingUp, TrendingDown, Info, BarChart3, LineChart, Building2, Target, Activity, MapPin, Clock, MapPinned, Home, Crosshair, Timer, Building, Plus, Map, Users, UserRound, CalendarDays, ArrowUpToLine, ArrowDownToLine, Bike, Footprints } from 'lucide-react';
 import { ComparativoMultifecha } from './ComparativoMultifecha';
 
-const OPCIONES_TOP = [
-  { label: 'Top 5', valor: 5 },
-  { label: 'Top 10', valor: 10 },
-  { label: 'Todos', valor: undefined },
-];
+/** Recorta una lista ya ordenada según Top 5 / Top 10 / Todas. */
+const recortar = <T,>(filas: T[], top: ValorTop): T[] => (top === 'todas' ? filas : filas.slice(0, top));
+/** Con «Todas» la lista puede ser larga: se desplaza dentro de la tarjeta. */
+const ListaTop = ({ top, children }: { top: ValorTop; children: React.ReactNode }) => (
+  <div className={top === 'todas' ? 'max-h-[460px] overflow-y-auto pr-1' : undefined}>{children}</div>
+);
 
 // "14" → "14:00 – 14:59"
 const etiquetaHora = (h: string) => `${h.padStart(2, '0')}:00 – ${h.padStart(2, '0')}:59`;
-
-const OPCIONES_TOP_5_10 = [
-  { label: 'Top 5', valor: 5 },
-  { label: 'Top 10', valor: 10 },
-];
-
-function SelectorTop({ valor, onChange, opciones = OPCIONES_TOP_5_10 }: { valor: number | undefined; onChange: (v: number | undefined) => void; opciones?: { label: string; valor: number | undefined }[] }) {
-  return (
-    <div className="flex gap-1">
-      {opciones.map((o) => (
-        <button
-          key={o.label}
-          onClick={() => onChange(o.valor)}
-          className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${valor === o.valor ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function AnalisisUnidad() {
   const { records, filteredRecords, recordsBase, filters, setFilters, meta, drillDown, filteredOperatividadRecords, periodos } = useData();
@@ -66,17 +46,25 @@ export function AnalisisUnidad() {
   const modoAcceso = obtenerModoAcceso();
   const accesoTendenciaMensual = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaMensual;
   const accesoTendenciaDiaria = !modoAcceso || DASHBOARD_ACCESS[modoAcceso].tendenciaDiaria;
-  const [topDelitos, setTopDelitos] = useState<number | undefined>(10);
+  const [topDelitos, setTopDelitos] = useState<ValorTop>(10);
   const [topCai, setTopCai] = useState<ValorTop>(10);
-  const [topCuadrante, setTopCuadrante] = useState(10);
+  const [topCuadrante, setTopCuadrante] = useState<ValorTop>(10);
+  // Top 5 / Top 10 / Todas en TODOS los componentes de lista de la página.
+  const [topEstacion, setTopEstacion] = useState<ValorTop>(10);
+  const [topTurno, setTopTurno] = useState<ValorTop>(10);
+  const [topZonaUR, setTopZonaUR] = useState<ValorTop>(10);
+  const [topGenero, setTopGenero] = useState<ValorTop>(10);
+  const [topEdad, setTopEdad] = useState<ValorTop>(10);
+  const [topDiaSemana, setTopDiaSemana] = useState<ValorTop>('todas');
+  const [topMunicipio, setTopMunicipio] = useState<ValorTop>(10);
   const [verAporteEstacion, setVerAporteEstacion] = useState(false);
-  const [topBarrio, setTopBarrio] = useState(10);
-  const [topArma, setTopArma] = useState(10);
-  const [topModalidad, setTopModalidad] = useState(10);
-  const [topClaseSitio, setTopClaseSitio] = useState(10);
-  const [topMovilAgresor, setTopMovilAgresor] = useState(10);
-  const [topMovilVictima, setTopMovilVictima] = useState(10);
-  const [topCausaLesion, setTopCausaLesion] = useState(10);
+  const [topBarrio, setTopBarrio] = useState<ValorTop>(10);
+  const [topArma, setTopArma] = useState<ValorTop>(10);
+  const [topModalidad, setTopModalidad] = useState<ValorTop>(10);
+  const [topClaseSitio, setTopClaseSitio] = useState<ValorTop>(10);
+  const [topMovilAgresor, setTopMovilAgresor] = useState<ValorTop>(10);
+  const [topMovilVictima, setTopMovilVictima] = useState<ValorTop>(10);
+  const [topCausaLesion, setTopCausaLesion] = useState<ValorTop>(10);
 
   // ── Migrado de la antigua página "Indicadores" (fusionada aquí) ──────
   const kpis = useKpis(filteredRecords);
@@ -115,6 +103,12 @@ export function AnalisisUnidad() {
   // vez de los ~10.000 esperados para un solo año).
   // Semana de domingo a sábado: así se mide la estadística institucional.
   const diaSemana = useTendenciaDiaSemana(recsVista, DIAS_ORDEN_DOMINGO);
+  // Top N días: los de más casos, conservando el orden domingo → sábado.
+  const diaSemanaVista = useMemo(() => {
+    if (topDiaSemana === 'todas') return diaSemana;
+    const elegidos = new Set([...diaSemana].sort((a, b) => b.casos - a.casos).slice(0, topDiaSemana).map((d) => d.dia));
+    return diaSemana.filter((d) => elegidos.has(d.dia));
+  }, [diaSemana, topDiaSemana]);
 
   // Incluye TAMBIÉN el año anterior (no solo el actual) — necesario para
   // poder comparar, día a día, el mismo periodo contra el año pasado dentro
@@ -182,37 +176,37 @@ export function AnalisisUnidad() {
     () => agruparPor(recsVista, (r) => municipioDe(r) || 'NO REPORTADO').filter((m) => m.casos > 0).sort((a, b) => b.casos - a.casos).map((m) => ({ municipio: m.key, casos: m.casos })),
     [recsVista],
   );
-  const porGenero = useRanking(recsVista, (r) => r.genero, 10);
-  const porGrupoEdad = useRanking(recsVista, (r) => r.grupoEdad, 10);
+  const porGenero = useRanking(recsVista, (r) => r.genero);
+  const porGrupoEdad = useRanking(recsVista, (r) => r.grupoEdad);
   // Igual razón que diaSemana arriba: EXCLUSIVAMENTE la vigencia actual,
   // no filteredRecords directo (que mezclaba los 23 años sin filtro).
   const porHora = useDistribucionHoraria(recsVista);
-  const [topHorasUnidad, setTopHorasUnidad] = useState<number | undefined>(undefined);
+  const [topHorasUnidad, setTopHorasUnidad] = useState<ValorTop>('todas');
   // "Horas más afectadas": las 24 horas como ranking (mismas barras y aporte
   // de las demás tarjetas). Clic = filtrar por esa hora; otro clic la quita.
-  const [topHorasRanking, setTopHorasRanking] = useState<number | undefined>(5);
+  const [topHorasRanking, setTopHorasRanking] = useState<ValorTop>(5);
   const horasMasAfectadas = useMemo(() => {
     const totalHoras = porHora.reduce((a, h) => a + h.casos, 0);
     const filas = [...porHora]
       .filter((h) => h.casos > 0)
       .sort((a, b) => b.casos - a.casos || a.horaNum - b.horaNum)
       .map((h) => ({ key: String(h.horaNum), casos: h.casos, aportePct: totalHoras > 0 ? (h.casos / totalHoras) * 100 : 0 }));
-    return topHorasRanking ? filas.slice(0, topHorasRanking) : filas;
+    return recortar(filas, topHorasRanking);
   }, [porHora, topHorasRanking]);
   const porHoraFiltrada = useMemo(() => {
-    if (!topHorasUnidad) return porHora;
+    if (topHorasUnidad === 'todas') return porHora;
     return [...porHora].sort((a, b) => b.casos - a.casos).slice(0, topHorasUnidad);
   }, [porHora, topHorasUnidad]);
 
-  const cmpEstacion = useComparativoCategoria(ventana, (r) => r.estacion, 10);
-  const cmpCuadrante = useComparativoCategoria(ventanaVista, (r) => r.cuadrante, 15);
-  const cmpBarrio = useComparativoCategoria(ventanaVista, (r) => r.barrioHecho, 10);
-  const cmpArma = useComparativoCategoria(ventanaVista, (r) => r.armas, 10);
-  const cmpModalidad = useComparativoCategoria(ventanaVista, (r) => r.modalidad, 10);
-  const cmpClaseSitio = useComparativoCategoria(ventanaVista, (r) => r.claseSitio, 10);
-  const cmpMovilAgresor = useComparativoCategoria(ventanaVista, (r) => r.movilAgresor ?? 'NO REPORTADO', 12);
-  const cmpMovilVictima = useComparativoCategoria(ventanaVista, (r) => r.movilVictima ?? 'NO REPORTADO', 12);
-  const cmpCausaLesion = useComparativoCategoria(ventanaVista, (r) => r.causaLesion, 10);
+  const cmpEstacion = useComparativoCategoria(ventana, (r) => r.estacion);
+  const cmpCuadrante = useComparativoCategoria(ventanaVista, (r) => r.cuadrante);
+  const cmpBarrio = useComparativoCategoria(ventanaVista, (r) => r.barrioHecho);
+  const cmpArma = useComparativoCategoria(ventanaVista, (r) => r.armas);
+  const cmpModalidad = useComparativoCategoria(ventanaVista, (r) => r.modalidad);
+  const cmpClaseSitio = useComparativoCategoria(ventanaVista, (r) => r.claseSitio);
+  const cmpMovilAgresor = useComparativoCategoria(ventanaVista, (r) => r.movilAgresor ?? 'NO REPORTADO');
+  const cmpMovilVictima = useComparativoCategoria(ventanaVista, (r) => r.movilVictima ?? 'NO REPORTADO');
+  const cmpCausaLesion = useComparativoCategoria(ventanaVista, (r) => r.causaLesion);
   // Comparativo por delito, filtrado a EXACTAMENTE los delitos que estén
   // seleccionados en el filtro principal — se acomoda solo, sin necesidad de
   // ningún control adicional en esta tarjeta.
@@ -277,7 +271,7 @@ export function AnalisisUnidad() {
     ? agruparPor(recsVista, (r) => r.delito).filter((d) => d.key !== 'NO REPORTADO')
     : [];
   const totalDelitosVigenciaActual = porDelitoVigenciaActualCompleto.reduce((a, d) => a + d.casos, 0);
-  const porDelitoVigenciaActual = porDelitoVigenciaActualCompleto.slice(0, topDelitos).map((d) => ({
+  const porDelitoVigenciaActual = recortar(porDelitoVigenciaActualCompleto, topDelitos).map((d) => ({
     ...d,
     aportePct: totalDelitosVigenciaActual > 0 ? (d.casos / totalDelitosVigenciaActual) * 100 : 0,
   }));
@@ -301,7 +295,7 @@ export function AnalisisUnidad() {
     ? agruparPor(recsVista, (r) => r.turno || 'NO REPORTADO').filter((d) => d.key !== 'NO REPORTADO')
     : [];
   const totalTurnoVigenciaActual = porTurnoCompleto.reduce((a, d) => a + d.casos, 0);
-  const porTurnoVigenciaActual = porTurnoCompleto.map((d) => ({
+  const porTurnoVigenciaActual = recortar(porTurnoCompleto, topTurno).map((d) => ({
     ...d,
     aportePct: totalTurnoVigenciaActual > 0 ? (d.casos / totalTurnoVigenciaActual) * 100 : 0,
   }));
@@ -352,10 +346,11 @@ export function AnalisisUnidad() {
     { titulo: 'Máximo diario', valor: formatNumero(kpis.maxDiario), nota: 'en 1 día', tono: 'verde', icono: <ArrowUpToLine size={18} strokeWidth={2} /> },
     { titulo: 'Mínimo diario', valor: formatNumero(kpis.minDiario), nota: 'en 1 día', tono: 'azul', icono: <ArrowDownToLine size={18} strokeWidth={2} /> },
   ];
-  const ranking = (filas: { key: string; actual: number; aportePct: number }[], limite: number) =>
-    [...filas].sort((a, b) => b.actual - a.actual).slice(0, limite).map((f) => ({ key: f.key, casos: f.actual, aportePct: f.aportePct }));
+  const ranking = (filas: { key: string; actual: number; aportePct: number }[], limite: ValorTop) =>
+    recortar([...filas].sort((a, b) => b.actual - a.actual), limite).map((f) => ({ key: f.key, casos: f.actual, aportePct: f.aportePct }));
   const total = (filas: { casos: number }[]) => filas.reduce((a, f) => a + f.casos, 0);
-  const COLORES_DONA = ['#10233f', '#159089', '#f97316', '#8a86da', '#a3acb9'];
+  // Los 5 primeros son los de siempre; los demás solo aparecen con Top 10 / Todas.
+  const COLORES_DONA = ['#10233f', '#159089', '#f97316', '#8a86da', '#a3acb9', '#0e7490', '#c2410c', '#4f46e5', '#65a30d', '#be185d', '#0f5f57', '#b45309'];
 
   return (
     <ProveedorRegistroPdf>
@@ -410,9 +405,9 @@ export function AnalisisUnidad() {
               </Card>
 
               {/* Casos por estación: TABLA (obligatoria) + debajo el recuadro rojo/verde de la meta del 5 %. */}
-              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T} actions={<BotonAporte activo={verAporteEstacion} onChange={setVerAporteEstacion} />}>
+              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por estación" subtitle={`Casos ${ventana.anioAnterior} vs. ${ventana.anioActual}, a la fecha`} descargable="casos-por-estacion" icono={ico(Building2)} claseTitulo={T} actions={<div className="flex flex-wrap items-center justify-end gap-1.5"><SelectorTopBotones valor={topEstacion} onChange={setTopEstacion} /><BotonAporte activo={verAporteEstacion} onChange={setVerAporteEstacion} /></div>}>
                 <TablaComparativaSimple
-                  filas={cmpEstacion.slice(0, 10).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual, totalAnterior: f.totalAnioAnteriorCompleto }))}
+                  filas={recortar(cmpEstacion, topEstacion).map((f) => ({ key: f.key, anterior: f.anterior, actual: f.actual, totalAnterior: f.totalAnioAnteriorCompleto }))}
                   etiqueta="Estación"
                   anioAnterior={ventana.anioAnterior}
                   anioActual={ventana.anioActual}
@@ -513,18 +508,27 @@ export function AnalisisUnidad() {
             {/* ── FILA 3: CAI | Turno | Top delitos | Top cuadrantes ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               <Card className="h-full" title="CAI más afectados" subtitle={`Top ${topCai === 'todas' ? 'todos' : topCai}, ${etiquetaVigencia}`} descargable="cai-mas-afectados" icono={ico(MapPin)} claseTitulo={T} actions={<SelectorTopBotones valor={topCai} onChange={setTopCai} />}>
+                <ListaTop top={topCai}>
                 <RankingAporte data={conAnios(porCaiVigenciaActual, (r) => r.cai || 'NO REPORTADO')} anios={aniosTabla} cabeza="CAI" onClick={(key) => drillDown('cai', key)} seleccionados={filters.cai as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Turno de vigilancia" subtitle={`Exclusivamente ${etiquetaVigencia}`} descargable="turno-vigilancia" icono={ico(Clock)} claseTitulo={T}>
+              <Card className="h-full" title="Turno de vigilancia" subtitle={`Exclusivamente ${etiquetaVigencia}`} descargable="turno-vigilancia" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTopBotones valor={topTurno} onChange={setTopTurno} />}>
+                <ListaTop top={topTurno}>
                 <RankingAporte data={conAnios(porTurnoVigenciaActual, (r) => r.turno || 'NO REPORTADO')} anios={aniosTabla} cabeza="Turno" onClick={(key) => drillDown('turno', key)} seleccionados={filters.turno as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Análisis de delitos — Top por cantidad" subtitle={`Exclusivamente ${etiquetaVigencia}`} descargable="top-delitos" icono={ico(BarChart3)} claseTitulo={T} actions={<SelectorTop valor={topDelitos} onChange={setTopDelitos} opciones={OPCIONES_TOP} />}>
+              <Card className="h-full" title="Análisis de delitos — Top por cantidad" subtitle={`Exclusivamente ${etiquetaVigencia}`} descargable="top-delitos" icono={ico(BarChart3)} claseTitulo={T} actions={<SelectorTopBotones valor={topDelitos} onChange={setTopDelitos} />}>
+                <ListaTop top={topDelitos}>
                 <RankingAporte data={conAnios(porDelitoVigenciaActual, (r) => r.delito)} anios={aniosTabla} cabeza="Delito" onClick={(key) => drillDown('delito', key)} seleccionados={filters.delito as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title={`Top ${topCuadrante} Zonas de Atención más afectadas`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTop valor={topCuadrante} onChange={(v) => setTopCuadrante(v!)} />}>
+              <Card className="h-full" title={`${topCuadrante === 'todas' ? 'Todas las' : `Top ${topCuadrante}`} Zonas de Atención más afectadas`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-cuadrantes" icono={ico(MapPinned)} claseTitulo={T} actions={<SelectorTopBotones valor={topCuadrante} onChange={setTopCuadrante} />}>
+                <ListaTop top={topCuadrante}>
                 <RankingAporte data={conAnios(ranking(cmpCuadrante.filter((f) => !esZonaSinCuadrante(f.key)), topCuadrante), (r) => r.cuadrante)} anios={aniosTabla} cabeza="Zonas de Atención" onClick={(key) => drillDown('cuadrante', key)} seleccionados={filters.cuadrante as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Horas más afectadas" subtitle={`${topHorasRanking ? `Top ${topHorasRanking}` : 'Las 24 horas'}, ${etiquetaVigencia}`} descargable="horas-mas-afectadas" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTop valor={topHorasRanking} onChange={setTopHorasRanking} opciones={OPCIONES_TOP} />}>
+              <Card className="h-full" title="Horas más afectadas" subtitle={`${topHorasRanking !== 'todas' ? `Top ${topHorasRanking}` : 'Las 24 horas'}, ${etiquetaVigencia}`} descargable="horas-mas-afectadas" icono={ico(Clock)} claseTitulo={T} actions={<SelectorTopBotones valor={topHorasRanking} onChange={setTopHorasRanking} />}>
+                <ListaTop top={topHorasRanking}>
                 <RankingAporte
                   data={conAnios(horasMasAfectadas, (r) => (r.hora != null ? String(r.hora) : '')).map((h) => ({ ...h, key: etiquetaHora(h.key) }))}
                   anios={aniosTabla}
@@ -532,76 +536,87 @@ export function AnalisisUnidad() {
                   onClick={(etiqueta) => drillDown('horaExacta', String(parseInt(etiqueta, 10)))}
                   seleccionados={filters.horaExacta.map(etiquetaHora)}
                 />
+                </ListaTop>
               </Card>
             </div>
 
             {/* ── FILA 4: Barrios | Armas | Modalidades | Clase de sitio | Causa de lesión ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-              <Card className="h-full" title={`Top ${topBarrio} barrios más afectados`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-barrios" icono={ico(Home)} claseTitulo={T} actions={<SelectorTop valor={topBarrio} onChange={(v) => setTopBarrio(v!)} />}>
+              <Card className="h-full" title={`${topBarrio === 'todas' ? 'Todos los' : `Top ${topBarrio}`} barrios más afectados`} subtitle={variosAnios ? `Casos por año, ${etiquetaVigencia}` : `Vigencia ${ventana.anioActual}, a la fecha`} descargable="top-barrios" icono={ico(Home)} claseTitulo={T} actions={<SelectorTopBotones valor={topBarrio} onChange={setTopBarrio} />}>
+                <ListaTop top={topBarrio}>
                 <RankingAporte data={conAnios(ranking(cmpBarrio, topBarrio), (r) => r.barrioHecho)} anios={aniosTabla} cabeza="Barrio" onClick={(key) => drillDown('barrioHecho', key)} seleccionados={filters.barrioHecho as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Armas empleadas" subtitle={`Top ${topArma}, ${etiquetaVigencia}`} descargable="armas-empleadas" icono={ico(Crosshair)} claseTitulo={T} actions={<SelectorTop valor={topArma} onChange={(v) => setTopArma(v!)} />}>
+              <Card className="h-full" title="Armas empleadas" subtitle={`${topArma === 'todas' ? 'Todos' : `Top ${topArma}`}, ${etiquetaVigencia}`} descargable="armas-empleadas" icono={ico(Crosshair)} claseTitulo={T} actions={<SelectorTopBotones valor={topArma} onChange={setTopArma} />}>
+                <ListaTop top={topArma}>
                 <RankingAporte data={conAnios(ranking(cmpArma, topArma), (r) => r.armas)} anios={aniosTabla} cabeza="Arma" onClick={(key) => drillDown('armas', key)} seleccionados={filters.armas as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Modalidades principales" subtitle={`Top ${topModalidad}, ${etiquetaVigencia}`} descargable="modalidades" icono={ico(Timer)} claseTitulo={T} actions={<SelectorTop valor={topModalidad} onChange={(v) => setTopModalidad(v!)} />}>
+              <Card className="h-full" title="Modalidades principales" subtitle={`${topModalidad === 'todas' ? 'Todos' : `Top ${topModalidad}`}, ${etiquetaVigencia}`} descargable="modalidades" icono={ico(Timer)} claseTitulo={T} actions={<SelectorTopBotones valor={topModalidad} onChange={setTopModalidad} />}>
+                <ListaTop top={topModalidad}>
                 <RankingAporte data={conAnios(ranking(cmpModalidad, topModalidad), (r) => r.modalidad)} anios={aniosTabla} cabeza="Modalidad" onClick={(key) => drillDown('modalidad', key)} seleccionados={filters.modalidad as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Clase de sitio" subtitle={`Top ${topClaseSitio}, ${etiquetaVigencia}`} descargable="clase-sitio" icono={ico(Building)} claseTitulo={T} actions={<SelectorTop valor={topClaseSitio} onChange={(v) => setTopClaseSitio(v!)} />}>
+              <Card className="h-full" title="Clase de sitio" subtitle={`${topClaseSitio === 'todas' ? 'Todos' : `Top ${topClaseSitio}`}, ${etiquetaVigencia}`} descargable="clase-sitio" icono={ico(Building)} claseTitulo={T} actions={<SelectorTopBotones valor={topClaseSitio} onChange={setTopClaseSitio} />}>
+                <ListaTop top={topClaseSitio}>
                 <RankingAporte data={conAnios(ranking(cmpClaseSitio, topClaseSitio), (r) => r.claseSitio)} anios={aniosTabla} cabeza="Clase de sitio" onClick={(key) => drillDown('claseSitio', key)} seleccionados={filters.claseSitio as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full" title="Causa de lesión" subtitle={`Top ${topCausaLesion}, ${etiquetaVigencia}`} descargable="causa-lesion" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} claseTitulo={T} actions={<SelectorTop valor={topCausaLesion} onChange={(v) => setTopCausaLesion(v!)} />}>
+              <Card className="h-full" title="Causa de lesión" subtitle={`${topCausaLesion === 'todas' ? 'Todos' : `Top ${topCausaLesion}`}, ${etiquetaVigencia}`} descargable="causa-lesion" icono={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#137a6f]"><Plus size={15} strokeWidth={3.5} className="text-white" /></span>} claseTitulo={T} actions={<SelectorTopBotones valor={topCausaLesion} onChange={setTopCausaLesion} />}>
+                <ListaTop top={topCausaLesion}>
                 <RankingAporte data={conAnios(ranking(cmpCausaLesion, topCausaLesion), (r) => r.causaLesion)} anios={aniosTabla} cabeza="Causa" onClick={(key) => drillDown('causaLesion', key)} seleccionados={filters.causaLesion as string[]} />
+                </ListaTop>
               </Card>
             </div>
 
             {/* ── FILA 5: Móvil agresor | Móvil víctima | Zonas | Género | Grupo de edad (una sola fila) ──
                  Las dos tablas de móvil llevan un poco más de ancho porque traen columnas por año. */}
             <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-6 2xl:grid-cols-[1.3fr_1.3fr_0.85fr_0.85fr_0.85fr]">
-              <Card className="h-full xl:col-span-3 2xl:col-span-1" title="Móvil agresor" subtitle={`Top ${topMovilAgresor}, ${etiquetaVigencia}`} descargable="movil-agresor" icono={ico(Bike)} claseTitulo={T} actions={<SelectorTop valor={topMovilAgresor} onChange={(v) => setTopMovilAgresor(v!)} />}>
+              <Card className="h-full xl:col-span-3 2xl:col-span-1" title="Móvil agresor" subtitle={`${topMovilAgresor === 'todas' ? 'Todos' : `Top ${topMovilAgresor}`}, ${etiquetaVigencia}`} descargable="movil-agresor" icono={ico(Bike)} claseTitulo={T} actions={<SelectorTopBotones valor={topMovilAgresor} onChange={setTopMovilAgresor} />}>
+                <ListaTop top={topMovilAgresor}>
                 <RankingAporte data={conAnios(ranking(cmpMovilAgresor, topMovilAgresor), (r) => r.movilAgresor ?? 'NO REPORTADO')} anios={aniosTabla} cabeza="Móvil agresor" onClick={(key) => drillDown('movilAgresor', key)} seleccionados={(filters.movilAgresor ?? []) as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full xl:col-span-3 2xl:col-span-1" title="Móvil víctima" subtitle={`Top ${topMovilVictima}, ${etiquetaVigencia}`} descargable="movil-victima" icono={ico(Footprints)} claseTitulo={T} actions={<SelectorTop valor={topMovilVictima} onChange={(v) => setTopMovilVictima(v!)} />}>
+              <Card className="h-full xl:col-span-3 2xl:col-span-1" title="Móvil víctima" subtitle={`${topMovilVictima === 'todas' ? 'Todos' : `Top ${topMovilVictima}`}, ${etiquetaVigencia}`} descargable="movil-victima" icono={ico(Footprints)} claseTitulo={T} actions={<SelectorTopBotones valor={topMovilVictima} onChange={setTopMovilVictima} />}>
+                <ListaTop top={topMovilVictima}>
                 <RankingAporte data={conAnios(ranking(cmpMovilVictima, topMovilVictima), (r) => r.movilVictima ?? 'NO REPORTADO')} anios={aniosTabla} cabeza="Móvil víctima" onClick={(key) => drillDown('movilVictima', key)} seleccionados={(filters.movilVictima ?? []) as string[]} />
+                </ListaTop>
               </Card>
-              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <Top5Dona filas={urbanoRural} total={total(urbanoRural)} colores={COLORES_DONA} compacta />
+              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Zonas con mayor concentración" descargable="zonas-concentracion" icono={ico(Map)} claseTitulo="text-[14px] font-bold text-[#10233f]" actions={<SelectorTopBotones valor={topZonaUR} onChange={setTopZonaUR} />}>
+                <Top5Dona filas={recortar(urbanoRural, topZonaUR)} total={total(urbanoRural)} colores={COLORES_DONA} compacta />
               </Card>
-              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Distribución por género" descargable="distribucion-genero" icono={ico(Users)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <Top5Dona filas={porGenero.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGenero)} colores={COLORES_DONA} compacta />
+              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Distribución por género" descargable="distribucion-genero" icono={ico(Users)} claseTitulo="text-[14px] font-bold text-[#10233f]" actions={<SelectorTopBotones valor={topGenero} onChange={setTopGenero} />}>
+                <Top5Dona filas={recortar(porGenero, topGenero).map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGenero)} colores={COLORES_DONA} compacta />
               </Card>
-              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <Top5Dona filas={porGrupoEdad.map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
+              <Card className="h-full xl:col-span-2 2xl:col-span-1" title="Distribución por grupo de edad" descargable="distribucion-edad" icono={ico(UserRound)} claseTitulo="text-[14px] font-bold text-[#10233f]" actions={<SelectorTopBotones valor={topEdad} onChange={setTopEdad} />}>
+                <Top5Dona filas={recortar(porGrupoEdad, topEdad).map((g) => ({ key: g.key, casos: g.casos }))} total={total(porGrupoEdad)} colores={COLORES_DONA} compacta />
               </Card>
             </div>
 
             {/* ── FILA 6: Casos por día de la semana | Concentración horaria | Municipio ── */}
             <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1.45fr_0.8fr]">
-              <Card className="h-full" title="Casos por día de la semana" subtitle="Los 3 días con más casos se resaltan · línea naranja: tendencia de domingo a sábado" descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]">
-                <GroupedBarChart data={diaSemana} xKey="dia" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={46} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarEjeY ocultarLeyendaBarras lineaReferencia="tendencia" />
+              <Card className="h-full" title="Casos por día de la semana" subtitle={topDiaSemana === 'todas' ? 'Los 3 días con más casos se resaltan · línea naranja: tendencia de domingo a sábado' : `Los ${topDiaSemana} días con más casos, de domingo a sábado`} descargable="casos-dia-semana" icono={ico(CalendarDays)} claseTitulo="text-[14px] font-bold text-[#10233f]" actions={<SelectorTopBotones valor={topDiaSemana} onChange={setTopDiaSemana} />}>
+                <GroupedBarChart data={diaSemanaVista} xKey="dia" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={46} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topDiaSemana === 'todas' ? 'tendencia' : undefined} />
               </Card>
               <Card
                 className="h-full"
                 title="Concentración horaria"
-                subtitle={topHorasUnidad ? `Top ${topHorasUnidad} horas con más casos` : 'Las 3 horas con más casos se resaltan · línea naranja: promedio de 3 horas (franjas de mayor actividad)'}
+                subtitle={topHorasUnidad !== 'todas' ? `Top ${topHorasUnidad} horas con más casos` : 'Las 3 horas con más casos se resaltan · línea naranja: promedio de 3 horas (franjas de mayor actividad)'}
                 descargable="concentracion-horaria"
                 icono={ico(Clock)}
                 claseTitulo="text-[14px] font-bold text-[#10233f]"
                 actions={
-                  <div className="flex gap-1">
-                    {[{ label: 'Top 5', v: 5 }, { label: 'Top 10', v: 10 }, { label: 'Todas', v: undefined }].map((o) => (
-                      <button key={o.label} onClick={() => setTopHorasUnidad(o.v)} className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ${topHorasUnidad === o.v ? 'bg-brand-green text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{o.label}</button>
-                    ))}
-                  </div>
+                  <SelectorTopBotones valor={topHorasUnidad} onChange={setTopHorasUnidad} />
                 }
               >
-                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={26} tamanoEtiqueta={10} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad ? undefined : 'promedio3'} />
+                <GroupedBarChart data={porHoraFiltrada} xKey="hora" seriesKeys={['casos']} height={270} resaltarMaximo resaltarTopN={3} colorPorBarra anchoMaximoBarra={26} tamanoEtiqueta={10} ocultarEjeY ocultarLeyendaBarras lineaReferencia={topHorasUnidad !== 'todas' ? undefined : 'promedio3'} />
               </Card>
-              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por municipio" subtitle={`${etiquetaVigencia} · clic en una barra para filtrar por ese municipio`} descargable="casos-municipio" icono={ico(Building2)} claseTitulo="text-[14px] font-bold text-[#10233f]">
+              <Card className="h-full lg:col-span-2 2xl:col-span-1" title="Casos por municipio" subtitle={`${etiquetaVigencia} · clic en una barra para filtrar por ese municipio`} descargable="casos-municipio" icono={ico(Building2)} claseTitulo="text-[14px] font-bold text-[#10233f]" actions={<SelectorTopBotones valor={topMunicipio} onChange={setTopMunicipio} />}>
                 {porMunicipio.length > 0 ? (
                   <div data-casos-municipio>
-                    <GroupedBarChart data={porMunicipio} xKey="municipio" seriesKeys={['casos']} horizontal height={Math.min(270, Math.max(130, 70 + porMunicipio.length * 40))} resaltarMaximo colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarLeyendaBarras onBarClick={(m) => drillDown('municipio', m)} />
+                    <GroupedBarChart data={recortar(porMunicipio, topMunicipio)} xKey="municipio" seriesKeys={['casos']} horizontal height={Math.min(420, Math.max(130, 70 + recortar(porMunicipio, topMunicipio).length * 36))} resaltarMaximo colorPorBarra anchoMaximoBarra={30} tamanoEtiqueta={11.5} espaciadoCategoria={0.3} ocultarLeyendaBarras onBarClick={(m) => drillDown('municipio', m)} />
                     <p className="mt-1 text-center text-[11.5px] text-slate-500">
-                      {porMunicipio.map((m) => `${m.municipio}: ${formatNumero(m.casos)} (${formatDecimal(total(porMunicipio) ? (m.casos / total(porMunicipio)) * 100 : 0, 1)} %)`).join(' · ')}
+                      {recortar(porMunicipio, topMunicipio).map((m) => `${m.municipio}: ${formatNumero(m.casos)} (${formatDecimal(total(porMunicipio) ? (m.casos / total(porMunicipio)) * 100 : 0, 1)} %)`).join(' · ')}
                     </p>
                   </div>
                 ) : <p className="py-8 text-center text-sm text-slate-400">Sin casos con los filtros activos.</p>}
