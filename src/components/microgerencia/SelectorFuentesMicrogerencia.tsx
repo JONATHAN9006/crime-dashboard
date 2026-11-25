@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, FileBarChart } from 'lucide-react';
 import { ModalMicrogerencia } from './ModalMicrogerencia';
 
-export type FuenteMicrogerencia = 'delictividad' | 'operatividad' | 'rnmc' | 'irisp1' | 'macri';
+export type FuenteMicrogerencia = 'delictividad' | 'operatividad' | 'diaadia' | 'rnmc' | 'irisp1' | 'macri';
 
 const FUENTES: { id: FuenteMicrogerencia; nombre: string; disponible: boolean }[] = [
   { id: 'delictividad', nombre: 'Delictividad', disponible: true },

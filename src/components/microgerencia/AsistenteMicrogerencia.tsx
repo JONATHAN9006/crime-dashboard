@@ -10,11 +10,13 @@ import { useMicrogerencia } from '../../hooks/useMicrogerencia';
 import { useMicrogerenciaOperatividad } from '../../hooks/useMicrogerenciaOperatividad';
 import { nombreVisibleUnidad, type AjustesMicrogerencia, type DatosMicrogerencia, type NodoMicrogerencia } from '../../data/microgerencia';
 import type { SeccionExtraMicrogerencia } from '../../data/pdfMicrogerencia';
+import { columnaIngreso, fechaDeConteo, mesesDiaADia, MESES_LARGOS } from '../../data/diaADia';
+import { aplicarFiltros } from '../../utils/filters';
 import type { CrimeRecord, FilterState } from '../../types/crime';
 import { nodoOperatividadEquivalente, seccionRnmc } from '../../data/microgerenciaGeneracion';
 import { fechaLargaIso } from '../../data/microgerenciaTextos';
 import { etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
-import { capturarLaminas, generarPdfTerritorial, seccionDelito, seccionesDelInforme, type SeccionTerritorial } from './informeTerritorial';
+import { capturarLaminas, generarPdfTerritorial, seccionDelito, seccionDiaADia, seccionesDelInforme, type SeccionTerritorial } from './informeTerritorial';
 import type { FuenteMicrogerencia } from './SelectorFuentesMicrogerencia';
 import { formatNumero } from '../../utils/aggregations';
 
@@ -90,6 +92,7 @@ const PASOS = ['Fuentes', 'Cobertura', 'Periodo y delitos', 'Resumen'];
 
 const FUENTES: { id: FuenteMicrogerencia; nombre: string; descripcion: string; icono: typeof BarChart3; disponible: boolean }[] = [
   { id: 'delictividad', nombre: 'Microgerencia delictiva', descripcion: 'Consolidado delictivo: comparativos, tendencias, territorio y proyección.', icono: BarChart3, disponible: true },
+  { id: 'diaadia', nombre: 'Día a Día', descripcion: 'Control diario del mes: matriz de delitos por fecha, totales, últimos 7 días y hallazgos.', icono: CalendarDays, disponible: true },
   { id: 'operatividad', nombre: 'Microgerencia operativa', descripcion: 'Operatividad institucional: capturas, incautaciones, droga y recuperaciones.', icono: ShieldCheck, disponible: true },
   { id: 'rnmc', nombre: 'RNMC', descripcion: 'Registro Nacional de Medidas Correctivas (comportamientos contrarios a la convivencia).', icono: Users, disponible: true },
   { id: 'irisp1', nombre: 'IRISP1', descripcion: 'Integración de información de seguridad.', icono: Building2, disponible: false },
@@ -291,6 +294,25 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
     };
   }, [registrosVisibles]);
 
+  // Día a Día: mismos filtros del asistente/panel (delitos, barrios y demás),
+  // SIN periodo (el mes lo define el propio Día a Día) ni cobertura (la pone
+  // cada hoja). Corte = última fecha cargada en la matriz.
+  const diaADia = useMemo(() => {
+    if (!e.fuentes.includes('diaadia')) return null;
+    const registros = aplicarFiltros(registrosVisibles, {
+      ...filters, delito: delitosFiltro, barrioHecho: [...filters.barrioHecho],
+      municipio: [], estacion: [], cai: [], cuadrante: [], anio: [], mes: [], fechaInicial: null, fechaFinal: null,
+    });
+    const ts = registrosVisibles.reduce((m, r) => (r.fecha && r.fecha.getTime() > m ? r.fecha.getTime() : m), 0);
+    const columna = columnaIngreso(registrosVisibles);
+    let corte = ts > 0 ? new Date(ts) : new Date();
+    if (columna) {
+      const tsI = registrosVisibles.reduce((m, r) => { const f = fechaDeConteo(r, columna); return f && f.getTime() > m ? f.getTime() : m; }, 0);
+      if (tsI > 0) corte = new Date(tsI);
+    }
+    return { registros, corte, columna, meses: mesesDiaADia({ anio: e.anio, meses: e.meses, fechaInicial: e.fechaInicial, fechaFinal: e.fechaFinal }) };
+  }, [e.fuentes, e.anio, e.meses, e.fechaInicial, e.fechaFinal, registrosVisibles, filters, delitosFiltro]);
+
   const arbol = useMemo(() => (datos ? construirArbol(datos) : []), [datos]);
   const hojas = useMemo(() => nodosDelInforme(arbol, e.hojas), [arbol, e.hojas]);
 
@@ -300,6 +322,8 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
     const out: SeccionTerritorial[] = [];
     for (const h of hojas) {
       if (datos && e.fuentes.includes('delictividad')) out.push(...seccionesDelInforme(datos, [h.nodo], 'delictividad', e.vistaMatriz));
+      // Día a Día: enseguida de Delictividad (una hoja por mes elegido).
+      if (datos && e.fuentes.includes('diaadia') && diaADia) for (const m of diaADia.meses) out.push(seccionDiaADia(datos, h.nodo, m, diaADia.registros, diaADia.corte, diaADia.columna));
       if (datosOperatividad && e.fuentes.includes('operatividad')) {
         const nodoOp = h.tipo === 'general' ? datosOperatividad.general : nodoOperatividadEquivalente(datosOperatividad, h.nodo.nombre);
         if (nodoOp) out.push(...seccionesDelInforme(datosOperatividad, [nodoOp], 'operatividad'));
@@ -308,13 +332,13 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
       if (datos) for (const d of e.delitosAnalisis) out.push(seccionDelito(datos, h.nodo, d));
     }
     return out;
-  }, [datos, datosOperatividad, hojas, e.fuentes, e.delitosAnalisis, e.vistaMatriz]);
+  }, [datos, datosOperatividad, hojas, e.fuentes, e.delitosAnalisis, e.vistaMatriz, diaADia]);
 
   const errores: (string | null)[] = [
     e.fuentes.length === 0 && e.delitosAnalisis.length === 0 ? 'Seleccione al menos una microgerencia o un delito.' : null,
-    (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.delitosAnalisis.length > 0) && e.hojas.length === 0 ? 'Marque al menos una hoja (por ejemplo, MEPOY General).' : null,
+    (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.fuentes.includes('diaadia') || e.delitosAnalisis.length > 0) && e.hojas.length === 0 ? 'Marque al menos una hoja (por ejemplo, MEPOY General).' : null,
     e.fechaInicial && e.fechaFinal && e.fechaInicial > e.fechaFinal ? 'La fecha inicial no puede ser posterior a la fecha final.' : null,
-    !datos && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.delitosAnalisis.length > 0) ? 'No hay datos suficientes para el periodo elegido.' : null,
+    !datos && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.fuentes.includes('diaadia') || e.delitosAnalisis.length > 0) ? 'No hay datos suficientes para el periodo elegido.' : null,
   ];
   const [intento, setIntento] = useState(false);
   const errorActual = errores[e.paso];
@@ -372,7 +396,7 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
   /** Imagen PNG de la lámina principal (primera hoja) de CADA fuente elegida. */
   async function descargarImagen() {
     const principales = [
-      ...(['delictividad', 'variables', 'operatividad'] as const).map((f) => secciones.find((s) => s.fuente === f && !s.sinInformacion)),
+      ...(['delictividad', 'variables', 'diaadia', 'operatividad'] as const).map((f) => secciones.find((s) => s.fuente === f && !s.sinInformacion)),
       ...e.delitosAnalisis.map((d) => secciones.find((s) => s.fuente === 'delito' && s.delito === d && !s.sinInformacion)),
     ].filter((s): s is SeccionTerritorial => !!s);
     if (principales.length === 0) { setGenerando('error'); setMensajeGeneracion('No hay una hoja con información para la imagen.'); return; }
@@ -385,7 +409,7 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
         const url = URL.createObjectURL(await (await fetch(png)).blob());
         const a = document.createElement('a');
         a.href = url;
-        const sufijo = principales[i].fuente === 'operatividad' ? '_Operatividad' : principales[i].fuente === 'variables' ? '_2_Matriz_de_calor_y_variables' : principales[i].fuente === 'delictividad' ? '_1_Consolidado_delictivo' : principales[i].fuente === 'delito' ? `_${(principales[i].delito ?? '').replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_')}` : '';
+        const sufijo = principales[i].fuente === 'operatividad' ? '_Operatividad' : principales[i].fuente === 'variables' ? '_2_Matriz_de_calor_y_variables' : principales[i].fuente === 'diaadia' ? '_Dia_a_dia' : principales[i].fuente === 'delictividad' ? '_1_Consolidado_delictivo' : principales[i].fuente === 'delito' ? `_${(principales[i].delito ?? '').replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_')}` : '';
         a.download = `${nombreBase}${sufijo}.png`;
         document.body.appendChild(a);
         a.click();
@@ -394,7 +418,7 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
         await new Promise((r) => setTimeout(r, 350)); // el navegador acepta mejor descargas seguidas con una pausa
       }
       setGenerando('listo');
-      setMensajeGeneracion(`Imagen${principales.length === 1 ? '' : 'es'} descargada${principales.length === 1 ? '' : 's'}: ${principales.map((s) => `${s.unidad} (${s.fuente === 'operatividad' ? 'Operativa' : s.fuente === 'delito' ? s.delito : s.fuente === 'variables' ? 'Delictiva, hoja 2' : 'Delictiva, hoja 1'})`).join(', ')}.`);
+      setMensajeGeneracion(`Imagen${principales.length === 1 ? '' : 'es'} descargada${principales.length === 1 ? '' : 's'}: ${principales.map((s) => `${s.unidad} (${s.fuente === 'operatividad' ? 'Operativa' : s.fuente === 'delito' ? s.delito : s.fuente === 'variables' ? 'Delictiva, hoja 2' : s.fuente === 'diaadia' ? 'Día a Día' : 'Delictiva, hoja 1'})`).join(', ')}.`);
     } catch (err) {
       setGenerando('error');
       setMensajeGeneracion(err instanceof Error ? err.message : 'No se pudo generar la imagen.');
@@ -406,7 +430,7 @@ function AsistenteContenido({ onCerrar }: { onCerrar: () => void }) {
     if (errores.some(Boolean)) { const i = errores.findIndex(Boolean); setIntento(true); despachar({ tipo: 'paso', paso: i }); return; }
     void fn();
   };
-  const conLaminas = e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.delitosAnalisis.length > 0;
+  const conLaminas = e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.fuentes.includes('diaadia') || e.delitosAnalisis.length > 0;
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 p-2 sm:p-4" role="dialog" aria-modal="true" aria-label="Microgerencia y Proyección Delictiva MEPOY">
@@ -766,7 +790,7 @@ function PasoResumen({ e, despachar, irA, datos, secciones, generando, mensaje }
         {secciones.map((s, i) => (
           <li key={`${s.fuente}-${s.unidad}-${i}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-[12.5px] ${s.sinInformacion ? 'border-dashed border-slate-300 bg-slate-50 text-slate-500' : 'border-slate-200 bg-white'}`}>
             <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#e3f2ef] px-1.5 text-[11px] font-bold text-[#0f5f57]">{i + 1}</span>
-            <span className="min-w-0 flex-1 font-bold text-[#10233f]">{s.unidad}<span className="ml-2 font-normal text-slate-500">{s.fuente === 'operatividad' ? 'Microgerencia operativa' : s.fuente === 'delito' ? `Delito: ${s.delito}` : s.fuente === 'variables' ? `Delictiva · hoja 2: matriz de calor y variables (${s.vistaMatriz === 'franja' ? 'por franja' : 'por hora'})` : 'Delictiva · hoja 1: consolidado'}</span></span>
+            <span className="min-w-0 flex-1 font-bold text-[#10233f]">{s.unidad}<span className="ml-2 font-normal text-slate-500">{s.fuente === 'operatividad' ? 'Microgerencia operativa' : s.fuente === 'delito' ? `Delito: ${s.delito}` : s.fuente === 'variables' ? `Delictiva · hoja 2: matriz de calor y variables (${s.vistaMatriz === 'franja' ? 'por franja' : 'por hora'})` : s.fuente === 'diaadia' ? `Día a Día · ${s.diaADia ? `${MESES_LARGOS[s.diaADia.mes - 1]} ${s.diaADia.anio}` : ''}` : 'Delictiva · hoja 1: consolidado'}</span></span>
             {s.sinInformacion ? <span>Sin registros: no se genera</span> : (
               <>
                 <span className="text-slate-500">{s.datos.anioAnterior}: <strong className="text-[#10233f]">{formatNumero(s.nodo.fecha2025)}</strong></span>
@@ -777,7 +801,7 @@ function PasoResumen({ e, despachar, irA, datos, secciones, generando, mensaje }
           </li>
         ))}
         {e.fuentes.includes('rnmc') && <li className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12.5px] text-slate-600">+ Anexo: resumen de RNMC</li>}
-        {secciones.length === 0 && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad')) && <li className="text-[12.5px] text-rose-600">No hay hojas con esta selección.</li>}
+        {secciones.length === 0 && (e.fuentes.includes('delictividad') || e.fuentes.includes('operatividad') || e.fuentes.includes('diaadia')) && <li className="text-[12.5px] text-rose-600">No hay hojas con esta selección.</li>}
       </ol>
       <p className="text-[11.5px] text-slate-500">«Descargar imagen» guarda en PNG la primera unidad de cada fuente (Delictividad: sus dos hojas); «Generar PDF» arma el informe completo.</p>
 

@@ -14,16 +14,21 @@ import { generarPdfMicrogerencia, type OpcionesPdfMicrogerencia, type SeccionExt
 import { LaminaOperatividad } from './LaminaOperatividad';
 import { LaminaDelito } from './LaminaDelito';
 import { LaminaVariablesDelictivas } from './LaminaVariablesDelictivas';
+import { LaminaDiaADia } from './LaminaDiaADia';
+import { MESES_LARGOS } from '../../data/diaADia';
+import type { CrimeRecord } from '../../types/crime';
 import { ALTO, ANCHO, LaminaMicrogerencia, capturarLamina, cargarFuenteLamina, etiquetaUnidad, type FuenteLamina } from './InformeEjecutivoMicrogerencia';
 
-export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad' | 'Delito';
+export type GrupoSeccion = 'Microgerencia general' | 'Distritos' | 'Estaciones' | 'Zonas de atención' | 'CAI' | 'Barrios' | 'Operatividad' | 'Delito' | 'Día a día';
 
 export interface SeccionTerritorial {
   grupo: GrupoSeccion;
   /** Datos de la fuente de esta sección (Delictividad u Operatividad). */
   datos: DatosMicrogerencia;
   /** «variables» = hoja 2 de Delictividad (matriz de calor y variables). */
-  fuente: FuenteLamina | 'delito' | 'variables';
+  fuente: FuenteLamina | 'delito' | 'variables' | 'diaadia';
+  /** Día a Día: mes y registros (ya filtrados salvo la cobertura). */
+  diaADia?: { anio: number; mes: number; registros: CrimeRecord[]; corteDatos: Date; columnaIngreso: string | null };
   /** Hoja 2: vista de la matriz de calor (por hora o por franja). */
   vistaMatriz?: 'hora' | 'franja';
   /** Solo en «delito»: el delito analizado en la lámina. */
@@ -52,6 +57,12 @@ export function seccionDelito(datos: DatosMicrogerencia, nodo: NodoMicrogerencia
   const pred = esGeneral ? () => true : predicadoDeNodo(nodo);
   const hay = !!reg && [reg.completo, reg.anterior, reg.actual].some((l) => l.some((r) => r.delito === delito && pred(r)));
   return { grupo: 'Delito', datos, fuente: 'delito', delito, nodo, esGeneral, unidad: etiquetaUnidad(nodo, esGeneral), sinInformacion: !hay };
+}
+
+/** Día a Día de una unidad y un mes (registros ya filtrados salvo cobertura). */
+export function seccionDiaADia(datos: DatosMicrogerencia, nodo: NodoMicrogerencia, mes: { anio: number; mes: number }, registros: CrimeRecord[], corteDatos: Date, columnaIngreso: string | null): SeccionTerritorial {
+  const esGeneral = nodo === datos.general;
+  return { grupo: 'Día a día', datos, fuente: 'diaadia', nodo, esGeneral, unidad: etiquetaUnidad(nodo, esGeneral), sinInformacion: false, diaADia: { ...mes, registros, corteDatos, columnaIngreso } };
 }
 
 /** Secciones del informe (una por unidad, sin repetir), en el orden recibido. */
@@ -105,6 +116,8 @@ export async function capturarLaminas(
       flushSync(() => {
         raiz.render(s.fuente === 'delito' && s.delito
           ? <LaminaDelito key={`${i}-${s.delito}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} delito={s.delito} />
+          : s.fuente === 'diaadia' && s.diaADia
+          ? <LaminaDiaADia key={`${i}-${s.fuente}-${s.unidad}-${s.diaADia.mes}`} ref={(n) => { el = n; }} {...s.diaADia} nodo={s.nodo} esGeneral={s.esGeneral} unidad={s.unidad} />
           : s.fuente === 'variables'
           ? <LaminaVariablesDelictivas key={`${i}-${s.fuente}-${s.unidad}`} ref={(n) => { el = n; }} datos={s.datos} nodo={s.nodo} esGeneral={s.esGeneral} vista={s.vistaMatriz ?? 'hora'} />
           : s.fuente === 'operatividad'
@@ -169,7 +182,7 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
   let grupoActual = '';
   incluidas.forEach(({ s }, i) => {
     if (s.grupo !== grupoActual) { grupoActual = s.grupo; filas.push({ tipo: 'grupo', texto: s.grupo }); }
-    const texto = s.fuente === 'operatividad' ? `Consolidado operativo — ${s.unidad}` : s.fuente === 'variables' ? `Matriz de calor y variables — ${s.unidad}` : s.fuente === 'delito' ? `Delito ${s.delito ?? ''} — ${s.unidad}` : s.grupo === 'Microgerencia general' ? 'Lámina ejecutiva consolidada' : `Microgerencia — ${s.unidad}`;
+    const texto = s.fuente === 'operatividad' ? `Consolidado operativo — ${s.unidad}` : s.fuente === 'variables' ? `Matriz de calor y variables — ${s.unidad}` : s.fuente === 'diaadia' ? `Día a día ${s.diaADia ? MESES_LARGOS[s.diaADia.mes - 1].toLowerCase() + ' ' + s.diaADia.anio : ''} — ${s.unidad}` : s.fuente === 'delito' ? `Delito ${s.delito ?? ''} — ${s.unidad}` : s.grupo === 'Microgerencia general' ? 'Lámina ejecutiva consolidada' : `Microgerencia — ${s.unidad}`;
     filas.push({ tipo: 'item', texto, unidad: s.unidad, detalle: s.grupo, pagina: i });
   });
   if (anexosNodos.length || anexosExtras.length) {
