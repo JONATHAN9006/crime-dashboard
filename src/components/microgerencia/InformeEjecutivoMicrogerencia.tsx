@@ -202,7 +202,10 @@ function CajaDif({ valor }: { valor: number | null }) {
 }
 
 // ── Encabezado y pie comunes (Delictividad y Operatividad) ─────────────
-export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente, comparacion, delito }: { titulo: string; periodo: string; corte: string; cobertura: string; fuente: string; comparacion?: string; delito?: string }) {
+/** Título completo de las hojas de la microgerencia delictiva (reemplaza «MICROGERENCIA | CONSOLIDADO DELICTIVO»). */
+export const TITULO_INFORME_DELICTIVO = { blanco: 'INFORME ESTADÍSTICO', lima: 'DEL SERVICIO DE POLICÍA' };
+
+export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente, comparacion, delito, tituloCompleto }: { titulo: string; periodo: string; corte: string; cobertura: string; fuente: string; comparacion?: string; delito?: string; tituloCompleto?: { blanco: string; lima: string } }) {
   return (
     <div className="absolute left-0 top-0 h-[108px] w-full overflow-hidden" style={{ background: `linear-gradient(90deg, ${C.verdeOscuro} 0%, #0d4733 45%, #0b3d2c 100%)` }}>
       <div className="absolute top-0 h-full" style={{ left: 600, width: 880, background: 'linear-gradient(90deg,#0f5038,#0c4431)', clipPath: 'polygon(40px 0,100% 0,100% 100%,0 100%)' }} />
@@ -218,9 +221,15 @@ export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente, co
           <p className="text-[21.5px] font-bold">POLICÍA METROPOLITANA DE POPAYÁN – MEPOY</p>
         </div>
       </div>
-      <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14, fontSize: titulo.length > 24 ? 33 : 38 }}>
-        MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{titulo}</span>
-      </h2>
+      {tituloCompleto ? (
+        <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 15, fontSize: 34 }} data-titulo-lamina>
+          {tituloCompleto.blanco} {tituloCompleto.lima}
+        </h2>
+      ) : (
+        <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14, fontSize: titulo.length > 24 ? 33 : 38 }} data-titulo-lamina>
+          MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{titulo}</span>
+        </h2>
+      )}
       <div className="absolute flex items-center whitespace-nowrap text-white" style={{ left: delito ? 136 : comparacion ? 150 : 310, top: comparacion ? 80 : 79, gap: delito ? 14 : comparacion ? 22 : 28, fontSize: delito ? 14 : comparacion ? 15.5 : 17 }}>
         {delito && <span className="flex items-center gap-1.5"><Target size={19} /> Delito analizado: <strong className="uppercase" style={{ color: '#d4f53c', fontSize: 16 }}>{delito}</strong></span>}
         <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {periodo}</span>
@@ -487,7 +496,7 @@ export const LaminaMicrogerencia = forwardRef<HTMLDivElement, {
   return (
           <div ref={refLienzo} data-informe-microgerencia className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
 
-            <EncabezadoLamina titulo={T.consolidado} periodo={periodoA} comparacion={periodoP} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
+            <EncabezadoLamina titulo={T.consolidado} tituloCompleto={fuente === 'delictividad' ? TITULO_INFORME_DELICTIVO : undefined} periodo={periodoA} comparacion={periodoP} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
 
             {/* ── FILA 1 · KPI ───────────────────────────────────────── */}
             <div className="absolute flex items-center gap-4 overflow-hidden text-white" style={{ left: 20, top: 122, width: 362, height: 100, background: `linear-gradient(90deg, ${C.verde}, ${C.verdeMedio})`, clipPath: 'polygon(0 0,100% 0,calc(100% - 26px) 100%,0 100%)', borderRadius: '14px 0 0 14px' }}>

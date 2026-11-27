@@ -7,7 +7,7 @@ import { useHeatmap, type VistaHeatmap } from '../../hooks/useHeatmap';
 import { esValorValido } from '../../data/microgerenciaDelito';
 import { TablaMatriz } from '../../pages/MatrizCalor';
 import { formatNumero } from '../../utils/aggregations';
-import { ALTO, ANCHO, C, EncabezadoLamina, FUENTE, MESES_CORTOS, PieLamina, etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
+import { ALTO, ANCHO, C, EncabezadoLamina, TITULO_INFORME_DELICTIVO, FUENTE, MESES_CORTOS, PieLamina, etiquetaUnidad } from './InformeEjecutivoMicrogerencia';
 import { Caja, DonaSvg, TituloBanda } from './LaminaOperatividad';
 import { iconoDelito } from './LaminaDelito';
 import { FRANJAS_ORDEN } from '../../hooks/useHeatmap';
@@ -160,7 +160,7 @@ export const LaminaVariablesDelictivas = forwardRef<HTMLDivElement, { datos: Dat
 
     return (
       <div ref={ref} data-informe-microgerencia data-lamina-variables className="relative overflow-hidden" style={{ width: ANCHO, height: ALTO, background: '#f3f5f4', fontFamily: FUENTE, color: C.texto }}>
-        <EncabezadoLamina titulo="CONSOLIDADO DELICTIVO" periodo={periodoA} comparacion={datos.comparacionEtiqueta} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
+        <EncabezadoLamina titulo="CONSOLIDADO DELICTIVO" tituloCompleto={TITULO_INFORME_DELICTIVO} periodo={periodoA} comparacion={datos.comparacionEtiqueta} corte={corte} cobertura={esGeneral ? 'MEPOY (Popayán)' : tituloNodo} fuente="Aplicativo Los Andes" />
 
         {/* ── Matriz de calor por día y hora ─────────────────────────── */}
         <Caja x={12} y={116} w={1180} h={462}>
