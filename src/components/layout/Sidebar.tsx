@@ -30,18 +30,29 @@ type ItemMenu = { id: PaginaId; label: string; icon: React.ElementType };
 // presentación del menú, no qué módulos existen ni sus permisos).
 const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloAdmin?: boolean }[] = [
   {
+    // Solo el administrador (ruta raíz): análisis estratégico y priorización.
+    // Va de primero, arriba de «Inicio / Resumen».
+    titulo: 'Inteligencia',
+    soloCompleto: true,
+    soloAdmin: true,
+    items: [
+      { id: 'centroInteligencia', label: 'Centro de Inteligencia', icon: Radar },
+    ],
+  },
+  {
     titulo: 'Análisis principal',
     items: [
       { id: 'resumen', label: 'Inicio / Resumen', icon: Home },
       { id: 'unidad', label: 'Delictividad por Unidad', icon: Building2 },
       { id: 'operatividadUnidad', label: 'Operatividad por Unidad', icon: Target },
+      { id: 'rnmc', label: 'RNMC', icon: Scale },
+      { id: 'irisp1', label: 'IRISP1', icon: Shield },
     ],
   },
   {
+    // MACRI queda aquí, solo, mientras se decide si se mantiene.
     titulo: 'Análisis especializado',
     items: [
-      { id: 'rnmc', label: 'RNMC', icon: Scale },
-      { id: 'irisp1', label: 'IRISP1', icon: Shield },
       { id: 'macri', label: 'MACRI', icon: Network },
     ],
   },
@@ -61,15 +72,6 @@ const GRUPOS: { titulo: string; items: ItemMenu[]; soloCompleto?: boolean; soloA
     items: [
       { id: 'tabla', label: 'Tabla de Datos', icon: Table2 },
       { id: 'calidad', label: 'Calidad de Datos', icon: Database },
-    ],
-  },
-  {
-    // Solo el administrador (ruta raíz): análisis estratégico y priorización.
-    titulo: 'Inteligencia',
-    soloCompleto: true,
-    soloAdmin: true,
-    items: [
-      { id: 'centroInteligencia', label: 'Centro de Inteligencia', icon: Radar },
     ],
   },
   {
@@ -336,7 +338,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
             <div className={clsx('flex items-center justify-center rounded-full border border-white/25 bg-white/5', colapsado ? 'h-10 w-10' : 'h-12 w-12')}>
               <img src="/assets/icono-analitica.svg" alt="Análisis de datos" className={colapsado ? 'h-7 w-7' : 'h-8 w-8'} />
             </div>
-            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.11.25 · v280" posicion="arriba" />}
+            {colapsado && <TooltipLateral texto="Elaborado por: Ing. Jonathan Gomez · v2026.11.27 · v281" posicion="arriba" />}
           </div>
           {!colapsado && (
             <div className="min-w-0">
@@ -352,7 +354,7 @@ export function Sidebar({ activo, onCambiar, abierto, onCerrar }: {
                 </p>
               )}
               <p className="truncate text-[11.5px] text-emerald-100/75">Elaborado por: <span className="font-semibold text-white">Ing. Jonathan Gomez</span></p>
-              <p className="text-[10.5px] text-emerald-100/50">v2026.11.25 · v280</p>
+              <p className="text-[10.5px] text-emerald-100/50">v2026.11.27 · v281</p>
             </div>
           )}
         </div>
