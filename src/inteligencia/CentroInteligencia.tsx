@@ -4,7 +4,7 @@ import {
   AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, CalendarRange, Clock, Crosshair, Layers, LineChart as IconoLinea, Lock,
   MapPin, Radar, ShieldCheck, Siren, Target, TrendingUp, type LucideIcon,
 } from 'lucide-react';
-import { NOMBRES_ESTACION, useMicrogerencia } from '../hooks/useMicrogerencia';
+import { NOMBRES_ESTACION, predicadoDeNodo, useMicrogerencia } from '../hooks/useMicrogerencia';
 import { tieneAcceso } from '../utils/permisos';
 import { esModoConsulta } from '../utils/modoConsulta';
 import { formatDecimal, formatNumero } from '../utils/aggregations';
@@ -119,10 +119,19 @@ function useReloj() {
 function PanelEstrategico() {
   const datos = useMicrogerencia();
   const ahora = useReloj();
+  // Estación elegida con clic en el recuadro «Estaciones» (null = MEPOY General).
+  // Todo el panel se recalcula con los registros de esa estación.
+  const [estSel, setEstSel] = useState<string | null>(null);
 
   const calc = useMemo(() => {
     if (!datos?.registros) return null;
-    const { completo: T, anterior: Aa, actual: B } = datos.registros;
+    const general0 = datos.general;
+    const estaciones = general0.hijos.flatMap((x) => x.hijos).filter((e) => !/no reportad/i.test(e.nombre)).sort((a, b) => b.fecha2026 - a.fecha2026);
+    const nodoSel = estSel ? estaciones.find((e) => e.estacion === estSel) ?? null : null;
+    const pred = nodoSel ? predicadoDeNodo(nodoSel) : null;
+    const T = pred ? datos.registros.completo.filter(pred) : datos.registros.completo;
+    const Aa = pred ? datos.registros.anterior.filter(pred) : datos.registros.anterior;
+    const B = pred ? datos.registros.actual.filter(pred) : datos.registros.actual;
     const corteTxt = datos.fechaCorte ?? datos.actualFin;
     const [y, m, d] = corteTxt.split('-').map(Number);
     const corte = new Date(y, m - 1, d);
@@ -131,8 +140,7 @@ function PanelEstrategico() {
     const alertas = calcularAlertas(entrada);
     const prioridades = calcularPrioridades(entrada);
 
-    const general = datos.general;
-    const estaciones = general.hijos.flatMap((x) => x.hijos).filter((e) => !/no reportad/i.test(e.nombre)).sort((a, b) => b.fecha2026 - a.fecha2026);
+    const general = nodoSel ?? general0;
     const delitosOrden = [...general.delitos].sort((a, b) => b.fecha2026 - a.fecha2026);
     const conIncremento = general.delitos.filter((x) => x.fecha2026 > x.fecha2025).length;
     const conReduccion = general.delitos.filter((x) => x.fecha2026 < x.fecha2025).length;
@@ -154,13 +162,13 @@ function PanelEstrategico() {
 
     const semanas = ultimasSemanas(B, corte).recientes;
     return {
-      corte, periodo, alertas, prioridades, general, estaciones, delitosOrden, conIncremento, conReduccion,
+      corte, periodo, alertas, prioridades, general, estaciones, nodoSel, totalMepoy: general0.fecha2026, delitosOrden, conIncremento, conReduccion,
       modalidad: top5(contarVar((r) => r.modalidad)), armas: contarVar((r) => r.armas), dias, momentos, semanas,
       mensual: general.meses.map((p, i) => ({ mes: MESES_CORTOS[i], [datos.anioAnterior]: p.anio2025, [datos.anioActual]: i <= m - 1 ? p.anio2026 : null })),
       barrios: [...(general.barrios ?? [])].sort((a, b) => b.casos - a.casos).slice(0, 5),
       celdaGeneral: celdaCritica(B),
     };
-  }, [datos]);
+  }, [datos, estSel]);
 
   if (!datos || !calc) {
     return <div className="flex min-h-[50vh] items-center justify-center rounded-2xl text-sm" style={{ background: K.fondo, color: K.suave }}>Cargando el Centro de Inteligencia…</div>;
@@ -169,7 +177,7 @@ function PanelEstrategico() {
   const dif = g.fecha2026 - g.fecha2025;
   const v = variacion(g.fecha2025, g.fecha2026);
   const delitoTop = calc.delitosOrden[0];
-  const estTop = calc.estaciones[0];
+  const estTop = calc.nodoSel ?? calc.estaciones[0];
   const barrioTop = calc.barrios[0];
   const armasDona = (calc.armas.length <= 4 ? calc.armas : [...calc.armas.slice(0, 3), { nombre: 'Otras', casos: calc.armas.slice(3).reduce((s, x) => s + x.casos, 0) }])
     .map((x, i) => ({ nombre: x.nombre, valor: x.casos, color: ['#087BEE', '#00C4D7', '#ffb020', '#8b5cf6'][i] }));
@@ -185,6 +193,12 @@ function PanelEstrategico() {
         <div className="min-w-0 flex-1">
           <h1 className="text-[20px] font-extrabold tracking-wide sm:text-[24px]">CENTRO DE INTELIGENCIA Y MICROGERENCIA</h1>
           <p className="text-[12.5px] font-semibold tracking-wide" style={{ color: K.suave }}>POLICÍA METROPOLITANA DE POPAYÁN – MEPOY · Análisis estratégico delictivo y priorización operacional</p>
+          {calc.nodoSel && (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-[13px] font-bold" data-estacion-activa>
+              <span className="rounded-md px-2 py-0.5" style={{ background: 'rgba(0,196,215,0.18)', color: K.turquesa }}>Vista: {nombreCorto(calc.nodoSel.nombre)}</span>
+              <button type="button" onClick={() => setEstSel(null)} className="rounded-md border px-2 py-0.5 text-[12px] font-semibold hover:bg-white/10" style={{ borderColor: K.borde, color: K.suave }}>Volver a MEPOY General</button>
+            </p>
+          )}
         </div>
         <div className="rounded-xl border px-3 py-1.5 text-right" style={{ borderColor: K.borde }}>
           <p className="text-[11.5px]" style={{ color: K.suave }}>Corte: {fechaCorta(calc.corte)} {A} · {calc.periodo}</p>
@@ -198,7 +212,7 @@ function PanelEstrategico() {
         <Kpi icono={CalendarDays} titulo={`${P} a la fecha`} valor={formatNumero(g.fecha2025)} sub={`${calc.periodo.replace(String(A), String(P))}, mismo corte`} />
         <Kpi icono={CalendarRange} titulo={`Diferencia ${A} – ${P}`} valor={`${signo(dif)}${formatNumero(dif)}`} tono={dif > 0 ? 'sube' : dif < 0 ? 'baja' : 'normal'} sub={`Variación ${pctTxt(v)}`} />
         <Kpi icono={Crosshair} titulo="Delito de mayor afectación" valor={<span className="text-[17px]">{delitoTop ? tituloCase(delitoTop.nombre) : '—'}</span>} sub={delitoTop ? `${formatNumero(delitoTop.fecha2026)} casos` : undefined} />
-        <Kpi icono={ShieldCheck} titulo="Estación con mayor incidencia" valor={<span className="text-[17px]">{estTop ? nombreCorto(estTop.nombre) : '—'}</span>} sub={estTop ? `${formatNumero(estTop.fecha2026)} casos (${formatDecimal(g.fecha2026 ? (estTop.fecha2026 / g.fecha2026) * 100 : 0, 1)} %)` : undefined} />
+        <Kpi icono={ShieldCheck} titulo={calc.nodoSel ? 'Participación en MEPOY' : 'Estación con mayor incidencia'} valor={<span className="text-[17px]">{estTop ? nombreCorto(estTop.nombre) : '—'}</span>} sub={estTop ? `${formatNumero(estTop.fecha2026)} casos (${formatDecimal(calc.totalMepoy ? (estTop.fecha2026 / calc.totalMepoy) * 100 : 0, 1)} % de MEPOY)` : undefined} />
         <Kpi icono={MapPin} titulo="Barrio con mayor concentración" valor={<span className="text-[17px]">{barrioTop?.nombre ?? '—'}</span>} sub={barrioTop ? `${formatNumero(barrioTop.casos)} casos (${formatDecimal(g.fecha2026 ? (barrioTop.casos / g.fecha2026) * 100 : 0, 1)} %)` : undefined} />
         <Kpi icono={TrendingUp} titulo="Delitos que suben / bajan" valor={<span className="whitespace-nowrap text-[22px]"><span style={{ color: K.rojo }}>▲ {calc.conIncremento}</span> <span className="text-[16px]" style={{ color: K.suave }}>/</span> <span style={{ color: K.verde }}>▼ {calc.conReduccion}</span></span>} sub={`De ${calc.general.delitos.length} delitos`} />
       </div>
@@ -234,7 +248,7 @@ function PanelEstrategico() {
         <Panel titulo="Mapa de Georreferenciación – Concentración delictiva" icono={Layers} className="xl:col-span-5">
           <div className="grid flex-1 grid-cols-1 items-start gap-3 md:grid-cols-[1fr_200px]">
             <div className="aspect-[1.05] overflow-hidden rounded-xl border" style={{ borderColor: K.borde, background: '#eef2f5' }}>
-              <MapaCobertura fuente="delictividad" nodo={g} esGeneral delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={[]} inicio={datos.actualInicio} fin={datos.actualFin} aspecto={1.05} />
+              <MapaCobertura key={estSel ?? 'general'} fuente="delictividad" nodo={g} esGeneral={!calc.nodoSel} delitos={datos.delitosSeleccionados?.length ? datos.delitosSeleccionados : null} barrios={[]} inicio={datos.actualInicio} fin={datos.actualFin} aspecto={1.05} />
             </div>
             <div className="space-y-3">
               <div className="rounded-xl border p-2.5" style={{ borderColor: K.borde, background: 'rgba(8,26,54,0.8)' }}>
@@ -254,10 +268,25 @@ function PanelEstrategico() {
                 <div className="mt-1 flex justify-between text-[11px]" style={{ color: K.suave }}><span>Baja</span><span>Alta</span></div>
               </div>
               <div className="rounded-xl border p-2.5 text-[12px]" style={{ borderColor: K.borde, background: 'rgba(8,26,54,0.8)' }}>
-                <p className="mb-1 font-bold">Estaciones</p>
-                {calc.estaciones.map((e) => (
-                  <div key={e.nombre} className="flex justify-between py-0.5"><span>{nombreCorto(e.nombre)}</span><span className="font-bold tabular-nums">{formatNumero(e.fecha2026)}</span></div>
-                ))}
+                <p className="font-bold">Estaciones</p>
+                <p className="mb-1 text-[10.5px]" style={{ color: K.suave }}>Clic para ver el panel de cada estación</p>
+                <div data-estaciones-ci>
+                  {[{ clave: null as string | null, nombre: 'MEPOY General', casos: calc.totalMepoy }, ...calc.estaciones.map((e) => ({ clave: e.estacion ?? null, nombre: nombreCorto(e.nombre), casos: e.fecha2026 }))].map((e) => {
+                    const activa = estSel === e.clave;
+                    return (
+                      <button
+                        key={e.nombre}
+                        type="button"
+                        aria-pressed={activa}
+                        onClick={() => setEstSel(activa && e.clave ? null : e.clave)}
+                        className="-mx-1.5 flex w-[calc(100%+12px)] items-center justify-between rounded-md px-1.5 py-[3px] text-left transition hover:bg-white/10"
+                        style={activa ? { background: 'rgba(0,196,215,0.18)', boxShadow: `inset 3px 0 0 ${K.turquesa}`, color: K.turquesa } : undefined}
+                      >
+                        <span className={activa ? 'font-bold' : undefined}>{e.nombre}</span><span className="font-bold tabular-nums">{formatNumero(e.casos)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
