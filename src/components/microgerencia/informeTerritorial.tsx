@@ -228,10 +228,9 @@ export async function generarPdfTerritorial(p: ParametrosPdfTerritorial): Promis
     pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11.5);
     pdf.text('POLICÍA NACIONAL DE COLOMBIA', 28, 9.5);
     pdf.setFontSize(9); pdf.text('POLICÍA METROPOLITANA DE POPAYÁN – MEPOY', 28, 14.5);
-    pdf.setFontSize(15); pdf.text('MICROGERENCIA', 150, 11);
-    pdf.setTextColor(...LIMA); pdf.text(`|  ÍNDICE DEL INFORME${ip > 0 ? ' (cont.)' : ''}`, 150 + pdf.getTextWidth('MICROGERENCIA') + 2, 11);
-    pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
-    pdf.text(`Cobertura: ${p.titulo}`, 150, 17);
+    pdf.setFontSize(15); pdf.text('INFORME ESTADÍSTICO DEL SERVICIO DE POLICÍA', 140, 11);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
+    pdf.text(`Índice del informe${ip > 0 ? ' (cont.)' : ''}  ·  Cobertura: ${p.titulo}`, 140, 17);
 
     let y = Y_TABLA_N;
     if (ip === 0 && p.ficha.length) {

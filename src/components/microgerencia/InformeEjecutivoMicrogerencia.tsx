@@ -202,7 +202,7 @@ function CajaDif({ valor }: { valor: number | null }) {
 }
 
 // ── Encabezado y pie comunes (Delictividad y Operatividad) ─────────────
-/** Título completo de las hojas de la microgerencia delictiva (reemplaza «MICROGERENCIA | CONSOLIDADO DELICTIVO»). */
+/** Título de todas las láminas de la microgerencia (reemplaza «MICROGERENCIA | …»). */
 export const TITULO_INFORME_DELICTIVO = { blanco: 'INFORME ESTADÍSTICO', lima: 'DEL SERVICIO DE POLICÍA' };
 
 export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente, comparacion, delito, tituloCompleto }: { titulo: string; periodo: string; corte: string; cobertura: string; fuente: string; comparacion?: string; delito?: string; tituloCompleto?: { blanco: string; lima: string } }) {
@@ -221,15 +221,10 @@ export function EncabezadoLamina({ titulo, periodo, corte, cobertura, fuente, co
           <p className="text-[21.5px] font-bold">POLICÍA METROPOLITANA DE POPAYÁN – MEPOY</p>
         </div>
       </div>
-      {tituloCompleto ? (
-        <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 15, fontSize: 34 }} data-titulo-lamina>
-          {tituloCompleto.blanco} {tituloCompleto.lima}
-        </h2>
-      ) : (
-        <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 14, fontSize: titulo.length > 24 ? 33 : 38 }} data-titulo-lamina>
-          MICROGERENCIA <span className="mx-1 text-white">|</span> <span style={{ color: '#9fdc3a' }}>{titulo}</span>
-        </h2>
-      )}
+      {/* Mismo título en TODAS las láminas (delictiva, operativa, por delito y Día a Día). */}
+      <h2 className="absolute whitespace-nowrap font-extrabold leading-none tracking-[0.3px] text-white" style={{ left: 680, top: 15, fontSize: 34 }} data-titulo-lamina data-tipo-lamina={titulo}>
+        {(tituloCompleto ?? TITULO_INFORME_DELICTIVO).blanco} {(tituloCompleto ?? TITULO_INFORME_DELICTIVO).lima}
+      </h2>
       <div className="absolute flex items-center whitespace-nowrap text-white" style={{ left: delito ? 136 : comparacion ? 150 : 310, top: comparacion ? 80 : 79, gap: delito ? 14 : comparacion ? 22 : 28, fontSize: delito ? 14 : comparacion ? 15.5 : 17 }}>
         {delito && <span className="flex items-center gap-1.5"><Target size={19} /> Delito analizado: <strong className="uppercase" style={{ color: '#d4f53c', fontSize: 16 }}>{delito}</strong></span>}
         <span className="flex items-center gap-2"><CalendarDays size={20} /> Período de análisis: {periodo}</span>
